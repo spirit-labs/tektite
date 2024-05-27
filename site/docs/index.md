@@ -27,5 +27,5 @@ It's suggested that the rest of the documentation is read in the order it appear
 ## Current Status
 
 * Tektite is currently in active development and working towards a production-ready 1.0 release later in 2024
-* Tektite is usable and development is very advanced with most features complete.
+* Tektite is usable and development is advanced with most features complete.
 * We will be working heavily on automated testing and performance over the next few months to make sure Tektite is rock-solid and fast for the 1.0 release.
