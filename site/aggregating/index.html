@@ -1,0 +1,1164 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+      
+        <link rel="prev" href="../persistence/">
+      
+      
+        <link rel="next" href="../watermarks/">
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.0, mkdocs-material-9.5.21">
+    
+    
+      
+        <title>Aggregations - Tektite</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.66ac8b77.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.06af60db.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce((e,_)=>(e<<5)-e+_.charCodeAt(0),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+    
+  </head>
+  
+  
+    
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#aggregations" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="Tektite" class="md-header__button md-logo" aria-label="Tektite" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54Z"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3V6m0 5h18v2H3v-2m0 5h18v2H3v-2Z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Tektite
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Aggregations
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+    
+    
+    
+    
+      <label class="md-header__button md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.516 6.516 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5Z"/></svg>
+      </label>
+      <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.516 6.516 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5Z"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11h12Z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12 19 6.41Z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/spirit-labs/tektite/" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 6.5.2 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2024 Fonticons, Inc.--><path d="M439.55 236.05 244 40.45a28.87 28.87 0 0 0-40.81 0l-40.66 40.63 51.52 51.52c27.06-9.14 52.68 16.77 43.39 43.68l49.66 49.66c34.23-11.8 61.18 31 35.47 56.69-26.49 26.49-70.21-2.87-56-37.34L240.22 199v121.85c25.3 12.54 22.26 41.85 9.08 55a34.34 34.34 0 0 1-48.55 0c-17.57-17.6-11.07-46.91 11.25-56v-123c-20.8-8.51-24.6-30.74-18.64-45L142.57 101 8.45 235.14a28.86 28.86 0 0 0 0 40.81l195.61 195.6a28.86 28.86 0 0 0 40.8 0l194.69-194.69a28.86 28.86 0 0 0 0-40.81z"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="Tektite" class="md-nav__button md-logo" aria-label="Tektite" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54Z"/></svg>
+
+    </a>
+    Tektite
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/spirit-labs/tektite/" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 6.5.2 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2024 Fonticons, Inc.--><path d="M439.55 236.05 244 40.45a28.87 28.87 0 0 0-40.81 0l-40.66 40.63 51.52 51.52c27.06-9.14 52.68 16.77 43.39 43.68l49.66 49.66c34.23-11.8 61.18 31 35.47 56.69-26.49 26.49-70.21-2.87-56-37.34L240.22 199v121.85c25.3 12.54 22.26 41.85 9.08 55a34.34 34.34 0 0 1-48.55 0c-17.57-17.6-11.07-46.91 11.25-56v-123c-20.8-8.51-24.6-30.74-18.64-45L142.57 101 8.45 235.14a28.86 28.86 0 0 0 0 40.81l195.61 195.6a28.86 28.86 0 0 0 40.8 0l194.69-194.69a28.86 28.86 0 0 0 0-40.81z"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Home
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../installation/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Installation
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting_started/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Getting started
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../conceptual_model/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Concepts
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../running_servers/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Running servers
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cli/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    The command line
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../topics/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Topics
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../projections/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Projections
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../filtering/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Filters
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../persistence/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Persistence
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  <span class="md-ellipsis">
+    Aggregations
+  </span>
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  <span class="md-ellipsis">
+    Aggregations
+  </span>
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#non-windowed-aggregations" class="md-nav__link">
+    <span class="md-ellipsis">
+      Non-windowed aggregations
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#grouping-data-in-aggregations" class="md-nav__link">
+    <span class="md-ellipsis">
+      Grouping data in aggregations
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#windowed-aggregations" class="md-nav__link">
+    <span class="md-ellipsis">
+      Windowed aggregations
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#watermarks" class="md-nav__link">
+    <span class="md-ellipsis">
+      Watermarks
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#data-retention" class="md-nav__link">
+    <span class="md-ellipsis">
+      Data retention
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../watermarks/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Watermarks
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../joins/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Joins
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../union/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Unions
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../queries/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Queries
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../bridging/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Bridges
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../partitions/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Partitions
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../expressions/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Expressions
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../functions/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Functions
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../backfill/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Back-filling
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../object_stores/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Object stores
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../http_api/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    HTTP API
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../wasm/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    WebAssembly
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../admin_console/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Admin Console
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cookbook/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Cookbook
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../configuration/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Configuration
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#non-windowed-aggregations" class="md-nav__link">
+    <span class="md-ellipsis">
+      Non-windowed aggregations
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#grouping-data-in-aggregations" class="md-nav__link">
+    <span class="md-ellipsis">
+      Grouping data in aggregations
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#windowed-aggregations" class="md-nav__link">
+    <span class="md-ellipsis">
+      Windowed aggregations
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#watermarks" class="md-nav__link">
+    <span class="md-ellipsis">
+      Watermarks
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#data-retention" class="md-nav__link">
+    <span class="md-ellipsis">
+      Data retention
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+  
+  
+
+
+<h1 id="aggregations">Aggregations</h1>
+<p>Unlike stateless projections, aggregations apply aggregate functions to the incoming data and the current state
+to create new state. The state can optionally be grouped by a list of expressions.</p>
+<p>Tektite supports both non-windowed aggregations and windowed aggregations. </p>
+<p>Aggregations are defined using the <code>aggregate</code> operator and support the following aggregate functions:</p>
+<ul>
+<li><code>count</code> - compute the count of rows seen</li>
+<li><code>min</code> - compute the minimum of values seen</li>
+<li><code>max</code> - compute the maximum of values seen</li>
+<li><code>sum</code> - compute the sum of values seen</li>
+<li><code>avg</code> - compute the average (mean) of values seen</li>
+</ul>
+<p>The operand to the aggregate function can be any valid Tektite expression which evaluates to a type that that is
+compatible with the aggregate function:</p>
+<ul>
+<li><code>count</code> can be used with any type</li>
+<li><code>min</code> requires operand type <code>int</code>, <code>float</code>, <code>decimal</code>, <code>string</code>, <code>bytes</code>, <code>timestamp</code>. For <code>string</code> and <code>bytes</code>, a lexicographical comparison is performed</li>
+<li><code>max</code> requires operand type <code>int</code>, <code>float</code>, <code>decimal</code>, <code>string</code>, <code>bytes</code>, <code>timestamp</code>. For <code>string</code> and <code>bytes</code>, a lexicographical comparison is performed</li>
+<li><code>sum</code> requires operand type <code>int</code>, <code>float</code>, <code>decimal</code></li>
+<li><code>avg</code> requires operand type <code>int</code>, <code>float</code>, <code>decimal</code>, <code>timestamp</code></li>
+</ul>
+<h2 id="non-windowed-aggregations">Non-windowed aggregations</h2>
+<p>A non-windowed aggregation computes the aggregate functions over all incoming data received.</p>
+<p>Here's an example that computes the <code>min</code>, <code>max</code>, <code>count</code> and <code>sum</code> of all sales received so far.</p>
+<pre><code>sales_totals := sales_topic -&gt;
+    (partition by const partitions = 1) -&gt;
+    (aggregate min(amount), max(amount), count(amount), sum(amount))
+</code></pre>
+<p>The <code>partition</code> operator is necessary as the incoming data is already partitioned into multiple partitions, but we want to compute
+a single row over all data, so we need to repartition the incoming data into a single partition before computing the
+aggregation. If we didn't do this, we'd end up with a totals row per partition.</p>
+<p>This can then be queried:</p>
+<pre><code>tektite&gt; (scan all from sales_totals);
++---------------------------------------------------------------------------------------------------------------------+
+| event_time                 | min(amount)         | max(amount)         | count(amount)        | sum(amount)         |
++---------------------------------------------------------------------------------------------------------------------+
+| 2024-05-14 07:21:07.851000 | 85.23               | 123.99              | 16                   | 1751.28             |
++---------------------------------------------------------------------------------------------------------------------+
+</code></pre>
+<p>You could also store the updates as a new stream - the stream would have a new entry every time the totals were updated:</p>
+<pre><code>sales_totals_updates := sales_totals -&gt; (store stream);
+</code></pre>
+<pre><code>tektite&gt; (scan all from sales_totals_updates);
++--------------------------------------------------------------------------------------------------------------------+
+| offset               | event_time                 | min(amount) | max(amount) | count(amount)        | sum(amount) |
++--------------------------------------------------------------------------------------------------------------------+
+| 0                    | 2024-05-14 07:36:02.928000 | 85.23       | 123.99      | 17                   | 1836.51     |
+| 1                    | 2024-05-14 07:36:03.926000 | 85.23       | 123.99      | 18                   | 1921.74     |
+| 2                    | 2024-05-14 07:36:04.878000 | 85.23       | 123.99      | 19                   | 2006.97     |
+| 3                    | 2024-05-14 07:36:05.801000 | 85.23       | 123.99      | 20                   | 2092.20     |
+| 4                    | 2024-05-14 07:36:06.624000 | 85.23       | 123.99      | 21                   | 2177.43     |
+| 5                    | 2024-05-14 07:36:07.651000 | 85.23       | 123.99      | 22                   | 2262.66     |
+| 6                    | 2024-05-14 07:36:08.521000 | 85.23       | 123.99      | 23                   | 2347.89     |
+| 7                    | 2024-05-14 07:36:09.377000 | 85.23       | 123.99      | 24                   | 2433.12     |
++--------------------------------------------------------------------------------------------------------------------+
+8 rows returned
+</code></pre>
+<p>Or you could expose the update as a Kafka topic, so they can be consumed by any Kafka consumer:</p>
+<pre><code>sales_totals_updates := sales_totals -&gt; (kafka out);
+</code></pre>
+<h2 id="grouping-data-in-aggregations">Grouping data in aggregations</h2>
+<p>Often, instead of computing a single row in an aggregation, you want to calculate the aggregate functions over subsets
+of the data.</p>
+<p>For example, you might want to calculate <code>min</code>, <code>max</code>, <code>count</code> and <code>sum</code> of sales keyed by country. To do this
+you provide one or more key expressions in the <code>aggregate</code> as follows:</p>
+<pre><code>sales_totals := sales_topic -&gt;
+    (partition by country partitions = 16) -&gt;
+    (aggregate min(amount), max(amount), count(amount), sum(amount) by country)
+</code></pre>
+<pre><code>tektite&gt; (scan all from sales_totals);
++-------------------------------------------------------------------------------------------------------------------+
+| event_time                 | country       | min(amount)   | max(amount)   | count(amount)        | sum(amount)   |
++-------------------------------------------------------------------------------------------------------------------+
+| 2024-05-14 07:53:54.146000 | uk            | 56.23         | 85.23         | 6                    | 415.38        |
+| 2024-05-14 07:54:35.669000 | usa           | 23.23         | 56.23         | 5                    | 215.15        |
++-------------------------------------------------------------------------------------------------------------------+
+</code></pre>
+<p>Note that we repartition the incoming data by the <code>country</code> field as that is what we are grouping by. This ensures all incoming
+data for the same value of <code>country</code> ends up on the same partition so the aggregation can be calculated correctly.</p>
+<p>The partition step won't be necessary if the incoming data is already partitioned on the <code>country</code> column.</p>
+<p>You can also key by multiple expressions:</p>
+<pre><code>city_totals := sales_topic -&gt;
+    (partition by country, city partitions = 16) -&gt;
+    (aggregate min(amount), max(amount), count(amount), sum(amount) by country, city)
+</code></pre>
+<pre><code>tektite&gt; (scan all from city_totals);
++------------------------------------------------------------------------------------------------------------------------------+
+| event_time                 | country      | city         | min(amount)  | max(amount)  | count(amount)        | sum(amount)  |
++------------------------------------------------------------------------------------------------------------------------------+
+| 2024-05-14 07:53:54.146000 | uk           | london       | 76.23        | 85.23        | 3                    | 246.69       |
+| 2024-05-14 07:53:44.438000 | uk           | manchester   | 56.23        | 56.23        | 3                    | 168.69       |
+| 2024-05-14 07:54:24.980000 | usa          | austin       | 23.23        | 23.23        | 2                    | 46.46        |
+| 2024-05-14 07:54:35.669000 | usa          | miami        | 56.23        | 56.23        | 3                    | 168.69       |
++------------------------------------------------------------------------------------------------------------------------------+
+</code></pre>
+<h2 id="windowed-aggregations">Windowed aggregations</h2>
+<p>Very commonly, you don't want to compute aggregations over <em>all</em> data but over some window, e.g. in a window of a day or
+an hour. You accomplish this with a windowed aggregation. </p>
+<p>A windowed aggregation is similar to a non-windowed aggregation but has extra parameters to define the window <code>size</code> and
+<code>hop</code>.</p>
+<p>Window <code>size</code> is a duration that represents how long a window stays open, for example, if you wanted to aggregate
+sales by hour, the window size would be 1 hour.</p>
+<p>Window <code>hop</code> is also a duration that represents the time between opening new windows. If <code>hop</code> is equal to <code>size</code> then at
+any particular time we only have one window open. This is known in other systems as a hopping window.</p>
+<p>If <code>hop</code> is less than size, then we can have multiple open windows at any one time. For example, we might have <code>size</code> set 
+to 1 hour, and <code>hop</code> set to 10 minutes. This gives us more timely results as we don't have to wait an hour to get the most
+recent sales results, we will get updated results every 10 minutes.</p>
+<p>Here's an example of the sales aggregation from before, but this time using a windowed aggregation:</p>
+<pre><code>sales_by_country_by_hour := sales_topic -&gt;
+    (partition by country partitions = 16) -&gt;
+    (aggregate min(amount), max(amount), count(amount), sum(amount)
+        by country size = 1h hop = 10m)
+</code></pre>
+<p>Note that durations are expressed as a positive integer followed by one of <code>ms</code> for milliseconds, <code>s</code> for seconds,
+<code>m</code> for minutes, <code>h</code> for hours or <code>d</code> for days.</p>
+<p>Tektite maintains aggregate values for each open window, and results are emitted and visible when the window is closed.
+How do we determinate that?</p>
+<h2 id="watermarks">Watermarks</h2>
+<p>Tektite uses <a href="../watermarks/">watermarks</a> to determine when aggregate windows can be closed.</p>
+<p>At any one time, there can be multiple windows open for an aggregation depending on the values of <code>size</code> and <code>hop</code>.</p>
+<p>As data arrives at the <code>aggregate</code> operator it first determines which window(s) the event intersects with.
+Each window is defined by the start time of the window <code>ws</code> and the end time of the window <code>we</code>.</p>
+<p>A row intersects with a window if <code>ws</code> &lt; <code>event_time</code> &lt;= <code>we</code>. Each incoming row has an <code>event_time</code> column.</p>
+<p>For each intersecting window, the aggregate expressions are evaluated for the incoming row.</p>
+<p>It's not only rows that flow through the network of interconnecting streams in Tektite. Tektite also injects watermarks
+at the places where data enters the system - <code>bridge from</code> and <code>kafka in</code> operators, and these flow through the streams
+along all the routes that data can flow.</p>
+<p>A watermark carries a timestamp with it. This timestamp means that no more data with an <code>event_time</code> less than this timestamp
+is expected to flow through the operator. </p>
+<p>When the <code>aggregate</code> operator receives a watermark it can close all open windows whose <code>we</code> timestamp is &lt;= the watermark timestamp.</p>
+<p>In some systems, events can arrive late, and we might not want to close the window until some time after the watermark, this 
+is done by specifying the <code>lateness</code> parameter.</p>
+<p>Here we don't close open windows until 10 seconds after the timestamp carried by the watermark.</p>
+<pre><code>sales_by_country_by_hour := sales_topic -&gt;
+    (partition by country partitions = 16) -&gt;
+    (aggregate min(amount), max(amount), count(amount), sum(amount)
+        by country size = 1h hop = 10m lateness = 10s)
+</code></pre>
+<p>By default, watermarks are injected in <code>bridge from</code> and <code>kafka in</code> operators approximately 1 second after the <code>event_time</code>
+of the highest <code>event_time</code> seen on incoming data. This can be configured on those operators. For more information on
+watermarks see the section on <a href="../watermarks/">generating watermarks</a></p>
+<p>When a window is closed the aggregate values for the last closed window becomes visible and can be queried:</p>
+<pre><code>tektite&gt; (scan all from sales_by_country_by_hour);
++-----------------------------------------------------------------------------------------------------------------------------------------------+
+| event_time                 | country              | min(amount)          | max(amount)          | count(amount)        | sum(amount)          |
++-----------------------------------------------------------------------------------------------------------------------------------------------+
+| 2024-05-14 10:51:17.962000 | uk                   | 56.23                | 85.23                | 5                    | 339.15               |
+| 2024-05-14 10:51:29.687000 | usa                  | 23.23                | 23.23                | 2                    | 46.46                |
++-----------------------------------------------------------------------------------------------------------------------------------------------+
+</code></pre>
+<p>Note that the aggregate results are keyed on <code>country</code> so we only store the most recent aggregate results per country. The
+<code>event_time</code> column represents the highest <code>event_time</code> for any row which contributed towards that row of the aggregate results.</p>
+<p>We could also create a new stream that receives updates from the aggregation or expose it as a Kafka consumer endpoint or siphon the results
+off to an external topic.</p>
+<p>Sometimes you may want to retain aggregation results from all closed windows, not just the most recent one. You do this by
+specifying the <code>window_cols</code> parameter set to <code>true</code>. </p>
+<pre><code>sales_by_country_by_hour := sales_topic -&gt;
+    (partition by country partitions = 16) -&gt;
+    (aggregate min(amount), max(amount), count(amount), sum(amount)
+        by country size = 1h hop = 10m window_cols = true)
+</code></pre>
+<p>Then closed windows will be output with additional columns <code>ws</code> and <code>we</code> and the key of the data will be <code>[ws, we, country]</code></p>
+<p>By default, a windowed aggregation stores results persistently in a table with the same name as the stream, when windows
+are closed. Sometimes you don't want results to be stored, you just want to emit results somewhere else. For example you
+might want to send results to an external Kafka topic or expose results as a Kafka topic in Tektite.</p>
+<p>You set the <code>store</code> parameter to <code>false</code> to prevent the aggregate storing results.</p>
+<p>Here's an example of creating a new (read-only) topic that exposes the latest aggregate sales figures from the existing topic
+<code>sales_topic</code>:</p>
+<pre><code>sales_by_country_by_hour_topic := sales_topic -&gt;
+    (partition by country partitions = 16) -&gt;
+    (aggregate min(amount), max(amount), count(amount), sum(amount)
+        by country size = 1h hop = 10m store = false) -&gt;
+    (kafka out)
+</code></pre>
+<p>And here's an example of computing latest aggregate sales figures and outputting them directly to an external topic in Apache Kafka</p>
+<pre><code>sales_by_country_by_hour_out := sales_topic -&gt;
+    (partition by country partitions = 16) -&gt;
+    (aggregate min(amount), max(amount), count(amount), sum(amount)
+        by country size = 1h hop = 10m store = false) -&gt;
+    (bridge to external_sales_figures props = (&quot;bootstrap.servers&quot; = &quot;foo.com:9092&quot;)))
+</code></pre>
+<p>Here's an example of computing latest aggregate sales figures without persisting them and using a <code>store table</code> operator
+to explicitly persist the results in a table. </p>
+<pre><code>sales_by_country_by_hour_with_table := sales_topic -&gt;
+    (partition by country partitions = 16) -&gt;
+    (aggregate min(amount), max(amount), count(amount), sum(amount)
+        by country size = 1h hop = 10m store = false) -&gt;
+    (store table by country)
+</code></pre>
+<h2 id="data-retention">Data retention</h2>
+<p>If you don't want to keep the results of your aggregation forever, you can set a maximum retention time on it. Data will be deleted
+asynchronously from the aggregation once that time has been exceeded.</p>
+<p>The following will delete the aggregate results after 1 day:</p>
+<pre><code>sales_by_country_by_hour := sales_topic -&gt;
+    (partition by country partitions = 16) -&gt;
+    (aggregate min(amount), max(amount), count(amount), sum(amount)
+        by country size = 1h hop = 10m retention = 1d)
+</code></pre>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    <script id="__config" type="application/json">{"base": "..", "features": [], "search": "../assets/javascripts/workers/search.b8dbb3d2.min.js", "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.a7c05c9e.min.js"></script>
+      
+    
+  </body>
+</html>

@@ -1,0 +1,1308 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+      
+        <link rel="prev" href="../running_servers/">
+      
+      
+        <link rel="next" href="../topics/">
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.0, mkdocs-material-9.5.21">
+    
+    
+      
+        <title>The command line - Tektite</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.66ac8b77.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.06af60db.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce((e,_)=>(e<<5)-e+_.charCodeAt(0),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+    
+  </head>
+  
+  
+    
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#the-command-line-interpreter-cli" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="Tektite" class="md-header__button md-logo" aria-label="Tektite" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54Z"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3V6m0 5h18v2H3v-2m0 5h18v2H3v-2Z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Tektite
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              The command line
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+    
+    
+    
+    
+      <label class="md-header__button md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.516 6.516 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5Z"/></svg>
+      </label>
+      <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.516 6.516 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5Z"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11h12Z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12 19 6.41Z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/spirit-labs/tektite/" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 6.5.2 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2024 Fonticons, Inc.--><path d="M439.55 236.05 244 40.45a28.87 28.87 0 0 0-40.81 0l-40.66 40.63 51.52 51.52c27.06-9.14 52.68 16.77 43.39 43.68l49.66 49.66c34.23-11.8 61.18 31 35.47 56.69-26.49 26.49-70.21-2.87-56-37.34L240.22 199v121.85c25.3 12.54 22.26 41.85 9.08 55a34.34 34.34 0 0 1-48.55 0c-17.57-17.6-11.07-46.91 11.25-56v-123c-20.8-8.51-24.6-30.74-18.64-45L142.57 101 8.45 235.14a28.86 28.86 0 0 0 0 40.81l195.61 195.6a28.86 28.86 0 0 0 40.8 0l194.69-194.69a28.86 28.86 0 0 0 0-40.81z"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="Tektite" class="md-nav__button md-logo" aria-label="Tektite" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54Z"/></svg>
+
+    </a>
+    Tektite
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/spirit-labs/tektite/" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 6.5.2 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2024 Fonticons, Inc.--><path d="M439.55 236.05 244 40.45a28.87 28.87 0 0 0-40.81 0l-40.66 40.63 51.52 51.52c27.06-9.14 52.68 16.77 43.39 43.68l49.66 49.66c34.23-11.8 61.18 31 35.47 56.69-26.49 26.49-70.21-2.87-56-37.34L240.22 199v121.85c25.3 12.54 22.26 41.85 9.08 55a34.34 34.34 0 0 1-48.55 0c-17.57-17.6-11.07-46.91 11.25-56v-123c-20.8-8.51-24.6-30.74-18.64-45L142.57 101 8.45 235.14a28.86 28.86 0 0 0 0 40.81l195.61 195.6a28.86 28.86 0 0 0 40.8 0l194.69-194.69a28.86 28.86 0 0 0 0-40.81z"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Home
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../installation/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Installation
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting_started/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Getting started
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../conceptual_model/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Concepts
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../running_servers/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Running servers
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  <span class="md-ellipsis">
+    The command line
+  </span>
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  <span class="md-ellipsis">
+    The command line
+  </span>
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#connecting" class="md-nav__link">
+    <span class="md-ellipsis">
+      Connecting
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Connecting">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#connecting-to-server-using-self-signed-certificates" class="md-nav__link">
+    <span class="md-ellipsis">
+      Connecting to server using self-signed certificates
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#connecting-using-client-certificates" class="md-nav__link">
+    <span class="md-ellipsis">
+      Connecting using client certificates
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#using-no-verify" class="md-nav__link">
+    <span class="md-ellipsis">
+      Using no-verify
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#executing-single-commands" class="md-nav__link">
+    <span class="md-ellipsis">
+      Executing single commands
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#using-tektite-interactively" class="md-nav__link">
+    <span class="md-ellipsis">
+      Using tektite interactively
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#creating-topics-and-streams" class="md-nav__link">
+    <span class="md-ellipsis">
+      Creating topics and streams
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#listing-streams" class="md-nav__link">
+    <span class="md-ellipsis">
+      Listing streams
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#showing-a-stream" class="md-nav__link">
+    <span class="md-ellipsis">
+      Showing a stream
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#executing-ad-hoc-queries" class="md-nav__link">
+    <span class="md-ellipsis">
+      Executing ad-hoc queries
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#deleting-streams" class="md-nav__link">
+    <span class="md-ellipsis">
+      Deleting streams
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#exiting-the-cli" class="md-nav__link">
+    <span class="md-ellipsis">
+      Exiting the CLI
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#setting-max-line-width" class="md-nav__link">
+    <span class="md-ellipsis">
+      Setting max-line-width
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#registering-and-unregistering-webassembly-modules" class="md-nav__link">
+    <span class="md-ellipsis">
+      Registering and unregistering WebAssembly modules
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../topics/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Topics
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../projections/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Projections
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../filtering/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Filters
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../persistence/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Persistence
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../aggregating/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Aggregations
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../watermarks/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Watermarks
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../joins/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Joins
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../union/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Unions
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../queries/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Queries
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../bridging/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Bridges
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../partitions/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Partitions
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../expressions/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Expressions
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../functions/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Functions
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../backfill/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Back-filling
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../object_stores/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Object stores
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../http_api/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    HTTP API
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../wasm/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    WebAssembly
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../admin_console/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Admin Console
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cookbook/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Cookbook
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../configuration/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Configuration
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#connecting" class="md-nav__link">
+    <span class="md-ellipsis">
+      Connecting
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Connecting">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#connecting-to-server-using-self-signed-certificates" class="md-nav__link">
+    <span class="md-ellipsis">
+      Connecting to server using self-signed certificates
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#connecting-using-client-certificates" class="md-nav__link">
+    <span class="md-ellipsis">
+      Connecting using client certificates
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#using-no-verify" class="md-nav__link">
+    <span class="md-ellipsis">
+      Using no-verify
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#executing-single-commands" class="md-nav__link">
+    <span class="md-ellipsis">
+      Executing single commands
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#using-tektite-interactively" class="md-nav__link">
+    <span class="md-ellipsis">
+      Using tektite interactively
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#creating-topics-and-streams" class="md-nav__link">
+    <span class="md-ellipsis">
+      Creating topics and streams
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#listing-streams" class="md-nav__link">
+    <span class="md-ellipsis">
+      Listing streams
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#showing-a-stream" class="md-nav__link">
+    <span class="md-ellipsis">
+      Showing a stream
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#executing-ad-hoc-queries" class="md-nav__link">
+    <span class="md-ellipsis">
+      Executing ad-hoc queries
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#deleting-streams" class="md-nav__link">
+    <span class="md-ellipsis">
+      Deleting streams
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#exiting-the-cli" class="md-nav__link">
+    <span class="md-ellipsis">
+      Exiting the CLI
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#setting-max-line-width" class="md-nav__link">
+    <span class="md-ellipsis">
+      Setting max-line-width
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#registering-and-unregistering-webassembly-modules" class="md-nav__link">
+    <span class="md-ellipsis">
+      Registering and unregistering WebAssembly modules
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+  
+  
+
+
+<h1 id="the-command-line-interpreter-cli">The command line interpreter (CLI)</h1>
+<blockquote>
+<p>This guide assumes you have installed Tektite and the Tektite binaries directory is on the <code>PATH</code> environment variable</p>
+</blockquote>
+<p>You interact with Tektite at the command line using the <code>tektite</code> command.</p>
+<p>To see the options, use <code>tektite --help</code>:</p>
+<pre><code>&gt; tektite --help
+Usage: tektite
+
+Flags:
+  -h, --help                         Show context-sensitive help.
+      --address=&quot;127.0.0.1:7770&quot;     Address of tektite server to connect to.
+      --trusted-certs-path=STRING    Path to a PEM encoded file containing certificate(s) of trusted servers and/or certificate authorities
+      --key-path=STRING              Path to a PEM encoded file containing the client private key. Required with TLS client authentication
+      --cert-path=STRING             Path to a PEM encoded file containing the client certificate. Required with TLS client authentication
+      --no-verify                    Set to true to disable server certificate verification. WARNING use only for testing, setting this can expose you to
+                                     man-in-the-middle attacks
+      --command=STRING               Single command to execute, non interactively
+</code></pre>
+<p>The CLI can be run both interactively (as a shell) and non interactively, for executing single commands</p>
+<h2 id="connecting">Connecting</h2>
+<p>You specify the address of the server to connect to with the <code>--address</code> option. This defaults to <code>127.0.0.1:7770</code> which is an
+address a local development server using the <code>standalone.cfg</code> would be listening at.</p>
+<p>The CLI uses the Tektite HTTP API, so the address to connect to corresponds to the address the HTTP API listens at. That is
+configured on the server with the <code>http-api-addresses</code> configuration property.</p>
+<h3 id="connecting-to-server-using-self-signed-certificates">Connecting to server using self-signed certificates</h3>
+<p>If your Tektite HTTP API server is using self-signed certificates then will need to specify a path to a PEM file containing
+the trusted certificates or certificate authorities on the command line:</p>
+<pre><code>tektite --address tektite.foo.com:7770 --trusted-certs-path path/to/mycerts.pem
+</code></pre>
+<h3 id="connecting-using-client-certificates">Connecting using client certificates</h3>
+<p>If you've configured your server to expect client certificates when connecting, you must provide you must paths to PEM
+files containing the client private key and client certificate:</p>
+<pre><code>tektite --address tektite.foo.com:7770 --key-path /path/to/myclientkey.pem --cert-path /path/to/myclientcert.pem
+</code></pre>
+<h3 id="using-no-verify">Using <code>no-verify</code></h3>
+<p>When working with a local Tektite server for development and demos you can use the <code>--no-verify</code> option which prevents
+the client from verifying whether server certificates are trusted.</p>
+<h2 id="executing-single-commands">Executing single commands</h2>
+<p>You can run single commands with <code>tektite</code> using the <code>command</code> option:</p>
+<p>For example, to create a topic:</p>
+<pre><code>tektite --command &quot;my-topic := (topic partitions = 16)&quot;
+OK
+</code></pre>
+<p>And create another one:</p>
+<pre><code>tektite --command &quot;other-topic := (topic partitions = 16)&quot;
+OK
+</code></pre>
+<p>List all streams:</p>
+<pre><code>tektite --command &quot;list()&quot;
++----------------------------------------------------------------------------------------------------------------------+
+| stream_name                                                                                                          |
++----------------------------------------------------------------------------------------------------------------------+
+| my-topic                                                                                                             |
+| other-topic                                                                                                          |
++----------------------------------------------------------------------------------------------------------------------+
+2 rows returned
+</code></pre>
+<p>Execute a query:</p>
+<pre><code>tektite --command &quot;(scan all from my-topic)&quot;
++---------------------------------------------------------------------------------------------------------------------+
+| offset               | event_time                 | key                 | hdrs                | val                 |
++---------------------------------------------------------------------------------------------------------------------+
+0 rows returned
+</code></pre>
+<h2 id="using-tektite-interactively">Using <code>tektite</code> interactively</h2>
+<p>If the <code>command</code> option is omitted, <code>tektite</code> will run interactively, as a shell, allowing you to input multiple commands:</p>
+<p>You can enter commands over multiple lines, and terminate them with semicolon ';' followed by newline.</p>
+<pre><code>tektite --address tektite.foo.com:7770
+tektite&gt; list();
++----------------------------------------------------------------------------------------------------------------------+
+| stream_name                                                                                                          |
++----------------------------------------------------------------------------------------------------------------------+
+| my-topic                                                                                                             |
+| other-topic                                                                                                          |
++----------------------------------------------------------------------------------------------------------------------+
+2 rows returned
+tektite&gt; foo-stream :=
+         my-topic -&gt;
+             (project key, to_upper(to_string(val))) -&gt;
+             (store stream);
+OK
+tektite&gt;             
+</code></pre>
+<p>Let's take a look at the supported commands</p>
+<h2 id="creating-topics-and-streams">Creating topics and streams</h2>
+<p>You can create streams using the <a href="../conceptual_model/">standard syntax</a>:</p>
+<pre><code>tektite&gt; my-topic := (topic partitions = 32);
+OK
+tektite&gt; my-other-topic := (topic partitions = 16);
+OK
+tektite&gt; filtered-stream := bar-topic -&gt; (filter by len(val) &gt; 1000) -&gt; (store stream);
+OK
+</code></pre>
+<h2 id="listing-streams">Listing streams</h2>
+<p>Use <code>list()</code> to list all streams:</p>
+<pre><code>tektite&gt; list();
++----------------------------------------------------------------------------------------------------------------------+
+| stream_name                                                                                                          |
++----------------------------------------------------------------------------------------------------------------------+
+| filtered-stream                                                                                                      |
+| my-other-topic                                                                                                       |
+| my-topic                                                                                                             |
++----------------------------------------------------------------------------------------------------------------------+
+3 rows returned
+</code></pre>
+<p>Use <code>list</code> with a regular expression to list all streams whose name matches the regular expression:</p>
+<p>E.g. list all streams whose names start with <code>my</code></p>
+<pre><code>tektite&gt; list(&quot;^my&quot;);
++----------------------------------------------------------------------------------------------------------------------+
+| stream_name                                                                                                          |
++----------------------------------------------------------------------------------------------------------------------+
+| my-other-topic                                                                                                       |
+| my-topic                                                                                                             |
++----------------------------------------------------------------------------------------------------------------------+
+2 rows returned
+</code></pre>
+<h2 id="showing-a-stream">Showing a stream</h2>
+<p>Use <code>show(&lt;stream_name&gt;)</code> to show details of a stream:</p>
+<pre><code>tektite&gt; show(my-topic);
+
+stream_name:   my-topic
+stream_def:    (topic partitions = 32)
+in_schema:     {record_batch: bytes} partitions: 32 mapping_id: _default_
+out_schema:    {offset: int, event_time: timestamp, key: bytes, hdrs: bytes, val: bytes} partitions: 32 mapping_id: _default_
+child_streams: filtered-stream
+</code></pre>
+<p>The information shows:</p>
+<ul>
+<li><code>stream_name</code>: This is the name of the stream</li>
+<li><code>stream_def</code>: This is the TSL command used to define the stream</li>
+<li><code>in_schema</code>: This is the schema that the stream receives. Number of partitions and mapping_id is also shown.</li>
+<li><code>out_schema</code>: This is the schema that the stream outputs. Number of partitions and mapping_id is also shown.</li>
+<li><code>child_streams</code>: the names of any child streams.</li>
+</ul>
+<h2 id="executing-ad-hoc-queries">Executing ad-hoc queries</h2>
+<p>You can execute ad-hoc <a href="../queries/">queries</a> at the command line.</p>
+<pre><code>tektite&gt; (scan all from my-topic);
++---------------------------------------------------------------------------------------------------------------------+
+| offset               | event_time                 | key                 | hdrs                | val                 |
++---------------------------------------------------------------------------------------------------------------------+
+| 0                    | 2024-05-18 06:33:59.168000 | apples              | .                   | quwhdqiuwhdiquwhd.. |
+| 0                    | 2024-05-18 06:34:02.451000 | oranges             | .                   | wueiuqwediuqwduiqwd |
+| 0                    | 2024-05-18 06:34:06.450000 | pears               | .                   | uiwqbuqwdiuqwdqwd   |
++---------------------------------------------------------------------------------------------------------------------+
+3 rows returned
+</code></pre>
+<h2 id="deleting-streams">Deleting streams</h2>
+<p>Streams are deleted with the <code>delete</code> command:</p>
+<pre><code>tektite&gt; delete(my-other-topic);
+OK
+</code></pre>
+<h2 id="exiting-the-cli">Exiting the CLI</h2>
+<p>CTRL-C to exit</p>
+<h2 id="setting-max-line-width">Setting <code>max-line-width</code></h2>
+<p>In interactive mode the CLI will try to format all results with a max width which has a default of 120 characters. You can
+change this, e.g. if you have a lot of columns to display with <code>set max-line-width</code></p>
+<pre><code>tektite&gt; set max_line_width 200;
+OK
+</code></pre>
+<h2 id="registering-and-unregistering-webassembly-modules">Registering and unregistering WebAssembly modules</h2>
+<p>You can use the CLI to register and unregister WebAssembly modules.</p>
+<p>See the <a href="../wasm/">chapter on WebAssembly</a> for more information.</p>
+<pre><code>tektite&gt; register_wasm(&quot;path/to/my/modules/my_module.wasm&quot;);
+OK
+tektite&gt; unregister_wasm(&quot;my_module&quot;);
+OK
+</code></pre>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    <script id="__config" type="application/json">{"base": "..", "features": [], "search": "../assets/javascripts/workers/search.b8dbb3d2.min.js", "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.a7c05c9e.min.js"></script>
+      
+    
+  </body>
+</html>
