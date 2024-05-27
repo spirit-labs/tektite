@@ -6,7 +6,7 @@ Tektite is a powerful Kafka™ compatible event streaming database that combines
 event streaming platforms such as Apache Kafka™ or RedPanda™ with event processing functionality found in platforms such as
 Apache Flink™.
 
-With Tektite you can create Topics just like Kafka or RedPanda. Access them using any Kafka client.
+With Tektite you can create Topics just like Kafka or RedPanda and access them using any Kafka client.
 
 *But, you can also:*
 
