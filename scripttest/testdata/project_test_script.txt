@@ -1,0 +1,88 @@
+set max_line_width 300;
+--create topic test_topic 16;
+
+stream1 :=
+(bridge from
+    test_topic
+    partitions = 16
+    props = ()
+)
+-> (store stream);
+
+-- should fail - invalid field;
+stream2 := stream1
+-> (project foo)
+-> (store stream);
+
+-- should fail - offset is always present in stream;
+stream2 := stream1
+-> (project offset)
+-> (store stream);
+
+-- should fail - event_time is always present in stream;
+stream2 := stream1
+-> (project event_time)
+-> (store stream);
+
+stream2 := stream1
+-> (project 
+    key,
+    event_time as event_time2,
+    offset as offset2,
+    json_int("v0",val) as v0,
+    json_float("v1",val) as v1,
+    json_bool("v2",val) as v2,
+    to_decimal(json_string("v3", val),38,6) as v3,
+    json_string("v4", val) as v4,
+    to_bytes(json_string("v5", val)) as v5,
+    parse_date(json_string("v6", val), "2006-01-02 15:04:05.999999") as v6)
+-> (store stream);
+
+-- columns in different order;
+
+stream3 := stream2
+-> (project v6, v0, v5, v1, v4, v2, v3)
+-> (store stream);
+
+-- test default column naming for expressions;
+
+stream4 := stream2
+-> (project to_string(v0), to_string(v1), to_string(v2))
+-> (store stream);
+
+-- test aliases;
+
+stream5 := stream2
+-> (project v0 as ff0, v1 as ff1, v2 as ff2)
+-> (store stream);
+
+-- should fail -cannot alias as offset;
+
+stream6 := stream2
+-> (project v0 as offset)
+-> (store stream);
+
+-- should fail -cannot alias as event_time;
+
+stream6 := stream2
+-> (project v0 as event_time)
+-> (store stream);
+
+
+--load data dataset_1;
+
+(scan all from stream2) -> (sort by key);
+
+(scan all from stream3) -> (sort by v0);
+
+(scan all from stream4) -> (sort by col0);
+
+(scan all from stream5) -> (sort by ff0);
+
+delete(stream5);
+delete(stream4);
+delete(stream3);
+delete(stream2);
+delete(stream1);
+
+--delete topic test_topic;

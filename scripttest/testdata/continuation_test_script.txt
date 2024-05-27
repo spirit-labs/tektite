@@ -1,0 +1,56 @@
+set max_line_width 300;
+--create topic test_topic 16;
+
+test_stream :=
+(bridge from
+    test_topic
+    partitions = 16
+    props = ()
+)
+-> (project 
+    key,
+    json_int("v0",val) as v0,
+    json_float("v1",val) as v1,
+    json_bool("v2",val) as v2,
+    to_decimal(json_string("v3", val),38,6) as v3,
+    json_string("v4", val) as v4,
+    to_bytes(json_string("v5", val)) as v5,
+    parse_date(json_string("v6", val), "2006-01-02 15:04:05.999999") as v6)
+-> (store stream);
+
+child_stream1 := test_stream -> (filter by v0 > 1003) -> (store stream);
+
+child_stream2 := test_stream -> (filter by v0 > 1004) -> (store stream);
+
+child_stream3 := child_stream2 -> (filter by v0 > 1007) -> (store stream);
+
+--load data dataset_1;
+
+(scan all from child_stream1) -> (sort by key);
+
+(scan all from child_stream2) -> (sort by key);
+
+(scan all from child_stream3) -> (sort by key);
+
+-- should fail: cannot delete when child exists;
+delete(test_stream);
+
+-- should fail: cannot delete when child exists;
+delete(child_stream2);
+
+delete(child_stream3);
+
+delete(child_stream2);
+
+-- should fail: cannot delete when child exists;
+delete(test_stream);
+
+delete(child_stream1);
+
+delete(test_stream);
+
+-- error - unknown parent stream;
+
+child_stream1 := unknown_stream -> (store stream);
+
+--delete topic test_topic;

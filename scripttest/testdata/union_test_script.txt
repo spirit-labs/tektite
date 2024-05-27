@@ -1,0 +1,270 @@
+set max_line_width 200;
+
+-- first we test with inputs, all of which have offset column - this will be removed by union and a new offset added;
+
+--create topic test_topic1;
+
+base_stream :=
+(bridge from
+    test_topic1
+    partitions = 20
+    props = ()
+)
+-> (project
+    key,
+    json_int("v0", val) as v0,
+    json_float("v1", val) as v1,
+    json_bool("v2", val) as v2,
+    to_decimal(json_string("v3", val),38,6) as v3,
+    json_string("v4", val) as v4,
+    to_bytes(json_string("v5", val)) as v5,
+    parse_date(json_string("v6", val), "2006-01-02 15:04:05.999999") as v6)
+-> (store stream);
+
+input1 := base_stream -> (project v0 as v0_1, v1 as v1_1, v2 as v2_1, v3 as v3_1, v4 as v4_1, v5 as v5_1, v6 as v6_1);
+
+input2 := base_stream -> (project v0 + 10 as v0_2, v1 as v1_2, v2 as v2_2, v3 as v3_2, v4 as v4_2, v5 as v5_2, v6 as v6_2);
+
+input3 := base_stream -> (project v0 + 20 as v0_3, v1 as v1_3, v2 as v2_3, v3 as v3_3, v4 as v4_3, v5 as v5_3, v6 as v6_3);
+
+my_union := (union input1, input2, input3) -> (store stream);
+
+--load data dataset_1;
+
+(scan all from my_union) -> (sort by v0_1);
+
+-- try and delete union inputs before union, should fail;
+delete(input3);
+delete(input2);
+delete(input1);
+
+delete(my_union);
+delete(input3);
+delete(input2);
+delete(input1);
+delete(base_stream);
+
+--delete topic test_topic1;
+
+-- now we test with no inputs having an offset (the partition operator will remove the offset);
+
+--create topic test_topic1;
+
+base_stream :=
+(bridge from
+    test_topic1
+    partitions = 20
+    props = ()
+)
+-> (project
+    key,
+    json_int("v0", val) as v0,
+    json_float("v1", val) as v1,
+    json_bool("v2", val) as v2,
+    to_decimal(json_string("v3", val),38,6) as v3,
+    json_string("v4", val) as v4,
+    to_bytes(json_string("v5", val)) as v5,
+    parse_date(json_string("v6", val), "2006-01-02 15:04:05.999999") as v6)
+-> (partition by v0 partitions = 20);
+
+input1 := base_stream -> (project v0 as v0_1, v1 as v1_1, v2 as v2_1, v3 as v3_1, v4 as v4_1, v5 as v5_1, v6 as v6_1);
+
+input2 := base_stream -> (project v0 + 10 as v0_2, v1 as v1_2, v2 as v2_2, v3 as v3_2, v4 as v4_2, v5 as v5_2, v6 as v6_2);
+
+input3 := base_stream -> (project v0 + 20 as v0_3, v1 as v1_3, v2 as v2_3, v3 as v3_3, v4 as v4_3, v5 as v5_3, v6 as v6_3);
+
+my_union := (union input1, input2, input3) -> (store stream);
+
+--load data dataset_1;
+
+-- we don't display offset in query results as its non deterministic due to the partition;
+(scan all from my_union) -> (project v0_1, v1_1, v2_1, v3_1, v4_1, v5_1, v6_1)-> (sort by v0_1) ;
+
+delete(my_union);
+delete(input3);
+delete(input2);
+delete(input1);
+delete(base_stream);
+
+--delete topic test_topic1;
+
+-- now we test with 1 input having offset and others no offset;
+
+--create topic test_topic2;
+--create topic test_topic3;
+
+base_stream1 :=
+(bridge from
+    test_topic2
+    partitions = 20
+    props = ()
+)
+-> (project
+    key,
+    json_int("v0", val) as v0,
+    json_float("v1", val) as v1,
+    json_bool("v2", val) as v2,
+    to_decimal(json_string("v3", val),38,6) as v3,
+    json_string("v4", val) as v4,
+    to_bytes(json_string("v5", val)) as v5,
+    parse_date(json_string("v6", val), "2006-01-02 15:04:05.999999") as v6)
+-> (partition by v0 partitions = 20)
+-> (store stream);
+
+base_stream2 :=
+(bridge from
+    test_topic3
+    partitions = 20
+    props = ()
+)
+-> (project
+    key,
+    json_int("v0", val) as v0,
+    json_float("v1", val) as v1,
+    json_bool("v2", val) as v2,
+    to_decimal(json_string("v3", val),38,6) as v3,
+    json_string("v4", val) as v4,
+    to_bytes(json_string("v5", val)) as v5,
+    parse_date(json_string("v6", val), "2006-01-02 15:04:05.999999") as v6)
+-> (partition by v0 partitions = 20);
+
+input1 := base_stream1 -> (project v0 as v0_1, v1 as v1_1, v2 as v2_1, v3 as v3_1, v4 as v4_1, v5 as v5_1, v6 as v6_1);
+
+input2 := base_stream2 -> (project v0 + 10 as v0_2, v1 as v1_2, v2 as v2_2, v3 as v3_2, v4 as v4_2, v5 as v5_2, v6 as v6_2);
+
+input3 := base_stream2 -> (project v0 + 20 as v0_3, v1 as v1_3, v2 as v2_3, v3 as v3_3, v4 as v4_3, v5 as v5_3, v6 as v6_3);
+
+my_union := (union input1, input2, input3) -> (store stream);
+
+--load data dataset_2;
+--load data dataset_3;
+
+-- we don't display offset in query results as its non deterministic due to the partition;
+(scan all from my_union) -> (project v0_1, v1_1, v2_1, v3_1, v4_1, v5_1, v6_1)-> (sort by v0_1) ;
+
+delete(my_union);
+delete(input3);
+delete(input2);
+delete(input1);
+delete(base_stream2);
+delete(base_stream1);
+
+--delete topic test_topic2;
+--delete topic test_topic3;
+
+-- errors;
+
+-- different column types;
+
+-- first with no offset column;
+
+--create topic test_topic1;
+
+base_stream :=
+(bridge from
+    test_topic1
+    partitions = 20
+    props = ()
+)
+-> (project
+    key,
+    json_int("v0", val) as v0,
+    json_float("v1", val) as v1,
+    json_bool("v2", val) as v2,
+    to_decimal(json_string("v3", val),38,6) as v3,
+    json_string("v4", val) as v4,
+    to_bytes(json_string("v5", val)) as v5,
+    parse_date(json_string("v6", val), "2006-01-02 15:04:05.999999") as v6)
+-> (partition by v0 partitions = 20);
+
+input1 := base_stream -> (project v0 as v0_1, v1 as v1_1, v2 as v2_1, v3 as v3_1, v4 as v4_1, v5 as v5_1, v6 as v6_1);
+
+input2 := base_stream-> (project v1 as v1_2, v2 as v2_2, v3 as v3_2, v4 as v4_2, v5 as v5_2, v6 as v6_2);
+
+my_union := (union input1, input2) -> (store stream);
+
+delete(input1);
+delete(input2);
+delete(base_stream);
+
+-- with offset column;
+
+base_stream :=
+(bridge from
+    test_topic1
+    partitions = 20
+    props = ()
+)
+-> (project
+    key,
+    json_int("v0", val) as v0,
+    json_float("v1", val) as v1,
+    json_bool("v2", val) as v2,
+    to_decimal(json_string("v3", val),38,6) as v3,
+    json_string("v4", val) as v4,
+    to_bytes(json_string("v5", val)) as v5,
+    parse_date(json_string("v6", val), "2006-01-02 15:04:05.999999") as v6)
+-> (store stream);
+
+input1 := base_stream -> (project v0 as v0_1, v1 as v1_1, v2 as v2_1, v3 as v3_1, v4 as v4_1, v5 as v5_1, v6 as v6_1);
+
+input2 := base_stream -> (project v1 as v1_2, v2 as v2_2, v3 as v3_2, v4 as v4_2, v5 as v5_2, v6 as v6_2);
+
+my_union := (union input1, input2) -> (store stream);
+
+delete(input1);
+delete(input2);
+delete(base_stream);
+
+-- different partition scheme;
+
+base_stream1 :=
+(bridge from
+    test_topic3
+    partitions = 20
+    props = ()
+)
+-> (project
+    key,
+    json_int("v0", val) as v0,
+    json_float("v1", val) as v1,
+    json_bool("v2", val) as v2,
+    to_decimal(json_string("v3", val),38,6) as v3,
+    json_string("v4", val) as v4,
+    to_bytes(json_string("v5", val)) as v5,
+    parse_date(json_string("v6", val), "2006-01-02 15:04:05.999999") as v6)
+-> (partition by v0 partitions = 20);
+
+base_stream2 :=
+(bridge from
+    test_topic3
+    partitions = 20
+    props = ()
+)
+-> (project
+    key,
+    json_int("v0", val) as v0,
+    json_float("v1", val) as v1,
+    json_bool("v2", val) as v2,
+    to_decimal(json_string("v3", val),38,6) as v3,
+    json_string("v4", val) as v4,
+    to_bytes(json_string("v5", val)) as v5,
+    parse_date(json_string("v6", val), "2006-01-02 15:04:05.999999") as v6)
+-> (partition by v0 partitions = 15);
+
+input1 := base_stream1 -> (project v0 as v0_1, v1 as v1_1, v2 as v2_1, v3 as v3_1, v4 as v4_1, v5 as v5_1, v6 as v6_1);
+
+input2 := base_stream2 -> (project v0 + 10 as v0_2, v1 as v1_2, v2 as v2_2, v3 as v3_2, v4 as v4_2, v5 as v5_2, v6 as v6_2);
+
+my_union := (union input1, input2) -> (store stream);
+
+delete(input1);
+delete(input2);
+delete(base_stream1);
+delete(base_stream2);
+
+--delete topic test_topic1;
+
+-- unknown input;
+
+my_union := (union who, what) -> (store stream);

@@ -1,0 +1,44 @@
+--create topic remote_topic;
+
+local_topic := (topic partitions = 20);
+
+egest_stream := local_topic -> (bridge to remote_topic);
+
+ingest_stream := (bridge from remote_topic partitions = 20 props = ()) ->
+(project key, val, kafka_header("h1", hdrs) as h1) ->
+(store stream);
+
+--produce data dataset_1;
+
+(scan all from ingest_stream) -> (sort by key) wait for results
++---------------------------------------------------------------------------------------------------------------------+
+| offset               | event_time                 | key                 | val                 | h1                  |
++---------------------------------------------------------------------------------------------------------------------+
+| 0                    | 2006-01-02 15:04:05.000000 | key01               | {"v0": 1000}        | v1.1                |
+| 0                    | 2006-01-02 15:05:05.000000 | key02               | {"v0": 1001}        | v1.2                |
+| 0                    | 2006-01-02 15:06:05.000000 | key03               | {"v0": 1002}        | v1.3                |
+| 0                    | 2006-01-02 15:07:05.000000 | key04               | {"v0": 1003}        | v1.4                |
+| 0                    | 2006-01-02 15:08:05.000000 | key05               | {"v0": 1004}        | v1.5                |
++---------------------------------------------------------------------------------------------------------------------+
+5 rows returned
+;
+
+delete(ingest_stream);
+delete(egest_stream);
+delete(local_topic);
+
+--delete topic remote_topic;
+
+-- errors;
+
+--create topic remote_topic;
+
+local_topic := (topic partitions = 20);
+
+egest_stream := local_topic -> (bridge to remote_topic initial_retry_delay = 2s max_retry_delay = 1s);
+
+egest_stream := local_topic -> (bridge to);
+
+delete(local_topic);
+
+--delete topic remote_topic;

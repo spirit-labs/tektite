@@ -1,0 +1,598 @@
+set max_line_width 400;
+OK
+
+-- first, single join column;
+
+-- join table on right;
+
+--create topic transactions_topic;
+--create topic cust_updates_topic;
+
+transactions :=
+(bridge from transactions_topic partitions=20 props=()) ->
+(project
+    to_string(key) as tx_id,
+    json_string("cust_id", val) as t_cust_id,
+    json_string("prod_id", val) as prod_id,
+    json_int("amount", val) as amount,
+    json_string("currency", val) as currency,
+    to_decimal(json_string("cost", val),38,6) as cost)
+-> (partition by t_cust_id partitions=20)
+-> (store stream);
+OK
+
+cust_info :=
+(bridge from cust_updates_topic partitions=20 props=()) ->
+(project
+    to_string(key) as update_id,
+    json_string("cust_id", val) as c_cust_id,
+    json_string("cust_name", val) as cust_name,
+    json_string("cust_address", val) as cust_address)
+-> (partition by c_cust_id partitions=20)
+-> (store table by c_cust_id);
+OK
+
+enriched_transactions := (join transactions with table cust_info on t_cust_id=c_cust_id) -> (store stream);
+OK
+
+-- tx000001 - does not match;
+-- tx000002 - matches;
+-- tx000003 - does not match;
+-- tx000004 - matches;
+-- tx000005 - matches;
+
+--load data cust_info_data_1;
+--load data transactions_data_1;
+
+(scan all from enriched_transactions)
+-> (project event_time, l_tx_id, l_t_cust_id, l_prod_id, l_amount, l_currency, l_cost, r_event_time, r_update_id, r_cust_name, r_cust_address)
+-> (sort by l_tx_id, r_update_id);
++--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| event_time                 | l_tx_id                              | l_t_cust_id                          | l_prod_id                            | l_amount             | l_currency                           | l_cost                               | r_event_time               | r_update_id                          | r_cust_name                          | r_cust_address                       |
++--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| 2024-01-17 23:23:24.765000 | tx000002                             | cust000001                           | prod_1001                            | 11                   | EUR                                  | 24.760000                            | 2024-01-17 23:25:24.123000 | update00001                          | t fox                                | the moon                             |
+| 2024-01-17 23:23:26.765000 | tx000004                             | cust000003                           | prod_1003                            | 13                   | EUT                                  | 26.760000                            | 2024-01-17 23:25:25.123000 | update00002                          | j smith                              | jupiter                              |
+| 2024-01-17 23:23:27.765000 | tx000005                             | cust000001                           | prod_1004                            | 14                   | TGF                                  | 27.760000                            | 2024-01-17 23:25:24.123000 | update00001                          | t fox                                | the moon                             |
++--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+3 rows returned
+
+delete(enriched_transactions);
+OK
+delete(cust_info);
+OK
+delete(transactions);
+OK
+
+--delete topic transactions_topic;
+--delete topic cust_updates_topic;
+
+-- now load transactions before cust_info - should be no matches;
+
+--create topic transactions_topic;
+--create topic cust_updates_topic;
+
+transactions :=
+(bridge from transactions_topic partitions=20 props=()) ->
+(project
+    to_string(key) as tx_id,
+    json_string("cust_id", val) as t_cust_id,
+    json_string("prod_id", val) as prod_id,
+    json_int("amount", val) as amount,
+    json_string("currency", val) as currency,
+    to_decimal(json_string("cost", val),38,6) as cost)
+-> (partition by t_cust_id partitions=20)
+-> (store stream);
+OK
+
+cust_info :=
+(bridge from cust_updates_topic partitions=20 props=()) ->
+(project
+    to_string(key) as update_id,
+    json_string("cust_id", val) as c_cust_id,
+    json_string("cust_name", val) as cust_name,
+    json_string("cust_address", val) as cust_address)
+-> (partition by c_cust_id partitions=20)
+-> (store table by c_cust_id);
+OK
+
+enriched_transactions := (join transactions with table cust_info on t_cust_id=c_cust_id) -> (store stream);
+OK
+
+--load data transactions_data_1;
+--load data cust_info_data_1;
+
+--pause 100;
+
+(scan all from enriched_transactions)
+-> (project event_time, l_tx_id, l_t_cust_id, l_prod_id, l_amount, l_currency, l_cost, r_event_time, r_update_id, r_cust_name, r_cust_address)
+-> (sort by l_tx_id, r_update_id);
++--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| event_time                 | l_tx_id                              | l_t_cust_id                          | l_prod_id                            | l_amount             | l_currency                           | l_cost                               | r_event_time               | r_update_id                          | r_cust_name                          | r_cust_address                       |
++--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+0 rows returned
+
+delete(enriched_transactions);
+OK
+delete(cust_info);
+OK
+delete(transactions);
+OK
+
+--delete topic transactions_topic;
+--delete topic cust_updates_topic;
+
+-- join table on left;
+
+--create topic transactions_topic;
+--create topic cust_updates_topic;
+
+transactions :=
+(bridge from transactions_topic partitions=20 props=()) ->
+(project
+    to_string(key) as tx_id,
+    json_string("cust_id", val) as t_cust_id,
+    json_string("prod_id", val) as prod_id,
+    json_int("amount", val) as amount,
+    json_string("currency", val) as currency,
+    to_decimal(json_string("cost", val),38,6) as cost)
+-> (partition by t_cust_id partitions=20)
+-> (store stream);
+OK
+
+cust_info :=
+(bridge from cust_updates_topic partitions=20 props=()) ->
+(project
+    to_string(key) as update_id,
+    json_string("cust_id", val) as c_cust_id,
+    json_string("cust_name", val) as cust_name,
+    json_string("cust_address", val) as cust_address)
+-> (partition by c_cust_id partitions=20)
+-> (store table by c_cust_id);
+OK
+
+enriched_transactions := (join table cust_info with transactions on c_cust_id=t_cust_id) -> (store stream);
+OK
+
+--load data cust_info_data_1;
+--load data transactions_data_1;
+
+(scan all from enriched_transactions)
+-> (project event_time, l_event_time, l_update_id, l_c_cust_id, l_cust_name, l_cust_address, r_tx_id, r_prod_id, r_amount, r_currency, r_cost)
+-> (sort by l_update_id, r_tx_id);
++--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| event_time                 | l_event_time               | l_update_id                          | l_c_cust_id                          | l_cust_name                          | l_cust_address                       | r_tx_id                              | r_prod_id                            | r_amount             | r_currency                           | r_cost                               |
++--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| 2024-01-17 23:23:24.765000 | 2024-01-17 23:25:24.123000 | update00001                          | cust000001                           | t fox                                | the moon                             | tx000002                             | prod_1001                            | 11                   | EUR                                  | 24.760000                            |
+| 2024-01-17 23:23:27.765000 | 2024-01-17 23:25:24.123000 | update00001                          | cust000001                           | t fox                                | the moon                             | tx000005                             | prod_1004                            | 14                   | TGF                                  | 27.760000                            |
+| 2024-01-17 23:23:26.765000 | 2024-01-17 23:25:25.123000 | update00002                          | cust000003                           | j smith                              | jupiter                              | tx000004                             | prod_1003                            | 13                   | EUT                                  | 26.760000                            |
++--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+3 rows returned
+
+delete(enriched_transactions);
+OK
+delete(cust_info);
+OK
+delete(transactions);
+OK
+
+--delete topic transactions_topic;
+--delete topic cust_updates_topic;
+
+-- now we do a left outer join;
+
+--create topic transactions_topic;
+--create topic cust_updates_topic;
+
+transactions :=
+(bridge from transactions_topic partitions=20 props=()) ->
+(project
+    to_string(key) as tx_id,
+    json_string("cust_id", val) as t_cust_id,
+    json_string("prod_id", val) as prod_id,
+    json_int("amount", val) as amount,
+    json_string("currency", val) as currency,
+    to_decimal(json_string("cost", val),38,6) as cost)
+-> (partition by t_cust_id partitions=20)
+-> (store stream);
+OK
+
+cust_info :=
+(bridge from cust_updates_topic partitions=20 props=()) ->
+(project
+    to_string(key) as update_id,
+    json_string("cust_id", val) as c_cust_id,
+    json_string("cust_name", val) as cust_name,
+    json_string("cust_address", val) as cust_address)
+-> (partition by c_cust_id partitions=20)
+-> (store table by c_cust_id);
+OK
+
+enriched_transactions := (join transactions with table cust_info on t_cust_id*=c_cust_id) -> (store stream);
+OK
+
+--load data cust_info_data_1;
+--load data transactions_data_1;
+
+(scan all from enriched_transactions)
+-> (project event_time, l_tx_id, l_t_cust_id, l_prod_id, l_amount, l_currency, l_cost, r_event_time, r_update_id, r_cust_name, r_cust_address)
+-> (sort by l_tx_id, r_update_id);
++--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| event_time                 | l_tx_id                              | l_t_cust_id                          | l_prod_id                            | l_amount             | l_currency                           | l_cost                               | r_event_time               | r_update_id                          | r_cust_name                          | r_cust_address                       |
++--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| 2024-01-17 23:23:23.765000 | tx000001                             | cust000000                           | prod_1000                            | 10                   | GBP                                  | 23.760000                            | null                       | null                                 | null                                 | null                                 |
+| 2024-01-17 23:23:24.765000 | tx000002                             | cust000001                           | prod_1001                            | 11                   | EUR                                  | 24.760000                            | 2024-01-17 23:25:24.123000 | update00001                          | t fox                                | the moon                             |
+| 2024-01-17 23:23:25.765000 | tx000003                             | cust000002                           | prod_1002                            | 12                   | USD                                  | 25.760000                            | null                       | null                                 | null                                 | null                                 |
+| 2024-01-17 23:23:26.765000 | tx000004                             | cust000003                           | prod_1003                            | 13                   | EUT                                  | 26.760000                            | 2024-01-17 23:25:25.123000 | update00002                          | j smith                              | jupiter                              |
+| 2024-01-17 23:23:27.765000 | tx000005                             | cust000001                           | prod_1004                            | 14                   | TGF                                  | 27.760000                            | 2024-01-17 23:25:24.123000 | update00001                          | t fox                                | the moon                             |
++--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+5 rows returned
+
+delete(enriched_transactions);
+OK
+delete(cust_info);
+OK
+delete(transactions);
+OK
+
+--delete topic transactions_topic;
+--delete topic cust_updates_topic;
+
+-- right outer join;
+
+--create topic transactions_topic;
+--create topic cust_updates_topic;
+
+transactions :=
+(bridge from transactions_topic partitions=20 props=()) ->
+(project
+    to_string(key) as tx_id,
+    json_string("cust_id", val) as t_cust_id,
+    json_string("prod_id", val) as prod_id,
+    json_int("amount", val) as amount,
+    json_string("currency", val) as currency,
+    to_decimal(json_string("cost", val),38,6) as cost)
+-> (partition by t_cust_id partitions=20)
+-> (store stream);
+OK
+
+cust_info :=
+(bridge from cust_updates_topic partitions=20 props=()) ->
+(project
+    to_string(key) as update_id,
+    json_string("cust_id", val) as c_cust_id,
+    json_string("cust_name", val) as cust_name,
+    json_string("cust_address", val) as cust_address)
+-> (partition by c_cust_id partitions=20)
+-> (store table by c_cust_id);
+OK
+
+enriched_transactions := (join table cust_info with transactions on c_cust_id=*t_cust_id) -> (store stream);
+OK
+
+--load data cust_info_data_1;
+--load data transactions_data_1;
+
+(scan all from enriched_transactions)
+-> (project event_time, l_event_time, l_update_id, l_c_cust_id, l_cust_name, l_cust_address, r_tx_id, r_prod_id, r_amount, r_currency, r_cost)
+-> (sort by l_update_id, r_tx_id);
++--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| event_time                 | l_event_time               | l_update_id                          | l_c_cust_id                          | l_cust_name                          | l_cust_address                       | r_tx_id                              | r_prod_id                            | r_amount             | r_currency                           | r_cost                               |
++--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| 2024-01-17 23:23:23.765000 | null                       | null                                 | null                                 | null                                 | null                                 | tx000001                             | prod_1000                            | 10                   | GBP                                  | 23.760000                            |
+| 2024-01-17 23:23:25.765000 | null                       | null                                 | null                                 | null                                 | null                                 | tx000003                             | prod_1002                            | 12                   | USD                                  | 25.760000                            |
+| 2024-01-17 23:23:24.765000 | 2024-01-17 23:25:24.123000 | update00001                          | cust000001                           | t fox                                | the moon                             | tx000002                             | prod_1001                            | 11                   | EUR                                  | 24.760000                            |
+| 2024-01-17 23:23:27.765000 | 2024-01-17 23:25:24.123000 | update00001                          | cust000001                           | t fox                                | the moon                             | tx000005                             | prod_1004                            | 14                   | TGF                                  | 27.760000                            |
+| 2024-01-17 23:23:26.765000 | 2024-01-17 23:25:25.123000 | update00002                          | cust000003                           | j smith                              | jupiter                              | tx000004                             | prod_1003                            | 13                   | EUT                                  | 26.760000                            |
++--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+5 rows returned
+
+delete(enriched_transactions);
+OK
+delete(cust_info);
+OK
+delete(transactions);
+OK
+
+--delete topic transactions_topic;
+--delete topic cust_updates_topic;
+
+-- join on multiple keys;
+
+--create topic transactions_topic;
+--create topic cust_updates_topic;
+
+transactions :=
+(bridge from transactions_topic partitions=20 props=()) ->
+(project
+    to_string(key) as tx_id,
+    json_string("cust_id", val) as t_cust_id,
+    json_string("country", val) as t_country,
+    json_string("prod_id", val) as prod_id,
+    json_int("amount", val) as amount,
+    json_string("currency", val) as currency,
+    to_decimal(json_string("cost", val),38,6) as cost)
+-> (partition by t_cust_id, t_country partitions=20)
+-> (store stream);
+OK
+
+cust_info :=
+(bridge from cust_updates_topic partitions=20 props=()) ->
+(project
+    to_string(key) as update_id,
+    json_string("cust_id", val) as c_cust_id,
+    json_string("country", val) as c_country,
+    json_string("cust_name", val) as cust_name,
+    json_string("cust_address", val) as cust_address)
+-> (partition by c_cust_id, c_country partitions=20)
+-> (store table by c_cust_id, c_country);
+OK
+
+enriched_transactions := (join transactions with table cust_info on t_cust_id=c_cust_id, t_country=c_country) -> (store stream);
+OK
+
+--load data cust_info_data_2;
+--load data transactions_data_2;
+
+(scan all from enriched_transactions)
+-> (project event_time, l_tx_id, l_t_cust_id, l_t_country, l_prod_id, l_amount, l_currency, l_cost, r_event_time, r_update_id, r_cust_name, r_cust_address)
+-> (sort by l_tx_id, l_t_country);
++-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| event_time                 | l_tx_id                          | l_t_cust_id                      | l_t_country                      | l_prod_id                        | l_amount             | l_currency                       | l_cost                           | r_event_time               | r_update_id                      | r_cust_name                      | r_cust_address                   |
++-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| 2024-01-17 23:23:24.765000 | tx000002                         | cust000001                       | UK                               | prod_1001                        | 11                   | EUR                              | 24.760000                        | 2024-01-17 23:25:24.123000 | update00001                      | t fox                            | the moon                         |
+| 2024-01-17 23:24:24.765000 | tx000002                         | cust000002                       | XYZ                              | prod_1002                        | 12                   | GBP                              | 25.760000                        | 2024-01-17 23:26:25.123000 | update00003                      | a apple                          | mercury                          |
++-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+2 rows returned
+
+delete(enriched_transactions);
+OK
+delete(cust_info);
+OK
+delete(transactions);
+OK
+
+--delete topic transactions_topic;
+--delete topic cust_updates_topic;
+
+-- errors;
+
+--create topic transactions_topic;
+--create topic cust_updates_topic;
+
+-- table keys incompatible with join keys;
+
+transactions :=
+(bridge from transactions_topic partitions=20 props=()) ->
+(project
+    to_string(key) as tx_id,
+    json_string("cust_id", val) as t_cust_id,
+    json_string("prod_id", val) as prod_id,
+    json_int("amount", val) as amount,
+    json_string("currency", val) as currency,
+    to_decimal(json_string("cost", val),38,6) as cost)
+-> (partition by t_cust_id partitions=20)
+-> (store stream);
+OK
+
+cust_info :=
+(bridge from cust_updates_topic partitions=20 props=()) ->
+(project
+    to_string(key) as update_id,
+    json_string("cust_id", val) as c_cust_id,
+    json_string("cust_name", val) as cust_name,
+    json_string("cust_address", val) as cust_address,
+    json_int("cust_age", val) as cust_age)
+-> (partition by c_cust_id, cust_address partitions=20)
+-> (store table by c_cust_id, cust_address);
+OK
+
+-- should fail - we disallow this as table doesn't have same key as join and multiple rows for same cust_id can be in
+-- different partitions so lookup would not necessarily return all matching rows;
+
+enriched_transactions := (join transactions with table cust_info on t_cust_id=c_cust_id) -> (store stream);
+specified join columns for table on the right of the join do not match the stored key columns in the table (line 1 column 27):
+enriched_transactions := (join transactions with table cust_info on t_cust_id=c_cust_id) -> (store stream)
+                          ^
+
+delete(cust_info);
+OK
+delete(transactions);
+OK
+
+--delete topic transactions_topic;
+--delete topic cust_updates_topic;
+
+-- incompatible partition schemes;
+
+-- incompatible number of partitions;
+
+--create topic transactions_topic;
+--create topic cust_updates_topic;
+
+transactions :=
+(bridge from transactions_topic partitions=20 props=()) ->
+(project
+    to_string(key) as tx_id,
+    json_string("cust_id", val) as t_cust_id,
+    json_string("prod_id", val) as prod_id,
+    json_int("amount", val) as amount,
+    json_string("currency", val) as currency,
+    to_decimal(json_string("cost", val),38,6) as cost)
+-> (partition by t_cust_id partitions=15)
+-> (store stream);
+OK
+
+cust_info :=
+(bridge from cust_updates_topic partitions=20 props=()) ->
+(project
+    to_string(key) as update_id,
+    json_string("cust_id", val) as c_cust_id,
+    json_string("cust_name", val) as cust_name,
+    json_int("cust_age", val) as cust_age)
+-> (partition by c_cust_id partitions=20)
+-> (store table by c_cust_id);
+OK
+
+-- should fail - different numbers of partitions;
+
+enriched_transactions := (join transactions with table cust_info on t_cust_id=c_cust_id) -> (store stream);
+cannot join 'transactions' and 'cust_info' directly - they must have same number of partitions and same mapping (line 1 column 27):
+enriched_transactions := (join transactions with table cust_info on t_cust_id=c_cust_id) -> (store stream)
+                          ^
+
+delete(cust_info);
+OK
+delete(transactions);
+OK
+
+--delete topic transactions_topic;
+--delete topic cust_updates_topic;
+
+-- different mapping-id;
+
+--create topic transactions_topic;
+--create topic cust_updates_topic;
+
+transactions :=
+(bridge from transactions_topic partitions=20 props=()) ->
+(project
+    to_string(key) as tx_id,
+    json_string("cust_id", val) as t_cust_id,
+    json_string("prod_id", val) as prod_id,
+    json_int("amount", val) as amount,
+    json_string("currency", val) as currency,
+    to_decimal(json_string("cost", val),38,6) as cost)
+-> (partition by t_cust_id partitions=20 mapping="foo")
+-> (store stream);
+OK
+
+cust_info :=
+(bridge from cust_updates_topic partitions=20 props=()) ->
+(project
+    to_string(key) as update_id,
+    json_string("cust_id", val) as c_cust_id,
+    json_string("cust_name", val) as cust_name,
+    json_int("cust_age", val) as cust_age)
+-> (partition by c_cust_id partitions=20 mapping="bar")
+-> (store table by c_cust_id);
+OK
+
+-- should fail - different mapping;
+
+enriched_transactions := (join transactions with table cust_info on t_cust_id=c_cust_id) -> (store stream);
+cannot join 'transactions' and 'cust_info' directly - they must have same number of partitions and same mapping (line 1 column 27):
+enriched_transactions := (join transactions with table cust_info on t_cust_id=c_cust_id) -> (store stream)
+                          ^
+
+delete(cust_info);
+OK
+delete(transactions);
+OK
+
+--delete topic transactions_topic;
+--delete topic cust_updates_topic;
+
+-- can't join two tables;
+
+--create topic transactions_topic;
+--create topic cust_updates_topic;
+
+transactions :=
+(bridge from transactions_topic partitions=20 props=()) ->
+(project
+    to_string(key) as tx_id,
+    json_string("cust_id", val) as t_cust_id,
+    json_string("prod_id", val) as prod_id,
+    json_int("amount", val) as amount,
+    json_string("currency", val) as currency,
+    to_decimal(json_string("cost", val),38,6) as cost)
+-> (partition by t_cust_id partitions=20)
+-> (store table by t_cust_id);
+OK
+
+cust_info :=
+(bridge from cust_updates_topic partitions=20 props=()) ->
+(project
+    to_string(key) as update_id,
+    json_string("cust_id", val) as c_cust_id,
+    json_string("cust_name", val) as cust_name,
+    json_int("cust_age", val) as cust_age)
+-> (partition by c_cust_id partitions=20)
+-> (store table by c_cust_id);
+OK
+
+enriched_transactions := (join table transactions with table cust_info on t_cust_id=c_cust_id) -> (store stream);
+cannot join a table with a table (line 1 column 27):
+enriched_transactions := (join table transactions with table cust_info on t_cust_id=c_cust_id) -> (store stream)
+                          ^
+
+delete(cust_info);
+OK
+delete(transactions);
+OK
+
+--delete topic transactions_topic;
+--delete topic cust_updates_topic;
+
+-- cannot do left outer join if the left side is the table side;
+
+--create topic transactions_topic;
+--create topic cust_updates_topic;
+
+transactions :=
+(bridge from transactions_topic partitions=20 props=()) ->
+(project
+    to_string(key) as tx_id,
+    json_string("cust_id", val) as t_cust_id,
+    json_string("prod_id", val) as prod_id,
+    json_int("amount", val) as amount,
+    json_string("currency", val) as currency,
+    to_decimal(json_string("cost", val),38,6) as cost)
+-> (partition by t_cust_id partitions=20)
+-> (store stream);
+OK
+
+cust_info :=
+(bridge from cust_updates_topic partitions=20 props=()) ->
+(project
+    to_string(key) as update_id,
+    json_string("cust_id", val) as c_cust_id,
+    json_string("cust_name", val) as cust_name,
+    json_string("cust_address", val) as cust_address)
+-> (partition by c_cust_id partitions=20)
+-> (store table by c_cust_id);
+OK
+
+enriched_transactions := (join table cust_info with transactions on c_cust_id*=t_cust_id) -> (store stream);
+with an outer join, the outer side of the join cannot be a table (line 1 column 38):
+enriched_transactions := (join table cust_info with transactions on c_cust_id*=t_cust_id) -> (store stream)
+                                     ^
+
+-- cannot do right outer join if the right side is the table side;
+
+enriched_transactions := (join transactions with table cust_info on t_cust_id=*c_cust_id) -> (store stream);
+with an outer join, the outer side of the join cannot be a table (line 1 column 56):
+enriched_transactions := (join transactions with table cust_info on t_cust_id=*c_cust_id) -> (store stream)
+                                                       ^
+
+-- cannot have within clause for stream-table join;
+
+enriched_transactions := (join transactions with table cust_info on t_cust_id=c_cust_id within=5m) -> (store stream);
+'within' must not be specified for a stream-table join (line 1 column 89):
+enriched_transactions := (join transactions with table cust_info on t_cust_id=c_cust_id within=5m) -> (store stream)
+                                                                                        ^
+
+-- retention must not be specified;
+
+enriched_transactions := (join transactions with table cust_info on t_cust_id=c_cust_id retention=5m) -> (store stream);
+'retention' must not be specified for a stream-table join (line 1 column 89):
+enriched_transactions := (join transactions with table cust_info on t_cust_id=c_cust_id retention=5m) -> (store stream)
+                                                                                        ^
+
+delete(cust_info);
+OK
+delete(transactions);
+OK
+
+--delete topic transactions_topic;
+--delete topic cust_updates_topic;

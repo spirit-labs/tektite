@@ -1,0 +1,558 @@
+set max_line_width 200;
+OK
+--create topic sensor_readings;
+
+-- we run the first windowed_agg test and configure watermark params on the bridge from operator;
+
+sensor_readings :=
+(bridge from
+    sensor_readings
+    partitions = 20
+    props = ()
+    watermark_type = event_time
+    watermark_lateness = 1s
+    watermark_idle_timeout = 1m
+) ->
+(project
+    to_string(key) as sensor_id,
+    json_string("country", val) as country,
+    to_decimal(json_string("temperature", val),38,6) as temperature) ->
+(store stream);
+OK
+
+sensor_agg := sensor_readings ->
+(partition by country partitions=10) ->
+(aggregate count(temperature), max(temperature), min(temperature), avg(temperature) by country
+   size=4s hop=2s window_cols=true);
+OK
+
+--load data dataset_1;
+--load data dataset_2;
+
+(scan all from sensor_agg) -> (sort by ws, country);
++-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| event_time                 | ws                         | we                         | country             | count(temperature)   | max(temperature)    | min(temperature)    | avg(temperature)    |
++-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| 2006-01-02 15:04:00.000000 | 2006-01-02 15:03:58.000000 | 2006-01-02 15:04:02.000000 | FR                  | 1                    | 18.700000           | 18.700000           | 18.700000           |
+| 2006-01-02 15:04:00.078000 | 2006-01-02 15:03:58.000000 | 2006-01-02 15:04:02.000000 | UK                  | 2                    | 25.100000           | 23.700000           | 24.400000           |
+| 2006-01-02 15:04:00.033000 | 2006-01-02 15:03:58.000000 | 2006-01-02 15:04:02.000000 | USA                 | 2                    | 26.900000           | 13.300000           | 20.100000           |
+| 2006-01-02 15:04:00.000000 | 2006-01-02 15:04:00.000000 | 2006-01-02 15:04:04.000000 | FR                  | 1                    | 18.700000           | 18.700000           | 18.700000           |
+| 2006-01-02 15:04:00.078000 | 2006-01-02 15:04:00.000000 | 2006-01-02 15:04:04.000000 | UK                  | 2                    | 25.100000           | 23.700000           | 24.400000           |
+| 2006-01-02 15:04:00.033000 | 2006-01-02 15:04:00.000000 | 2006-01-02 15:04:04.000000 | USA                 | 2                    | 26.900000           | 13.300000           | 20.100000           |
++-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+6 rows returned
+
+delete(sensor_agg);
+OK
+delete(sensor_readings);
+OK
+
+--delete topic sensor_readings;
+
+-- next we repeat using default watermark settings with bridge from;
+
+--create topic sensor_readings;
+
+sensor_readings :=
+(bridge from
+    sensor_readings
+    partitions = 20
+    props = ()
+) ->
+(project
+    to_string(key) as sensor_id,
+    json_string("country", val) as country,
+    to_decimal(json_string("temperature", val),38,6) as temperature) ->
+(store stream);
+OK
+
+sensor_agg := sensor_readings ->
+(partition by country partitions=10) ->
+(aggregate count(temperature), max(temperature), min(temperature), avg(temperature) by country
+   size=4s hop=2s window_cols=true);
+OK
+
+--load data dataset_1;
+--load data dataset_2;
+
+(scan all from sensor_agg) -> (sort by ws, country);
++-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| event_time                 | ws                         | we                         | country             | count(temperature)   | max(temperature)    | min(temperature)    | avg(temperature)    |
++-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| 2006-01-02 15:04:00.000000 | 2006-01-02 15:03:58.000000 | 2006-01-02 15:04:02.000000 | FR                  | 1                    | 18.700000           | 18.700000           | 18.700000           |
+| 2006-01-02 15:04:00.078000 | 2006-01-02 15:03:58.000000 | 2006-01-02 15:04:02.000000 | UK                  | 2                    | 25.100000           | 23.700000           | 24.400000           |
+| 2006-01-02 15:04:00.033000 | 2006-01-02 15:03:58.000000 | 2006-01-02 15:04:02.000000 | USA                 | 2                    | 26.900000           | 13.300000           | 20.100000           |
+| 2006-01-02 15:04:00.000000 | 2006-01-02 15:04:00.000000 | 2006-01-02 15:04:04.000000 | FR                  | 1                    | 18.700000           | 18.700000           | 18.700000           |
+| 2006-01-02 15:04:00.078000 | 2006-01-02 15:04:00.000000 | 2006-01-02 15:04:04.000000 | UK                  | 2                    | 25.100000           | 23.700000           | 24.400000           |
+| 2006-01-02 15:04:00.033000 | 2006-01-02 15:04:00.000000 | 2006-01-02 15:04:04.000000 | USA                 | 2                    | 26.900000           | 13.300000           | 20.100000           |
++-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+6 rows returned
+
+delete(sensor_agg);
+OK
+delete(sensor_readings);
+OK
+
+--delete topic sensor_readings;
+
+-- we repeat with a kafka in, and configuring watermark params on that;
+
+sensor_readings := (kafka in
+    partitions=20
+    watermark_type=event_time
+    watermark_lateness=1s
+    watermark_idle_timeout=1m) ->
+(project
+    to_string(key) as sensor_id,
+    json_string("country", val) as country,
+    to_decimal(json_string("temperature", val),38,6) as temperature) ->
+(store stream);
+OK
+
+sensor_agg := sensor_readings ->
+(partition by country partitions=10) ->
+(aggregate count(temperature), max(temperature), min(temperature), avg(temperature) by country
+   size=4s hop=2s window_cols=true);
+OK
+
+--produce data dataset_1;
+--produce data dataset_2;
+
+(scan all from sensor_agg) -> (sort by ws, country);
++-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| event_time                 | ws                         | we                         | country             | count(temperature)   | max(temperature)    | min(temperature)    | avg(temperature)    |
++-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| 2006-01-02 15:04:00.000000 | 2006-01-02 15:03:58.000000 | 2006-01-02 15:04:02.000000 | FR                  | 1                    | 18.700000           | 18.700000           | 18.700000           |
+| 2006-01-02 15:04:00.078000 | 2006-01-02 15:03:58.000000 | 2006-01-02 15:04:02.000000 | UK                  | 2                    | 25.100000           | 23.700000           | 24.400000           |
+| 2006-01-02 15:04:00.033000 | 2006-01-02 15:03:58.000000 | 2006-01-02 15:04:02.000000 | USA                 | 2                    | 26.900000           | 13.300000           | 20.100000           |
+| 2006-01-02 15:04:00.000000 | 2006-01-02 15:04:00.000000 | 2006-01-02 15:04:04.000000 | FR                  | 1                    | 18.700000           | 18.700000           | 18.700000           |
+| 2006-01-02 15:04:00.078000 | 2006-01-02 15:04:00.000000 | 2006-01-02 15:04:04.000000 | UK                  | 2                    | 25.100000           | 23.700000           | 24.400000           |
+| 2006-01-02 15:04:00.033000 | 2006-01-02 15:04:00.000000 | 2006-01-02 15:04:04.000000 | USA                 | 2                    | 26.900000           | 13.300000           | 20.100000           |
++-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+6 rows returned
+
+delete(sensor_agg);
+OK
+delete(sensor_readings);
+OK
+
+-- and using default watermark settings on kafka in;
+
+sensor_readings := (kafka in partitions = 20) ->
+(project
+    to_string(key) as sensor_id,
+    json_string("country", val) as country,
+    to_decimal(json_string("temperature", val),38,6) as temperature) ->
+(store stream);
+OK
+
+sensor_agg := sensor_readings ->
+(partition by country partitions=10) ->
+(aggregate count(temperature), max(temperature), min(temperature), avg(temperature) by country
+   size=4s hop=2s window_cols=true);
+OK
+
+--produce data dataset_1;
+--produce data dataset_2;
+
+(scan all from sensor_agg) -> (sort by ws, country);
++-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| event_time                 | ws                         | we                         | country             | count(temperature)   | max(temperature)    | min(temperature)    | avg(temperature)    |
++-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| 2006-01-02 15:04:00.000000 | 2006-01-02 15:03:58.000000 | 2006-01-02 15:04:02.000000 | FR                  | 1                    | 18.700000           | 18.700000           | 18.700000           |
+| 2006-01-02 15:04:00.078000 | 2006-01-02 15:03:58.000000 | 2006-01-02 15:04:02.000000 | UK                  | 2                    | 25.100000           | 23.700000           | 24.400000           |
+| 2006-01-02 15:04:00.033000 | 2006-01-02 15:03:58.000000 | 2006-01-02 15:04:02.000000 | USA                 | 2                    | 26.900000           | 13.300000           | 20.100000           |
+| 2006-01-02 15:04:00.000000 | 2006-01-02 15:04:00.000000 | 2006-01-02 15:04:04.000000 | FR                  | 1                    | 18.700000           | 18.700000           | 18.700000           |
+| 2006-01-02 15:04:00.078000 | 2006-01-02 15:04:00.000000 | 2006-01-02 15:04:04.000000 | UK                  | 2                    | 25.100000           | 23.700000           | 24.400000           |
+| 2006-01-02 15:04:00.033000 | 2006-01-02 15:04:00.000000 | 2006-01-02 15:04:04.000000 | USA                 | 2                    | 26.900000           | 13.300000           | 20.100000           |
++-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+6 rows returned
+
+delete(sensor_agg);
+OK
+delete(sensor_readings);
+OK
+
+--create topic sensor_readings;
+
+-- processing_time watermark type;
+
+sensor_readings :=
+(bridge from
+    sensor_readings
+    partitions = 20
+    props = ()
+    watermark_type = processing_time
+) ->
+(project
+    to_string(key) as sensor_id,
+    json_string("country", val) as country,
+    to_decimal(json_string("temperature", val),38,6) as temperature) ->
+(store stream);
+OK
+
+delete(sensor_readings);
+OK
+
+-- event_time with default other args;
+
+sensor_readings :=
+(bridge from
+    sensor_readings
+    partitions = 20
+    props = ()
+    watermark_type = event_time
+) ->
+(project
+    to_string(key) as sensor_id,
+    json_string("country", val) as country,
+    to_decimal(json_string("temperature", val),38,6) as temperature) ->
+(store stream);
+OK
+
+delete(sensor_readings);
+OK
+
+sensor_readings :=
+(bridge from
+    sensor_readings
+    partitions = 20
+    props = ()
+    watermark_type = event_time
+    watermark_lateness = 1s
+) ->
+(project
+    to_string(key) as sensor_id,
+    json_string("country", val) as country,
+    to_decimal(json_string("temperature", val),38,6) as temperature) ->
+(store stream);
+OK
+
+delete(sensor_readings);
+OK
+
+sensor_readings :=
+(bridge from
+    sensor_readings
+    partitions = 20
+    props = ()
+    watermark_type = event_time
+    watermark_idle_timeout = 5s
+) ->
+(project
+    to_string(key) as sensor_id,
+    json_string("country", val) as country,
+    to_decimal(json_string("temperature", val),38,6) as temperature) ->
+(store stream);
+OK
+
+delete(sensor_readings);
+OK
+
+sensor_readings :=
+(bridge from
+    sensor_readings
+    partitions = 20
+    props = ()
+    watermark_idle_timeout = 5s
+) ->
+(project
+    to_string(key) as sensor_id,
+    json_string("country", val) as country,
+    to_decimal(json_string("temperature", val),38,6) as temperature) ->
+(store stream);
+OK
+
+delete(sensor_readings);
+OK
+
+sensor_readings :=
+(bridge from
+    sensor_readings
+    partitions = 20
+    props = ()
+    watermark_lateness = 5s
+) ->
+(project
+    to_string(key) as sensor_id,
+    json_string("country", val) as country,
+    to_decimal(json_string("temperature", val),38,6) as temperature) ->
+(store stream);
+OK
+
+delete(sensor_readings);
+OK
+
+-- as above but on kafka in;
+
+-- processing_time watermark type;
+
+sensor_readings := (kafka in
+    partitions=20
+    watermark_type=processing_time) ->
+(project
+    to_string(key) as sensor_id,
+    json_string("country", val) as country,
+    to_decimal(json_string("temperature", val),38,6) as temperature) ->
+(store stream);
+OK
+
+delete(sensor_readings);
+OK
+
+-- event_time default other args;
+
+sensor_readings := (kafka in
+    partitions=20
+    watermark_type=event_time
+    watermark_lateness=1s) ->
+(project
+    to_string(key) as sensor_id,
+    json_string("country", val) as country,
+    to_decimal(json_string("temperature", val),38,6) as temperature) ->
+(store stream);
+OK
+
+delete(sensor_readings);
+OK
+
+sensor_readings := (kafka in
+    partitions=20
+    watermark_type=event_time
+    watermark_idle_timeout=5s) ->
+(project
+    to_string(key) as sensor_id,
+    json_string("country", val) as country,
+    to_decimal(json_string("temperature", val),38,6) as temperature) ->
+(store stream);
+OK
+
+delete(sensor_readings);
+OK
+
+sensor_readings := (kafka in
+    partitions=20
+    watermark_idle_timeout=5s) ->
+(project
+    to_string(key) as sensor_id,
+    json_string("country", val) as country,
+    to_decimal(json_string("temperature", val),38,6) as temperature) ->
+(store stream);
+OK
+
+delete(sensor_readings);
+OK
+
+sensor_readings := (kafka in
+    partitions=20
+    watermark_lateness=1s) ->
+(project
+    to_string(key) as sensor_id,
+    json_string("country", val) as country,
+    to_decimal(json_string("temperature", val),38,6) as temperature) ->
+(store stream);
+OK
+
+delete(sensor_readings);
+OK
+
+-- errors;
+
+-- cannot use other idle_timeout with processing_time;
+
+sensor_readings :=
+(bridge from
+    sensor_readings
+    partitions = 20
+    props = ()
+    watermark_type = processing_time
+    watermark_lateness = 1s
+    watermark_idle_timeout = 5s
+) ->
+(project
+    to_string(key) as sensor_id,
+    json_string("country", val) as country,
+    to_decimal(json_string("temperature", val),38,6) as temperature) ->
+(store stream);
+watermark_idle_timeout must not be provided with `processing_time` watermark type (line 8 column 5):
+    watermark_idle_timeout = 5s
+    ^
+
+sensor_readings :=
+(bridge from
+    sensor_readings
+    partitions = 20
+    props = ()
+    watermark_type = processing_time
+    watermark_idle_timeout = 5s
+) ->
+(project
+    to_string(key) as sensor_id,
+    json_string("country", val) as country,
+    to_decimal(json_string("temperature", val),38,6) as temperature) ->
+(store stream);
+watermark_idle_timeout must not be provided with `processing_time` watermark type (line 7 column 5):
+    watermark_idle_timeout = 5s
+    ^
+
+-- invalid watermark_type;
+
+sensor_readings :=
+(bridge from
+    sensor_readings
+    partitions = 20
+    props = ()
+    watermark_type = foo
+) ->
+(project
+    to_string(key) as sensor_id,
+    json_string("country", val) as country,
+    to_decimal(json_string("temperature", val),38,6) as temperature) ->
+(store stream);
+expected one of: 'event_time', 'processing_time' but found 'foo' (line 6 column 22):
+    watermark_type = foo
+                     ^
+
+-- invalid lateness;
+
+sensor_readings :=
+(bridge from
+    sensor_readings
+    partitions = 20
+    props = ()
+    watermark_type = event_time
+    watermark_lateness = foo
+) ->
+(project
+    to_string(key) as sensor_id,
+    json_string("country", val) as country,
+    to_decimal(json_string("temperature", val),38,6) as temperature) ->
+(store stream);
+expected duration but found 'foo' (line 7 column 26):
+    watermark_lateness = foo
+                         ^
+
+sensor_readings :=
+(bridge from
+    sensor_readings
+    partitions = 20
+    props = ()
+    watermark_type = event_time
+    watermark_lateness = foo
+) ->
+(project
+    to_string(key) as sensor_id,
+    json_string("country", val) as country,
+    to_decimal(json_string("temperature", val),38,6) as temperature) ->
+(store stream);
+expected duration but found 'foo' (line 7 column 26):
+    watermark_lateness = foo
+                         ^
+
+-- invalid idle_timeout;
+
+sensor_readings :=
+(bridge from
+    sensor_readings
+    partitions = 20
+    props = ()
+    watermark_type = event_time
+    watermark_idle_timeout = foo
+) ->
+(project
+    to_string(key) as sensor_id,
+    json_string("country", val) as country,
+    to_decimal(json_string("temperature", val),38,6) as temperature) ->
+(store stream);
+expected duration but found 'foo' (line 7 column 30):
+    watermark_idle_timeout = foo
+                             ^
+
+sensor_readings :=
+(bridge from
+    sensor_readings
+    partitions = 20
+    props = ()
+    watermark_type = event_time
+    watermark_idle_timeout = "foo"
+) ->
+(project
+    to_string(key) as sensor_id,
+    json_string("country", val) as country,
+    to_decimal(json_string("temperature", val),38,6) as temperature) ->
+(store stream);
+expected duration but found '"foo"' (line 7 column 30):
+    watermark_idle_timeout = "foo"
+                             ^
+
+--delete topic sensor_readings;
+
+-- invalid watermark_type;
+
+sensor_readings := (kafka in
+    partitions=20
+    watermark_type=foo) ->
+(project
+    to_string(key) as sensor_id,
+    json_string("country", val) as country,
+    to_decimal(json_string("temperature", val),38,6) as temperature) ->
+(store stream);
+expected one of: 'event_time', 'processing_time' but found 'foo' (line 3 column 20):
+    watermark_type=foo) ->
+                   ^
+
+-- invalid lateness;
+
+sensor_readings := (kafka in
+    partitions=20
+    watermark_type=event_time
+    watermark_lateness=foo) ->
+(project
+    to_string(key) as sensor_id,
+    json_string("country", val) as country,
+    to_decimal(json_string("temperature", val),38,6) as temperature) ->
+(store stream);
+expected duration but found 'foo' (line 4 column 24):
+    watermark_lateness=foo) ->
+                       ^
+
+sensor_readings := (kafka in
+    partitions=20
+    watermark_type=event_time
+    watermark_lateness="foo") ->
+(project
+    to_string(key) as sensor_id,
+    json_string("country", val) as country,
+    to_decimal(json_string("temperature", val),38,6) as temperature) ->
+(store stream);
+expected duration but found '"foo"' (line 4 column 24):
+    watermark_lateness="foo") ->
+                       ^
+
+-- invalid idle_timeout;
+
+sensor_readings := (kafka in
+    partitions=20
+    watermark_type=event_time
+    watermark_idle_timeout=foo) ->
+(project
+    to_string(key) as sensor_id,
+    json_string("country", val) as country,
+    to_decimal(json_string("temperature", val),38,6) as temperature) ->
+(store stream);
+expected duration but found 'foo' (line 4 column 28):
+    watermark_idle_timeout=foo) ->
+                           ^
+
+sensor_readings := (kafka in
+    partitions=20
+    watermark_type=event_time
+    watermark_idle_timeout="foo") ->
+(project
+    to_string(key) as sensor_id,
+    json_string("country", val) as country,
+    to_decimal(json_string("temperature", val),38,6) as temperature) ->
+(store stream);
+expected duration but found '"foo"' (line 4 column 28):
+    watermark_idle_timeout="foo") ->
+                           ^

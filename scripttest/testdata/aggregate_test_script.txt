@@ -1,0 +1,301 @@
+set max_line_width 200;
+
+-- aggregate with continuation and partition;
+
+--create topic test_topic 16;
+
+stream1 :=
+(bridge from
+    test_topic
+    partitions = 16
+    props = ()
+)
+-> (project 
+    key,
+    json_int("v0",val) as v0,
+    json_float("v1",val) as v1,
+    json_bool("v2",val) as v2,
+    to_decimal(json_string("v3", val),38,6) as v3,
+    json_string("v4", val) as v4,
+    to_bytes(json_string("v5", val)) as v5,
+    parse_date(json_string("v6", val), "2006-01-02 15:04:05.999999") as v6)
+-> (store stream);
+
+stream2 := stream1
+-> (partition by v0 partitions=10)
+-> (aggregate sum(v1), max(v3) by v0);
+
+-- note the input to the aggregation has no offset column because the partition operatorn will remove it;
+
+--load data dataset_1;
+
+(scan all from stream2) -> (sort by v0);
+
+delete(stream2);
+delete(stream1);
+
+--delete topic test_topic;
+
+-- now we repeat the above, this time with an input that has an offset column;
+
+--create topic test_topic 16;
+
+stream1 :=
+(bridge from
+    test_topic
+    partitions = 16
+    props = ()
+)
+-> (project 
+    key,
+    json_int("v0",val) as v0,
+    json_float("v1",val) as v1,
+    json_bool("v2",val) as v2,
+    to_decimal(json_string("v3", val),38,6) as v3,
+    json_string("v4", val) as v4,
+    to_bytes(json_string("v5", val)) as v5,
+    parse_date(json_string("v6", val), "2006-01-02 15:04:05.999999") as v6)
+-> (store stream);
+
+stream2 := stream1
+-> (partition by v0 partitions=10)
+-> (store stream);
+
+stream3 := stream2
+-> (aggregate sum(v1), max(v3) by v0);
+
+--load data dataset_1;
+
+(scan all from stream3) -> (sort by v0);
+
+delete(stream3);
+delete(stream2);
+delete(stream1);
+
+--delete topic test_topic;
+
+-- aggregate with continuation no partition;
+
+--create topic test_topic 16;
+
+stream1 :=
+(bridge from
+    test_topic
+    partitions = 16
+    props = ()
+)
+-> (project 
+    key,
+    json_int("v0",val) as v0,
+    json_float("v1",val) as v1,
+    json_bool("v2",val) as v2,
+    to_decimal(json_string("v3", val),38,6) as v3,
+    json_string("v4", val) as v4,
+    to_bytes(json_string("v5", val)) as v5,
+    parse_date(json_string("v6", val), "2006-01-02 15:04:05.999999") as v6)
+-> (store stream);
+
+stream2 := stream1
+-> (aggregate sum(v1), max(v3) by key);
+
+--load data dataset_2;
+
+(scan all from stream2) -> (sort by key);
+
+delete(stream2);
+delete(stream1);
+
+--delete topic test_topic;
+
+-- aggregate direct, no partition;
+
+--create topic test_topic 16;
+
+stream1 :=
+(bridge from
+    test_topic
+    partitions = 16
+    props = ()
+)
+-> (project 
+    key,
+    json_int("v0",val) as v0,
+    json_float("v1",val) as v1,
+    json_bool("v2",val) as v2,
+    to_decimal(json_string("v3", val),38,6) as v3,
+    json_string("v4", val) as v4,
+    to_bytes(json_string("v5", val)) as v5,
+    parse_date(json_string("v6", val), "2006-01-02 15:04:05.999999") as v6)
+-> (aggregate sum(v1), max(v3) by key);
+
+--load data dataset_2;
+
+(scan all from stream1) -> (sort by key);
+
+delete(stream1);
+
+--delete topic test_topic;
+
+-- aggregate direct, with partition;
+
+--create topic test_topic 16;
+
+stream1 :=
+(bridge from
+    test_topic
+    partitions = 16
+    props = ()
+)
+-> (project 
+    key,
+    json_int("v0",val) as v0,
+    json_float("v1",val) as v1,
+    json_bool("v2",val) as v2,
+    to_decimal(json_string("v3", val),38,6) as v3,
+    json_string("v4", val) as v4,
+    to_bytes(json_string("v5", val)) as v5,
+    parse_date(json_string("v6", val), "2006-01-02 15:04:05.999999") as v6)
+-> (partition by v0 partitions=10)
+-> (aggregate sum(v1), max(v3) by v0);
+
+--load data dataset_1;
+
+(scan all from stream1) -> (sort by v0);
+
+-- check data still there after restart;
+--restart cluster;
+
+set max_line_width 200;
+
+(scan all from stream1) -> (sort by v0);
+
+delete(stream1);
+
+--delete topic test_topic;
+
+-- aggregate with no grouping;
+
+--create topic test_topic 16;
+
+stream1 :=
+(bridge from
+    test_topic
+    partitions = 16
+    props = ()
+)
+-> (project 
+    key,
+    json_int("v0",val) as v0,
+    json_float("v1",val) as v1,
+    json_bool("v2",val) as v2,
+    to_decimal(json_string("v3", val),38,6) as v3,
+    json_string("v4", val) as v4,
+    to_bytes(json_string("v5", val)) as v5,
+    parse_date(json_string("v6", val), "2006-01-02 15:04:05.999999") as v6)
+-> (partition by const partitions=1)
+-> (aggregate sum(v1), max(v3), min(v3), avg(v0), count(v2));
+
+--load data dataset_1;
+
+(scan all from stream1);
+
+delete(stream1);
+
+--delete topic test_topic;
+
+--- group by multiple columns;
+
+--create topic test_topic 16;
+
+stream1 :=
+(bridge from
+    test_topic
+    partitions = 16
+    props = ()
+)
+-> (project 
+    key,
+    json_int("v0",val) as v0,
+    json_float("v1",val) as v1,
+    json_bool("v2",val) as v2,
+    to_decimal(json_string("v3", val),38,6) as v3,
+    json_string("v4", val) as v4,
+    to_bytes(json_string("v5", val)) as v5,
+    parse_date(json_string("v6", val), "2006-01-02 15:04:05.999999") as v6)
+-> (partition by v0, v1 partitions=10)
+-> (aggregate max(v3), count(v2) by v0, v1);
+
+--load data dataset_3;
+
+(scan all from stream1) -> (sort by v0, v1);
+
+delete(stream1);
+
+--delete topic test_topic;
+
+-- can hang a stream off the aggregate if store=false;
+
+--create topic test_topic 16;
+
+--breakpoint;
+stream1 :=
+(bridge from
+    test_topic
+    partitions = 16
+    props = ()
+)
+-> (project 
+    key,
+    json_int("v0",val) as v0,
+    json_float("v1",val) as v1,
+    json_bool("v2",val) as v2,
+    to_decimal(json_string("v3", val),38,6) as v3,
+    json_string("v4", val) as v4,
+    to_bytes(json_string("v5", val)) as v5,
+    parse_date(json_string("v6", val), "2006-01-02 15:04:05.999999") as v6)
+-> (partition by v0 partitions=10)
+-> (aggregate sum(v1) as sumv1, max(v3) by v0 store=false)
+-> (project v0, sumv1, "hello")
+-> (store table by v0);
+
+--load data dataset_1;
+
+(scan all from stream1) -> (sort by v0);
+
+delete(stream1);
+
+-- errors;
+
+-- aggregate errors;
+
+stream1 :=
+(bridge from
+    test_topic
+    partitions = 10
+    props = ()
+)
+-> (store stream);
+
+-- invalid column;
+
+stream2 := stream1 -> (aggregate sum(val) by foo);
+
+-- invalid agg funcs;
+
+stream2 := stream1 -> (aggregate bum(val) by key);
+
+-- invalid retention;
+
+stream2 := stream1 -> (aggregate sum(val) by key retention=badgers);
+
+-- cannot specify window_cols;
+
+stream2 := stream1 -> (aggregate sum(val) by key window_cols=true);
+
+-- reserved name as alias;
+
+stream2 := stream1 -> (aggregate sum(val) as event_time by key);
+
+delete(stream1);
+
+--delete topic test_topic;

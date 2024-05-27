@@ -1,0 +1,120 @@
+set max_line_width 400;
+
+--create topic test_topic 16;
+
+register_wasm("testdata/wasm/test_mod1/test_mod1.wasm");
+
+stream1 :=
+(bridge from
+    test_topic
+    partitions = 16
+    props = ()
+)
+-> (project
+    key,
+    event_time as event_time2,
+    offset as offset2,
+    json_int("v0",val) as v0,
+    json_float("v1",val) as v1,
+    json_bool("v2",val) as v2,
+    to_decimal(json_string("v3", val),38,6) as v3,
+    json_string("v4", val) as v4,
+    to_bytes(json_string("v5", val)) as v5,
+    parse_date(json_string("v6", val), "2006-01-02 15:04:05.999999") as v6)
+-> (store stream);
+
+-- test with wasm functions in projection - we test with all param types and return types;
+
+stream2 := stream1 ->
+(project
+    v0,
+    test_mod1.funcArgsAllTypes(v0, v1, v2, v3, v4, v5, v6) as all_str
+    ) -> (store stream);
+
+stream3 := stream1 ->
+(project
+    v0,
+    test_mod1.funcIntReturn(v0) as rv0,
+    test_mod1.funcFloatReturn(v1) as rv1,
+    test_mod1.funcBoolReturn(v2) as rv2,
+    test_mod1.funcDecimalReturn(v3) as rv3,
+    test_mod1.funcStringReturn(v4) as rv4,
+    test_mod1.funcBytesReturn(v5) as rv5,
+    test_mod1.funcTimestampReturn(v6) as rv6
+    ) -> (store stream);
+
+-- test with wasm function in filter;
+
+register_wasm("testdata/wasm/test_mod2/test_mod2.wasm");
+
+stream4 := stream1 -> (project v0) -> (filter by test_mod2.filterFunc(v0)) -> (store stream);
+
+--load data dataset_1;
+
+(scan all from stream2) -> (sort by v0);
+
+(scan all from stream3) -> (sort by v0);
+
+(scan all from stream4) -> (sort by v0);
+
+-- test with wasm function in sort;
+
+(scan all from stream1) -> (project v0, v2) -> (sort by test_mod1.funcBoolReturn(v2), v0);
+
+-- now we restart to make sure modules are reloaded on restart;
+
+--restart cluster;
+
+(scan all from stream2) -> (sort by v0);
+
+(scan all from stream3) -> (sort by v0);
+
+(scan all from stream4) -> (sort by v0);
+
+(scan all from stream1) -> (project v0, v2) -> (sort by test_mod1.funcBoolReturn(v2), v0);
+
+-- errors;
+
+-- try to register unknown path;
+
+register_wasm("no/such/path/test_mod1.wasm");
+
+-- missing json file;
+
+register_wasm("testdata/wasm/missing-json/missing-json.wasm");
+
+-- invalid wasm;
+
+register_wasm("testdata/wasm/invalid-wasm/invalid.wasm");
+
+-- invalid json;
+
+register_wasm("testdata/wasm/invalid-json/invalid-json.wasm");
+
+-- function params don't match actual wasm function params;
+
+register_wasm("testdata/wasm/func-bad-params/func-bad-params.wasm");
+
+-- function return value doesn't match actual wasm function return value;
+
+register_wasm("testdata/wasm/func-bad-return/func-bad-return.wasm");
+
+-- unknown function in loaded module;
+
+stream5 := stream1 -> (project v0) -> (filter by test_mod1.wibbleFunc(v0)) -> (store stream);
+
+delete(stream4);
+delete(stream3);
+delete(stream2);
+
+-- unregister module, then try to deploy stream with function;
+
+unregister_wasm("test_mod2");
+
+stream5 := stream1 -> (project v0) -> (filter by test_mod2.filterFunc(v0)) -> (store stream);
+
+register_wasm("testdata/wasm/test_mod2/test_mod2.wasm");
+
+delete(stream1);
+
+--delete topic test_topic;

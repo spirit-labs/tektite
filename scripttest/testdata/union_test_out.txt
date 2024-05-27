@@ -1,0 +1,449 @@
+set max_line_width 200;
+OK
+
+-- first we test with inputs, all of which have offset column - this will be removed by union and a new offset added;
+
+--create topic test_topic1;
+
+base_stream :=
+(bridge from
+    test_topic1
+    partitions = 20
+    props = ()
+)
+-> (project
+    key,
+    json_int("v0", val) as v0,
+    json_float("v1", val) as v1,
+    json_bool("v2", val) as v2,
+    to_decimal(json_string("v3", val),38,6) as v3,
+    json_string("v4", val) as v4,
+    to_bytes(json_string("v5", val)) as v5,
+    parse_date(json_string("v6", val), "2006-01-02 15:04:05.999999") as v6)
+-> (store stream);
+OK
+
+input1 := base_stream -> (project v0 as v0_1, v1 as v1_1, v2 as v2_1, v3 as v3_1, v4 as v4_1, v5 as v5_1, v6 as v6_1);
+OK
+
+input2 := base_stream -> (project v0 + 10 as v0_2, v1 as v1_2, v2 as v2_2, v3 as v3_2, v4 as v4_2, v5 as v5_2, v6 as v6_2);
+OK
+
+input3 := base_stream -> (project v0 + 20 as v0_3, v1 as v1_3, v2 as v2_3, v3 as v3_3, v4 as v4_3, v5 as v5_3, v6 as v6_3);
+OK
+
+my_union := (union input1, input2, input3) -> (store stream);
+OK
+
+--load data dataset_1;
+
+(scan all from my_union) -> (sort by v0_1);
++------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| offset               | event_time                 | v0_1                 | v1_1             | v2_1             | v3_1             | v4_1             | v5_1             | v6_1                       |
++------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| 0                    | 2006-01-02 15:04:05.000000 | 1000                 | 1.230000         | true             | 12345678.765432  | foobar01         | somebytes01      | 2008-04-03 23:21:17.123000 |
+| 0                    | 2006-01-02 15:05:05.000000 | 1001                 | 2.230000         | false            | 22345678.765432  | foobar02         | somebytes02      | 2008-04-03 23:22:17.123000 |
+| 0                    | 2006-01-02 15:06:05.000000 | 1002                 | 3.230000         | true             | 32345678.765432  | foobar03         | somebytes03      | 2008-04-03 23:23:17.123000 |
+| 0                    | 2006-01-02 15:07:05.000000 | 1003                 | 4.230000         | false            | 42345678.765432  | foobar04         | somebytes04      | 2008-04-03 23:24:17.123000 |
+| 0                    | 2006-01-02 15:08:05.000000 | 1004                 | 5.230000         | true             | 52345678.765432  | foobar05         | somebytes05      | 2008-04-03 23:25:17.123000 |
+| 0                    | 2006-01-02 15:09:05.000000 | 1005                 | 6.230000         | false            | 62345678.765432  | foobar06         | somebytes06      | 2008-04-03 23:26:17.123000 |
+| 0                    | 2006-01-02 15:10:05.000000 | 1006                 | 7.230000         | true             | 72345678.765432  | foobar07         | somebytes07      | 2008-04-03 23:27:17.123000 |
+| 0                    | 2006-01-02 15:11:05.000000 | 1007                 | 8.230000         | false            | 82345678.765432  | foobar08         | somebytes08      | 2008-04-03 23:28:17.123000 |
+| 0                    | 2006-01-02 15:12:05.000000 | 1008                 | 9.230000         | true             | 92345678.765432  | foobar09         | somebytes09      | 2008-04-03 23:29:17.123000 |
+| 1                    | 2006-01-02 15:13:05.000000 | 1009                 | 10.230000        | false            | 102345678.765432 | foobar10         | somebytes10      | 2008-04-03 23:30:17.123000 |
+| 1                    | 2006-01-02 15:04:05.000000 | 1010                 | 1.230000         | true             | 12345678.765432  | foobar01         | somebytes01      | 2008-04-03 23:21:17.123000 |
+| 2                    | 2006-01-02 15:05:05.000000 | 1011                 | 2.230000         | false            | 22345678.765432  | foobar02         | somebytes02      | 2008-04-03 23:22:17.123000 |
+| 1                    | 2006-01-02 15:06:05.000000 | 1012                 | 3.230000         | true             | 32345678.765432  | foobar03         | somebytes03      | 2008-04-03 23:23:17.123000 |
+| 1                    | 2006-01-02 15:07:05.000000 | 1013                 | 4.230000         | false            | 42345678.765432  | foobar04         | somebytes04      | 2008-04-03 23:24:17.123000 |
+| 1                    | 2006-01-02 15:08:05.000000 | 1014                 | 5.230000         | true             | 52345678.765432  | foobar05         | somebytes05      | 2008-04-03 23:25:17.123000 |
+| 1                    | 2006-01-02 15:09:05.000000 | 1015                 | 6.230000         | false            | 62345678.765432  | foobar06         | somebytes06      | 2008-04-03 23:26:17.123000 |
+| 1                    | 2006-01-02 15:10:05.000000 | 1016                 | 7.230000         | true             | 72345678.765432  | foobar07         | somebytes07      | 2008-04-03 23:27:17.123000 |
+| 1                    | 2006-01-02 15:11:05.000000 | 1017                 | 8.230000         | false            | 82345678.765432  | foobar08         | somebytes08      | 2008-04-03 23:28:17.123000 |
+| 1                    | 2006-01-02 15:12:05.000000 | 1018                 | 9.230000         | true             | 92345678.765432  | foobar09         | somebytes09      | 2008-04-03 23:29:17.123000 |
+| 3                    | 2006-01-02 15:13:05.000000 | 1019                 | 10.230000        | false            | 102345678.765432 | foobar10         | somebytes10      | 2008-04-03 23:30:17.123000 |
+| 2                    | 2006-01-02 15:04:05.000000 | 1020                 | 1.230000         | true             | 12345678.765432  | foobar01         | somebytes01      | 2008-04-03 23:21:17.123000 |
+| 4                    | 2006-01-02 15:05:05.000000 | 1021                 | 2.230000         | false            | 22345678.765432  | foobar02         | somebytes02      | 2008-04-03 23:22:17.123000 |
+| 2                    | 2006-01-02 15:06:05.000000 | 1022                 | 3.230000         | true             | 32345678.765432  | foobar03         | somebytes03      | 2008-04-03 23:23:17.123000 |
+| 2                    | 2006-01-02 15:07:05.000000 | 1023                 | 4.230000         | false            | 42345678.765432  | foobar04         | somebytes04      | 2008-04-03 23:24:17.123000 |
+| 2                    | 2006-01-02 15:08:05.000000 | 1024                 | 5.230000         | true             | 52345678.765432  | foobar05         | somebytes05      | 2008-04-03 23:25:17.123000 |
+| 2                    | 2006-01-02 15:09:05.000000 | 1025                 | 6.230000         | false            | 62345678.765432  | foobar06         | somebytes06      | 2008-04-03 23:26:17.123000 |
+| 2                    | 2006-01-02 15:10:05.000000 | 1026                 | 7.230000         | true             | 72345678.765432  | foobar07         | somebytes07      | 2008-04-03 23:27:17.123000 |
+| 2                    | 2006-01-02 15:11:05.000000 | 1027                 | 8.230000         | false            | 82345678.765432  | foobar08         | somebytes08      | 2008-04-03 23:28:17.123000 |
+| 2                    | 2006-01-02 15:12:05.000000 | 1028                 | 9.230000         | true             | 92345678.765432  | foobar09         | somebytes09      | 2008-04-03 23:29:17.123000 |
+| 5                    | 2006-01-02 15:13:05.000000 | 1029                 | 10.230000        | false            | 102345678.765432 | foobar10         | somebytes10      | 2008-04-03 23:30:17.123000 |
++------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+30 rows returned
+
+-- try and delete union inputs before union, should fail;
+delete(input3);
+cannot delete stream input3 - it has child streams: [my_union] - they must be deleted first (line 1 column 8):
+delete(input3)
+       ^
+delete(input2);
+cannot delete stream input2 - it has child streams: [my_union] - they must be deleted first (line 1 column 8):
+delete(input2)
+       ^
+delete(input1);
+cannot delete stream input1 - it has child streams: [my_union] - they must be deleted first (line 1 column 8):
+delete(input1)
+       ^
+
+delete(my_union);
+OK
+delete(input3);
+OK
+delete(input2);
+OK
+delete(input1);
+OK
+delete(base_stream);
+OK
+
+--delete topic test_topic1;
+
+-- now we test with no inputs having an offset (the partition operator will remove the offset);
+
+--create topic test_topic1;
+
+base_stream :=
+(bridge from
+    test_topic1
+    partitions = 20
+    props = ()
+)
+-> (project
+    key,
+    json_int("v0", val) as v0,
+    json_float("v1", val) as v1,
+    json_bool("v2", val) as v2,
+    to_decimal(json_string("v3", val),38,6) as v3,
+    json_string("v4", val) as v4,
+    to_bytes(json_string("v5", val)) as v5,
+    parse_date(json_string("v6", val), "2006-01-02 15:04:05.999999") as v6)
+-> (partition by v0 partitions = 20);
+OK
+
+input1 := base_stream -> (project v0 as v0_1, v1 as v1_1, v2 as v2_1, v3 as v3_1, v4 as v4_1, v5 as v5_1, v6 as v6_1);
+OK
+
+input2 := base_stream -> (project v0 + 10 as v0_2, v1 as v1_2, v2 as v2_2, v3 as v3_2, v4 as v4_2, v5 as v5_2, v6 as v6_2);
+OK
+
+input3 := base_stream -> (project v0 + 20 as v0_3, v1 as v1_3, v2 as v2_3, v3 as v3_3, v4 as v4_3, v5 as v5_3, v6 as v6_3);
+OK
+
+my_union := (union input1, input2, input3) -> (store stream);
+OK
+
+--load data dataset_1;
+
+-- we don't display offset in query results as its non deterministic due to the partition;
+(scan all from my_union) -> (project v0_1, v1_1, v2_1, v3_1, v4_1, v5_1, v6_1)-> (sort by v0_1) ;
++----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| v0_1                 | v1_1                       | v2_1                       | v3_1                       | v4_1                       | v5_1                       | v6_1                       |
++----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| 1000                 | 1.230000                   | true                       | 12345678.765432            | foobar01                   | somebytes01                | 2008-04-03 23:21:17.123000 |
+| 1001                 | 2.230000                   | false                      | 22345678.765432            | foobar02                   | somebytes02                | 2008-04-03 23:22:17.123000 |
+| 1002                 | 3.230000                   | true                       | 32345678.765432            | foobar03                   | somebytes03                | 2008-04-03 23:23:17.123000 |
+| 1003                 | 4.230000                   | false                      | 42345678.765432            | foobar04                   | somebytes04                | 2008-04-03 23:24:17.123000 |
+| 1004                 | 5.230000                   | true                       | 52345678.765432            | foobar05                   | somebytes05                | 2008-04-03 23:25:17.123000 |
+| 1005                 | 6.230000                   | false                      | 62345678.765432            | foobar06                   | somebytes06                | 2008-04-03 23:26:17.123000 |
+| 1006                 | 7.230000                   | true                       | 72345678.765432            | foobar07                   | somebytes07                | 2008-04-03 23:27:17.123000 |
+| 1007                 | 8.230000                   | false                      | 82345678.765432            | foobar08                   | somebytes08                | 2008-04-03 23:28:17.123000 |
+| 1008                 | 9.230000                   | true                       | 92345678.765432            | foobar09                   | somebytes09                | 2008-04-03 23:29:17.123000 |
+| 1009                 | 10.230000                  | false                      | 102345678.765432           | foobar10                   | somebytes10                | 2008-04-03 23:30:17.123000 |
+| 1010                 | 1.230000                   | true                       | 12345678.765432            | foobar01                   | somebytes01                | 2008-04-03 23:21:17.123000 |
+| 1011                 | 2.230000                   | false                      | 22345678.765432            | foobar02                   | somebytes02                | 2008-04-03 23:22:17.123000 |
+| 1012                 | 3.230000                   | true                       | 32345678.765432            | foobar03                   | somebytes03                | 2008-04-03 23:23:17.123000 |
+| 1013                 | 4.230000                   | false                      | 42345678.765432            | foobar04                   | somebytes04                | 2008-04-03 23:24:17.123000 |
+| 1014                 | 5.230000                   | true                       | 52345678.765432            | foobar05                   | somebytes05                | 2008-04-03 23:25:17.123000 |
+| 1015                 | 6.230000                   | false                      | 62345678.765432            | foobar06                   | somebytes06                | 2008-04-03 23:26:17.123000 |
+| 1016                 | 7.230000                   | true                       | 72345678.765432            | foobar07                   | somebytes07                | 2008-04-03 23:27:17.123000 |
+| 1017                 | 8.230000                   | false                      | 82345678.765432            | foobar08                   | somebytes08                | 2008-04-03 23:28:17.123000 |
+| 1018                 | 9.230000                   | true                       | 92345678.765432            | foobar09                   | somebytes09                | 2008-04-03 23:29:17.123000 |
+| 1019                 | 10.230000                  | false                      | 102345678.765432           | foobar10                   | somebytes10                | 2008-04-03 23:30:17.123000 |
+| 1020                 | 1.230000                   | true                       | 12345678.765432            | foobar01                   | somebytes01                | 2008-04-03 23:21:17.123000 |
+| 1021                 | 2.230000                   | false                      | 22345678.765432            | foobar02                   | somebytes02                | 2008-04-03 23:22:17.123000 |
+| 1022                 | 3.230000                   | true                       | 32345678.765432            | foobar03                   | somebytes03                | 2008-04-03 23:23:17.123000 |
+| 1023                 | 4.230000                   | false                      | 42345678.765432            | foobar04                   | somebytes04                | 2008-04-03 23:24:17.123000 |
+| 1024                 | 5.230000                   | true                       | 52345678.765432            | foobar05                   | somebytes05                | 2008-04-03 23:25:17.123000 |
+| 1025                 | 6.230000                   | false                      | 62345678.765432            | foobar06                   | somebytes06                | 2008-04-03 23:26:17.123000 |
+| 1026                 | 7.230000                   | true                       | 72345678.765432            | foobar07                   | somebytes07                | 2008-04-03 23:27:17.123000 |
+| 1027                 | 8.230000                   | false                      | 82345678.765432            | foobar08                   | somebytes08                | 2008-04-03 23:28:17.123000 |
+| 1028                 | 9.230000                   | true                       | 92345678.765432            | foobar09                   | somebytes09                | 2008-04-03 23:29:17.123000 |
+| 1029                 | 10.230000                  | false                      | 102345678.765432           | foobar10                   | somebytes10                | 2008-04-03 23:30:17.123000 |
++----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+30 rows returned
+
+delete(my_union);
+OK
+delete(input3);
+OK
+delete(input2);
+OK
+delete(input1);
+OK
+delete(base_stream);
+OK
+
+--delete topic test_topic1;
+
+-- now we test with 1 input having offset and others no offset;
+
+--create topic test_topic2;
+--create topic test_topic3;
+
+base_stream1 :=
+(bridge from
+    test_topic2
+    partitions = 20
+    props = ()
+)
+-> (project
+    key,
+    json_int("v0", val) as v0,
+    json_float("v1", val) as v1,
+    json_bool("v2", val) as v2,
+    to_decimal(json_string("v3", val),38,6) as v3,
+    json_string("v4", val) as v4,
+    to_bytes(json_string("v5", val)) as v5,
+    parse_date(json_string("v6", val), "2006-01-02 15:04:05.999999") as v6)
+-> (partition by v0 partitions = 20)
+-> (store stream);
+OK
+
+base_stream2 :=
+(bridge from
+    test_topic3
+    partitions = 20
+    props = ()
+)
+-> (project
+    key,
+    json_int("v0", val) as v0,
+    json_float("v1", val) as v1,
+    json_bool("v2", val) as v2,
+    to_decimal(json_string("v3", val),38,6) as v3,
+    json_string("v4", val) as v4,
+    to_bytes(json_string("v5", val)) as v5,
+    parse_date(json_string("v6", val), "2006-01-02 15:04:05.999999") as v6)
+-> (partition by v0 partitions = 20);
+OK
+
+input1 := base_stream1 -> (project v0 as v0_1, v1 as v1_1, v2 as v2_1, v3 as v3_1, v4 as v4_1, v5 as v5_1, v6 as v6_1);
+OK
+
+input2 := base_stream2 -> (project v0 + 10 as v0_2, v1 as v1_2, v2 as v2_2, v3 as v3_2, v4 as v4_2, v5 as v5_2, v6 as v6_2);
+OK
+
+input3 := base_stream2 -> (project v0 + 20 as v0_3, v1 as v1_3, v2 as v2_3, v3 as v3_3, v4 as v4_3, v5 as v5_3, v6 as v6_3);
+OK
+
+my_union := (union input1, input2, input3) -> (store stream);
+OK
+
+--load data dataset_2;
+--load data dataset_3;
+
+-- we don't display offset in query results as its non deterministic due to the partition;
+(scan all from my_union) -> (project v0_1, v1_1, v2_1, v3_1, v4_1, v5_1, v6_1)-> (sort by v0_1) ;
++----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| v0_1                 | v1_1                       | v2_1                       | v3_1                       | v4_1                       | v5_1                       | v6_1                       |
++----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| 1000                 | 1.230000                   | true                       | 12345678.765432            | foobar01                   | somebytes01                | 2008-04-03 23:21:17.123000 |
+| 1001                 | 2.230000                   | false                      | 22345678.765432            | foobar02                   | somebytes02                | 2008-04-03 23:22:17.123000 |
+| 1002                 | 3.230000                   | true                       | 32345678.765432            | foobar03                   | somebytes03                | 2008-04-03 23:23:17.123000 |
+| 1003                 | 4.230000                   | false                      | 42345678.765432            | foobar04                   | somebytes04                | 2008-04-03 23:24:17.123000 |
+| 1004                 | 5.230000                   | true                       | 52345678.765432            | foobar05                   | somebytes05                | 2008-04-03 23:25:17.123000 |
+| 1005                 | 6.230000                   | false                      | 62345678.765432            | foobar06                   | somebytes06                | 2008-04-03 23:26:17.123000 |
+| 1006                 | 7.230000                   | true                       | 72345678.765432            | foobar07                   | somebytes07                | 2008-04-03 23:27:17.123000 |
+| 1007                 | 8.230000                   | false                      | 82345678.765432            | foobar08                   | somebytes08                | 2008-04-03 23:28:17.123000 |
+| 1008                 | 9.230000                   | true                       | 92345678.765432            | foobar09                   | somebytes09                | 2008-04-03 23:29:17.123000 |
+| 1009                 | 10.230000                  | false                      | 102345678.765432           | foobar10                   | somebytes10                | 2008-04-03 23:30:17.123000 |
+| 1010                 | 1.230000                   | true                       | 12345678.765432            | foobar01                   | somebytes01                | 2008-04-03 23:21:17.123000 |
+| 1011                 | 2.230000                   | false                      | 22345678.765432            | foobar02                   | somebytes02                | 2008-04-03 23:22:17.123000 |
+| 1012                 | 3.230000                   | true                       | 32345678.765432            | foobar03                   | somebytes03                | 2008-04-03 23:23:17.123000 |
+| 1013                 | 4.230000                   | false                      | 42345678.765432            | foobar04                   | somebytes04                | 2008-04-03 23:24:17.123000 |
+| 1014                 | 5.230000                   | true                       | 52345678.765432            | foobar05                   | somebytes05                | 2008-04-03 23:25:17.123000 |
+| 1015                 | 6.230000                   | false                      | 62345678.765432            | foobar06                   | somebytes06                | 2008-04-03 23:26:17.123000 |
+| 1016                 | 7.230000                   | true                       | 72345678.765432            | foobar07                   | somebytes07                | 2008-04-03 23:27:17.123000 |
+| 1017                 | 8.230000                   | false                      | 82345678.765432            | foobar08                   | somebytes08                | 2008-04-03 23:28:17.123000 |
+| 1018                 | 9.230000                   | true                       | 92345678.765432            | foobar09                   | somebytes09                | 2008-04-03 23:29:17.123000 |
+| 1019                 | 10.230000                  | false                      | 102345678.765432           | foobar10                   | somebytes10                | 2008-04-03 23:30:17.123000 |
+| 1020                 | 1.230000                   | true                       | 12345678.765432            | foobar01                   | somebytes01                | 2008-04-03 23:21:17.123000 |
+| 1021                 | 2.230000                   | false                      | 22345678.765432            | foobar02                   | somebytes02                | 2008-04-03 23:22:17.123000 |
+| 1022                 | 3.230000                   | true                       | 32345678.765432            | foobar03                   | somebytes03                | 2008-04-03 23:23:17.123000 |
+| 1023                 | 4.230000                   | false                      | 42345678.765432            | foobar04                   | somebytes04                | 2008-04-03 23:24:17.123000 |
+| 1024                 | 5.230000                   | true                       | 52345678.765432            | foobar05                   | somebytes05                | 2008-04-03 23:25:17.123000 |
+| 1025                 | 6.230000                   | false                      | 62345678.765432            | foobar06                   | somebytes06                | 2008-04-03 23:26:17.123000 |
+| 1026                 | 7.230000                   | true                       | 72345678.765432            | foobar07                   | somebytes07                | 2008-04-03 23:27:17.123000 |
+| 1027                 | 8.230000                   | false                      | 82345678.765432            | foobar08                   | somebytes08                | 2008-04-03 23:28:17.123000 |
+| 1028                 | 9.230000                   | true                       | 92345678.765432            | foobar09                   | somebytes09                | 2008-04-03 23:29:17.123000 |
+| 1029                 | 10.230000                  | false                      | 102345678.765432           | foobar10                   | somebytes10                | 2008-04-03 23:30:17.123000 |
++----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+30 rows returned
+
+delete(my_union);
+OK
+delete(input3);
+OK
+delete(input2);
+OK
+delete(input1);
+OK
+delete(base_stream2);
+OK
+delete(base_stream1);
+OK
+
+--delete topic test_topic2;
+--delete topic test_topic3;
+
+-- errors;
+
+-- different column types;
+
+-- first with no offset column;
+
+--create topic test_topic1;
+
+base_stream :=
+(bridge from
+    test_topic1
+    partitions = 20
+    props = ()
+)
+-> (project
+    key,
+    json_int("v0", val) as v0,
+    json_float("v1", val) as v1,
+    json_bool("v2", val) as v2,
+    to_decimal(json_string("v3", val),38,6) as v3,
+    json_string("v4", val) as v4,
+    to_bytes(json_string("v5", val)) as v5,
+    parse_date(json_string("v6", val), "2006-01-02 15:04:05.999999") as v6)
+-> (partition by v0 partitions = 20);
+OK
+
+input1 := base_stream -> (project v0 as v0_1, v1 as v1_1, v2 as v2_1, v3 as v3_1, v4 as v4_1, v5 as v5_1, v6 as v6_1);
+OK
+
+input2 := base_stream-> (project v1 as v1_2, v2 as v2_2, v3 as v3_2, v4 as v4_2, v5 as v5_2, v6 as v6_2);
+OK
+
+my_union := (union input1, input2) -> (store stream);
+cannot create union - input 1 has different column types or number of columns: [timestamp int float bool decimal(38,6) string bytes timestamp], expected: [timestamp float bool decimal(38,6) string bytes timestamp] (line 1 column 14):
+my_union := (union input1, input2) -> (store stream)
+             ^
+
+delete(input1);
+OK
+delete(input2);
+OK
+delete(base_stream);
+OK
+
+-- with offset column;
+
+base_stream :=
+(bridge from
+    test_topic1
+    partitions = 20
+    props = ()
+)
+-> (project
+    key,
+    json_int("v0", val) as v0,
+    json_float("v1", val) as v1,
+    json_bool("v2", val) as v2,
+    to_decimal(json_string("v3", val),38,6) as v3,
+    json_string("v4", val) as v4,
+    to_bytes(json_string("v5", val)) as v5,
+    parse_date(json_string("v6", val), "2006-01-02 15:04:05.999999") as v6)
+-> (store stream);
+OK
+
+input1 := base_stream -> (project v0 as v0_1, v1 as v1_1, v2 as v2_1, v3 as v3_1, v4 as v4_1, v5 as v5_1, v6 as v6_1);
+OK
+
+input2 := base_stream -> (project v1 as v1_2, v2 as v2_2, v3 as v3_2, v4 as v4_2, v5 as v5_2, v6 as v6_2);
+OK
+
+my_union := (union input1, input2) -> (store stream);
+cannot create union - input 1 has different column types or number of columns: [timestamp int float bool decimal(38,6) string bytes timestamp], expected: [timestamp float bool decimal(38,6) string bytes timestamp] (line 1 column 14):
+my_union := (union input1, input2) -> (store stream)
+             ^
+
+delete(input1);
+OK
+delete(input2);
+OK
+delete(base_stream);
+OK
+
+-- different partition scheme;
+
+base_stream1 :=
+(bridge from
+    test_topic3
+    partitions = 20
+    props = ()
+)
+-> (project
+    key,
+    json_int("v0", val) as v0,
+    json_float("v1", val) as v1,
+    json_bool("v2", val) as v2,
+    to_decimal(json_string("v3", val),38,6) as v3,
+    json_string("v4", val) as v4,
+    to_bytes(json_string("v5", val)) as v5,
+    parse_date(json_string("v6", val), "2006-01-02 15:04:05.999999") as v6)
+-> (partition by v0 partitions = 20);
+OK
+
+base_stream2 :=
+(bridge from
+    test_topic3
+    partitions = 20
+    props = ()
+)
+-> (project
+    key,
+    json_int("v0", val) as v0,
+    json_float("v1", val) as v1,
+    json_bool("v2", val) as v2,
+    to_decimal(json_string("v3", val),38,6) as v3,
+    json_string("v4", val) as v4,
+    to_bytes(json_string("v5", val)) as v5,
+    parse_date(json_string("v6", val), "2006-01-02 15:04:05.999999") as v6)
+-> (partition by v0 partitions = 15);
+OK
+
+input1 := base_stream1 -> (project v0 as v0_1, v1 as v1_1, v2 as v2_1, v3 as v3_1, v4 as v4_1, v5 as v5_1, v6 as v6_1);
+OK
+
+input2 := base_stream2 -> (project v0 + 10 as v0_2, v1 as v1_2, v2 as v2_2, v3 as v3_2, v4 as v4_2, v5 as v5_2, v6 as v6_2);
+OK
+
+my_union := (union input1, input2) -> (store stream);
+cannot create union - input 1 has different number of partitions or different mapping (line 1 column 14):
+my_union := (union input1, input2) -> (store stream)
+             ^
+
+delete(input1);
+OK
+delete(input2);
+OK
+delete(base_stream1);
+OK
+delete(base_stream2);
+OK
+
+--delete topic test_topic1;
+
+-- unknown input;
+
+my_union := (union who, what) -> (store stream);
+unknown stream 'who' (line 1 column 20):
+my_union := (union who, what) -> (store stream)
+                   ^

@@ -1,0 +1,16 @@
+--create topic test_topic 1000;
+
+test_stream :=
+(bridge from
+    test_topic
+    partitions = 1000
+    props = ()
+) -> (store stream);
+
+--load data dataset_1;
+
+(scan all from test_stream) -> (sort by key);
+
+delete(test_stream);
+
+--delete topic test_topic;

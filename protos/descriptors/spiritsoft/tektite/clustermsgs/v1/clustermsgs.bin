@@ -1,0 +1,146 @@
+
+ª"
+3spiritsoft/tektite/clustermsgs/v1/clustermsgs.proto!spiritlabs.tektite.clustermsgs.v1"ñ
+ForwardBatchMessage!
+processor_id (RprocessorId
+receiver_id (R
+receiverId!
+partition_id (RpartitionId6
+forwarding_processor_id (RforwardingProcessorId/
+forwarding_sequence (RforwardingSequence
+
+command_id (R	commandId
+version (Rversion
+
+water_mark (R	waterMark
+barrier	 (Rbarrier
+batch_bytes
+ (R
+batchBytes
+	replicate (R	replicate"√
+ReplicateMessage)
+replication_type (RreplicationType!
+processor_id (RprocessorId
+receiver_id (R
+receiverId!
+partition_id (RpartitionId6
+forwarding_processor_id (RforwardingProcessorId
+batch_bytes (R
+batchBytes'
+sequence_number (RsequenceNumber'
+cluster_version (RclusterVersion4
+joined_cluster_version	 (RjoinedClusterVersion!
+sending_node
+ (RsendingNode
+repl_seq (RreplSeq"â
+LastCommittedRequest!
+processor_id (RprocessorId'
+cluster_version (RclusterVersion%
+joined_version (RjoinedVersion">
+LastCommittedResponse%
+last_committed (RlastCommitted"ä
+SetLastCommittedMessage!
+processor_id (RprocessorId%
+last_committed (RlastCommitted%
+joined_version (RjoinedVersion"≠
+FlushMessage!
+processor_id (RprocessorId
+	batch_seq (RbatchSeq'
+cluster_version (RclusterVersion4
+joined_cluster_version (RjoinedClusterVersion"^
+&LevelManagerGetTableIDsForRangeMessage
+	key_start (RkeyStart
+key_end (RkeyEnd"(
+&LevelManagerGetPrefixRetentionsMessage"—
+'LevelManagerGetTableIDsForRangeResponse
+payload (Rpayload*
+level_manager_now (RlevelManagerNow`
+dead_versions (2;.spiritlabs.tektite.clustermsgs.v1.LevelManagerVersionRangeRdeadVersions"`
+LevelManagerVersionRange#
+version_start (RversionStart
+version_end (R
+versionEnd"3
+LevelManagerRawResponse
+payload (Rpayload";
+LevelManagerApplyChangesRequest
+payload (Rpayload"G
++LevelManagerRegisterDeadVersionRangeRequest
+payload (Rpayload"4
+LevelManagerL0AddRequest
+payload (Rpayload"G
++LevelManagerRegisterPrefixRetentionsRequest
+payload (Rpayload"+
+)LevelManagerLoadLastFlushedVersionMessage"^
+*LevelManagerLoadLastFlushedVersionResponse0
+last_flushed_version (RlastFlushedVersion"^
+*LevelManagerStoreLastFlushedVersionMessage0
+last_flushed_version (RlastFlushedVersion"
+LevelManagerGetStatsMessage"8
+LevelManagerGetStatsResponse
+payload (Rpayload"
+CompactionPollMessage"*
+CompactionPollResponse
+job (Rjob"+
+LocalObjStoreGetRequest
+key (Rkey"0
+LocalObjStoreGetResponse
+value (Rvalue"A
+LocalObjStoreAddRequest
+key (Rkey
+value (Rvalue".
+LocalObjStoreDeleteRequest
+key (Rkey"Ö
+QueryMessage
+exec_id (RexecId
+
+query_name (	R	queryName
+tsl (	Rtsl'
+highest_version (RhighestVersion'
+cluster_version (RclusterVersion
+args (Rargs
+
+partitions (R
+partitions%
+sender_address (	RsenderAddress"R
+QueryResponse
+exec_id (RexecId
+value (Rvalue
+last (Rlast"ê
+VersionsMessage'
+current_version (RcurrentVersion+
+completed_version (RcompletedVersion'
+flushed_version (RflushedVersion"
+GetCurrentVersionMessage"ò
+VersionCompleteMessage
+version (Rversion1
+required_completions (RrequiredCompletions
+
+command_id (R	commandId
+doom (Rdoom"j
+FailureDetectedMessage'
+processor_count (RprocessorCount'
+cluster_version (RclusterVersion"N
+#GetLastFailureFlushedVersionMessage'
+cluster_version (RclusterVersion"O
+$GetLastFailureFlushedVersionResponse'
+flushed_version (RflushedVersion"j
+FailureCompleteMessage'
+processor_count (RprocessorCount'
+cluster_version (RclusterVersion"C
+IsFailureCompleteMessage'
+cluster_version (RclusterVersion"7
+IsFailureCompleteResponse
+complete (Rcomplete"ú
+VersionFlushedMessage
+node_id (RnodeId
+version (Rversion'
+processor_count (RprocessorCount'
+cluster_version (RclusterVersion"
+CommandAvailableMessage"'
+ShutdownMessage
+phase (Rphase",
+ShutdownResponse
+flushed (Rflushed"4
+RemotingTestMessage
+
+some_field (	R	someFieldB6Z4github.com/spirit-labs/tektite/protos/v1/clustermsgsbproto3

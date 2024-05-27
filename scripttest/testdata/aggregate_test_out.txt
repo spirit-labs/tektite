@@ -1,0 +1,431 @@
+set max_line_width 200;
+OK
+
+-- aggregate with continuation and partition;
+
+--create topic test_topic 16;
+
+stream1 :=
+(bridge from
+    test_topic
+    partitions = 16
+    props = ()
+)
+-> (project
+    key,
+    json_int("v0",val) as v0,
+    json_float("v1",val) as v1,
+    json_bool("v2",val) as v2,
+    to_decimal(json_string("v3", val),38,6) as v3,
+    json_string("v4", val) as v4,
+    to_bytes(json_string("v5", val)) as v5,
+    parse_date(json_string("v6", val), "2006-01-02 15:04:05.999999") as v6)
+-> (store stream);
+OK
+
+stream2 := stream1
+-> (partition by v0 partitions=10)
+-> (aggregate sum(v1), max(v3) by v0);
+OK
+
+-- note the input to the aggregation has no offset column because the partition operatorn will remove it;
+
+--load data dataset_1;
+
+(scan all from stream2) -> (sort by v0);
++-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| event_time                 | v0                   | sum(v1)                                                                | max(v3)                                                                |
++-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| 2006-01-02 15:09:05.000000 | 1000                 | 9.690000                                                               | 62345678.765432                                                        |
+| 2006-01-02 15:12:05.000000 | 1001                 | 19.690000                                                              | 92345678.765432                                                        |
+| 2006-01-02 15:08:05.000000 | 1002                 | 5.230000                                                               | 52345678.765432                                                        |
+| 2006-01-02 15:11:05.000000 | 1003                 | 12.460000                                                              | 82345678.765432                                                        |
+| 2006-01-02 15:13:05.000000 | 1009                 | 10.230000                                                              | 102345678.765432                                                       |
++-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+5 rows returned
+
+delete(stream2);
+OK
+delete(stream1);
+OK
+
+--delete topic test_topic;
+
+-- now we repeat the above, this time with an input that has an offset column;
+
+--create topic test_topic 16;
+
+stream1 :=
+(bridge from
+    test_topic
+    partitions = 16
+    props = ()
+)
+-> (project
+    key,
+    json_int("v0",val) as v0,
+    json_float("v1",val) as v1,
+    json_bool("v2",val) as v2,
+    to_decimal(json_string("v3", val),38,6) as v3,
+    json_string("v4", val) as v4,
+    to_bytes(json_string("v5", val)) as v5,
+    parse_date(json_string("v6", val), "2006-01-02 15:04:05.999999") as v6)
+-> (store stream);
+OK
+
+stream2 := stream1
+-> (partition by v0 partitions=10)
+-> (store stream);
+OK
+
+stream3 := stream2
+-> (aggregate sum(v1), max(v3) by v0);
+OK
+
+--load data dataset_1;
+
+(scan all from stream3) -> (sort by v0);
++-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| event_time                 | v0                   | sum(v1)                                                                | max(v3)                                                                |
++-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| 2006-01-02 15:09:05.000000 | 1000                 | 9.690000                                                               | 62345678.765432                                                        |
+| 2006-01-02 15:12:05.000000 | 1001                 | 19.690000                                                              | 92345678.765432                                                        |
+| 2006-01-02 15:08:05.000000 | 1002                 | 5.230000                                                               | 52345678.765432                                                        |
+| 2006-01-02 15:11:05.000000 | 1003                 | 12.460000                                                              | 82345678.765432                                                        |
+| 2006-01-02 15:13:05.000000 | 1009                 | 10.230000                                                              | 102345678.765432                                                       |
++-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+5 rows returned
+
+delete(stream3);
+OK
+delete(stream2);
+OK
+delete(stream1);
+OK
+
+--delete topic test_topic;
+
+-- aggregate with continuation no partition;
+
+--create topic test_topic 16;
+
+stream1 :=
+(bridge from
+    test_topic
+    partitions = 16
+    props = ()
+)
+-> (project
+    key,
+    json_int("v0",val) as v0,
+    json_float("v1",val) as v1,
+    json_bool("v2",val) as v2,
+    to_decimal(json_string("v3", val),38,6) as v3,
+    json_string("v4", val) as v4,
+    to_bytes(json_string("v5", val)) as v5,
+    parse_date(json_string("v6", val), "2006-01-02 15:04:05.999999") as v6)
+-> (store stream);
+OK
+
+stream2 := stream1
+-> (aggregate sum(v1), max(v3) by key);
+OK
+
+--load data dataset_2;
+
+(scan all from stream2) -> (sort by key);
++----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| event_time                 | key                                                   | sum(v1)                                               | max(v3)                                               |
++----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| 2006-01-02 15:12:05.000000 | key01                                                 | 13.460000                                             | 92345678.765432                                       |
+| 2006-01-02 15:05:05.000000 | key02                                                 | 2.230000                                              | 22345678.765432                                       |
+| 2006-01-02 15:11:05.000000 | key03                                                 | 19.920000                                             | 82345678.765432                                       |
+| 2006-01-02 15:13:05.000000 | key04                                                 | 15.460000                                             | 102345678.765432                                      |
+| 2006-01-02 15:09:05.000000 | key05                                                 | 6.230000                                              | 62345678.765432                                       |
++----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+5 rows returned
+
+delete(stream2);
+OK
+delete(stream1);
+OK
+
+--delete topic test_topic;
+
+-- aggregate direct, no partition;
+
+--create topic test_topic 16;
+
+stream1 :=
+(bridge from
+    test_topic
+    partitions = 16
+    props = ()
+)
+-> (project
+    key,
+    json_int("v0",val) as v0,
+    json_float("v1",val) as v1,
+    json_bool("v2",val) as v2,
+    to_decimal(json_string("v3", val),38,6) as v3,
+    json_string("v4", val) as v4,
+    to_bytes(json_string("v5", val)) as v5,
+    parse_date(json_string("v6", val), "2006-01-02 15:04:05.999999") as v6)
+-> (aggregate sum(v1), max(v3) by key);
+OK
+
+--load data dataset_2;
+
+(scan all from stream1) -> (sort by key);
++----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| event_time                 | key                                                   | sum(v1)                                               | max(v3)                                               |
++----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| 2006-01-02 15:12:05.000000 | key01                                                 | 13.460000                                             | 92345678.765432                                       |
+| 2006-01-02 15:05:05.000000 | key02                                                 | 2.230000                                              | 22345678.765432                                       |
+| 2006-01-02 15:11:05.000000 | key03                                                 | 19.920000                                             | 82345678.765432                                       |
+| 2006-01-02 15:13:05.000000 | key04                                                 | 15.460000                                             | 102345678.765432                                      |
+| 2006-01-02 15:09:05.000000 | key05                                                 | 6.230000                                              | 62345678.765432                                       |
++----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+5 rows returned
+
+delete(stream1);
+OK
+
+--delete topic test_topic;
+
+-- aggregate direct, with partition;
+
+--create topic test_topic 16;
+
+stream1 :=
+(bridge from
+    test_topic
+    partitions = 16
+    props = ()
+)
+-> (project
+    key,
+    json_int("v0",val) as v0,
+    json_float("v1",val) as v1,
+    json_bool("v2",val) as v2,
+    to_decimal(json_string("v3", val),38,6) as v3,
+    json_string("v4", val) as v4,
+    to_bytes(json_string("v5", val)) as v5,
+    parse_date(json_string("v6", val), "2006-01-02 15:04:05.999999") as v6)
+-> (partition by v0 partitions=10)
+-> (aggregate sum(v1), max(v3) by v0);
+OK
+
+--load data dataset_1;
+
+(scan all from stream1) -> (sort by v0);
++-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| event_time                 | v0                   | sum(v1)                                                                | max(v3)                                                                |
++-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| 2006-01-02 15:09:05.000000 | 1000                 | 9.690000                                                               | 62345678.765432                                                        |
+| 2006-01-02 15:12:05.000000 | 1001                 | 19.690000                                                              | 92345678.765432                                                        |
+| 2006-01-02 15:08:05.000000 | 1002                 | 5.230000                                                               | 52345678.765432                                                        |
+| 2006-01-02 15:11:05.000000 | 1003                 | 12.460000                                                              | 82345678.765432                                                        |
+| 2006-01-02 15:13:05.000000 | 1009                 | 10.230000                                                              | 102345678.765432                                                       |
++-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+5 rows returned
+
+-- check data still there after restart;
+--restart cluster;
+
+set max_line_width 200;
+OK
+
+(scan all from stream1) -> (sort by v0);
++-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| event_time                 | v0                   | sum(v1)                                                                | max(v3)                                                                |
++-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| 2006-01-02 15:09:05.000000 | 1000                 | 9.690000                                                               | 62345678.765432                                                        |
+| 2006-01-02 15:12:05.000000 | 1001                 | 19.690000                                                              | 92345678.765432                                                        |
+| 2006-01-02 15:08:05.000000 | 1002                 | 5.230000                                                               | 52345678.765432                                                        |
+| 2006-01-02 15:11:05.000000 | 1003                 | 12.460000                                                              | 82345678.765432                                                        |
+| 2006-01-02 15:13:05.000000 | 1009                 | 10.230000                                                              | 102345678.765432                                                       |
++-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+5 rows returned
+
+delete(stream1);
+OK
+
+--delete topic test_topic;
+
+-- aggregate with no grouping;
+
+--create topic test_topic 16;
+
+stream1 :=
+(bridge from
+    test_topic
+    partitions = 16
+    props = ()
+)
+-> (project
+    key,
+    json_int("v0",val) as v0,
+    json_float("v1",val) as v1,
+    json_bool("v2",val) as v2,
+    to_decimal(json_string("v3", val),38,6) as v3,
+    json_string("v4", val) as v4,
+    to_bytes(json_string("v5", val)) as v5,
+    parse_date(json_string("v6", val), "2006-01-02 15:04:05.999999") as v6)
+-> (partition by const partitions=1)
+-> (aggregate sum(v1), max(v3), min(v3), avg(v0), count(v2));
+OK
+
+--load data dataset_1;
+
+(scan all from stream1);
++---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| event_time                 | sum(v1)                           | max(v3)                           | min(v3)                           | avg(v0)                           | count(v2)            |
++---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| 2006-01-02 15:13:05.000000 | 57.300000                         | 102345678.765432                  | 12345678.765432                   | 1002.000000                       | 10                   |
++---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+1 row returned
+
+delete(stream1);
+OK
+
+--delete topic test_topic;
+
+--- group by multiple columns;
+
+--create topic test_topic 16;
+
+stream1 :=
+(bridge from
+    test_topic
+    partitions = 16
+    props = ()
+)
+-> (project
+    key,
+    json_int("v0",val) as v0,
+    json_float("v1",val) as v1,
+    json_bool("v2",val) as v2,
+    to_decimal(json_string("v3", val),38,6) as v3,
+    json_string("v4", val) as v4,
+    to_bytes(json_string("v5", val)) as v5,
+    parse_date(json_string("v6", val), "2006-01-02 15:04:05.999999") as v6)
+-> (partition by v0, v1 partitions=10)
+-> (aggregate max(v3), count(v2) by v0, v1);
+OK
+
+--load data dataset_3;
+
+(scan all from stream1) -> (sort by v0, v1);
++------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| event_time                 | v0                   | v1                                                          | max(v3)                                                     | count(v2)            |
++------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| 2006-01-02 15:09:05.000000 | 1000                 | 1.230000                                                    | 62345678.765432                                             | 2                    |
+| 2006-01-02 15:05:05.000000 | 1000                 | 2.230000                                                    | 22345678.765432                                             | 1                    |
+| 2006-01-02 15:10:05.000000 | 1001                 | 3.230000                                                    | 72345678.765432                                             | 2                    |
+| 2006-01-02 15:12:05.000000 | 1001                 | 9.230000                                                    | 92345678.765432                                             | 1                    |
+| 2006-01-02 15:07:05.000000 | 1002                 | 4.230000                                                    | 42345678.765432                                             | 1                    |
+| 2006-01-02 15:13:05.000000 | 1002                 | 5.230000                                                    | 102345678.765432                                            | 3                    |
++------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+6 rows returned
+
+delete(stream1);
+OK
+
+--delete topic test_topic;
+
+-- can hang a stream off the aggregate if store=false;
+
+--create topic test_topic 16;
+
+--breakpoint;
+stream1 :=
+(bridge from
+    test_topic
+    partitions = 16
+    props = ()
+)
+-> (project
+    key,
+    json_int("v0",val) as v0,
+    json_float("v1",val) as v1,
+    json_bool("v2",val) as v2,
+    to_decimal(json_string("v3", val),38,6) as v3,
+    json_string("v4", val) as v4,
+    to_bytes(json_string("v5", val)) as v5,
+    parse_date(json_string("v6", val), "2006-01-02 15:04:05.999999") as v6)
+-> (partition by v0 partitions=10)
+-> (aggregate sum(v1) as sumv1, max(v3) by v0 store=false)
+-> (project v0, sumv1, "hello")
+-> (store table by v0);
+OK
+
+--load data dataset_1;
+
+(scan all from stream1) -> (sort by v0);
++-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| event_time                 | v0                   | sumv1                                                                  | col2                                                                   |
++-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| 2006-01-02 15:09:05.000000 | 1000                 | 9.690000                                                               | hello                                                                  |
+| 2006-01-02 15:12:05.000000 | 1001                 | 19.690000                                                              | hello                                                                  |
+| 2006-01-02 15:08:05.000000 | 1002                 | 5.230000                                                               | hello                                                                  |
+| 2006-01-02 15:11:05.000000 | 1003                 | 12.460000                                                              | hello                                                                  |
+| 2006-01-02 15:13:05.000000 | 1009                 | 10.230000                                                              | hello                                                                  |
++-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+5 rows returned
+
+delete(stream1);
+OK
+
+-- errors;
+
+-- aggregate errors;
+
+stream1 :=
+(bridge from
+    test_topic
+    partitions = 10
+    props = ()
+)
+-> (store stream);
+OK
+
+-- invalid column;
+
+stream2 := stream1 -> (aggregate sum(val) by foo);
+unknown column 'foo'. (available columns: offset: int, event_time: timestamp, key: bytes, hdrs: bytes, val: bytes) (line 1 column 46):
+stream2 := stream1 -> (aggregate sum(val) by foo)
+                                             ^
+
+-- invalid agg funcs;
+
+stream2 := stream1 -> (aggregate bum(val) by key);
+'bum' is not a known function (line 1 column 34):
+stream2 := stream1 -> (aggregate bum(val) by key)
+                                 ^
+
+-- invalid retention;
+
+stream2 := stream1 -> (aggregate sum(val) by key retention=badgers);
+expected duration but found 'badgers' (line 1 column 60):
+stream2 := stream1 -> (aggregate sum(val) by key retention=badgers)
+                                                           ^
+
+-- cannot specify window_cols;
+
+stream2 := stream1 -> (aggregate sum(val) by key window_cols=true);
+'window_cols' must not be specified for a non windowed aggregation (line 1 column 50):
+stream2 := stream1 -> (aggregate sum(val) by key window_cols=true)
+                                                 ^
+
+-- reserved name as alias;
+
+stream2 := stream1 -> (aggregate sum(val) as event_time by key);
+cannot use column alias 'event_time', it is a reserved name (line 1 column 46):
+stream2 := stream1 -> (aggregate sum(val) as event_time by key)
+                                             ^
+
+delete(stream1);
+OK
+
+--delete topic test_topic;

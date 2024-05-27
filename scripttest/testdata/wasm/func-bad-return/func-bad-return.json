@@ -1,0 +1,37 @@
+{
+    "name": "func-bad-return",
+    "functions": {
+        "funcArgsAllTypes": {
+            "paramTypes": ["int","float", "bool", "decimal(38, 6)", "string", "bytes", "timestamp"],
+            "returnType": "bool"
+        },
+        "funcIntReturn": {
+            "paramTypes": ["int"],
+            "returnType": "int"
+        },
+        "funcFloatReturn": {
+            "paramTypes": ["float"],
+            "returnType": "float"
+        },
+        "funcBoolReturn": {
+            "paramTypes": ["bool"],
+            "returnType": "bool"
+        },
+        "funcDecimalReturn": {
+            "paramTypes": ["decimal(38, 6)"],
+            "returnType": "decimal(38, 6)"
+        },
+        "funcStringReturn": {
+            "paramTypes": ["string"],
+            "returnType": "string"
+        },
+        "funcBytesReturn": {
+            "paramTypes": ["bytes"],
+            "returnType": "bytes"
+        },
+        "funcTimestampReturn": {
+            "paramTypes": ["timestamp"],
+            "returnType": "timestamp"
+        }
+    }
+}

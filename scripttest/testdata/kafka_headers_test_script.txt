@@ -1,0 +1,62 @@
+--create topic test_topic 16;
+
+test_stream1 :=
+(bridge from
+    test_topic
+    partitions = 16
+    props = ()
+)
+-> (project
+    key,
+    kafka_header("h1", hdrs) as h1,
+    kafka_header("h2", hdrs) as h2,
+    kafka_header("h3", hdrs) as h3,
+    kafka_header("not_exist", hdrs) as ne,
+    json_int("v0",val) as v0)
+-> (store stream);
+
+--load data dataset_1;
+
+(scan all from test_stream1) -> (sort by key);
+
+delete(test_stream1);
+
+--delete topic test_topic;
+
+test_stream2 := (kafka in partitions = 16)
+-> (project
+    key,
+    kafka_header("h1", hdrs) as h1,
+    kafka_header("h2", hdrs) as h2,
+    kafka_header("h3", hdrs) as h3,
+    kafka_header("not_exist", hdrs) as ne,
+    json_int("v0",val) as v0)
+-> (store stream);
+
+--produce data dataset_2;
+
+(scan all from test_stream2) -> (sort by key);
+
+delete(test_stream2);
+
+-- now try consuming headers;
+
+--create topic test_topic 16;
+
+test_stream3 :=
+(bridge from
+    test_topic
+    partitions = 16
+    props = ()
+)
+-> (partition by key partitions=1)
+-> (project key, kafka_build_headers("hh1", "vv1", "hh2", "vv2") as hdrs, val)
+-> (kafka out);
+
+--load data dataset_3;
+
+--consume data test_stream3 test_group1 earliest 5 commit no_print_offset;
+
+delete(test_stream3);
+
+--delete topic test_topic;

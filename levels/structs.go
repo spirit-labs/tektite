@@ -1,0 +1,513 @@
+//lint:file-ignore U1000 Ignore all unused code
+package levels
+
+import (
+	"github.com/spirit-labs/tektite/common"
+	"github.com/spirit-labs/tektite/encoding"
+	"github.com/spirit-labs/tektite/sst"
+)
+
+type NonoverlappingTableIDs []sst.SSTableID
+
+type OverlappingTableIDs []NonoverlappingTableIDs
+
+func (ot OverlappingTableIDs) Serialize(bytes []byte) []byte {
+	bytes = encoding.AppendUint32ToBufferLE(bytes, uint32(len(ot)))
+	for _, noids := range ot {
+		bytes = encoding.AppendUint32ToBufferLE(bytes, uint32(len(noids)))
+		for _, tid := range noids {
+			bytes = encoding.AppendUint32ToBufferLE(bytes, uint32(len(tid)))
+			bytes = append(bytes, tid...)
+		}
+	}
+	return bytes
+}
+
+func DeserializeOverlappingTableIDs(bytes []byte, offset int) OverlappingTableIDs {
+	nn, offset := encoding.ReadUint32FromBufferLE(bytes, offset)
+	otids := make([]NonoverlappingTableIDs, nn)
+	for i := 0; i < int(nn); i++ {
+		var no uint32
+		no, offset = encoding.ReadUint32FromBufferLE(bytes, offset)
+		tabIDs := make([]sst.SSTableID, no)
+		otids[i] = tabIDs
+		for j := 0; j < int(no); j++ {
+			var l uint32
+			l, offset = encoding.ReadUint32FromBufferLE(bytes, offset)
+			tabID := bytes[offset : offset+int(l)]
+			offset += int(l)
+			tabIDs[j] = tabID
+		}
+	}
+	return otids
+}
+
+type RegistrationEntry struct {
+	Level            int
+	TableID          sst.SSTableID
+	MinVersion       uint64
+	MaxVersion       uint64
+	KeyStart, KeyEnd []byte
+	DeleteRatio      float64
+	CreationTime     uint64
+	NumEntries       uint64
+	TableSize        uint64
+}
+
+func (re *RegistrationEntry) serialize(buff []byte) []byte {
+	buff = encoding.AppendUint32ToBufferLE(buff, uint32(re.Level))
+	buff = encoding.AppendUint32ToBufferLE(buff, uint32(len(re.TableID)))
+	buff = append(buff, re.TableID...)
+	buff = encoding.AppendUint64ToBufferLE(buff, re.MinVersion)
+	buff = encoding.AppendUint64ToBufferLE(buff, re.MaxVersion)
+	buff = encoding.AppendUint32ToBufferLE(buff, uint32(len(re.KeyStart)))
+	buff = append(buff, re.KeyStart...)
+	buff = encoding.AppendUint32ToBufferLE(buff, uint32(len(re.KeyEnd)))
+	buff = append(buff, re.KeyEnd...)
+	buff = encoding.AppendFloat64ToBufferLE(buff, re.DeleteRatio)
+	buff = encoding.AppendUint64ToBufferLE(buff, re.CreationTime)
+	buff = encoding.AppendUint64ToBufferLE(buff, re.NumEntries)
+	buff = encoding.AppendUint64ToBufferLE(buff, re.TableSize)
+	return buff
+}
+
+func (re *RegistrationEntry) deserialize(buff []byte, offset int) int {
+	var lev uint32
+	lev, offset = encoding.ReadUint32FromBufferLE(buff, offset)
+	re.Level = int(lev)
+	var l uint32
+	l, offset = encoding.ReadUint32FromBufferLE(buff, offset)
+	re.TableID = buff[offset : offset+int(l)]
+	offset += int(l)
+	re.MinVersion, offset = encoding.ReadUint64FromBufferLE(buff, offset)
+	re.MaxVersion, offset = encoding.ReadUint64FromBufferLE(buff, offset)
+	l, offset = encoding.ReadUint32FromBufferLE(buff, offset)
+	re.KeyStart = buff[offset : offset+int(l)]
+	offset += int(l)
+	l, offset = encoding.ReadUint32FromBufferLE(buff, offset)
+	re.KeyEnd = buff[offset : offset+int(l)]
+	offset += int(l)
+	re.DeleteRatio, offset = encoding.ReadFloat64FromBufferLE(buff, offset)
+	re.CreationTime, offset = encoding.ReadUint64FromBufferLE(buff, offset)
+	re.NumEntries, offset = encoding.ReadUint64FromBufferLE(buff, offset)
+	re.TableSize, offset = encoding.ReadUint64FromBufferLE(buff, offset)
+	return offset
+}
+
+type RegistrationBatch struct {
+	ClusterName     string
+	ClusterVersion  int
+	Compaction      bool
+	JobID           string
+	Registrations   []RegistrationEntry
+	DeRegistrations []RegistrationEntry
+}
+
+func (rb *RegistrationBatch) Serialize(buff []byte) []byte {
+	buff = encoding.AppendStringToBufferLE(buff, rb.ClusterName)
+	buff = encoding.AppendUint64ToBufferLE(buff, uint64(rb.ClusterVersion))
+	buff = encoding.AppendBoolToBuffer(buff, rb.Compaction)
+	buff = encoding.AppendStringToBufferLE(buff, rb.JobID)
+	buff = encoding.AppendUint32ToBufferLE(buff, uint32(len(rb.Registrations)))
+	for _, reg := range rb.Registrations {
+		buff = reg.serialize(buff)
+	}
+	buff = encoding.AppendUint32ToBufferLE(buff, uint32(len(rb.DeRegistrations)))
+	for _, dereg := range rb.DeRegistrations {
+		buff = dereg.serialize(buff)
+	}
+	return buff
+}
+
+func (rb *RegistrationBatch) Deserialize(buff []byte, offset int) int {
+	var s string
+	s, offset = encoding.ReadStringFromBufferLE(buff, offset)
+	rb.ClusterName = s
+	var ver uint64
+	ver, offset = encoding.ReadUint64FromBufferLE(buff, offset)
+	rb.ClusterVersion = int(ver)
+	rb.Compaction, offset = encoding.ReadBoolFromBuffer(buff, offset)
+	rb.JobID, offset = encoding.ReadStringFromBufferLE(buff, offset)
+	var l uint32
+	l, offset = encoding.ReadUint32FromBufferLE(buff, offset)
+	rb.Registrations = make([]RegistrationEntry, l)
+	for i := 0; i < int(l); i++ {
+		offset = rb.Registrations[i].deserialize(buff, offset)
+	}
+	l, offset = encoding.ReadUint32FromBufferLE(buff, offset)
+	rb.DeRegistrations = make([]RegistrationEntry, l)
+	for i := 0; i < int(l); i++ {
+		offset = rb.DeRegistrations[i].deserialize(buff, offset)
+	}
+	return offset
+}
+
+type segmentID []byte
+
+type segment struct {
+	format       byte // Placeholder to allow us to change format later on
+	tableEntries []*TableEntry
+}
+
+func (s *segment) serialize(buff []byte) []byte {
+	buff = append(buff, s.format)
+	buff = encoding.AppendUint32ToBufferLE(buff, uint32(len(s.tableEntries)))
+	for _, te := range s.tableEntries {
+		buff = te.serialize(buff)
+	}
+	return buff
+}
+
+func (s *segment) deserialize(buff []byte) {
+	s.format = buff[0]
+	offset := 1
+	var l uint32
+	l, offset = encoding.ReadUint32FromBufferLE(buff, offset)
+	s.tableEntries = make([]*TableEntry, int(l))
+	for i := 0; i < int(l); i++ {
+		te := &TableEntry{}
+		offset = te.deserialize(buff, offset)
+		s.tableEntries[i] = te
+	}
+}
+
+type TableEntry struct {
+	SSTableID    sst.SSTableID
+	RangeStart   []byte
+	RangeEnd     []byte
+	MinVersion   uint64
+	MaxVersion   uint64
+	DeleteRatio  float64
+	CreationTime uint64
+	NumEntries   uint64
+	Size         uint64
+}
+
+func (te *TableEntry) serialize(buff []byte) []byte {
+	buff = encoding.AppendUint32ToBufferLE(buff, uint32(len(te.SSTableID)))
+	buff = append(buff, te.SSTableID...)
+	buff = encoding.AppendUint32ToBufferLE(buff, uint32(len(te.RangeStart)))
+	buff = append(buff, te.RangeStart...)
+	buff = encoding.AppendUint32ToBufferLE(buff, uint32(len(te.RangeEnd)))
+	buff = append(buff, te.RangeEnd...)
+	buff = encoding.AppendUint64ToBufferLE(buff, te.MinVersion)
+	buff = encoding.AppendUint64ToBufferLE(buff, te.MaxVersion)
+	buff = encoding.AppendFloat64ToBufferLE(buff, te.DeleteRatio)
+	buff = encoding.AppendUint64ToBufferLE(buff, te.NumEntries)
+	buff = encoding.AppendUint64ToBufferLE(buff, te.Size)
+	return buff
+}
+
+func (te *TableEntry) deserialize(buff []byte, offset int) int {
+	var l uint32
+	l, offset = encoding.ReadUint32FromBufferLE(buff, offset)
+	te.SSTableID = buff[offset : offset+int(l)]
+	offset += int(l)
+	l, offset = encoding.ReadUint32FromBufferLE(buff, offset)
+	te.RangeStart = buff[offset : offset+int(l)]
+	offset += int(l)
+	l, offset = encoding.ReadUint32FromBufferLE(buff, offset)
+	te.RangeEnd = buff[offset : offset+int(l)]
+	offset += int(l)
+	te.MinVersion, offset = encoding.ReadUint64FromBufferLE(buff, offset)
+	te.MaxVersion, offset = encoding.ReadUint64FromBufferLE(buff, offset)
+	te.DeleteRatio, offset = encoding.ReadFloat64FromBufferLE(buff, offset)
+	te.NumEntries, offset = encoding.ReadUint64FromBufferLE(buff, offset)
+	te.Size, offset = encoding.ReadUint64FromBufferLE(buff, offset)
+	return offset
+}
+
+type segmentEntry struct {
+	format     byte // Placeholder to allow us to change format later on, e.g. add bloom filter in the future
+	segmentID  segmentID
+	rangeStart []byte
+	rangeEnd   []byte
+}
+
+func (se *segmentEntry) serialize(buff []byte) []byte {
+	buff = append(buff, se.format)
+	buff = encoding.AppendUint32ToBufferLE(buff, uint32(len(se.segmentID)))
+	buff = append(buff, se.segmentID...)
+	buff = encoding.AppendUint32ToBufferLE(buff, uint32(len(se.rangeStart)))
+	buff = append(buff, se.rangeStart...)
+	buff = encoding.AppendUint32ToBufferLE(buff, uint32(len(se.rangeEnd)))
+	buff = append(buff, se.rangeEnd...)
+	return buff
+}
+
+func (se *segmentEntry) deserialize(buff []byte, offset int) int {
+	se.format = buff[offset]
+	offset++
+	var l uint32
+	l, offset = encoding.ReadUint32FromBufferLE(buff, offset)
+	se.segmentID = buff[offset : offset+int(l)]
+	offset += int(l)
+	l, offset = encoding.ReadUint32FromBufferLE(buff, offset)
+	se.rangeStart = buff[offset : offset+int(l)]
+	offset += int(l)
+	l, offset = encoding.ReadUint32FromBufferLE(buff, offset)
+	se.rangeEnd = buff[offset : offset+int(l)]
+	offset += int(l)
+	return offset
+}
+
+type Stats struct {
+	TotBytes       int
+	TotEntries     int
+	TotTables      int
+	BytesIn        int
+	EntriesIn      int
+	TablesIn       int
+	TotCompactions int
+	LevelStats     map[int]*LevelStats
+}
+
+func (l *Stats) Serialize(buff []byte) []byte {
+	buff = encoding.AppendUint64ToBufferLE(buff, uint64(l.TotBytes))
+	buff = encoding.AppendUint64ToBufferLE(buff, uint64(l.TotEntries))
+	buff = encoding.AppendUint64ToBufferLE(buff, uint64(l.TotTables))
+	buff = encoding.AppendUint64ToBufferLE(buff, uint64(l.BytesIn))
+	buff = encoding.AppendUint64ToBufferLE(buff, uint64(l.EntriesIn))
+	buff = encoding.AppendUint64ToBufferLE(buff, uint64(l.TablesIn))
+	buff = encoding.AppendUint64ToBufferLE(buff, uint64(l.TotCompactions))
+	buff = encoding.AppendUint32ToBufferLE(buff, uint32(len(l.LevelStats)))
+	for level, levStats := range l.LevelStats {
+		buff = encoding.AppendUint32ToBufferLE(buff, uint32(level))
+		buff = levStats.serialize(buff)
+	}
+	return buff
+}
+
+func (l *Stats) Deserialize(buff []byte, offset int) int {
+	var u uint64
+	u, offset = encoding.ReadUint64FromBufferLE(buff, offset)
+	l.TotBytes = int(u)
+	u, offset = encoding.ReadUint64FromBufferLE(buff, offset)
+	l.TotEntries = int(u)
+	u, offset = encoding.ReadUint64FromBufferLE(buff, offset)
+	l.TotTables = int(u)
+	u, offset = encoding.ReadUint64FromBufferLE(buff, offset)
+	l.BytesIn = int(u)
+	u, offset = encoding.ReadUint64FromBufferLE(buff, offset)
+	l.EntriesIn = int(u)
+	u, offset = encoding.ReadUint64FromBufferLE(buff, offset)
+	l.TablesIn = int(u)
+	u, offset = encoding.ReadUint64FromBufferLE(buff, offset)
+	l.TotCompactions = int(u)
+	var nl uint32
+	nl, offset = encoding.ReadUint32FromBufferLE(buff, offset)
+	numLevels := int(nl)
+	levStatsMap := make(map[int]*LevelStats, numLevels)
+	for i := 0; i < numLevels; i++ {
+		var l uint32
+		l, offset = encoding.ReadUint32FromBufferLE(buff, offset)
+		levStats := &LevelStats{}
+		offset = levStats.deserialize(buff, offset)
+		levStatsMap[int(l)] = levStats
+	}
+	l.LevelStats = levStatsMap
+	return offset
+}
+
+func (l *Stats) copy() *Stats {
+	statsCopy := &Stats{}
+	statsCopy.TotBytes = l.TotBytes
+	statsCopy.TotEntries = l.TotEntries
+	statsCopy.TotTables = l.TotTables
+	statsCopy.BytesIn = l.BytesIn
+	statsCopy.EntriesIn = l.EntriesIn
+	statsCopy.TablesIn = l.TablesIn
+	statsCopy.TotCompactions = l.TotCompactions
+	statsCopy.LevelStats = make(map[int]*LevelStats, len(l.LevelStats))
+	for level, levStats := range l.LevelStats {
+		statsCopy.LevelStats[level] = &LevelStats{
+			Bytes:   levStats.Bytes,
+			Entries: levStats.Entries,
+			Tables:  levStats.Tables,
+		}
+	}
+	return statsCopy
+}
+
+type LevelStats struct {
+	Bytes   int
+	Entries int
+	Tables  int
+}
+
+func (l *LevelStats) serialize(buff []byte) []byte {
+	buff = encoding.AppendUint64ToBufferLE(buff, uint64(l.Bytes))
+	buff = encoding.AppendUint64ToBufferLE(buff, uint64(l.Entries))
+	buff = encoding.AppendUint64ToBufferLE(buff, uint64(l.Tables))
+	return buff
+}
+
+func (l *LevelStats) deserialize(buff []byte, offset int) int {
+	var u uint64
+	u, offset = encoding.ReadUint64FromBufferLE(buff, offset)
+	l.Bytes = int(u)
+	u, offset = encoding.ReadUint64FromBufferLE(buff, offset)
+	l.Entries = int(u)
+	u, offset = encoding.ReadUint64FromBufferLE(buff, offset)
+	l.Tables = int(u)
+	return offset
+}
+
+type masterRecord struct {
+	format               common.MetadataFormat
+	version              uint64
+	levelSegmentEntries  []levelEntries
+	levelTableCounts     map[int]int
+	prefixRetentions     map[string]uint64 // this is a map as we can get duplicate registrations
+	deadVersionRanges    []VersionRange
+	lastFlushedVersion   int64
+	lastProcessedReplSeq int
+	stats                *Stats
+}
+
+func (mr *masterRecord) copy() *masterRecord {
+	lseCopy := make([]levelEntries, len(mr.levelSegmentEntries))
+	for i, entries := range mr.levelSegmentEntries {
+		copiedEntries := make([]segmentEntry, len(entries.segmentEntries))
+		copy(copiedEntries, entries.segmentEntries)
+		lseCopy[i] = levelEntries{
+			segmentEntries: copiedEntries,
+			maxVersion:     entries.maxVersion,
+		}
+	}
+
+	prefixRetentionsCopy := make(map[string]uint64, len(mr.prefixRetentions))
+	for prefix, retention := range mr.prefixRetentions {
+		prefixRetentionsCopy[prefix] = retention
+	}
+
+	tableCountCopy := make(map[int]int, len(mr.levelTableCounts))
+	for level, cnt := range mr.levelTableCounts {
+		tableCountCopy[level] = cnt
+	}
+	deadVersionRangesCopy := make([]VersionRange, len(mr.deadVersionRanges))
+	copy(deadVersionRangesCopy, mr.deadVersionRanges)
+	return &masterRecord{
+		format:               mr.format,
+		version:              mr.version,
+		levelSegmentEntries:  lseCopy,
+		levelTableCounts:     tableCountCopy,
+		prefixRetentions:     prefixRetentionsCopy,
+		deadVersionRanges:    deadVersionRangesCopy,
+		lastFlushedVersion:   mr.lastFlushedVersion,
+		lastProcessedReplSeq: mr.lastProcessedReplSeq,
+		stats:                mr.stats.copy(),
+	}
+}
+
+func (mr *masterRecord) serialize(buff []byte) []byte {
+	buff = append(buff, byte(mr.format))
+	buff = encoding.AppendUint64ToBufferLE(buff, mr.version)
+	buff = encoding.AppendUint32ToBufferLE(buff, uint32(len(mr.levelSegmentEntries)))
+	for _, entries := range mr.levelSegmentEntries {
+		buff = encoding.AppendUint32ToBufferLE(buff, uint32(len(entries.segmentEntries)))
+		for _, segEntry := range entries.segmentEntries {
+			buff = segEntry.serialize(buff)
+		}
+		buff = encoding.AppendUint64ToBufferLE(buff, entries.maxVersion)
+	}
+	buff = encoding.AppendUint32ToBufferLE(buff, uint32(len(mr.levelTableCounts)))
+	for level, cnt := range mr.levelTableCounts {
+		buff = encoding.AppendUint32ToBufferLE(buff, uint32(level))
+		buff = encoding.AppendUint64ToBufferLE(buff, uint64(cnt))
+	}
+	buff = encoding.AppendUint32ToBufferLE(buff, uint32(len(mr.prefixRetentions)))
+	for prefix, retention := range mr.prefixRetentions {
+		buff = encoding.AppendUint32ToBufferLE(buff, uint32(len(prefix)))
+		buff = append(buff, prefix...)
+		buff = encoding.AppendUint64ToBufferLE(buff, retention)
+	}
+	buff = encoding.AppendUint32ToBufferLE(buff, uint32(len(mr.deadVersionRanges)))
+	for _, rng := range mr.deadVersionRanges {
+		buff = rng.Serialize(buff)
+	}
+	buff = encoding.AppendUint64ToBufferLE(buff, uint64(mr.lastFlushedVersion))
+	buff = encoding.AppendUint64ToBufferLE(buff, uint64(mr.lastProcessedReplSeq))
+	return mr.stats.Serialize(buff)
+}
+
+func (mr *masterRecord) deserialize(buff []byte, offset int) int {
+	mr.format = common.MetadataFormat(buff[offset])
+	offset++
+	mr.version, offset = encoding.ReadUint64FromBufferLE(buff, offset)
+	var nl uint32
+	nl, offset = encoding.ReadUint32FromBufferLE(buff, offset)
+	mr.levelSegmentEntries = make([]levelEntries, nl)
+	for level := 0; level < int(nl); level++ {
+		var numEntries uint32
+		numEntries, offset = encoding.ReadUint32FromBufferLE(buff, offset)
+		segEntries := make([]segmentEntry, numEntries)
+		for j := 0; j < int(numEntries); j++ {
+			segEntry := segmentEntry{}
+			offset = segEntry.deserialize(buff, offset)
+			segEntries[j] = segEntry
+		}
+		entries := levelEntries{
+			segmentEntries: segEntries,
+		}
+		entries.maxVersion, offset = encoding.ReadUint64FromBufferLE(buff, offset)
+		mr.levelSegmentEntries[level] = entries
+	}
+	var ncnts uint32
+	ncnts, offset = encoding.ReadUint32FromBufferLE(buff, offset)
+	mr.levelTableCounts = make(map[int]int, ncnts)
+	for i := 0; i < int(ncnts); i++ {
+		var lev uint32
+		lev, offset = encoding.ReadUint32FromBufferLE(buff, offset)
+		var cnt uint64
+		cnt, offset = encoding.ReadUint64FromBufferLE(buff, offset)
+		mr.levelTableCounts[int(lev)] = int(cnt)
+	}
+	var np uint32
+	np, offset = encoding.ReadUint32FromBufferLE(buff, offset)
+	mr.prefixRetentions = make(map[string]uint64, np)
+	for i := 0; i < int(np); i++ {
+		var lp uint32
+		lp, offset = encoding.ReadUint32FromBufferLE(buff, offset)
+		prefix := buff[offset : offset+int(lp)]
+		offset += int(lp)
+		var retention uint64
+		retention, offset = encoding.ReadUint64FromBufferLE(buff, offset)
+		mr.prefixRetentions[string(prefix)] = retention
+	}
+	var nr uint32
+	nr, offset = encoding.ReadUint32FromBufferLE(buff, offset)
+	mr.deadVersionRanges = make([]VersionRange, nr)
+	for i := 0; i < int(nr); i++ {
+		offset = mr.deadVersionRanges[i].Deserialize(buff, offset)
+	}
+	var lfv uint64
+	lfv, offset = encoding.ReadUint64FromBufferLE(buff, offset)
+	mr.lastFlushedVersion = int64(lfv)
+	var lpr uint64
+	lpr, offset = encoding.ReadUint64FromBufferLE(buff, offset)
+	mr.lastProcessedReplSeq = int(lpr)
+	mr.stats = &Stats{}
+	return mr.stats.Deserialize(buff, offset)
+}
+
+type VersionRange struct {
+	VersionStart uint64
+	VersionEnd   uint64
+}
+
+func (v *VersionRange) Serialize(buff []byte) []byte {
+	buff = encoding.AppendUint64ToBufferLE(buff, v.VersionStart)
+	return encoding.AppendUint64ToBufferLE(buff, v.VersionEnd)
+}
+
+func (v *VersionRange) Deserialize(buff []byte, offset int) int {
+	v.VersionStart, offset = encoding.ReadUint64FromBufferLE(buff, offset)
+	v.VersionEnd, offset = encoding.ReadUint64FromBufferLE(buff, offset)
+	return offset
+}
+
+type levelEntries struct {
+	segmentEntries []segmentEntry
+	maxVersion     uint64 // Note this is the max version ever stored in the level, not necessarily the current max version in the level
+}

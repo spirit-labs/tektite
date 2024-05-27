@@ -1,0 +1,456 @@
+set max_line_width 200;
+OK
+--create topic sensor_readings;
+
+sensor_readings :=
+(bridge from
+   sensor_readings
+    partitions = 20
+    props = ()
+) ->
+(project
+    to_string(key) as sensor_id,
+    json_string("country", val) as country,
+    to_decimal(json_string("temperature", val),38,6) as temperature) ->
+(store stream);
+OK
+
+sensor_agg := sensor_readings ->
+(partition by country partitions=10) ->
+(aggregate count(temperature), max(temperature), min(temperature), avg(temperature) by country
+   size=4s hop=2s store=false window_cols=true)->
+(store table by ws, we, country);
+OK
+
+--load data dataset_1;
+
+-- first dataset, won't get window closed as all events in same small range so watermark based on max(event_time) won't
+-- be large enough to close window;
+
+(scan all from sensor_agg) -> (sort by ws, country);
++-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| event_time                 | ws                         | we                         | country             | count(temperature)   | max(temperature)    | min(temperature)    | avg(temperature)    |
++-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+0 rows returned
+
+--load data dataset_2;
+
+-- second dataset is like first one but times are 10 seconds later. this will watermark to be large enough to close
+-- window containing first set of data;
+
+(scan all from sensor_agg) -> (sort by ws, country);
++-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| event_time                 | ws                         | we                         | country             | count(temperature)   | max(temperature)    | min(temperature)    | avg(temperature)    |
++-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| 2006-01-02 15:04:00.000000 | 2006-01-02 15:03:58.000000 | 2006-01-02 15:04:02.000000 | FR                  | 1                    | 18.700000           | 18.700000           | 18.700000           |
+| 2006-01-02 15:04:00.078000 | 2006-01-02 15:03:58.000000 | 2006-01-02 15:04:02.000000 | UK                  | 2                    | 25.100000           | 23.700000           | 24.400000           |
+| 2006-01-02 15:04:00.033000 | 2006-01-02 15:03:58.000000 | 2006-01-02 15:04:02.000000 | USA                 | 2                    | 26.900000           | 13.300000           | 20.100000           |
+| 2006-01-02 15:04:00.000000 | 2006-01-02 15:04:00.000000 | 2006-01-02 15:04:04.000000 | FR                  | 1                    | 18.700000           | 18.700000           | 18.700000           |
+| 2006-01-02 15:04:00.078000 | 2006-01-02 15:04:00.000000 | 2006-01-02 15:04:04.000000 | UK                  | 2                    | 25.100000           | 23.700000           | 24.400000           |
+| 2006-01-02 15:04:00.033000 | 2006-01-02 15:04:00.000000 | 2006-01-02 15:04:04.000000 | USA                 | 2                    | 26.900000           | 13.300000           | 20.100000           |
++-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+6 rows returned
+
+delete(sensor_agg);
+OK
+delete(sensor_readings);
+OK
+
+--delete topic sensor_readings;
+
+--create topic sensor_readings;
+
+sensor_readings :=
+(bridge from
+   sensor_readings
+    partitions = 20
+    props = ()
+) ->
+(project
+    to_string(key) as sensor_id,
+    json_string("country", val) as country,
+    to_decimal(json_string("temperature", val),38,6) as temperature) ->
+(store stream);
+OK
+
+sensor_agg := sensor_readings ->
+(partition by country partitions=10) ->
+(aggregate count(temperature), max(temperature), min(temperature), avg(temperature) by country
+   size=400ms hop=200ms store=false window_cols=true)->
+(store table by ws, we, country);
+OK
+
+--load data dataset_3;
+--triggers window close of dataset_3;
+--load data dataset_4;
+
+-- now events are more spread apart so we can see different windows containing different sets of events;
+
+(scan all from sensor_agg) -> (sort by ws, country);
++-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| event_time                 | ws                         | we                         | country             | count(temperature)   | max(temperature)    | min(temperature)    | avg(temperature)    |
++-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| 2006-01-02 15:04:20.100000 | 2006-01-02 15:04:19.800000 | 2006-01-02 15:04:20.200000 | FR                  | 1                    | 18.700000           | 18.700000           | 18.700000           |
+| 2006-01-02 15:04:20.000000 | 2006-01-02 15:04:19.800000 | 2006-01-02 15:04:20.200000 | UK                  | 1                    | 25.100000           | 25.100000           | 25.100000           |
+| 2006-01-02 15:04:20.100000 | 2006-01-02 15:04:20.000000 | 2006-01-02 15:04:20.400000 | FR                  | 1                    | 18.700000           | 18.700000           | 18.700000           |
+| 2006-01-02 15:04:20.300000 | 2006-01-02 15:04:20.000000 | 2006-01-02 15:04:20.400000 | UK                  | 2                    | 25.100000           | 23.700000           | 24.400000           |
+| 2006-01-02 15:04:20.200000 | 2006-01-02 15:04:20.000000 | 2006-01-02 15:04:20.400000 | USA                 | 1                    | 26.900000           | 26.900000           | 26.900000           |
+| 2006-01-02 15:04:20.300000 | 2006-01-02 15:04:20.200000 | 2006-01-02 15:04:20.600000 | UK                  | 1                    | 23.700000           | 23.700000           | 23.700000           |
+| 2006-01-02 15:04:20.500000 | 2006-01-02 15:04:20.200000 | 2006-01-02 15:04:20.600000 | USA                 | 2                    | 26.900000           | 13.300000           | 20.100000           |
+| 2006-01-02 15:04:20.500000 | 2006-01-02 15:04:20.400000 | 2006-01-02 15:04:20.800000 | USA                 | 1                    | 13.300000           | 13.300000           | 13.300000           |
++-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+8 rows returned
+
+delete(sensor_agg);
+OK
+delete(sensor_readings);
+OK
+
+--delete topic sensor_readings;
+
+--create topic sensor_readings;
+
+-- now we repeat the last part, but with the input to the aggregate having an offset column - the example above doesn't
+-- because the partition removes it;
+
+sensor_readings :=
+(bridge from
+   sensor_readings
+    partitions = 20
+    props = ()
+) ->
+(project
+    to_string(key) as sensor_id,
+    json_string("country", val) as country,
+    to_decimal(json_string("temperature", val),38,6) as temperature) ->
+(store stream);
+OK
+
+interim := sensor_readings ->
+(partition by country partitions=10) ->
+(store stream);
+OK
+
+sensor_agg := interim ->
+(aggregate count(temperature), max(temperature), min(temperature), avg(temperature) by country
+   size=400ms hop=200ms store=false window_cols=true)->
+(store table by ws, we, country);
+OK
+
+--load data dataset_3;
+--triggers window close of dataset_3;
+--load data dataset_4;
+
+(scan all from sensor_agg) -> (sort by ws, country);
++-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| event_time                 | ws                         | we                         | country             | count(temperature)   | max(temperature)    | min(temperature)    | avg(temperature)    |
++-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| 2006-01-02 15:04:20.100000 | 2006-01-02 15:04:19.800000 | 2006-01-02 15:04:20.200000 | FR                  | 1                    | 18.700000           | 18.700000           | 18.700000           |
+| 2006-01-02 15:04:20.000000 | 2006-01-02 15:04:19.800000 | 2006-01-02 15:04:20.200000 | UK                  | 1                    | 25.100000           | 25.100000           | 25.100000           |
+| 2006-01-02 15:04:20.100000 | 2006-01-02 15:04:20.000000 | 2006-01-02 15:04:20.400000 | FR                  | 1                    | 18.700000           | 18.700000           | 18.700000           |
+| 2006-01-02 15:04:20.300000 | 2006-01-02 15:04:20.000000 | 2006-01-02 15:04:20.400000 | UK                  | 2                    | 25.100000           | 23.700000           | 24.400000           |
+| 2006-01-02 15:04:20.200000 | 2006-01-02 15:04:20.000000 | 2006-01-02 15:04:20.400000 | USA                 | 1                    | 26.900000           | 26.900000           | 26.900000           |
+| 2006-01-02 15:04:20.300000 | 2006-01-02 15:04:20.200000 | 2006-01-02 15:04:20.600000 | UK                  | 1                    | 23.700000           | 23.700000           | 23.700000           |
+| 2006-01-02 15:04:20.500000 | 2006-01-02 15:04:20.200000 | 2006-01-02 15:04:20.600000 | USA                 | 2                    | 26.900000           | 13.300000           | 20.100000           |
+| 2006-01-02 15:04:20.500000 | 2006-01-02 15:04:20.400000 | 2006-01-02 15:04:20.800000 | USA                 | 1                    | 13.300000           | 13.300000           | 13.300000           |
++-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+8 rows returned
+
+delete(sensor_agg);
+OK
+delete(interim);
+OK
+delete(sensor_readings);
+OK
+
+--delete topic sensor_readings;
+
+set max_line_width 200;
+OK
+
+-- now we repeat the first test but restart the server while there are unclosed windows, when we restart open windows
+-- should be reloaded, and barriers sent to close them, and data in the windows should be received;
+
+--create topic sensor_readings;
+
+sensor_readings :=
+(bridge from
+   sensor_readings
+    partitions = 20
+    props = ()
+) ->
+(project
+    to_string(key) as sensor_id,
+    json_string("country", val) as country,
+    to_decimal(json_string("temperature", val),38,6) as temperature) ->
+(store stream);
+OK
+
+sensor_agg := sensor_readings ->
+(partition by country partitions=10) ->
+(aggregate count(temperature), max(temperature), min(temperature), avg(temperature) by country
+   size=400ms hop=200ms store=false window_cols=true)->
+(store table by ws, we, country);
+OK
+
+--load data dataset_3;
+
+--restart cluster;
+
+set max_line_width 200;
+OK
+
+--triggers window close of dataset_3;
+--load data dataset_4;
+
+(scan all from sensor_agg) -> (sort by ws, country);
++-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| event_time                 | ws                         | we                         | country             | count(temperature)   | max(temperature)    | min(temperature)    | avg(temperature)    |
++-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| 2006-01-02 15:04:20.100000 | 2006-01-02 15:04:19.800000 | 2006-01-02 15:04:20.200000 | FR                  | 1                    | 18.700000           | 18.700000           | 18.700000           |
+| 2006-01-02 15:04:20.000000 | 2006-01-02 15:04:19.800000 | 2006-01-02 15:04:20.200000 | UK                  | 1                    | 25.100000           | 25.100000           | 25.100000           |
+| 2006-01-02 15:04:20.100000 | 2006-01-02 15:04:20.000000 | 2006-01-02 15:04:20.400000 | FR                  | 1                    | 18.700000           | 18.700000           | 18.700000           |
+| 2006-01-02 15:04:20.300000 | 2006-01-02 15:04:20.000000 | 2006-01-02 15:04:20.400000 | UK                  | 2                    | 25.100000           | 23.700000           | 24.400000           |
+| 2006-01-02 15:04:20.200000 | 2006-01-02 15:04:20.000000 | 2006-01-02 15:04:20.400000 | USA                 | 1                    | 26.900000           | 26.900000           | 26.900000           |
+| 2006-01-02 15:04:20.300000 | 2006-01-02 15:04:20.200000 | 2006-01-02 15:04:20.600000 | UK                  | 1                    | 23.700000           | 23.700000           | 23.700000           |
+| 2006-01-02 15:04:20.500000 | 2006-01-02 15:04:20.200000 | 2006-01-02 15:04:20.600000 | USA                 | 2                    | 26.900000           | 13.300000           | 20.100000           |
+| 2006-01-02 15:04:20.500000 | 2006-01-02 15:04:20.400000 | 2006-01-02 15:04:20.800000 | USA                 | 1                    | 13.300000           | 13.300000           | 13.300000           |
++-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+8 rows returned
+
+delete(sensor_agg);
+OK
+delete(sensor_readings);
+OK
+
+--delete topic sensor_readings;
+
+-- now we test with the windowed aggregation not storing and not outputting window start and window end columns;
+
+--create topic sensor_readings;
+
+sensor_readings :=
+(bridge from
+   sensor_readings
+    partitions = 20
+    props = ()
+) ->
+(project
+    to_string(key) as sensor_id,
+    json_string("country", val) as country,
+    to_decimal(json_string("temperature", val),38,6) as temperature) ->
+(store stream);
+OK
+
+sensor_agg := sensor_readings ->
+(partition by country partitions=10) ->
+(aggregate count(temperature), max(temperature), min(temperature), avg(temperature) by country
+   size=4s hop=2s store=false) ->
+(store table by country);
+OK
+
+--load data dataset_1;
+--load data dataset_2;
+
+(scan all from sensor_agg) -> (sort by country);
++---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| event_time                 | country                           | count(temperature)   | max(temperature)                  | min(temperature)                  | avg(temperature)                  |
++---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| 2006-01-02 15:04:00.000000 | FR                                | 1                    | 18.700000                         | 18.700000                         | 18.700000                         |
+| 2006-01-02 15:04:00.078000 | UK                                | 2                    | 25.100000                         | 23.700000                         | 24.400000                         |
+| 2006-01-02 15:04:00.033000 | USA                               | 2                    | 26.900000                         | 13.300000                         | 20.100000                         |
++---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+3 rows returned
+
+delete(sensor_agg);
+OK
+delete(sensor_readings);
+OK
+
+--delete topic sensor_readings;
+
+-- now we test with the windowed aggregation storing and not outputting window start and window end columns;
+
+--create topic sensor_readings;
+
+sensor_readings :=
+(bridge from
+   sensor_readings
+    partitions = 20
+    props = ()
+) ->
+(project
+    to_string(key) as sensor_id,
+    json_string("country", val) as country,
+    to_decimal(json_string("temperature", val),38,6) as temperature) ->
+(store stream);
+OK
+
+sensor_agg := sensor_readings ->
+(partition by country partitions=10) ->
+(aggregate count(temperature), max(temperature), min(temperature), avg(temperature) by country
+   size=4s hop=2s);
+OK
+
+--load data dataset_1;
+--load data dataset_2;
+
+(scan all from sensor_agg) -> (sort by country);
++---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| event_time                 | country                           | count(temperature)   | max(temperature)                  | min(temperature)                  | avg(temperature)                  |
++---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| 2006-01-02 15:04:00.000000 | FR                                | 1                    | 18.700000                         | 18.700000                         | 18.700000                         |
+| 2006-01-02 15:04:00.078000 | UK                                | 2                    | 25.100000                         | 23.700000                         | 24.400000                         |
+| 2006-01-02 15:04:00.033000 | USA                               | 2                    | 26.900000                         | 13.300000                         | 20.100000                         |
++---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+3 rows returned
+
+delete(sensor_agg);
+OK
+delete(sensor_readings);
+OK
+
+--delete topic sensor_readings;
+
+-- now we test with the windowed aggregation storing and outputting window start and window end columns;
+
+--create topic sensor_readings;
+
+sensor_readings :=
+(bridge from
+   sensor_readings
+    partitions = 20
+    props = ()
+) ->
+(project
+    to_string(key) as sensor_id,
+    json_string("country", val) as country,
+    to_decimal(json_string("temperature", val),38,6) as temperature) ->
+(store stream);
+OK
+
+sensor_agg := sensor_readings ->
+(partition by country partitions=10) ->
+(aggregate count(temperature), max(temperature), min(temperature), avg(temperature) by country
+   size=4s hop=2s window_cols=true);
+OK
+
+--load data dataset_1;
+--load data dataset_2;
+
+(scan all from sensor_agg) -> (sort by ws, we, country);
++-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| event_time                 | ws                         | we                         | country             | count(temperature)   | max(temperature)    | min(temperature)    | avg(temperature)    |
++-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| 2006-01-02 15:04:00.000000 | 2006-01-02 15:03:58.000000 | 2006-01-02 15:04:02.000000 | FR                  | 1                    | 18.700000           | 18.700000           | 18.700000           |
+| 2006-01-02 15:04:00.078000 | 2006-01-02 15:03:58.000000 | 2006-01-02 15:04:02.000000 | UK                  | 2                    | 25.100000           | 23.700000           | 24.400000           |
+| 2006-01-02 15:04:00.033000 | 2006-01-02 15:03:58.000000 | 2006-01-02 15:04:02.000000 | USA                 | 2                    | 26.900000           | 13.300000           | 20.100000           |
+| 2006-01-02 15:04:00.000000 | 2006-01-02 15:04:00.000000 | 2006-01-02 15:04:04.000000 | FR                  | 1                    | 18.700000           | 18.700000           | 18.700000           |
+| 2006-01-02 15:04:00.078000 | 2006-01-02 15:04:00.000000 | 2006-01-02 15:04:04.000000 | UK                  | 2                    | 25.100000           | 23.700000           | 24.400000           |
+| 2006-01-02 15:04:00.033000 | 2006-01-02 15:04:00.000000 | 2006-01-02 15:04:04.000000 | USA                 | 2                    | 26.900000           | 13.300000           | 20.100000           |
++-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+6 rows returned
+
+delete(sensor_agg);
+OK
+delete(sensor_readings);
+OK
+
+--delete topic sensor_readings;
+
+-- aggregate with store = false, should be able to put another operator after it in stream;
+
+--create topic sensor_readings;
+
+sensor_readings :=
+(bridge from
+   sensor_readings
+    partitions = 20
+    props = ()
+) ->
+(project
+    to_string(key) as sensor_id,
+    json_string("country", val) as country,
+    to_decimal(json_string("temperature", val),38,6) as temperature) ->
+(store stream);
+OK
+
+sensor_agg := sensor_readings ->
+(partition by country partitions=10) ->
+(aggregate count(temperature) as tempcount, max(temperature), min(temperature), avg(temperature) by country
+   size=4s hop=2s store=false) -> (project country, tempcount) -> (store stream);
+OK
+
+--load data dataset_1;
+--load data dataset_2;
+
+(scan all from sensor_agg) -> (sort by country, offset);
++------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| offset               | event_time                 | country                                                                                                                   | tempcount            |
++------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| 0                    | 2006-01-02 15:04:00.000000 | FR                                                                                                                        | 1                    |
+| 1                    | 2006-01-02 15:04:00.000000 | FR                                                                                                                        | 1                    |
+| 0                    | 2006-01-02 15:04:00.078000 | UK                                                                                                                        | 2                    |
+| 1                    | 2006-01-02 15:04:00.078000 | UK                                                                                                                        | 2                    |
+| 0                    | 2006-01-02 15:04:00.033000 | USA                                                                                                                       | 2                    |
+| 1                    | 2006-01-02 15:04:00.033000 | USA                                                                                                                       | 2                    |
++------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+6 rows returned
+
+delete(sensor_agg);
+OK
+delete(sensor_readings);
+OK
+
+--delete topic sensor_readings;
+
+-- errors;
+
+-- create topic test_topic;
+
+stream1 :=
+(bridge from
+    test_topic
+    partitions = 10
+    props = ()
+)
+-> (store stream);
+OK
+
+-- invalid size and hop;
+
+stream2 := stream1 -> (aggregate sum(val) by key size=foo hop=bar);
+expected duration but found 'foo' (line 1 column 55):
+stream2 := stream1 -> (aggregate sum(val) by key size=foo hop=bar)
+                                                      ^
+
+-- hop > size;
+
+stream2 := stream1 -> (aggregate sum(val) by key size=1m hop=5m);
+'hop' (5m0s) cannot be greater than 'size' (1m0s) (line 1 column 58):
+stream2 := stream1 -> (aggregate sum(val) by key size=1m hop=5m)
+                                                         ^
+
+-- no size/hop specified;
+
+stream2 := stream1 -> (aggregate sum(val) by key size=1m);
+'hop' must be specified for a windowed aggregation (line 1 column 24):
+stream2 := stream1 -> (aggregate sum(val) by key size=1m)
+                       ^
+
+stream2 := stream1 -> (aggregate sum(val) by key hop=5m);
+'hop' must not be specified for a non windowed aggregation (line 1 column 50):
+stream2 := stream1 -> (aggregate sum(val) by key hop=5m)
+                                                 ^
+
+--- aggregate with store not last in stream;
+
+stream2 := stream1 -> (aggregate sum(val) by key size=1h hop=10m store=true) -> (store stream);
+'aggregate' with 'store' = true must be the last operator in a stream (line 1 column 24):
+stream2 := stream1 -> (aggregate sum(val) by key size=1h hop=10m store=true) -> (store stream)
+                       ^
+
+delete(stream1);
+OK
+
+-- delete topic test_topic;

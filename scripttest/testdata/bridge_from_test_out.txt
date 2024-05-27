@@ -1,0 +1,87 @@
+--create topic test_topic;
+
+test_stream := (bridge from test_topic partitions = 20 props = ()) ->
+(project key, val, kafka_header("h1", hdrs) as h1) ->
+(store stream);
+OK
+
+--load data dataset_1;
+
+(scan all from test_stream) -> (sort by key);
++---------------------------------------------------------------------------------------------------------------------+
+| offset               | event_time                 | key                 | val                 | h1                  |
++---------------------------------------------------------------------------------------------------------------------+
+| 0                    | 2006-01-02 15:04:05.000000 | key01               | {"v0": 1000}        | v1.1                |
+| 0                    | 2006-01-02 15:05:05.000000 | key02               | {"v0": 1001}        | v1.2                |
+| 0                    | 2006-01-02 15:06:05.000000 | key03               | {"v0": 1002}        | v1.3                |
+| 0                    | 2006-01-02 15:07:05.000000 | key04               | {"v0": 1003}        | v1.4                |
+| 0                    | 2006-01-02 15:08:05.000000 | key05               | {"v0": 1004}        | v1.5                |
++---------------------------------------------------------------------------------------------------------------------+
+5 rows returned
+
+delete(test_stream);
+OK
+
+--delete topic test_topic;
+
+--create topic test_topic;
+
+test_stream := (bridge from test_topic
+    partitions = 20
+    poll_timeout = 10ms
+    max_poll_messages = 1000
+    watermark_type = event_time
+    watermark_lateness = 5s
+    watermark_idle_timeout = 30s
+    props = ()
+) ->
+(project key, val, kafka_header("h1", hdrs) as h1) ->
+(store stream);
+OK
+
+--load data dataset_1;
+
+(scan all from test_stream) -> (sort by key);
++---------------------------------------------------------------------------------------------------------------------+
+| offset               | event_time                 | key                 | val                 | h1                  |
++---------------------------------------------------------------------------------------------------------------------+
+| 0                    | 2006-01-02 15:04:05.000000 | key01               | {"v0": 1000}        | v1.1                |
+| 0                    | 2006-01-02 15:05:05.000000 | key02               | {"v0": 1001}        | v1.2                |
+| 0                    | 2006-01-02 15:06:05.000000 | key03               | {"v0": 1002}        | v1.3                |
+| 0                    | 2006-01-02 15:07:05.000000 | key04               | {"v0": 1003}        | v1.4                |
+| 0                    | 2006-01-02 15:08:05.000000 | key05               | {"v0": 1004}        | v1.5                |
++---------------------------------------------------------------------------------------------------------------------+
+5 rows returned
+
+delete(test_stream);
+OK
+
+-- errors;
+
+test_stream := (bridge from test_topic
+    partitions = 0
+    poll_timeout = 10ms
+    max_poll_messages = 1000
+    watermark_type = event_time
+    watermark_lateness = 5s
+    watermark_idle_timeout = 30s
+    props = ()
+) -> (store stream);
+invalid value for 'partitions' - must be > 0 (line 2 column 5):
+    partitions = 0
+    ^
+
+test_stream := (bridge from test_topic
+    partitions = 20
+    poll_timeout = 100ms
+    max_poll_messages = 0
+    watermark_type = event_time
+    watermark_lateness = 5s
+    watermark_idle_timeout = 30s
+    props = ()
+) -> (store stream);
+invalid value for 'max_poll_messages' - must be > 0 (line 4 column 5):
+    max_poll_messages = 0
+    ^
+
+--delete topic test_topic;

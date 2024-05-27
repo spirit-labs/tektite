@@ -1,0 +1,94 @@
+--create topic test_topic 16;
+
+test_stream1 :=
+(bridge from
+    test_topic
+    partitions = 16
+    props = ()
+)
+-> (project
+    key,
+    kafka_header("h1", hdrs) as h1,
+    kafka_header("h2", hdrs) as h2,
+    kafka_header("h3", hdrs) as h3,
+    kafka_header("not_exist", hdrs) as ne,
+    json_int("v0",val) as v0)
+-> (store stream);
+OK
+
+--load data dataset_1;
+
+(scan all from test_stream1) -> (sort by key);
++------------------------------------------------------------------------------------------------------------------+
+| offset               | event_time                 | key   | h1    | h2    | h3    | ne    | v0                   |
++------------------------------------------------------------------------------------------------------------------+
+| 0                    | 2006-01-02 15:04:05.000000 | key01 | v1.1  | v2.1  | v3.1  | null  | 1000                 |
+| 0                    | 2006-01-02 15:05:05.000000 | key02 | v1.2  | v2.2  | v3.2  | null  | 1001                 |
+| 0                    | 2006-01-02 15:06:05.000000 | key03 | v1.3  | v2.3  | v3.3  | null  | 1002                 |
+| 0                    | 2006-01-02 15:07:05.000000 | key04 | v1.4  | v2.4  | v3.4  | null  | 1003                 |
+| 0                    | 2006-01-02 15:08:05.000000 | key05 | v1.5  | v2.5  | v3.5  | null  | 1004                 |
++------------------------------------------------------------------------------------------------------------------+
+5 rows returned
+
+delete(test_stream1);
+OK
+
+--delete topic test_topic;
+
+test_stream2 := (kafka in partitions = 16)
+-> (project
+    key,
+    kafka_header("h1", hdrs) as h1,
+    kafka_header("h2", hdrs) as h2,
+    kafka_header("h3", hdrs) as h3,
+    kafka_header("not_exist", hdrs) as ne,
+    json_int("v0",val) as v0)
+-> (store stream);
+OK
+
+--produce data dataset_2;
+
+(scan all from test_stream2) -> (sort by key);
++------------------------------------------------------------------------------------------------------------------+
+| offset               | event_time                 | key   | h1    | h2    | h3    | ne    | v0                   |
++------------------------------------------------------------------------------------------------------------------+
+| 0                    | 2006-01-02 15:04:05.000000 | key01 | v1.1  | v2.1  | v3.1  | null  | 1000                 |
+| 0                    | 2006-01-02 15:05:05.000000 | key02 | v1.2  | v2.2  | v3.2  | null  | 1001                 |
+| 0                    | 2006-01-02 15:06:05.000000 | key03 | v1.3  | v2.3  | v3.3  | null  | 1002                 |
+| 0                    | 2006-01-02 15:07:05.000000 | key04 | v1.4  | v2.4  | v3.4  | null  | 1003                 |
+| 0                    | 2006-01-02 15:08:05.000000 | key05 | v1.5  | v2.5  | v3.5  | null  | 1004                 |
++------------------------------------------------------------------------------------------------------------------+
+5 rows returned
+
+delete(test_stream2);
+OK
+
+-- now try consuming headers;
+
+--create topic test_topic 16;
+
+test_stream3 :=
+(bridge from
+    test_topic
+    partitions = 16
+    props = ()
+)
+-> (partition by key partitions=1)
+-> (project key, kafka_build_headers("hh1", "vv1", "hh2", "vv2") as hdrs, val)
+-> (kafka out);
+OK
+
+--load data dataset_3;
+
+--consume data test_stream3 test_group1 earliest 5 commit no_print_offset;
+key headers value timestamp
+key01 hh1:vv1,hh2:vv2 {"v0": 1000} 2006-01-02 15:04:05.000000
+key02 hh1:vv1,hh2:vv2 {"v0": 1001} 2006-01-02 15:05:05.000000
+key03 hh1:vv1,hh2:vv2 {"v0": 1002} 2006-01-02 15:06:05.000000
+key04 hh1:vv1,hh2:vv2 {"v0": 1003} 2006-01-02 15:07:05.000000
+key05 hh1:vv1,hh2:vv2 {"v0": 1004} 2006-01-02 15:08:05.000000
+
+delete(test_stream3);
+OK
+
+--delete topic test_topic;

@@ -1,0 +1,55 @@
+--create topic test_topic;
+
+--note: this test tests that expired prefixes are screened out on the client side after flushing -it does not mean
+-- the data has necessarily been compacted out of the LSM as we don't have obvious control over when that happens
+-- it's important we screen on the client side to prevent old overwritten from the server being resurfaced after
+-- a newer version has been compacted out;
+
+test_stream :=
+(bridge from
+    test_topic
+    partitions = 20
+    props = ()
+) -> (store stream retention 100ms);
+
+--load data dataset_1;
+
+(scan all from test_stream) -> (sort by key);
+
+--flush data;
+
+--pause 200;
+
+(scan all from test_stream);
+
+delete(test_stream);
+
+--delete topic test_topic;
+
+--create topic test_topic;
+
+test_stream :=
+(bridge from
+    test_topic
+    partitions = 20
+    props = ()
+) -> (store table by key retention=100ms);
+
+--load data dataset_1;
+
+(scan all from test_stream) -> (sort by key);
+
+--flush data;
+
+--pause 200;
+
+(scan all from test_stream) wait for results
++----------------------------------------------------------------------------------------------------------------------+
+| event_time                 | key                         | hdrs                        | val                         |
++----------------------------------------------------------------------------------------------------------------------+
+0 rows returned
+;
+
+delete(test_stream);
+
+--delete topic test_topic;

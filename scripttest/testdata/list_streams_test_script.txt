@@ -1,0 +1,60 @@
+set max_line_width 750;
+--create topic test_topic 16;
+
+list();
+
+usa.news := (bridge from test_topic partitions = 16 props = ());
+-- create with newlines to make sure it formats ok in show;
+usa.weather :=
+(
+    bridge from test_topic partitions = 16
+    props = ("foo" = "here    are    some     spaces")
+);
+uk.news := (bridge from test_topic partitions = 16 props = ());
+uk.weather := (bridge from test_topic partitions = 16 props = ());
+usa.news.sub1 := usa.news->(store stream);
+usa.news.sub2 := usa.news->(store stream);
+
+(scan all from sys.streams) -> (sort by stream_name);
+
+(scan all from sys.streams) -> (project stream_name, stream_def) -> (sort by stream_name);
+
+(get "usa.news" from sys.streams);
+
+(scan all from sys.streams) -> (filter by matches(stream_name, "^usa")) -> (sort by stream_name);
+
+(scan all from sys.streams) -> (filter by matches(stream_name, "^uk")) -> (sort by stream_name);
+
+list();
+
+list("^usa");
+
+show(usa.news);
+show(usa.weather);
+show(not_exists);
+
+delete(usa.news.sub1);
+delete(uk.news);
+
+list();
+
+-- errors;
+
+-- invalid regex;
+(scan all from sys.streams) -> (filter by matches(stream_name, "[a-zA-Z+")) -> (sort by stream_name);
+
+-- invalid quoted string literal;
+(scan all from sys.streams) -> (filter by matches(stream_name, "^usa\.*")) -> (sort by stream_name);
+
+show();
+
+show(;
+
+list(;
+
+delete(usa.news.sub2);
+delete(usa.news);
+delete(usa.weather);
+delete(uk.weather);
+
+--delete topic test_topic;

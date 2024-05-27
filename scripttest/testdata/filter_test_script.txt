@@ -1,0 +1,70 @@
+set max_line_width 200;
+--create topic test_topic 16;
+
+stream1 :=
+(bridge from
+    test_topic
+    partitions = 16
+    props = ()
+)
+-> (project
+    key,
+    json_int("v0",val) as v0,
+    json_float("v1",val) as v1,
+    json_bool("v2",val) as v2,
+    to_decimal(json_string("v3", val),38,6) as v3,
+    json_string("v4", val) as v4,
+    to_bytes(json_string("v5", val)) as v5,
+    parse_date(json_string("v6", val), "2006-01-02 15:04:05.999999") as v6)
+-> (store stream);
+
+stream2 := stream1
+-> (filter by v0 > 1005 && v1 < 9f)
+-> (store stream);
+
+--load data dataset_1;
+
+(scan all from stream2) -> (sort by v0);
+
+delete(stream2);
+delete(stream1);
+--delete topic test_topic;
+
+-- filter that doesn't pass anything;
+
+--create topic test_topic 16;
+
+stream1 :=
+(bridge from
+    test_topic
+    partitions = 16
+    props = ()
+)
+-> (project
+    key,
+    json_int("v0",val) as v0,
+    json_float("v1",val) as v1,
+    json_bool("v2",val) as v2,
+    to_decimal(json_string("v3", val),38,6) as v3,
+    json_string("v4", val) as v4,
+    to_bytes(json_string("v5", val)) as v5,
+    parse_date(json_string("v6", val), "2006-01-02 15:04:05.999999") as v6)
+-> (store stream);
+
+stream2 := stream1
+-> (filter by false)
+-> (store stream);
+
+--load data dataset_1;
+
+(scan all from stream2);
+
+delete(stream2);
+
+-- invalid filter expression;
+
+stream2 := stream1 -> (filter by foo);
+
+delete(stream1);
+
+--delete topic test_topic;

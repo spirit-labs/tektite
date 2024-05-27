@@ -1,0 +1,80 @@
+-- backfill - must be first operator after continuation;
+
+stream1 := (backfill);
+
+stream1 := (kafka in partitions=10);
+stream2 := stream1 -> (filter by f1 > 0) -> (backfill);
+
+delete(stream1);
+
+-- bridge from - must be first operator;
+
+stream1 := (kafka in partitions =10) -> (bridge from some_topic partitions = 10);
+
+-- bridge to - cannot be first operator;
+
+stream1 := (bridge to some_topic);
+
+-- bridge to - must be last operator;
+
+stream1 := (kafka in partitions =10) -> (bridge to some_topic) -> (store stream);
+
+-- filter cannot be first operator;
+
+stream1 := (filter by f1 > 10);
+
+-- join must be first operator;
+
+stream1 := (kafka in partitions =10) -> (join s1 with s2 on f1=f1 within 5m);
+
+-- kafka in must be first operator;
+
+stream1 := (bridge from some_topic partitions = 10) -> (kafka in partitions =10);
+
+-- partition cannot be the first operator;
+
+stream1 := (partition by f1 partitions = 10);
+
+-- project cannot be the first operator;
+
+stream1 := (project f1, f2);
+
+-- store stream cannot be the first operator;
+
+stream1 := (store stream);
+
+-- store stream must be the last operator;
+
+stream1 := (kafka in partitions =10) -> (store stream) -> (filter by f1 > 10);
+
+-- store table cannot be the first operator;
+
+stream1 := (store table by f1);
+
+-- store table must be the last operator;
+
+stream1 := (kafka in partitions =10) -> (store table by f1) -> (filter by f1 > 10);
+
+-- kafka out cannot be the first operator;
+
+stream1 := (kafka out);
+
+-- kafka out must be the last operator;
+
+stream1 := (kafka in partitions =10) -> (kafka out) -> (filter by f1 > 10);
+
+-- aggregation cannot be the first operator;
+
+stream1 := (aggregate sum(f1) by f2);
+
+-- aggregation with store=true must be the last;
+
+stream1 := (kafka in partitions =10) -> (aggregate sum(f1) by f2 store=true) -> (filter by f1 > 10);
+
+-- topic must be last;
+
+stream1 := (topic partitions =10) -> (store stream);
+
+-- topic must be first;
+
+stream1 := (kafka in partitions =10) -> (topic partitions =10)

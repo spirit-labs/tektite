@@ -1,0 +1,39 @@
+set max_line_width 300;
+--create topic test_topic 16;
+
+test_stream :=
+(bridge from
+    test_topic
+    partitions = 16
+    props = ()
+)
+-> (project 
+    key,
+    json_int("v0", val) as v0,
+    json_float("v1", val) as v1,
+    json_bool("v2", val) as v2,
+    to_decimal(json_string("v3", val),38,6) as v3,
+    json_string("v4", val) as v4,
+    to_bytes(json_string("v5", val)) as v5,
+    parse_date(json_string("v6", val), "2006-01-02 15:04:05.999999") as v6)
+-> (store stream);
+
+--load data dataset_1;
+
+(scan all from test_stream) -> (sort by key);
+
+-- check data still there after restart;
+--restart cluster;
+set max_line_width 200;
+
+(scan all from test_stream) -> (sort by key);
+
+-- errors;
+
+-- try and create stream with (store stream) as not the last operator, should fail;
+
+should_fail := test_stream -> (store stream) -> (store table by key);
+
+delete(test_stream);
+
+--delete topic test_topic;

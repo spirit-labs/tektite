@@ -1,0 +1,238 @@
+syntax = "proto3";
+
+package spiritlabs.tektite.clustermsgs.v1;
+
+option go_package = "github.com/spirit-labs/tektite/protos/v1/clustermsgs";
+
+// Processor manager messages
+
+message ForwardBatchMessage {
+  uint64 processor_id = 1;
+  uint64 receiver_id = 2;
+  uint64 partition_id = 3;
+  int64 forwarding_processor_id = 4;
+  int64 forwarding_sequence = 5;
+  int64 command_id = 6;
+  uint64 version = 7;
+  int64 water_mark = 8;
+  bool barrier = 9;
+  bytes batch_bytes = 10;
+  bool replicate = 11;
+}
+
+// Replication messages
+
+message ReplicateMessage {
+  uint32 replication_type = 1;
+  uint64 processor_id = 2;
+  uint64 receiver_id = 3;
+  uint64 partition_id = 4;
+  int64 forwarding_processor_id = 5;
+  bytes batch_bytes = 6;
+  uint64 sequence_number = 7;
+  uint64 cluster_version = 8;
+  uint64 joined_cluster_version = 9;
+  uint32 sending_node = 10;
+  uint64 repl_seq = 11;
+}
+
+message LastCommittedRequest {
+  uint64 processor_id = 1;
+  uint64 cluster_version = 2;
+  uint64 joined_version = 3;
+}
+
+message LastCommittedResponse {
+  int64 last_committed = 1;
+}
+
+message SetLastCommittedMessage {
+  uint64 processor_id = 1;
+  int64 last_committed = 2;
+  uint64 joined_version = 3;
+}
+
+message FlushMessage {
+  uint64 processor_id = 1;
+  uint64 batch_seq = 2;
+  uint64 cluster_version = 3;
+  uint64 joined_cluster_version = 4;
+}
+
+// LevelManager messages
+
+message LevelManagerGetTableIDsForRangeMessage {
+  bytes key_start = 1;
+  bytes key_end = 2;
+}
+
+message LevelManagerGetPrefixRetentionsMessage {
+}
+
+message LevelManagerGetTableIDsForRangeResponse {
+  bytes payload = 1;
+  uint64 level_manager_now = 2;
+  repeated LevelManagerVersionRange dead_versions = 3;
+}
+
+message LevelManagerVersionRange {
+  uint64 version_start = 1;
+  uint64 version_end = 2;
+}
+
+message LevelManagerRawResponse {
+  bytes payload = 1;
+}
+
+message LevelManagerApplyChangesRequest {
+  bytes payload = 1;
+}
+
+message LevelManagerRegisterDeadVersionRangeRequest {
+  bytes payload = 1;
+}
+
+message LevelManagerL0AddRequest {
+  bytes payload = 1;
+}
+
+message LevelManagerRegisterPrefixRetentionsRequest {
+  bytes payload = 1;
+}
+
+message LevelManagerLoadLastFlushedVersionMessage {
+}
+
+message LevelManagerLoadLastFlushedVersionResponse {
+  int64 last_flushed_version = 1;
+}
+
+message LevelManagerStoreLastFlushedVersionMessage {
+  int64 last_flushed_version = 1;
+}
+
+message LevelManagerGetStatsMessage {
+}
+
+message LevelManagerGetStatsResponse {
+  bytes payload = 1;
+}
+
+// Compaction messages
+
+message CompactionPollMessage {
+}
+
+message CompactionPollResponse {
+  bytes job = 1;
+}
+
+// Local object store messages
+
+message LocalObjStoreGetRequest {
+  bytes key = 1;
+}
+
+message LocalObjStoreGetResponse {
+  bytes value = 1;
+}
+
+message LocalObjStoreAddRequest {
+  bytes key = 1;
+  bytes value = 2;
+}
+
+message LocalObjStoreDeleteRequest {
+  bytes key = 1;
+}
+
+// Query manager messages
+
+message QueryMessage {
+  bytes exec_id = 1;
+  string query_name = 2;
+  string tsl = 3;
+  uint64 highest_version = 4;
+  uint64 cluster_version = 5;
+  bytes args = 6;
+  bytes partitions = 7;
+  string sender_address = 8;
+}
+
+message QueryResponse {
+  bytes exec_id = 1;
+  bytes value = 2;
+  bool last = 3;
+}
+
+// Version manager messages
+
+message VersionsMessage {
+  int64 current_version = 1;
+  int64 completed_version = 2;
+  int64 flushed_version = 3;
+}
+
+message GetCurrentVersionMessage {
+}
+
+message VersionCompleteMessage {
+  uint64 version = 1;
+  uint64 required_completions = 2;
+  int64 command_id = 3;
+  bool doom = 4;
+}
+
+message FailureDetectedMessage {
+  uint64 processor_count = 1;
+  uint64 cluster_version = 2;
+}
+
+message GetLastFailureFlushedVersionMessage {
+  uint64 cluster_version = 1;
+}
+
+message GetLastFailureFlushedVersionResponse {
+  int64 flushed_version = 1;
+}
+
+message FailureCompleteMessage {
+  uint64 processor_count = 1;
+  uint64 cluster_version = 2;
+}
+
+message IsFailureCompleteMessage {
+  uint64 cluster_version = 1;
+}
+
+message IsFailureCompleteResponse {
+  bool complete = 1;
+}
+
+message VersionFlushedMessage {
+  uint32 node_id = 1;
+  uint64 version = 2;
+  uint64 processor_count = 3;
+  uint64 cluster_version = 4;
+}
+
+// Command manager messages
+
+message CommandAvailableMessage {
+}
+
+// Cluster closer
+
+message ShutdownMessage {
+  uint32 phase = 1;
+}
+
+message ShutdownResponse {
+  bool flushed = 1;
+}
+
+// test messages
+
+message RemotingTestMessage {
+  string some_field = 1;
+}

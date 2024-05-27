@@ -1,0 +1,156 @@
+set max_line_width 300;
+
+-- create topic with 1 partition, so we can see messages consumed in offset order;
+topic1 := (kafka in partitions = 1) -> (kafka out);
+
+--produce data dataset_1;
+
+(scan all from topic1) -> (sort by key);
+
+--consume data topic1 test_group1 earliest 3 commit;
+
+--consume data topic1 test_group1 earliest 2 commit;
+
+--restart cluster;
+
+set max_line_width 300;
+
+-- offset should be persisted between restarts;
+
+--consume data topic1 test_group1 earliest 2 commit;
+
+-- add a different consumer group;
+
+--consume data topic1 test_group2 earliest 4 commit;
+
+--consume data topic1 test_group1 earliest 3 commit;
+
+-- now don't commit;
+
+--consume data topic1 test_group2 earliest 2 no_commit;
+
+-- same messages should be delivered again;
+
+--consume data topic1 test_group2 earliest 2 commit;
+
+delete(topic1);
+
+topic1 := (kafka in partitions = 1) -> (kafka out);
+
+-- test auto.offset.reset = latest;
+-- produce data after a delay - this allows consumer to be created;
+
+--async produce data dataset_1 1000;
+
+--consume data topic1 test_group1 latest 10 commit;
+
+delete(topic1);
+
+--create topic test_topic 10;
+
+topic2 := (bridge from test_topic partitions = 10 props = ()) -> (kafka out);
+
+--load data dataset_2;
+
+(scan all from topic2) -> (project key, hdrs, val) -> (sort by key);
+
+--consume data topic2 test_group1 earliest 10 commit no_print_offset;
+
+delete(topic2);
+
+--delete topic test_topic;
+
+-- try to consume from topic with no kafka out;
+topic3 := (kafka in partitions = 1) -> (store stream);
+
+--consume data topic3 test_group1 earliest 10 commit;
+
+delete(topic3);
+
+-- create topic with multiple partition, so we can test consumption from multiple partitions;
+topic4 := (kafka in partitions = 10) -> (kafka out);
+
+--produce data dataset_3;
+
+(scan all from topic4) -> (sort by key);
+
+--consume data topic4 test_group1 earliest 10 commit;
+
+delete(topic4);
+
+-- consume with latest after restarting with data already in topic - ensures last offset is loaded correctly;
+
+topic5 := (kafka in partitions = 1) -> (kafka out);
+
+--produce data dataset_4;
+
+--restart cluster;
+
+set max_line_width 300;
+
+--async produce data dataset_5 1000;
+
+--consume data topic5 test_group4 latest 10 commit;
+
+delete(topic5);
+
+-- create a producer/consumer endpoint stream, produce some data, then delete the stream, then create a new
+-- stream with the same name. Verify the cached fetcher state has been removed and can't be consumed;
+
+topic7 := (kafka in partitions = 1) -> (kafka out);
+
+--produce data dataset_6;
+
+(scan all from topic7) -> (sort by key);
+
+delete(topic7);
+
+topic7 := (kafka in partitions = 1) -> (kafka out);
+
+--produce data dataset_7;
+
+--consume data topic7 test_group6 earliest 10 commit;
+
+delete(topic7);
+
+-- create a stream with a filter between the kafka in and kafka out that only lets some messages through and make
+-- sure we consume the correct messages. Previously was a bug where we added to the fetcher cache on the kafka in
+-- operator, not on the kafka out operator so this would fail;
+
+topic8 := (kafka in partitions = 1) -> (filter by json_int("v0", val) % 2 == 0) -> (kafka out);
+
+--produce data dataset_8;
+
+(scan all from topic8) -> (sort by key);
+
+--consume data topic8 test_group1 earliest 5 commit no_print_offset;
+
+delete(topic8);
+
+-- a few configs that should be legal;
+
+--create topic test_topic 10;
+
+topic8 := (kafka in partitions = 10) -> (kafka out);
+delete(topic8);
+
+topic8 := (kafka in partitions = 10) -> (filter by to_string(val) != "foo") -> (kafka out);
+delete(topic8);
+
+topic8 := (bridge from test_topic partitions = 10 props = ()) -> (store stream);
+topic9 := topic8 -> (partition by key partitions=23) -> (kafka out);
+delete(topic9);
+delete(topic8);
+
+-- errors;
+
+-- should fail - cannot have producer and consumer on same stream with different partition scheme as Kafka clients
+-- will get confused as they have same topic name;
+topic8 := (kafka in partitions = 10) -> (partition by key partitions=13) -> (kafka out);
+
+-- should fail - wrong input schema for kafka out;
+topic8 := (bridge from test_topic partitions = 10 props = ()) -> (store stream);
+topic9 := topic8  -> (project val, key) -> (kafka out);
+delete(topic8);
+
+--delete topic test_topic;

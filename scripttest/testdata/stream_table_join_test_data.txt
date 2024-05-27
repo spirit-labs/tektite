@@ -1,0 +1,17 @@
+dataset:transactions_data_1,encoder_name,transactions_topic
+tx000001,nil,"{""cust_id"": ""cust000000"",""prod_id"": ""prod_1000"",""amount"": 10,""currency"": ""GBP"",""cost"": ""23.76""}","2024-01-17 23:23:23.765"
+tx000002,nil,"{""cust_id"": ""cust000001"",""prod_id"": ""prod_1001"",""amount"": 11,""currency"": ""EUR"",""cost"": ""24.76""}","2024-01-17 23:23:24.765"
+tx000003,nil,"{""cust_id"": ""cust000002"",""prod_id"": ""prod_1002"",""amount"": 12,""currency"": ""USD"",""cost"": ""25.76""}","2024-01-17 23:23:25.765"
+tx000004,nil,"{""cust_id"": ""cust000003"",""prod_id"": ""prod_1003"",""amount"": 13,""currency"": ""EUT"",""cost"": ""26.76""}","2024-01-17 23:23:26.765"
+tx000005,nil,"{""cust_id"": ""cust000001"",""prod_id"": ""prod_1004"",""amount"": 14,""currency"": ""TGF"",""cost"": ""27.76""}","2024-01-17 23:23:27.765"
+dataset:cust_info_data_1,encoder_name,cust_updates_topic
+update00001,nil,"{""cust_id"": ""cust000001"",""cust_name"": ""t fox"",""cust_address"": ""the moon""}","2024-01-17 23:25:24.123"
+update00002,nil,"{""cust_id"": ""cust000003"",""cust_name"": ""j smith"",""cust_address"": ""jupiter""}","2024-01-17 23:25:25.123"
+dataset:transactions_data_2,encoder_name,transactions_topic
+tx000001,nil,"{""cust_id"": ""cust000000"",""country"": ""USA"",""prod_id"": ""prod_1000"",""amount"": 10,""currency"": ""GBP"",""cost"": ""23.76""}","2024-01-17 23:23:23.765"
+tx000002,nil,"{""cust_id"": ""cust000001"",""country"": ""UK"", ""prod_id"": ""prod_1001"",""amount"": 11,""currency"": ""EUR"",""cost"": ""24.76""}","2024-01-17 23:23:24.765"
+tx000002,nil,"{""cust_id"": ""cust000002"",""country"": ""XYZ"", ""prod_id"": ""prod_1002"",""amount"": 12,""currency"": ""GBP"",""cost"": ""25.76""}","2024-01-17 23:24:24.765"
+dataset:cust_info_data_2,encoder_name,cust_updates_topic
+update00001,nil,"{""cust_id"": ""cust000001"",""country"": ""UK"",""cust_name"": ""t fox"",""cust_address"": ""the moon""}","2024-01-17 23:25:24.123"
+update00002,nil,"{""cust_id"": ""cust000001"",""country"": ""USA"",""cust_name"": ""t fox"",""cust_address"": ""jupiter""}","2024-01-17 23:26:24.123"
+update00003,nil,"{""cust_id"": ""cust000002"",""country"": ""XYZ"",""cust_name"": ""a apple"",""cust_address"": ""mercury""}","2024-01-17 23:26:25.123"

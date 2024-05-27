@@ -1,0 +1,30 @@
+set max_line_width 300;
+
+-- create topic with 1 partition, so we can see messages consumed in offset order;
+topic1 := (topic partitions = 1);
+
+--produce data dataset_1;
+
+(scan all from topic1) -> (sort by key);
+
+--consume data topic1 test_group1 earliest 5 commit;
+
+--restart cluster;
+
+set max_line_width 300;
+
+-- offset should be persisted between restarts;
+
+--consume data topic1 test_group1 earliest 5 commit;
+
+delete(topic1);
+
+-- deploy topic with all args to check parsing;
+
+topic1 := (topic partitions = 1 retention = 5m watermark_type = event_time watermark_lateness = 1s watermark_idle_timeout = 1m);
+
+--produce data dataset_1;
+
+--consume data topic1 test_group1 earliest 10 commit;
+
+delete(topic1);

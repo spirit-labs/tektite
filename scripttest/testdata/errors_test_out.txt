@@ -1,0 +1,52 @@
+-- Miscellaneous errors not pertaining to specific operators go in here;
+
+--create topic test_topic;
+
+stream1 :=
+(bridge from
+    test_topic
+    partitions = 16
+    props = ()
+) -> (store stream);
+OK
+
+-- stream  already exists;
+
+stream1 :=
+(bridge from
+    test_topic
+    partitions = 16
+    props = ()
+) -> (store stream);
+stream 'stream1' already exists (line 1 column 1):
+stream1 :=
+^
+
+delete(stream1);
+OK
+
+-- delete stream that does not exist;
+
+delete(stream1);
+unknown stream 'stream1' (line 1 column 8):
+delete(stream1)
+       ^
+
+delete(streamx);
+unknown stream 'streamx' (line 1 column 8):
+delete(streamx)
+       ^
+
+-- stream name is reserved name;
+
+with :=
+(bridge from
+    test_topic
+    partitions = 16
+    props = ()
+) -> (store stream);
+stream name 'with' is a reserved name (line 1 column 1):
+with :=
+^
+
+--delete topic test_topic;

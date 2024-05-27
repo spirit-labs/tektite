@@ -1,0 +1,25 @@
+dataset:dataset_1,encoder_name,sensor_readings
+sensor003,nil,"{""country"": ""UK"",""temperature"": ""25.1""}","2006-01-02 15:04:00.050"
+sensor001,nil,"{""country"": ""FR"",""temperature"": ""18.7""}","2006-01-02 15:04:00.000"
+sensor002,nil,"{""country"": ""USA"",""temperature"": ""26.9""}","2006-01-02 15:04:00.013"
+sensor005,nil,"{""country"": ""UK"",""temperature"": ""23.7""}","2006-01-02 15:04:00.078"
+sensor004,nil,"{""country"": ""USA"",""temperature"": ""13.3""}","2006-01-02 15:04:00.033"
+dataset:dataset_2,encoder_name,sensor_readings
+sensor003,nil,"{""country"": ""UK"",""temperature"": ""25.1""}","2006-01-02 15:04:10.050"
+sensor001,nil,"{""country"": ""FR"",""temperature"": ""18.7""}","2006-01-02 15:04:10.000"
+sensor002,nil,"{""country"": ""USA"",""temperature"": ""26.9""}","2006-01-02 15:04:10.013"
+sensor005,nil,"{""country"": ""UK"",""temperature"": ""23.7""}","2006-01-02 15:04:10.078"
+sensor004,nil,"{""country"": ""USA"",""temperature"": ""13.3""}","2006-01-02 15:04:10.033"
+dataset:dataset_3,encoder_name,sensor_readings
+sensor003,nil,"{""country"": ""UK"",""temperature"": ""25.1""}","2006-01-02 15:04:20.000"
+sensor001,nil,"{""country"": ""FR"",""temperature"": ""18.7""}","2006-01-02 15:04:20.100"
+sensor002,nil,"{""country"": ""USA"",""temperature"": ""26.9""}","2006-01-02 15:04:20.200"
+sensor005,nil,"{""country"": ""UK"",""temperature"": ""23.7""}","2006-01-02 15:04:20.300"
+sensor004,nil,"{""country"": ""USA"",""temperature"": ""13.3""}","2006-01-02 15:04:20.500"
+dataset:dataset_4,encoder_name,sensor_readings
+sensor003,nil,"{""country"": ""UK"",""temperature"": ""25.1""}","2006-01-02 15:14:22.000"
+sensor001,nil,"{""country"": ""FR"",""temperature"": ""18.7""}","2006-01-02 15:14:22.100"
+sensor002,nil,"{""country"": ""USA"",""temperature"": ""26.9""}","2006-01-02 15:14:22.200"
+sensor005,nil,"{""country"": ""UK"",""temperature"": ""23.7""}","2006-01-02 15:14:22.300"
+sensor004,nil,"{""country"": ""USA"",""temperature"": ""13.3""}","2006-01-02 15:14:22.500"
+

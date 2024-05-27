@@ -1,0 +1,57 @@
+--create topic test_topic;
+
+test_stream := (bridge from test_topic partitions = 20 props = ()) ->
+(project key, val, kafka_header("h1", hdrs) as h1) ->
+(store stream);
+
+--load data dataset_1;
+
+(scan all from test_stream) -> (sort by key);
+
+delete(test_stream);
+
+--delete topic test_topic;
+
+--create topic test_topic;
+
+test_stream := (bridge from test_topic
+    partitions = 20
+    poll_timeout = 10ms
+    max_poll_messages = 1000
+    watermark_type = event_time
+    watermark_lateness = 5s
+    watermark_idle_timeout = 30s
+    props = ()
+) ->
+(project key, val, kafka_header("h1", hdrs) as h1) ->
+(store stream);
+
+--load data dataset_1;
+
+(scan all from test_stream) -> (sort by key);
+
+delete(test_stream);
+
+-- errors;
+
+test_stream := (bridge from test_topic
+    partitions = 0
+    poll_timeout = 10ms
+    max_poll_messages = 1000
+    watermark_type = event_time
+    watermark_lateness = 5s
+    watermark_idle_timeout = 30s
+    props = ()
+) -> (store stream);
+
+test_stream := (bridge from test_topic
+    partitions = 20
+    poll_timeout = 100ms
+    max_poll_messages = 0
+    watermark_type = event_time
+    watermark_lateness = 5s
+    watermark_idle_timeout = 30s
+    props = ()
+) -> (store stream);
+
+--delete topic test_topic;

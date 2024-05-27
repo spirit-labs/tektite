@@ -1,0 +1,1087 @@
+set max_line_width 400;
+OK
+
+--create topic transactions_topic;
+--create topic payments_topic;
+
+transactions :=
+(bridge from transactions_topic partitions=20 props=()) ->
+(project
+    to_string(key) as tx_id,
+    json_string("cust_id", val) as cust_id,
+    json_string("prod_id", val) as prod_id,
+    json_int("amount", val) as amount,
+    json_string("currency", val) as currency,
+    to_decimal(json_string("cost", val),38,6) as cost)
+-> (partition by cust_id partitions=20)
+-> (store stream);
+OK
+
+payments :=
+(bridge from payments_topic partitions=20 props=()) ->
+(project
+    to_string(key) as payment_id,
+    json_string("cust_id", val) as cust_id,
+    json_string("currency", val) as currency,
+    to_decimal(json_string("cost", val),38,6) as cost)
+-> (partition by cust_id partitions=20)
+-> (store stream);
+OK
+
+transactions_with_payments := (join transactions with payments on cust_id=cust_id within=5m) -> (store stream);
+OK
+
+-- tx000001 - payment000001 - no match as not matching keys;
+
+-- within boundary checking;
+-- we fix the payment event time and vary the tx event time (we could do it the other way it doesn't matter);
+
+-- tx000002 - payment000002 - no match as tx has et comfortably before start of within lower bound;
+-- tx000003 - payment000003 - no match as tx has et just before start of within lower bound;
+-- tx000004 - payment000004 - match as tx et is at exact start of within lower bound;
+-- tx000005 - payment000005 - match as tx et is just after start of within lower bound;
+-- tx000006 - payment000006 - match as tx et is comfortably within bounds;
+-- tx000007 - payment000007 - match as tx et is just before end of within upper bound;
+-- tx000008 - payment000008 - match as tx et is at exact end of within upper bound;
+-- tx000009 - payment000009 - no match as tx et is just after end of within upper bound;
+-- tx000010 - payment000010 - no match as tx et is comfortably after end of within upper bound;
+
+-- tx000011 - payment000011, payment000012, payment000013 - multiple join - payment000014 does not join as outside window
+-- tx000012, tx000013, tx000014 - payment 000015 - multiple join - tx000015 does not join as outside window
+
+-- first we load transactions before payments;
+
+--load data transactions_data_1;
+--load data payments_data_1;
+
+(scan all from transactions_with_payments)
+-> (project event_time, l_event_time, l_tx_id, l_cust_id, l_prod_id, l_amount, l_currency, l_cost, r_event_time, r_payment_id, r_currency, r_cost)
+-> (sort by l_tx_id, r_payment_id);
++-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| event_time                 | l_event_time               | l_tx_id                           | l_cust_id                         | l_prod_id                         | l_amount             | l_currency                        | l_cost                            | r_event_time               | r_payment_id                      | r_currency                        | r_cost                            |
++-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| 2024-01-17 23:25:00.000000 | 2024-01-17 23:20:00.000000 | tx000004                          | cust000004                        | prod_1003                         | 13                   | GBP                               | 26.760000                         | 2024-01-17 23:25:00.000000 | payment00004                      | ETB                               | 47.980000                         |
+| 2024-01-17 23:25:00.000000 | 2024-01-17 23:20:00.001000 | tx000005                          | cust000005                        | prod_1004                         | 14                   | GBP                               | 27.760000                         | 2024-01-17 23:25:00.000000 | payment00005                      | USB                               | 57.980000                         |
+| 2024-01-17 23:25:12.567000 | 2024-01-17 23:25:12.567000 | tx000006                          | cust000006                        | prod_1005                         | 15                   | USD                               | 28.760000                         | 2024-01-17 23:25:00.000000 | payment00006                      | GBP                               | 67.980000                         |
+| 2024-01-17 23:29:59.999000 | 2024-01-17 23:29:59.999000 | tx000007                          | cust000007                        | prod_1006                         | 16                   | ETB                               | 29.760000                         | 2024-01-17 23:25:00.000000 | payment00007                      | EUR                               | 77.980000                         |
+| 2024-01-17 23:30:00.000000 | 2024-01-17 23:30:00.000000 | tx000008                          | cust000008                        | prod_1007                         | 17                   | ETB                               | 30.760000                         | 2024-01-17 23:25:00.000000 | payment00008                      | EUR                               | 87.980000                         |
+| 2024-01-17 23:35:01.000000 | 2024-01-17 23:35:00.000000 | tx000011                          | cust000011                        | prod_1010                         | 20                   | EUR                               | 33.760000                         | 2024-01-17 23:35:01.000000 | payment00011                      | GBP                               | 37.980000                         |
+| 2024-01-17 23:35:00.000000 | 2024-01-17 23:35:00.000000 | tx000011                          | cust000011                        | prod_1010                         | 20                   | EUR                               | 33.760000                         | 2024-01-17 23:35:00.000000 | payment00012                      | EUR                               | 17.010000                         |
+| 2024-01-17 23:35:02.000000 | 2024-01-17 23:35:00.000000 | tx000011                          | cust000011                        | prod_1010                         | 20                   | EUR                               | 33.760000                         | 2024-01-17 23:35:02.000000 | payment00013                      | USD                               | 22.230000                         |
+| 2024-01-17 23:35:02.000000 | 2024-01-17 23:35:02.000000 | tx000012                          | cust000012                        | prod_1011                         | 21                   | EUR                               | 34.760000                         | 2024-01-17 23:35:00.000000 | payment00015                      | EUR                               | 76.110000                         |
+| 2024-01-17 23:35:01.000000 | 2024-01-17 23:35:01.000000 | tx000013                          | cust000012                        | prod_1012                         | 22                   | GBP                               | 35.760000                         | 2024-01-17 23:35:00.000000 | payment00015                      | EUR                               | 76.110000                         |
+| 2024-01-17 23:35:04.000000 | 2024-01-17 23:35:04.000000 | tx000014                          | cust000012                        | prod_1013                         | 23                   | USD                               | 36.660000                         | 2024-01-17 23:35:00.000000 | payment00015                      | EUR                               | 76.110000                         |
++-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+11 rows returned
+
+-- try and delete transactions and payments without first deleting transactions_with_payments - should fail;
+
+delete(transactions);
+cannot delete stream transactions - it has child streams: [transactions_with_payments] - they must be deleted first (line 1 column 8):
+delete(transactions)
+       ^
+delete(payments);
+cannot delete stream payments - it has child streams: [transactions_with_payments] - they must be deleted first (line 1 column 8):
+delete(payments)
+       ^
+
+delete(transactions_with_payments);
+OK
+delete(transactions);
+OK
+delete(payments);
+OK
+
+--delete topic payments_topic;
+--delete topic transactions_topic;
+
+-- then we load payments before transactions - results should be the same;
+
+--create topic transactions_topic;
+--create topic payments_topic;
+
+transactions :=
+(bridge from transactions_topic partitions=20 props=()) ->
+(project
+    to_string(key) as tx_id,
+    json_string("cust_id", val) as cust_id,
+    json_string("prod_id", val) as prod_id,
+    json_int("amount", val) as amount,
+    json_string("currency", val) as currency,
+    to_decimal(json_string("cost", val),38,6) as cost)
+-> (partition by cust_id partitions=20)
+-> (store stream);
+OK
+
+payments :=
+(bridge from payments_topic partitions=20 props=()) ->
+(project
+    to_string(key) as payment_id,
+    json_string("cust_id", val) as cust_id,
+    json_string("currency", val) as currency,
+    to_decimal(json_string("cost", val),38,6) as cost)
+-> (partition by cust_id partitions=20)
+-> (store stream);
+OK
+
+transactions_with_payments := (join transactions with payments on cust_id=cust_id within=5m) -> (store stream);
+OK
+
+--load data payments_data_1;
+--load data transactions_data_1;
+
+
+(scan all from transactions_with_payments)
+-> (project event_time, l_event_time, l_tx_id, l_cust_id, l_prod_id, l_amount, l_currency, l_cost, r_event_time, r_payment_id, r_currency, r_cost)
+-> (sort by l_tx_id, r_payment_id);
++-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| event_time                 | l_event_time               | l_tx_id                           | l_cust_id                         | l_prod_id                         | l_amount             | l_currency                        | l_cost                            | r_event_time               | r_payment_id                      | r_currency                        | r_cost                            |
++-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| 2024-01-17 23:25:00.000000 | 2024-01-17 23:20:00.000000 | tx000004                          | cust000004                        | prod_1003                         | 13                   | GBP                               | 26.760000                         | 2024-01-17 23:25:00.000000 | payment00004                      | ETB                               | 47.980000                         |
+| 2024-01-17 23:25:00.000000 | 2024-01-17 23:20:00.001000 | tx000005                          | cust000005                        | prod_1004                         | 14                   | GBP                               | 27.760000                         | 2024-01-17 23:25:00.000000 | payment00005                      | USB                               | 57.980000                         |
+| 2024-01-17 23:25:12.567000 | 2024-01-17 23:25:12.567000 | tx000006                          | cust000006                        | prod_1005                         | 15                   | USD                               | 28.760000                         | 2024-01-17 23:25:00.000000 | payment00006                      | GBP                               | 67.980000                         |
+| 2024-01-17 23:29:59.999000 | 2024-01-17 23:29:59.999000 | tx000007                          | cust000007                        | prod_1006                         | 16                   | ETB                               | 29.760000                         | 2024-01-17 23:25:00.000000 | payment00007                      | EUR                               | 77.980000                         |
+| 2024-01-17 23:30:00.000000 | 2024-01-17 23:30:00.000000 | tx000008                          | cust000008                        | prod_1007                         | 17                   | ETB                               | 30.760000                         | 2024-01-17 23:25:00.000000 | payment00008                      | EUR                               | 87.980000                         |
+| 2024-01-17 23:35:01.000000 | 2024-01-17 23:35:00.000000 | tx000011                          | cust000011                        | prod_1010                         | 20                   | EUR                               | 33.760000                         | 2024-01-17 23:35:01.000000 | payment00011                      | GBP                               | 37.980000                         |
+| 2024-01-17 23:35:00.000000 | 2024-01-17 23:35:00.000000 | tx000011                          | cust000011                        | prod_1010                         | 20                   | EUR                               | 33.760000                         | 2024-01-17 23:35:00.000000 | payment00012                      | EUR                               | 17.010000                         |
+| 2024-01-17 23:35:02.000000 | 2024-01-17 23:35:00.000000 | tx000011                          | cust000011                        | prod_1010                         | 20                   | EUR                               | 33.760000                         | 2024-01-17 23:35:02.000000 | payment00013                      | USD                               | 22.230000                         |
+| 2024-01-17 23:35:02.000000 | 2024-01-17 23:35:02.000000 | tx000012                          | cust000012                        | prod_1011                         | 21                   | EUR                               | 34.760000                         | 2024-01-17 23:35:00.000000 | payment00015                      | EUR                               | 76.110000                         |
+| 2024-01-17 23:35:01.000000 | 2024-01-17 23:35:01.000000 | tx000013                          | cust000012                        | prod_1012                         | 22                   | GBP                               | 35.760000                         | 2024-01-17 23:35:00.000000 | payment00015                      | EUR                               | 76.110000                         |
+| 2024-01-17 23:35:04.000000 | 2024-01-17 23:35:04.000000 | tx000014                          | cust000012                        | prod_1013                         | 23                   | USD                               | 36.660000                         | 2024-01-17 23:35:00.000000 | payment00015                      | EUR                               | 76.110000                         |
++-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+11 rows returned
+
+delete(transactions_with_payments);
+OK
+delete(transactions);
+OK
+delete(payments);
+OK
+
+--delete topic payments_topic;
+--delete topic transactions_topic;
+
+-- now join with multiple key columns;
+
+--create topic transactions_topic;
+--create topic payments_topic;
+
+transactions :=
+(bridge from transactions_topic partitions=20 props=()) ->
+(project
+    to_string(key) as tx_id,
+    json_string("cust_id", val) as tcust_id,
+    json_string("prod_id", val) as prod_id,
+    json_int("amount", val) as amount,
+    json_string("currency", val) as tcurrency,
+    to_decimal(json_string("cost", val),38,6) as tcost)
+-> (partition by tcust_id, tcurrency, tcost partitions=20)
+-> (store stream);
+OK
+
+payments :=
+(bridge from payments_topic partitions=20 props=()) ->
+(project
+    to_string(key) as payment_id,
+    json_string("cust_id", val) as pcust_id,
+    json_string("currency", val) as pcurrency,
+    to_decimal(json_string("cost", val),38,6) as pcost)
+-> (partition by pcust_id, pcurrency, pcost partitions=20)
+-> (store stream);
+OK
+
+transactions_with_payments := (join transactions with payments on tcust_id=pcust_id,tcurrency=pcurrency,tcost=pcost within=5m) -> (store stream);
+OK
+
+-- load transactions before payments;
+
+--load data transactions_data_2;
+--load data payments_data_2;
+
+-- tx000001 - payment000001 - no match - no key columns match
+-- tx000002 - payment000002 - no match - only cust_id matches
+-- tx000003 - payment000003 - no match - only cust_id and currency match
+-- tx000004 - payment000004 - no match - only cust_id and cost match
+-- tx000005 - payment000005 - no match - only currency and cost match
+-- tx000006 - payment000006 - no match - payment too late after transaction
+-- tx000007 - payment000007 - no match - transaction too late after payment
+-- tx000008 - payment000008 - single match on all key cols
+-- tx000009 - payment000009, payment000010, payment000011 - multiple match on all key cols;
+-- tx000010, tx000011, tx000012 - payment000012 - multiple match on all key cols;
+-- tx000013 - payment000013, payment000014, payment000015 - all key cols and event_time are identical - all matches should be returned;
+-- tx000014, tx000015, tx000016 - payment000016 - all key cols and event_time are identical - all matches should be returned;
+
+(scan all from transactions_with_payments)
+-> (project event_time, l_event_time, l_tx_id, l_tcust_id, l_prod_id, l_amount, l_tcurrency, l_tcost, r_event_time, r_payment_id)
+-> (sort by l_tx_id, r_payment_id);
++-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| event_time                 | l_event_time               | l_tx_id                                       | l_tcust_id                                    | l_prod_id                                     | l_amount             | l_tcurrency                                   | l_tcost                                       | r_event_time               | r_payment_id                                  |
++-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| 2024-01-17 23:23:27.000000 | 2024-01-17 23:23:23.000000 | tx000008                                      | cust000010                                    | prod_1000                                     | 10                   | GBP                                           | 23.760000                                     | 2024-01-17 23:23:27.000000 | payment00008                                  |
+| 2024-01-17 23:23:23.000000 | 2024-01-17 23:23:23.000000 | tx000009                                      | cust000011                                    | prod_1000                                     | 10                   | GBP                                           | 23.760000                                     | 2024-01-17 23:23:23.000000 | payment00009                                  |
+| 2024-01-17 23:23:24.000000 | 2024-01-17 23:23:23.000000 | tx000009                                      | cust000011                                    | prod_1000                                     | 10                   | GBP                                           | 23.760000                                     | 2024-01-17 23:23:24.000000 | payment00010                                  |
+| 2024-01-17 23:23:25.000000 | 2024-01-17 23:23:23.000000 | tx000009                                      | cust000011                                    | prod_1000                                     | 10                   | GBP                                           | 23.760000                                     | 2024-01-17 23:23:25.000000 | payment00011                                  |
+| 2024-01-17 23:23:25.000000 | 2024-01-17 23:23:23.000000 | tx000010                                      | cust000012                                    | prod_1000                                     | 10                   | GBP                                           | 23.760000                                     | 2024-01-17 23:23:25.000000 | payment00012                                  |
+| 2024-01-17 23:23:25.000000 | 2024-01-17 23:23:24.000000 | tx000011                                      | cust000012                                    | prod_1000                                     | 10                   | GBP                                           | 23.760000                                     | 2024-01-17 23:23:25.000000 | payment00012                                  |
+| 2024-01-17 23:23:25.000000 | 2024-01-17 23:23:25.000000 | tx000012                                      | cust000012                                    | prod_1000                                     | 10                   | GBP                                           | 23.760000                                     | 2024-01-17 23:23:25.000000 | payment00012                                  |
+| 2024-01-17 23:23:29.123000 | 2024-01-17 23:23:25.000000 | tx000013                                      | cust000013                                    | prod_1000                                     | 10                   | GBP                                           | 23.760000                                     | 2024-01-17 23:23:29.123000 | payment00013                                  |
+| 2024-01-17 23:23:29.123000 | 2024-01-17 23:23:25.000000 | tx000013                                      | cust000013                                    | prod_1000                                     | 10                   | GBP                                           | 23.760000                                     | 2024-01-17 23:23:29.123000 | payment00014                                  |
+| 2024-01-17 23:23:29.123000 | 2024-01-17 23:23:25.000000 | tx000013                                      | cust000013                                    | prod_1000                                     | 10                   | GBP                                           | 23.760000                                     | 2024-01-17 23:23:29.123000 | payment00015                                  |
+| 2024-01-17 23:23:29.123000 | 2024-01-17 23:23:24.321000 | tx000014                                      | cust000014                                    | prod_1001                                     | 13                   | GBP                                           | 23.760000                                     | 2024-01-17 23:23:29.123000 | payment00016                                  |
+| 2024-01-17 23:23:29.123000 | 2024-01-17 23:23:25.321000 | tx000015                                      | cust000014                                    | prod_1002                                     | 12                   | GBP                                           | 23.760000                                     | 2024-01-17 23:23:29.123000 | payment00016                                  |
+| 2024-01-17 23:23:29.123000 | 2024-01-17 23:23:25.321000 | tx000016                                      | cust000014                                    | prod_1003                                     | 9                    | GBP                                           | 23.760000                                     | 2024-01-17 23:23:29.123000 | payment00016                                  |
++-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+13 rows returned
+
+delete(transactions_with_payments);
+OK
+delete(transactions);
+OK
+delete(payments);
+OK
+
+--delete topic payments_topic;
+--delete topic transactions_topic;
+
+-- and we repeat loading payments first then transactions;
+
+--create topic transactions_topic;
+--create topic payments_topic;
+
+transactions :=
+(bridge from transactions_topic partitions=20 props=()) ->
+(project
+    to_string(key) as tx_id,
+    json_string("cust_id", val) as tcust_id,
+    json_string("prod_id", val) as prod_id,
+    json_int("amount", val) as amount,
+    json_string("currency", val) as tcurrency,
+    to_decimal(json_string("cost", val),38,6) as tcost)
+-> (partition by tcust_id, tcurrency, tcost partitions=20)
+-> (store stream);
+OK
+
+payments :=
+(bridge from payments_topic partitions=20 props=()) ->
+(project
+    to_string(key) as payment_id,
+    json_string("cust_id", val) as pcust_id,
+    json_string("currency", val) as pcurrency,
+    to_decimal(json_string("cost", val),38,6) as pcost)
+-> (partition by pcust_id, pcurrency, pcost partitions=20)
+-> (store stream);
+OK
+
+transactions_with_payments := (join transactions with payments on tcust_id=pcust_id,tcurrency=pcurrency,tcost=pcost within=5m) -> (store stream);
+OK
+
+--load data payments_data_2;
+--load data transactions_data_2;
+
+(scan all from transactions_with_payments)
+-> (project event_time, l_event_time, l_tx_id, l_tcust_id, l_prod_id, l_amount, l_tcurrency, l_tcost, r_event_time, r_payment_id)
+-> (sort by l_tx_id, r_payment_id);
++-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| event_time                 | l_event_time               | l_tx_id                                       | l_tcust_id                                    | l_prod_id                                     | l_amount             | l_tcurrency                                   | l_tcost                                       | r_event_time               | r_payment_id                                  |
++-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| 2024-01-17 23:23:27.000000 | 2024-01-17 23:23:23.000000 | tx000008                                      | cust000010                                    | prod_1000                                     | 10                   | GBP                                           | 23.760000                                     | 2024-01-17 23:23:27.000000 | payment00008                                  |
+| 2024-01-17 23:23:23.000000 | 2024-01-17 23:23:23.000000 | tx000009                                      | cust000011                                    | prod_1000                                     | 10                   | GBP                                           | 23.760000                                     | 2024-01-17 23:23:23.000000 | payment00009                                  |
+| 2024-01-17 23:23:24.000000 | 2024-01-17 23:23:23.000000 | tx000009                                      | cust000011                                    | prod_1000                                     | 10                   | GBP                                           | 23.760000                                     | 2024-01-17 23:23:24.000000 | payment00010                                  |
+| 2024-01-17 23:23:25.000000 | 2024-01-17 23:23:23.000000 | tx000009                                      | cust000011                                    | prod_1000                                     | 10                   | GBP                                           | 23.760000                                     | 2024-01-17 23:23:25.000000 | payment00011                                  |
+| 2024-01-17 23:23:25.000000 | 2024-01-17 23:23:23.000000 | tx000010                                      | cust000012                                    | prod_1000                                     | 10                   | GBP                                           | 23.760000                                     | 2024-01-17 23:23:25.000000 | payment00012                                  |
+| 2024-01-17 23:23:25.000000 | 2024-01-17 23:23:24.000000 | tx000011                                      | cust000012                                    | prod_1000                                     | 10                   | GBP                                           | 23.760000                                     | 2024-01-17 23:23:25.000000 | payment00012                                  |
+| 2024-01-17 23:23:25.000000 | 2024-01-17 23:23:25.000000 | tx000012                                      | cust000012                                    | prod_1000                                     | 10                   | GBP                                           | 23.760000                                     | 2024-01-17 23:23:25.000000 | payment00012                                  |
+| 2024-01-17 23:23:29.123000 | 2024-01-17 23:23:25.000000 | tx000013                                      | cust000013                                    | prod_1000                                     | 10                   | GBP                                           | 23.760000                                     | 2024-01-17 23:23:29.123000 | payment00013                                  |
+| 2024-01-17 23:23:29.123000 | 2024-01-17 23:23:25.000000 | tx000013                                      | cust000013                                    | prod_1000                                     | 10                   | GBP                                           | 23.760000                                     | 2024-01-17 23:23:29.123000 | payment00014                                  |
+| 2024-01-17 23:23:29.123000 | 2024-01-17 23:23:25.000000 | tx000013                                      | cust000013                                    | prod_1000                                     | 10                   | GBP                                           | 23.760000                                     | 2024-01-17 23:23:29.123000 | payment00015                                  |
+| 2024-01-17 23:23:29.123000 | 2024-01-17 23:23:24.321000 | tx000014                                      | cust000014                                    | prod_1001                                     | 13                   | GBP                                           | 23.760000                                     | 2024-01-17 23:23:29.123000 | payment00016                                  |
+| 2024-01-17 23:23:29.123000 | 2024-01-17 23:23:25.321000 | tx000015                                      | cust000014                                    | prod_1002                                     | 12                   | GBP                                           | 23.760000                                     | 2024-01-17 23:23:29.123000 | payment00016                                  |
+| 2024-01-17 23:23:29.123000 | 2024-01-17 23:23:25.321000 | tx000016                                      | cust000014                                    | prod_1003                                     | 9                    | GBP                                           | 23.760000                                     | 2024-01-17 23:23:29.123000 | payment00016                                  |
++-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+13 rows returned
+
+delete(transactions_with_payments);
+OK
+delete(transactions);
+OK
+delete(payments);
+OK
+
+--delete topic payments_topic;
+--delete topic transactions_topic;
+
+-- now we test with input streams which have no offset;
+-- we can do this by joining dangling streams - i.e. ones with no (store stream) at end;
+-- the partition operator will have removed the offset added at the kafka_in so there will be
+-- no offset at this point;
+
+-- first, no offset on both inputs;
+
+--create topic transactions_topic;
+--create topic payments_topic;
+
+transactions :=
+(bridge from transactions_topic partitions=20 props=()) ->
+(project
+    to_string(key) as tx_id,
+    json_string("cust_id", val) as tcust_id,
+    json_string("prod_id", val) as prod_id,
+    json_int("amount", val) as amount,
+    json_string("currency", val) as tcurrency,
+    to_decimal(json_string("cost", val),38,6) as tcost)
+-> (partition by tcust_id, tcurrency, tcost partitions=20);
+OK
+
+payments :=
+(bridge from payments_topic partitions=20 props=()) ->
+(project
+    to_string(key) as payment_id,
+    json_string("cust_id", val) as pcust_id,
+    json_string("currency", val) as pcurrency,
+    to_decimal(json_string("cost", val),38,6) as pcost)
+-> (partition by pcust_id, pcurrency, pcost partitions=20);
+OK
+
+transactions_with_payments := (join transactions with payments on tcust_id=pcust_id,tcurrency=pcurrency,tcost=pcost within=5m) -> (store stream);
+OK
+
+--load data transactions_data_2;
+--load data payments_data_2;
+
+-- we use the same data as the multicolumn test above;
+
+(scan all from transactions_with_payments)
+-> (project event_time, l_event_time, l_tx_id, l_tcust_id, l_prod_id, l_amount, l_tcurrency, l_tcost, r_event_time, r_payment_id)
+-> (sort by l_tx_id, r_payment_id);
++-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| event_time                 | l_event_time               | l_tx_id                                       | l_tcust_id                                    | l_prod_id                                     | l_amount             | l_tcurrency                                   | l_tcost                                       | r_event_time               | r_payment_id                                  |
++-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| 2024-01-17 23:23:27.000000 | 2024-01-17 23:23:23.000000 | tx000008                                      | cust000010                                    | prod_1000                                     | 10                   | GBP                                           | 23.760000                                     | 2024-01-17 23:23:27.000000 | payment00008                                  |
+| 2024-01-17 23:23:23.000000 | 2024-01-17 23:23:23.000000 | tx000009                                      | cust000011                                    | prod_1000                                     | 10                   | GBP                                           | 23.760000                                     | 2024-01-17 23:23:23.000000 | payment00009                                  |
+| 2024-01-17 23:23:24.000000 | 2024-01-17 23:23:23.000000 | tx000009                                      | cust000011                                    | prod_1000                                     | 10                   | GBP                                           | 23.760000                                     | 2024-01-17 23:23:24.000000 | payment00010                                  |
+| 2024-01-17 23:23:25.000000 | 2024-01-17 23:23:23.000000 | tx000009                                      | cust000011                                    | prod_1000                                     | 10                   | GBP                                           | 23.760000                                     | 2024-01-17 23:23:25.000000 | payment00011                                  |
+| 2024-01-17 23:23:25.000000 | 2024-01-17 23:23:23.000000 | tx000010                                      | cust000012                                    | prod_1000                                     | 10                   | GBP                                           | 23.760000                                     | 2024-01-17 23:23:25.000000 | payment00012                                  |
+| 2024-01-17 23:23:25.000000 | 2024-01-17 23:23:24.000000 | tx000011                                      | cust000012                                    | prod_1000                                     | 10                   | GBP                                           | 23.760000                                     | 2024-01-17 23:23:25.000000 | payment00012                                  |
+| 2024-01-17 23:23:25.000000 | 2024-01-17 23:23:25.000000 | tx000012                                      | cust000012                                    | prod_1000                                     | 10                   | GBP                                           | 23.760000                                     | 2024-01-17 23:23:25.000000 | payment00012                                  |
+| 2024-01-17 23:23:29.123000 | 2024-01-17 23:23:25.000000 | tx000013                                      | cust000013                                    | prod_1000                                     | 10                   | GBP                                           | 23.760000                                     | 2024-01-17 23:23:29.123000 | payment00013                                  |
+| 2024-01-17 23:23:29.123000 | 2024-01-17 23:23:25.000000 | tx000013                                      | cust000013                                    | prod_1000                                     | 10                   | GBP                                           | 23.760000                                     | 2024-01-17 23:23:29.123000 | payment00014                                  |
+| 2024-01-17 23:23:29.123000 | 2024-01-17 23:23:25.000000 | tx000013                                      | cust000013                                    | prod_1000                                     | 10                   | GBP                                           | 23.760000                                     | 2024-01-17 23:23:29.123000 | payment00015                                  |
+| 2024-01-17 23:23:29.123000 | 2024-01-17 23:23:24.321000 | tx000014                                      | cust000014                                    | prod_1001                                     | 13                   | GBP                                           | 23.760000                                     | 2024-01-17 23:23:29.123000 | payment00016                                  |
+| 2024-01-17 23:23:29.123000 | 2024-01-17 23:23:25.321000 | tx000015                                      | cust000014                                    | prod_1002                                     | 12                   | GBP                                           | 23.760000                                     | 2024-01-17 23:23:29.123000 | payment00016                                  |
+| 2024-01-17 23:23:29.123000 | 2024-01-17 23:23:25.321000 | tx000016                                      | cust000014                                    | prod_1003                                     | 9                    | GBP                                           | 23.760000                                     | 2024-01-17 23:23:29.123000 | payment00016                                  |
++-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+13 rows returned
+
+delete(transactions_with_payments);
+OK
+delete(transactions);
+OK
+delete(payments);
+OK
+
+--delete topic payments_topic;
+--delete topic transactions_topic;
+
+-- next, offset on left but not right;
+
+--create topic transactions_topic;
+--create topic payments_topic;
+
+transactions :=
+(bridge from transactions_topic partitions=20 props=()) ->
+(project
+    to_string(key) as tx_id,
+    json_string("cust_id", val) as tcust_id,
+    json_string("prod_id", val) as prod_id,
+    json_int("amount", val) as amount,
+    json_string("currency", val) as tcurrency,
+    to_decimal(json_string("cost", val),38,6) as tcost)
+-> (partition by tcust_id, tcurrency, tcost partitions=20)
+-> (store stream);
+OK
+
+payments :=
+(bridge from payments_topic partitions=20 props=()) ->
+(project
+    to_string(key) as payment_id,
+    json_string("cust_id", val) as pcust_id,
+    json_string("currency", val) as pcurrency,
+    to_decimal(json_string("cost", val),38,6) as pcost)
+-> (partition by pcust_id, pcurrency, pcost partitions=20);
+OK
+
+transactions_with_payments := (join transactions with payments on tcust_id=pcust_id,tcurrency=pcurrency,tcost=pcost within=5m) -> (store stream);
+OK
+
+--load data transactions_data_2;
+--load data payments_data_2;
+
+-- we use the same data as the multicolumn test above;
+
+(scan all from transactions_with_payments)
+-> (project event_time, l_event_time, l_tx_id, l_tcust_id, l_prod_id, l_amount, l_tcurrency, l_tcost, r_event_time, r_payment_id)
+-> (sort by l_tx_id, r_payment_id);
++-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| event_time                 | l_event_time               | l_tx_id                                       | l_tcust_id                                    | l_prod_id                                     | l_amount             | l_tcurrency                                   | l_tcost                                       | r_event_time               | r_payment_id                                  |
++-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| 2024-01-17 23:23:27.000000 | 2024-01-17 23:23:23.000000 | tx000008                                      | cust000010                                    | prod_1000                                     | 10                   | GBP                                           | 23.760000                                     | 2024-01-17 23:23:27.000000 | payment00008                                  |
+| 2024-01-17 23:23:23.000000 | 2024-01-17 23:23:23.000000 | tx000009                                      | cust000011                                    | prod_1000                                     | 10                   | GBP                                           | 23.760000                                     | 2024-01-17 23:23:23.000000 | payment00009                                  |
+| 2024-01-17 23:23:24.000000 | 2024-01-17 23:23:23.000000 | tx000009                                      | cust000011                                    | prod_1000                                     | 10                   | GBP                                           | 23.760000                                     | 2024-01-17 23:23:24.000000 | payment00010                                  |
+| 2024-01-17 23:23:25.000000 | 2024-01-17 23:23:23.000000 | tx000009                                      | cust000011                                    | prod_1000                                     | 10                   | GBP                                           | 23.760000                                     | 2024-01-17 23:23:25.000000 | payment00011                                  |
+| 2024-01-17 23:23:25.000000 | 2024-01-17 23:23:23.000000 | tx000010                                      | cust000012                                    | prod_1000                                     | 10                   | GBP                                           | 23.760000                                     | 2024-01-17 23:23:25.000000 | payment00012                                  |
+| 2024-01-17 23:23:25.000000 | 2024-01-17 23:23:24.000000 | tx000011                                      | cust000012                                    | prod_1000                                     | 10                   | GBP                                           | 23.760000                                     | 2024-01-17 23:23:25.000000 | payment00012                                  |
+| 2024-01-17 23:23:25.000000 | 2024-01-17 23:23:25.000000 | tx000012                                      | cust000012                                    | prod_1000                                     | 10                   | GBP                                           | 23.760000                                     | 2024-01-17 23:23:25.000000 | payment00012                                  |
+| 2024-01-17 23:23:29.123000 | 2024-01-17 23:23:25.000000 | tx000013                                      | cust000013                                    | prod_1000                                     | 10                   | GBP                                           | 23.760000                                     | 2024-01-17 23:23:29.123000 | payment00013                                  |
+| 2024-01-17 23:23:29.123000 | 2024-01-17 23:23:25.000000 | tx000013                                      | cust000013                                    | prod_1000                                     | 10                   | GBP                                           | 23.760000                                     | 2024-01-17 23:23:29.123000 | payment00014                                  |
+| 2024-01-17 23:23:29.123000 | 2024-01-17 23:23:25.000000 | tx000013                                      | cust000013                                    | prod_1000                                     | 10                   | GBP                                           | 23.760000                                     | 2024-01-17 23:23:29.123000 | payment00015                                  |
+| 2024-01-17 23:23:29.123000 | 2024-01-17 23:23:24.321000 | tx000014                                      | cust000014                                    | prod_1001                                     | 13                   | GBP                                           | 23.760000                                     | 2024-01-17 23:23:29.123000 | payment00016                                  |
+| 2024-01-17 23:23:29.123000 | 2024-01-17 23:23:25.321000 | tx000015                                      | cust000014                                    | prod_1002                                     | 12                   | GBP                                           | 23.760000                                     | 2024-01-17 23:23:29.123000 | payment00016                                  |
+| 2024-01-17 23:23:29.123000 | 2024-01-17 23:23:25.321000 | tx000016                                      | cust000014                                    | prod_1003                                     | 9                    | GBP                                           | 23.760000                                     | 2024-01-17 23:23:29.123000 | payment00016                                  |
++-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+13 rows returned
+
+delete(transactions_with_payments);
+OK
+delete(transactions);
+OK
+delete(payments);
+OK
+
+--delete topic payments_topic;
+--delete topic transactions_topic;
+
+-- next, offset on right but not left;
+
+--create topic transactions_topic;
+--create topic payments_topic;
+
+transactions :=
+(bridge from transactions_topic partitions=20 props=()) ->
+(project
+    to_string(key) as tx_id,
+    json_string("cust_id", val) as tcust_id,
+    json_string("prod_id", val) as prod_id,
+    json_int("amount", val) as amount,
+    json_string("currency", val) as tcurrency,
+    to_decimal(json_string("cost", val),38,6) as tcost)
+-> (partition by tcust_id, tcurrency, tcost partitions=20);
+OK
+
+payments :=
+(bridge from payments_topic partitions=20 props=()) ->
+(project
+    to_string(key) as payment_id,
+    json_string("cust_id", val) as pcust_id,
+    json_string("currency", val) as pcurrency,
+    to_decimal(json_string("cost", val),38,6) as pcost)
+-> (partition by pcust_id, pcurrency, pcost partitions=20)
+-> (store stream);
+OK
+
+transactions_with_payments := (join transactions with payments on tcust_id=pcust_id,tcurrency=pcurrency,tcost=pcost within=5m) -> (store stream);
+OK
+
+--load data transactions_data_2;
+--load data payments_data_2;
+
+-- we use the same data as the multicolumn test above;
+
+(scan all from transactions_with_payments)
+-> (project event_time, l_event_time, l_tx_id, l_tcust_id, l_prod_id, l_amount, l_tcurrency, l_tcost, r_event_time, r_payment_id)
+-> (sort by l_tx_id, r_payment_id);
++-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| event_time                 | l_event_time               | l_tx_id                                       | l_tcust_id                                    | l_prod_id                                     | l_amount             | l_tcurrency                                   | l_tcost                                       | r_event_time               | r_payment_id                                  |
++-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| 2024-01-17 23:23:27.000000 | 2024-01-17 23:23:23.000000 | tx000008                                      | cust000010                                    | prod_1000                                     | 10                   | GBP                                           | 23.760000                                     | 2024-01-17 23:23:27.000000 | payment00008                                  |
+| 2024-01-17 23:23:23.000000 | 2024-01-17 23:23:23.000000 | tx000009                                      | cust000011                                    | prod_1000                                     | 10                   | GBP                                           | 23.760000                                     | 2024-01-17 23:23:23.000000 | payment00009                                  |
+| 2024-01-17 23:23:24.000000 | 2024-01-17 23:23:23.000000 | tx000009                                      | cust000011                                    | prod_1000                                     | 10                   | GBP                                           | 23.760000                                     | 2024-01-17 23:23:24.000000 | payment00010                                  |
+| 2024-01-17 23:23:25.000000 | 2024-01-17 23:23:23.000000 | tx000009                                      | cust000011                                    | prod_1000                                     | 10                   | GBP                                           | 23.760000                                     | 2024-01-17 23:23:25.000000 | payment00011                                  |
+| 2024-01-17 23:23:25.000000 | 2024-01-17 23:23:23.000000 | tx000010                                      | cust000012                                    | prod_1000                                     | 10                   | GBP                                           | 23.760000                                     | 2024-01-17 23:23:25.000000 | payment00012                                  |
+| 2024-01-17 23:23:25.000000 | 2024-01-17 23:23:24.000000 | tx000011                                      | cust000012                                    | prod_1000                                     | 10                   | GBP                                           | 23.760000                                     | 2024-01-17 23:23:25.000000 | payment00012                                  |
+| 2024-01-17 23:23:25.000000 | 2024-01-17 23:23:25.000000 | tx000012                                      | cust000012                                    | prod_1000                                     | 10                   | GBP                                           | 23.760000                                     | 2024-01-17 23:23:25.000000 | payment00012                                  |
+| 2024-01-17 23:23:29.123000 | 2024-01-17 23:23:25.000000 | tx000013                                      | cust000013                                    | prod_1000                                     | 10                   | GBP                                           | 23.760000                                     | 2024-01-17 23:23:29.123000 | payment00013                                  |
+| 2024-01-17 23:23:29.123000 | 2024-01-17 23:23:25.000000 | tx000013                                      | cust000013                                    | prod_1000                                     | 10                   | GBP                                           | 23.760000                                     | 2024-01-17 23:23:29.123000 | payment00014                                  |
+| 2024-01-17 23:23:29.123000 | 2024-01-17 23:23:25.000000 | tx000013                                      | cust000013                                    | prod_1000                                     | 10                   | GBP                                           | 23.760000                                     | 2024-01-17 23:23:29.123000 | payment00015                                  |
+| 2024-01-17 23:23:29.123000 | 2024-01-17 23:23:24.321000 | tx000014                                      | cust000014                                    | prod_1001                                     | 13                   | GBP                                           | 23.760000                                     | 2024-01-17 23:23:29.123000 | payment00016                                  |
+| 2024-01-17 23:23:29.123000 | 2024-01-17 23:23:25.321000 | tx000015                                      | cust000014                                    | prod_1002                                     | 12                   | GBP                                           | 23.760000                                     | 2024-01-17 23:23:29.123000 | payment00016                                  |
+| 2024-01-17 23:23:29.123000 | 2024-01-17 23:23:25.321000 | tx000016                                      | cust000014                                    | prod_1003                                     | 9                    | GBP                                           | 23.760000                                     | 2024-01-17 23:23:29.123000 | payment00016                                  |
++-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+13 rows returned
+
+delete(transactions_with_payments);
+OK
+delete(transactions);
+OK
+delete(payments);
+OK
+
+--delete topic payments_topic;
+--delete topic transactions_topic;
+
+-- now load payments before transactions;
+
+--create topic transactions_topic;
+--create topic payments_topic;
+
+transactions :=
+(bridge from transactions_topic partitions=20 props=()) ->
+(project
+    to_string(key) as tx_id,
+    json_string("cust_id", val) as tcust_id,
+    json_string("prod_id", val) as prod_id,
+    json_int("amount", val) as amount,
+    json_string("currency", val) as tcurrency,
+    to_decimal(json_string("cost", val),38,6) as tcost)
+-> (partition by tcust_id, tcurrency, tcost partitions=20);
+OK
+
+payments :=
+(bridge from payments_topic partitions=20 props=()) ->
+(project
+    to_string(key) as payment_id,
+    json_string("cust_id", val) as pcust_id,
+    json_string("currency", val) as pcurrency,
+    to_decimal(json_string("cost", val),38,6) as pcost)
+-> (partition by pcust_id, pcurrency, pcost partitions=20)
+-> (store stream);
+OK
+
+transactions_with_payments := (join transactions with payments on tcust_id=pcust_id,tcurrency=pcurrency,tcost=pcost within=5m) -> (store stream);
+OK
+
+--load data payments_data_2;
+--load data transactions_data_2;
+
+-- we use the same data as the multicolumn test above;
+
+(scan all from transactions_with_payments)
+-> (project event_time, l_event_time, l_tx_id, l_tcust_id, l_prod_id, l_amount, l_tcurrency, l_tcost, r_event_time, r_payment_id)
+-> (sort by l_tx_id, r_payment_id);
++-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| event_time                 | l_event_time               | l_tx_id                                       | l_tcust_id                                    | l_prod_id                                     | l_amount             | l_tcurrency                                   | l_tcost                                       | r_event_time               | r_payment_id                                  |
++-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| 2024-01-17 23:23:27.000000 | 2024-01-17 23:23:23.000000 | tx000008                                      | cust000010                                    | prod_1000                                     | 10                   | GBP                                           | 23.760000                                     | 2024-01-17 23:23:27.000000 | payment00008                                  |
+| 2024-01-17 23:23:23.000000 | 2024-01-17 23:23:23.000000 | tx000009                                      | cust000011                                    | prod_1000                                     | 10                   | GBP                                           | 23.760000                                     | 2024-01-17 23:23:23.000000 | payment00009                                  |
+| 2024-01-17 23:23:24.000000 | 2024-01-17 23:23:23.000000 | tx000009                                      | cust000011                                    | prod_1000                                     | 10                   | GBP                                           | 23.760000                                     | 2024-01-17 23:23:24.000000 | payment00010                                  |
+| 2024-01-17 23:23:25.000000 | 2024-01-17 23:23:23.000000 | tx000009                                      | cust000011                                    | prod_1000                                     | 10                   | GBP                                           | 23.760000                                     | 2024-01-17 23:23:25.000000 | payment00011                                  |
+| 2024-01-17 23:23:25.000000 | 2024-01-17 23:23:23.000000 | tx000010                                      | cust000012                                    | prod_1000                                     | 10                   | GBP                                           | 23.760000                                     | 2024-01-17 23:23:25.000000 | payment00012                                  |
+| 2024-01-17 23:23:25.000000 | 2024-01-17 23:23:24.000000 | tx000011                                      | cust000012                                    | prod_1000                                     | 10                   | GBP                                           | 23.760000                                     | 2024-01-17 23:23:25.000000 | payment00012                                  |
+| 2024-01-17 23:23:25.000000 | 2024-01-17 23:23:25.000000 | tx000012                                      | cust000012                                    | prod_1000                                     | 10                   | GBP                                           | 23.760000                                     | 2024-01-17 23:23:25.000000 | payment00012                                  |
+| 2024-01-17 23:23:29.123000 | 2024-01-17 23:23:25.000000 | tx000013                                      | cust000013                                    | prod_1000                                     | 10                   | GBP                                           | 23.760000                                     | 2024-01-17 23:23:29.123000 | payment00013                                  |
+| 2024-01-17 23:23:29.123000 | 2024-01-17 23:23:25.000000 | tx000013                                      | cust000013                                    | prod_1000                                     | 10                   | GBP                                           | 23.760000                                     | 2024-01-17 23:23:29.123000 | payment00014                                  |
+| 2024-01-17 23:23:29.123000 | 2024-01-17 23:23:25.000000 | tx000013                                      | cust000013                                    | prod_1000                                     | 10                   | GBP                                           | 23.760000                                     | 2024-01-17 23:23:29.123000 | payment00015                                  |
+| 2024-01-17 23:23:29.123000 | 2024-01-17 23:23:24.321000 | tx000014                                      | cust000014                                    | prod_1001                                     | 13                   | GBP                                           | 23.760000                                     | 2024-01-17 23:23:29.123000 | payment00016                                  |
+| 2024-01-17 23:23:29.123000 | 2024-01-17 23:23:25.321000 | tx000015                                      | cust000014                                    | prod_1002                                     | 12                   | GBP                                           | 23.760000                                     | 2024-01-17 23:23:29.123000 | payment00016                                  |
+| 2024-01-17 23:23:29.123000 | 2024-01-17 23:23:25.321000 | tx000016                                      | cust000014                                    | prod_1003                                     | 9                    | GBP                                           | 23.760000                                     | 2024-01-17 23:23:29.123000 | payment00016                                  |
++-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+13 rows returned
+
+delete(transactions_with_payments);
+OK
+delete(transactions);
+OK
+delete(payments);
+OK
+
+--delete topic payments_topic;
+--delete topic transactions_topic;
+
+-- test join with a join column of every column type;
+
+--create topic input1_topic;
+--create topic input2_topic;
+
+input1 :=
+(bridge from input1_topic partitions=20 props=()) ->
+(project
+    json_int("int_val", val) as int_col,
+    json_float("float_val", val) as float_col,
+    json_bool("bool_val", val) as bool_col,
+    to_decimal(json_string("decimal_val", val),38,6) as decimal_col,
+    to_string(key) as string_col,
+    to_bytes(json_string("bytes_val", val)) as bytes_col,
+    parse_date(json_string("timestamp_val", val), "2006-01-02 15:04:05.999999") as timestamp_col,
+    json_string("non_key_val", val) as non_key_col)
+-> (partition by int_col, float_col, bool_col, decimal_col, string_col, bytes_col, timestamp_col partitions=20)
+-> (store stream);
+OK
+
+input2 :=
+(bridge from input2_topic partitions=20 props=()) ->
+(project
+    json_int("int_val", val) as int_col,
+    json_float("float_val", val) as float_col,
+    json_bool("bool_val", val) as bool_col,
+    to_decimal(json_string("decimal_val", val),38,6) as decimal_col,
+    to_string(key) as string_col,
+    to_bytes(json_string("bytes_val", val)) as bytes_col,
+    parse_date(json_string("timestamp_val", val), "2006-01-02 15:04:05.999999") as timestamp_col,
+    json_string("non_key_val", val) as non_key_col)
+-> (partition by int_col, float_col, bool_col, decimal_col, string_col, bytes_col, timestamp_col partitions=20)
+-> (store stream);
+OK
+
+joined := (join input1 with input2 on int_col=int_col,float_col=float_col,bool_col=bool_col,decimal_col=decimal_col,
+string_col=string_col,bytes_col=bytes_col,timestamp_col=timestamp_col within=5m) -> (store stream);
+OK
+
+--load data input1_data1;
+--load data input2_data1;
+
+-- should be two matching rows (from the first two rows of input), the rest won't match;
+
+(scan all from joined) -> (project event_time, l_int_col, l_float_col, l_bool_col, l_decimal_col, l_string_col, l_bytes_col, l_timestamp_col, l_non_key_col, r_non_key_col)
+-> (sort by l_int_col, l_float_col, l_bool_col, l_decimal_col, l_string_col, l_bytes_col, l_timestamp_col, l_non_key_col);
++-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| event_time                 | l_int_col            | l_float_col                                | l_bool_col                                 | l_decimal_col                              | l_string_col                               | l_bytes_col                                | l_timestamp_col            | l_non_key_col                              | r_non_key_col                              |
++-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| 2024-01-17 23:23:23.000000 | 1000                 | 123.230000                                 | true                                       | 12345.540000                               | aardvarks1                                 | bytes1                                     | 2024-01-17 23:30:30.123000 | not_key1                                   | not_key3                                   |
+| 2024-01-17 23:23:23.000000 | 1001                 | 223.230000                                 | false                                      | 22345.540000                               | aardvarks2                                 | bytes2                                     | 2024-01-17 23:30:31.123000 | not_key2                                   | not_key4                                   |
++-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+2 rows returned
+
+delete(joined);
+OK
+delete(input2);
+OK
+delete(input1);
+OK
+
+--delete topic input2_topic;
+--delete topic input1_topic;
+
+-- test left outer join;
+
+--create topic transactions_topic;
+--create topic payments_topic;
+
+-- we use the same dataset as used in the single join at the beginning of this script;
+
+transactions :=
+(bridge from transactions_topic partitions=20 props=()) ->
+(project
+    to_string(key) as tx_id,
+    json_string("cust_id", val) as cust_id,
+    json_string("prod_id", val) as prod_id,
+    json_int("amount", val) as amount,
+    json_string("currency", val) as currency,
+    to_decimal(json_string("cost", val),38,6) as cost)
+-> (partition by cust_id partitions=20)
+-> (store stream);
+OK
+
+payments :=
+(bridge from payments_topic partitions=20 props=()) ->
+(project
+    to_string(key) as payment_id,
+    json_string("cust_id", val) as cust_id,
+    json_string("currency", val) as currency,
+    to_decimal(json_string("cost", val),38,6) as cost)
+-> (partition by cust_id partitions=20)
+-> (store stream);
+OK
+
+transactions_with_payments := (join transactions with payments on cust_id*=cust_id within=5m) -> (store stream);
+OK
+
+--load data transactions_data_1;
+--load data payments_data_1;
+
+-- note we expect to see a row with values for transaction and nulls for payments for *every* transaction row, whether
+-- they match or not. This is because the transaction batch is processed first, at which time there are no payments
+-- so nothing matches and as this is a left-outer join we output a row anyway, but with the payment columns null.
+-- then payments are loaded, and some rows match with transactions and they are output too;
+
+(scan all from transactions_with_payments)
+-> (project event_time, l_event_time, l_tx_id, l_cust_id, l_prod_id, l_amount, l_currency, l_cost, r_event_time, r_payment_id, r_currency, r_cost)
+-> (sort by l_tx_id, r_payment_id);
++-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| event_time                 | l_event_time               | l_tx_id                           | l_cust_id                         | l_prod_id                         | l_amount             | l_currency                        | l_cost                            | r_event_time               | r_payment_id                      | r_currency                        | r_cost                            |
++-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| 2024-01-17 23:23:23.000000 | 2024-01-17 23:23:23.000000 | tx000001                          | cust000000                        | prod_1000                         | 10                   | GBP                               | 23.760000                         | null                       | null                              | null                              | null                              |
+| 2024-01-17 23:17:23.365000 | 2024-01-17 23:17:23.365000 | tx000002                          | cust000002                        | prod_1001                         | 11                   | EUR                               | 24.760000                         | null                       | null                              | null                              | null                              |
+| 2024-01-17 23:19:59.999000 | 2024-01-17 23:19:59.999000 | tx000003                          | cust000003                        | prod_1002                         | 12                   | USD                               | 25.760000                         | null                       | null                              | null                              | null                              |
+| 2024-01-17 23:20:00.000000 | 2024-01-17 23:20:00.000000 | tx000004                          | cust000004                        | prod_1003                         | 13                   | GBP                               | 26.760000                         | null                       | null                              | null                              | null                              |
+| 2024-01-17 23:25:00.000000 | 2024-01-17 23:20:00.000000 | tx000004                          | cust000004                        | prod_1003                         | 13                   | GBP                               | 26.760000                         | 2024-01-17 23:25:00.000000 | payment00004                      | ETB                               | 47.980000                         |
+| 2024-01-17 23:20:00.001000 | 2024-01-17 23:20:00.001000 | tx000005                          | cust000005                        | prod_1004                         | 14                   | GBP                               | 27.760000                         | null                       | null                              | null                              | null                              |
+| 2024-01-17 23:25:00.000000 | 2024-01-17 23:20:00.001000 | tx000005                          | cust000005                        | prod_1004                         | 14                   | GBP                               | 27.760000                         | 2024-01-17 23:25:00.000000 | payment00005                      | USB                               | 57.980000                         |
+| 2024-01-17 23:25:12.567000 | 2024-01-17 23:25:12.567000 | tx000006                          | cust000006                        | prod_1005                         | 15                   | USD                               | 28.760000                         | null                       | null                              | null                              | null                              |
+| 2024-01-17 23:25:12.567000 | 2024-01-17 23:25:12.567000 | tx000006                          | cust000006                        | prod_1005                         | 15                   | USD                               | 28.760000                         | 2024-01-17 23:25:00.000000 | payment00006                      | GBP                               | 67.980000                         |
+| 2024-01-17 23:29:59.999000 | 2024-01-17 23:29:59.999000 | tx000007                          | cust000007                        | prod_1006                         | 16                   | ETB                               | 29.760000                         | null                       | null                              | null                              | null                              |
+| 2024-01-17 23:29:59.999000 | 2024-01-17 23:29:59.999000 | tx000007                          | cust000007                        | prod_1006                         | 16                   | ETB                               | 29.760000                         | 2024-01-17 23:25:00.000000 | payment00007                      | EUR                               | 77.980000                         |
+| 2024-01-17 23:30:00.000000 | 2024-01-17 23:30:00.000000 | tx000008                          | cust000008                        | prod_1007                         | 17                   | ETB                               | 30.760000                         | null                       | null                              | null                              | null                              |
+| 2024-01-17 23:30:00.000000 | 2024-01-17 23:30:00.000000 | tx000008                          | cust000008                        | prod_1007                         | 17                   | ETB                               | 30.760000                         | 2024-01-17 23:25:00.000000 | payment00008                      | EUR                               | 87.980000                         |
+| 2024-01-17 23:30:00.001000 | 2024-01-17 23:30:00.001000 | tx000009                          | cust000009                        | prod_1008                         | 18                   | GBP                               | 31.760000                         | null                       | null                              | null                              | null                              |
+| 2024-01-17 23:33:02.123000 | 2024-01-17 23:33:02.123000 | tx000010                          | cust000010                        | prod_1009                         | 19                   | USB                               | 32.760000                         | null                       | null                              | null                              | null                              |
+| 2024-01-17 23:35:00.000000 | 2024-01-17 23:35:00.000000 | tx000011                          | cust000011                        | prod_1010                         | 20                   | EUR                               | 33.760000                         | null                       | null                              | null                              | null                              |
+| 2024-01-17 23:35:01.000000 | 2024-01-17 23:35:00.000000 | tx000011                          | cust000011                        | prod_1010                         | 20                   | EUR                               | 33.760000                         | 2024-01-17 23:35:01.000000 | payment00011                      | GBP                               | 37.980000                         |
+| 2024-01-17 23:35:00.000000 | 2024-01-17 23:35:00.000000 | tx000011                          | cust000011                        | prod_1010                         | 20                   | EUR                               | 33.760000                         | 2024-01-17 23:35:00.000000 | payment00012                      | EUR                               | 17.010000                         |
+| 2024-01-17 23:35:02.000000 | 2024-01-17 23:35:00.000000 | tx000011                          | cust000011                        | prod_1010                         | 20                   | EUR                               | 33.760000                         | 2024-01-17 23:35:02.000000 | payment00013                      | USD                               | 22.230000                         |
+| 2024-01-17 23:35:02.000000 | 2024-01-17 23:35:02.000000 | tx000012                          | cust000012                        | prod_1011                         | 21                   | EUR                               | 34.760000                         | null                       | null                              | null                              | null                              |
+| 2024-01-17 23:35:02.000000 | 2024-01-17 23:35:02.000000 | tx000012                          | cust000012                        | prod_1011                         | 21                   | EUR                               | 34.760000                         | 2024-01-17 23:35:00.000000 | payment00015                      | EUR                               | 76.110000                         |
+| 2024-01-17 23:35:01.000000 | 2024-01-17 23:35:01.000000 | tx000013                          | cust000012                        | prod_1012                         | 22                   | GBP                               | 35.760000                         | null                       | null                              | null                              | null                              |
+| 2024-01-17 23:35:01.000000 | 2024-01-17 23:35:01.000000 | tx000013                          | cust000012                        | prod_1012                         | 22                   | GBP                               | 35.760000                         | 2024-01-17 23:35:00.000000 | payment00015                      | EUR                               | 76.110000                         |
+| 2024-01-17 23:35:04.000000 | 2024-01-17 23:35:04.000000 | tx000014                          | cust000012                        | prod_1013                         | 23                   | USD                               | 36.660000                         | null                       | null                              | null                              | null                              |
+| 2024-01-17 23:35:04.000000 | 2024-01-17 23:35:04.000000 | tx000014                          | cust000012                        | prod_1013                         | 23                   | USD                               | 36.660000                         | 2024-01-17 23:35:00.000000 | payment00015                      | EUR                               | 76.110000                         |
+| 2024-01-17 23:40:03.000000 | 2024-01-17 23:40:03.000000 | tx000015                          | cust000012                        | prod_1047                         | 24                   | ETB                               | 37.760000                         | null                       | null                              | null                              | null                              |
++-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+26 rows returned
+
+delete(transactions_with_payments);
+OK
+delete(transactions);
+OK
+delete(payments);
+OK
+
+--delete topic payments_topic;
+--delete topic transactions_topic;
+
+-- now we repeat the left outer join, but loading payments before transactions;
+
+--create topic transactions_topic;
+--create topic payments_topic;
+
+transactions :=
+(bridge from transactions_topic partitions=20 props=()) ->
+(project
+    to_string(key) as tx_id,
+    json_string("cust_id", val) as cust_id,
+    json_string("prod_id", val) as prod_id,
+    json_int("amount", val) as amount,
+    json_string("currency", val) as currency,
+    to_decimal(json_string("cost", val),38,6) as cost)
+-> (partition by cust_id partitions=20)
+-> (store stream);
+OK
+
+payments :=
+(bridge from payments_topic partitions=20 props=()) ->
+(project
+    to_string(key) as payment_id,
+    json_string("cust_id", val) as cust_id,
+    json_string("currency", val) as currency,
+    to_decimal(json_string("cost", val),38,6) as cost)
+-> (partition by cust_id partitions=20)
+-> (store stream);
+OK
+
+transactions_with_payments := (join transactions with payments on cust_id*=cust_id within=5m) -> (store stream);
+OK
+
+--load data payments_data_1;
+--load data transactions_data_1;
+
+-- unlike where we loaded transactions first, we won't have extra rows as payments have already been stored by the time
+-- we process the transactions;
+
+(scan all from transactions_with_payments)
+-> (project event_time, l_event_time, l_tx_id, l_cust_id, l_prod_id, l_amount, l_currency, l_cost, r_event_time, r_payment_id, r_currency, r_cost)
+-> (sort by l_tx_id, r_payment_id);
++-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| event_time                 | l_event_time               | l_tx_id                           | l_cust_id                         | l_prod_id                         | l_amount             | l_currency                        | l_cost                            | r_event_time               | r_payment_id                      | r_currency                        | r_cost                            |
++-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| 2024-01-17 23:23:23.000000 | 2024-01-17 23:23:23.000000 | tx000001                          | cust000000                        | prod_1000                         | 10                   | GBP                               | 23.760000                         | null                       | null                              | null                              | null                              |
+| 2024-01-17 23:17:23.365000 | 2024-01-17 23:17:23.365000 | tx000002                          | cust000002                        | prod_1001                         | 11                   | EUR                               | 24.760000                         | null                       | null                              | null                              | null                              |
+| 2024-01-17 23:19:59.999000 | 2024-01-17 23:19:59.999000 | tx000003                          | cust000003                        | prod_1002                         | 12                   | USD                               | 25.760000                         | null                       | null                              | null                              | null                              |
+| 2024-01-17 23:25:00.000000 | 2024-01-17 23:20:00.000000 | tx000004                          | cust000004                        | prod_1003                         | 13                   | GBP                               | 26.760000                         | 2024-01-17 23:25:00.000000 | payment00004                      | ETB                               | 47.980000                         |
+| 2024-01-17 23:25:00.000000 | 2024-01-17 23:20:00.001000 | tx000005                          | cust000005                        | prod_1004                         | 14                   | GBP                               | 27.760000                         | 2024-01-17 23:25:00.000000 | payment00005                      | USB                               | 57.980000                         |
+| 2024-01-17 23:25:12.567000 | 2024-01-17 23:25:12.567000 | tx000006                          | cust000006                        | prod_1005                         | 15                   | USD                               | 28.760000                         | 2024-01-17 23:25:00.000000 | payment00006                      | GBP                               | 67.980000                         |
+| 2024-01-17 23:29:59.999000 | 2024-01-17 23:29:59.999000 | tx000007                          | cust000007                        | prod_1006                         | 16                   | ETB                               | 29.760000                         | 2024-01-17 23:25:00.000000 | payment00007                      | EUR                               | 77.980000                         |
+| 2024-01-17 23:30:00.000000 | 2024-01-17 23:30:00.000000 | tx000008                          | cust000008                        | prod_1007                         | 17                   | ETB                               | 30.760000                         | 2024-01-17 23:25:00.000000 | payment00008                      | EUR                               | 87.980000                         |
+| 2024-01-17 23:30:00.001000 | 2024-01-17 23:30:00.001000 | tx000009                          | cust000009                        | prod_1008                         | 18                   | GBP                               | 31.760000                         | null                       | null                              | null                              | null                              |
+| 2024-01-17 23:33:02.123000 | 2024-01-17 23:33:02.123000 | tx000010                          | cust000010                        | prod_1009                         | 19                   | USB                               | 32.760000                         | null                       | null                              | null                              | null                              |
+| 2024-01-17 23:35:01.000000 | 2024-01-17 23:35:00.000000 | tx000011                          | cust000011                        | prod_1010                         | 20                   | EUR                               | 33.760000                         | 2024-01-17 23:35:01.000000 | payment00011                      | GBP                               | 37.980000                         |
+| 2024-01-17 23:35:00.000000 | 2024-01-17 23:35:00.000000 | tx000011                          | cust000011                        | prod_1010                         | 20                   | EUR                               | 33.760000                         | 2024-01-17 23:35:00.000000 | payment00012                      | EUR                               | 17.010000                         |
+| 2024-01-17 23:35:02.000000 | 2024-01-17 23:35:00.000000 | tx000011                          | cust000011                        | prod_1010                         | 20                   | EUR                               | 33.760000                         | 2024-01-17 23:35:02.000000 | payment00013                      | USD                               | 22.230000                         |
+| 2024-01-17 23:35:02.000000 | 2024-01-17 23:35:02.000000 | tx000012                          | cust000012                        | prod_1011                         | 21                   | EUR                               | 34.760000                         | 2024-01-17 23:35:00.000000 | payment00015                      | EUR                               | 76.110000                         |
+| 2024-01-17 23:35:01.000000 | 2024-01-17 23:35:01.000000 | tx000013                          | cust000012                        | prod_1012                         | 22                   | GBP                               | 35.760000                         | 2024-01-17 23:35:00.000000 | payment00015                      | EUR                               | 76.110000                         |
+| 2024-01-17 23:35:04.000000 | 2024-01-17 23:35:04.000000 | tx000014                          | cust000012                        | prod_1013                         | 23                   | USD                               | 36.660000                         | 2024-01-17 23:35:00.000000 | payment00015                      | EUR                               | 76.110000                         |
+| 2024-01-17 23:40:03.000000 | 2024-01-17 23:40:03.000000 | tx000015                          | cust000012                        | prod_1047                         | 24                   | ETB                               | 37.760000                         | null                       | null                              | null                              | null                              |
++-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+17 rows returned
+
+delete(transactions_with_payments);
+OK
+delete(transactions);
+OK
+delete(payments);
+OK
+
+--delete topic payments_topic;
+--delete topic transactions_topic;
+
+-- test right outer join;
+
+--create topic transactions_topic;
+--create topic payments_topic;
+
+-- we use the same dataset as used in the single join at the beginning of this script;
+
+transactions :=
+(bridge from transactions_topic partitions=20 props=()) ->
+(project
+    to_string(key) as tx_id,
+    json_string("cust_id", val) as cust_id,
+    json_string("prod_id", val) as prod_id,
+    json_int("amount", val) as amount,
+    json_string("currency", val) as currency,
+    to_decimal(json_string("cost", val),38,6) as cost)
+-> (partition by cust_id partitions=20)
+-> (store stream);
+OK
+
+payments :=
+(bridge from payments_topic partitions=20 props=()) ->
+(project
+    to_string(key) as payment_id,
+    json_string("cust_id", val) as cust_id,
+    json_string("currency", val) as currency,
+    to_decimal(json_string("cost", val),38,6) as cost)
+-> (partition by cust_id partitions=20)
+-> (store stream);
+OK
+
+transactions_with_payments := (join transactions with payments on cust_id=*cust_id within=5m) -> (store stream);
+OK
+
+--load data payments_data_1;
+--load data transactions_data_1;
+
+-- note we expect to see a row with values for payments and nulls for transactions for *every* payments row, whether
+-- they match or not. This is because the payment batch is processed first, at which time there are no transactions
+-- so nothing matches and as this is a right-outer join we output a row anyway, but with the transaction columns null.
+-- then transactions are loaded, and some rows match with payments and they are output too;
+
+(scan all from transactions_with_payments)
+-> (project event_time, l_event_time, l_tx_id, l_cust_id, l_prod_id, l_amount, l_currency, l_cost, r_event_time, r_payment_id, r_currency, r_cost)
+-> (sort by r_payment_id, l_tx_id);
++-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| event_time                 | l_event_time               | l_tx_id                           | l_cust_id                         | l_prod_id                         | l_amount             | l_currency                        | l_cost                            | r_event_time               | r_payment_id                      | r_currency                        | r_cost                            |
++-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| 2024-01-17 23:23:24.000000 | null                       | null                              | null                              | null                              | null                 | null                              | null                              | 2024-01-17 23:23:24.000000 | payment00001                      | EUR                               | 17.980000                         |
+| 2024-01-17 23:25:00.000000 | null                       | null                              | null                              | null                              | null                 | null                              | null                              | 2024-01-17 23:25:00.000000 | payment00002                      | USD                               | 27.980000                         |
+| 2024-01-17 23:25:00.000000 | null                       | null                              | null                              | null                              | null                 | null                              | null                              | 2024-01-17 23:25:00.000000 | payment00003                      | GBP                               | 37.980000                         |
+| 2024-01-17 23:25:00.000000 | null                       | null                              | null                              | null                              | null                 | null                              | null                              | 2024-01-17 23:25:00.000000 | payment00004                      | ETB                               | 47.980000                         |
+| 2024-01-17 23:25:00.000000 | 2024-01-17 23:20:00.000000 | tx000004                          | cust000004                        | prod_1003                         | 13                   | GBP                               | 26.760000                         | 2024-01-17 23:25:00.000000 | payment00004                      | ETB                               | 47.980000                         |
+| 2024-01-17 23:25:00.000000 | null                       | null                              | null                              | null                              | null                 | null                              | null                              | 2024-01-17 23:25:00.000000 | payment00005                      | USB                               | 57.980000                         |
+| 2024-01-17 23:25:00.000000 | 2024-01-17 23:20:00.001000 | tx000005                          | cust000005                        | prod_1004                         | 14                   | GBP                               | 27.760000                         | 2024-01-17 23:25:00.000000 | payment00005                      | USB                               | 57.980000                         |
+| 2024-01-17 23:25:00.000000 | null                       | null                              | null                              | null                              | null                 | null                              | null                              | 2024-01-17 23:25:00.000000 | payment00006                      | GBP                               | 67.980000                         |
+| 2024-01-17 23:25:12.567000 | 2024-01-17 23:25:12.567000 | tx000006                          | cust000006                        | prod_1005                         | 15                   | USD                               | 28.760000                         | 2024-01-17 23:25:00.000000 | payment00006                      | GBP                               | 67.980000                         |
+| 2024-01-17 23:25:00.000000 | null                       | null                              | null                              | null                              | null                 | null                              | null                              | 2024-01-17 23:25:00.000000 | payment00007                      | EUR                               | 77.980000                         |
+| 2024-01-17 23:29:59.999000 | 2024-01-17 23:29:59.999000 | tx000007                          | cust000007                        | prod_1006                         | 16                   | ETB                               | 29.760000                         | 2024-01-17 23:25:00.000000 | payment00007                      | EUR                               | 77.980000                         |
+| 2024-01-17 23:25:00.000000 | null                       | null                              | null                              | null                              | null                 | null                              | null                              | 2024-01-17 23:25:00.000000 | payment00008                      | EUR                               | 87.980000                         |
+| 2024-01-17 23:30:00.000000 | 2024-01-17 23:30:00.000000 | tx000008                          | cust000008                        | prod_1007                         | 17                   | ETB                               | 30.760000                         | 2024-01-17 23:25:00.000000 | payment00008                      | EUR                               | 87.980000                         |
+| 2024-01-17 23:25:00.000000 | null                       | null                              | null                              | null                              | null                 | null                              | null                              | 2024-01-17 23:25:00.000000 | payment00009                      | GBP                               | 97.980000                         |
+| 2024-01-17 23:25:00.000000 | null                       | null                              | null                              | null                              | null                 | null                              | null                              | 2024-01-17 23:25:00.000000 | payment00010                      | ETB                               | 1007.980000                       |
+| 2024-01-17 23:35:01.000000 | null                       | null                              | null                              | null                              | null                 | null                              | null                              | 2024-01-17 23:35:01.000000 | payment00011                      | GBP                               | 37.980000                         |
+| 2024-01-17 23:35:01.000000 | 2024-01-17 23:35:00.000000 | tx000011                          | cust000011                        | prod_1010                         | 20                   | EUR                               | 33.760000                         | 2024-01-17 23:35:01.000000 | payment00011                      | GBP                               | 37.980000                         |
+| 2024-01-17 23:35:00.000000 | null                       | null                              | null                              | null                              | null                 | null                              | null                              | 2024-01-17 23:35:00.000000 | payment00012                      | EUR                               | 17.010000                         |
+| 2024-01-17 23:35:00.000000 | 2024-01-17 23:35:00.000000 | tx000011                          | cust000011                        | prod_1010                         | 20                   | EUR                               | 33.760000                         | 2024-01-17 23:35:00.000000 | payment00012                      | EUR                               | 17.010000                         |
+| 2024-01-17 23:35:02.000000 | null                       | null                              | null                              | null                              | null                 | null                              | null                              | 2024-01-17 23:35:02.000000 | payment00013                      | USD                               | 22.230000                         |
+| 2024-01-17 23:35:02.000000 | 2024-01-17 23:35:00.000000 | tx000011                          | cust000011                        | prod_1010                         | 20                   | EUR                               | 33.760000                         | 2024-01-17 23:35:02.000000 | payment00013                      | USD                               | 22.230000                         |
+| 2024-01-17 23:41:03.000000 | null                       | null                              | null                              | null                              | null                 | null                              | null                              | 2024-01-17 23:41:03.000000 | payment00014                      | EUR                               | 11.110000                         |
+| 2024-01-17 23:35:00.000000 | null                       | null                              | null                              | null                              | null                 | null                              | null                              | 2024-01-17 23:35:00.000000 | payment00015                      | EUR                               | 76.110000                         |
+| 2024-01-17 23:35:02.000000 | 2024-01-17 23:35:02.000000 | tx000012                          | cust000012                        | prod_1011                         | 21                   | EUR                               | 34.760000                         | 2024-01-17 23:35:00.000000 | payment00015                      | EUR                               | 76.110000                         |
+| 2024-01-17 23:35:01.000000 | 2024-01-17 23:35:01.000000 | tx000013                          | cust000012                        | prod_1012                         | 22                   | GBP                               | 35.760000                         | 2024-01-17 23:35:00.000000 | payment00015                      | EUR                               | 76.110000                         |
+| 2024-01-17 23:35:04.000000 | 2024-01-17 23:35:04.000000 | tx000014                          | cust000012                        | prod_1013                         | 23                   | USD                               | 36.660000                         | 2024-01-17 23:35:00.000000 | payment00015                      | EUR                               | 76.110000                         |
++-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+26 rows returned
+
+delete(transactions_with_payments);
+OK
+delete(transactions);
+OK
+delete(payments);
+OK
+
+--delete topic payments_topic;
+--delete topic transactions_topic;
+
+-- now we repeat the stream-stream right outer join, this time loading transactions first;
+
+--create topic transactions_topic;
+--create topic payments_topic;
+
+transactions :=
+(bridge from transactions_topic partitions=20 props=()) ->
+(project
+    to_string(key) as tx_id,
+    json_string("cust_id", val) as cust_id,
+    json_string("prod_id", val) as prod_id,
+    json_int("amount", val) as amount,
+    json_string("currency", val) as currency,
+    to_decimal(json_string("cost", val),38,6) as cost)
+-> (partition by cust_id partitions=20)
+-> (store stream);
+OK
+
+payments :=
+(bridge from payments_topic partitions=20 props=()) ->
+(project
+    to_string(key) as payment_id,
+    json_string("cust_id", val) as cust_id,
+    json_string("currency", val) as currency,
+    to_decimal(json_string("cost", val),38,6) as cost)
+-> (partition by cust_id partitions=20)
+-> (store stream);
+OK
+
+transactions_with_payments := (join transactions with payments on cust_id=*cust_id within=5m) -> (store stream);
+OK
+
+--load data transactions_data_1;
+--load data payments_data_1;
+
+-- in this case we won't have the extra rows, as all transactions will be persisted before we process the payments;
+
+(scan all from transactions_with_payments)
+-> (project event_time, l_event_time, l_tx_id, l_cust_id, l_prod_id, l_amount, l_currency, l_cost, r_event_time, r_payment_id, r_currency, r_cost)
+-> (sort by r_payment_id, l_tx_id);
++-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| event_time                 | l_event_time               | l_tx_id                           | l_cust_id                         | l_prod_id                         | l_amount             | l_currency                        | l_cost                            | r_event_time               | r_payment_id                      | r_currency                        | r_cost                            |
++-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| 2024-01-17 23:23:24.000000 | null                       | null                              | null                              | null                              | null                 | null                              | null                              | 2024-01-17 23:23:24.000000 | payment00001                      | EUR                               | 17.980000                         |
+| 2024-01-17 23:25:00.000000 | null                       | null                              | null                              | null                              | null                 | null                              | null                              | 2024-01-17 23:25:00.000000 | payment00002                      | USD                               | 27.980000                         |
+| 2024-01-17 23:25:00.000000 | null                       | null                              | null                              | null                              | null                 | null                              | null                              | 2024-01-17 23:25:00.000000 | payment00003                      | GBP                               | 37.980000                         |
+| 2024-01-17 23:25:00.000000 | 2024-01-17 23:20:00.000000 | tx000004                          | cust000004                        | prod_1003                         | 13                   | GBP                               | 26.760000                         | 2024-01-17 23:25:00.000000 | payment00004                      | ETB                               | 47.980000                         |
+| 2024-01-17 23:25:00.000000 | 2024-01-17 23:20:00.001000 | tx000005                          | cust000005                        | prod_1004                         | 14                   | GBP                               | 27.760000                         | 2024-01-17 23:25:00.000000 | payment00005                      | USB                               | 57.980000                         |
+| 2024-01-17 23:25:12.567000 | 2024-01-17 23:25:12.567000 | tx000006                          | cust000006                        | prod_1005                         | 15                   | USD                               | 28.760000                         | 2024-01-17 23:25:00.000000 | payment00006                      | GBP                               | 67.980000                         |
+| 2024-01-17 23:29:59.999000 | 2024-01-17 23:29:59.999000 | tx000007                          | cust000007                        | prod_1006                         | 16                   | ETB                               | 29.760000                         | 2024-01-17 23:25:00.000000 | payment00007                      | EUR                               | 77.980000                         |
+| 2024-01-17 23:30:00.000000 | 2024-01-17 23:30:00.000000 | tx000008                          | cust000008                        | prod_1007                         | 17                   | ETB                               | 30.760000                         | 2024-01-17 23:25:00.000000 | payment00008                      | EUR                               | 87.980000                         |
+| 2024-01-17 23:25:00.000000 | null                       | null                              | null                              | null                              | null                 | null                              | null                              | 2024-01-17 23:25:00.000000 | payment00009                      | GBP                               | 97.980000                         |
+| 2024-01-17 23:25:00.000000 | null                       | null                              | null                              | null                              | null                 | null                              | null                              | 2024-01-17 23:25:00.000000 | payment00010                      | ETB                               | 1007.980000                       |
+| 2024-01-17 23:35:01.000000 | 2024-01-17 23:35:00.000000 | tx000011                          | cust000011                        | prod_1010                         | 20                   | EUR                               | 33.760000                         | 2024-01-17 23:35:01.000000 | payment00011                      | GBP                               | 37.980000                         |
+| 2024-01-17 23:35:00.000000 | 2024-01-17 23:35:00.000000 | tx000011                          | cust000011                        | prod_1010                         | 20                   | EUR                               | 33.760000                         | 2024-01-17 23:35:00.000000 | payment00012                      | EUR                               | 17.010000                         |
+| 2024-01-17 23:35:02.000000 | 2024-01-17 23:35:00.000000 | tx000011                          | cust000011                        | prod_1010                         | 20                   | EUR                               | 33.760000                         | 2024-01-17 23:35:02.000000 | payment00013                      | USD                               | 22.230000                         |
+| 2024-01-17 23:41:03.000000 | null                       | null                              | null                              | null                              | null                 | null                              | null                              | 2024-01-17 23:41:03.000000 | payment00014                      | EUR                               | 11.110000                         |
+| 2024-01-17 23:35:02.000000 | 2024-01-17 23:35:02.000000 | tx000012                          | cust000012                        | prod_1011                         | 21                   | EUR                               | 34.760000                         | 2024-01-17 23:35:00.000000 | payment00015                      | EUR                               | 76.110000                         |
+| 2024-01-17 23:35:01.000000 | 2024-01-17 23:35:01.000000 | tx000013                          | cust000012                        | prod_1012                         | 22                   | GBP                               | 35.760000                         | 2024-01-17 23:35:00.000000 | payment00015                      | EUR                               | 76.110000                         |
+| 2024-01-17 23:35:04.000000 | 2024-01-17 23:35:04.000000 | tx000014                          | cust000012                        | prod_1013                         | 23                   | USD                               | 36.660000                         | 2024-01-17 23:35:00.000000 | payment00015                      | EUR                               | 76.110000                         |
++-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+17 rows returned
+
+delete(transactions_with_payments);
+OK
+delete(transactions);
+OK
+delete(payments);
+OK
+
+--delete topic payments_topic;
+--delete topic transactions_topic;
+
+-- test errors;
+
+--create topic topic1;
+--create topic topic2;
+
+input :=
+(bridge from topic1 partitions=20 props=())
+-> (project to_string(key) as id)
+-> (partition by id partitions=20)
+-> (store stream);
+OK
+
+joined := (join not_exist with not_exist on foo=foo within=5m);
+unknown stream 'not_exist' (line 1 column 17):
+joined := (join not_exist with not_exist on foo=foo within=5m)
+                ^
+
+joined := (join not_exist with input on foo=foo within=5m);
+unknown stream 'not_exist' (line 1 column 17):
+joined := (join not_exist with input on foo=foo within=5m)
+                ^
+
+joined := (join input with not_exist on foo=foo within=5m);
+unknown stream 'not_exist' (line 1 column 28):
+joined := (join input with not_exist on foo=foo within=5m)
+                           ^
+
+delete(input);
+OK
+
+input1 :=
+(bridge from topic1 partitions=20 props=())
+-> (project to_string(key) as id, json_int("foo", val) as f1)
+-> (partition by id partitions=20)
+-> (store stream);
+OK
+
+input2 :=
+(bridge from topic2 partitions=20 props=())
+-> (project to_string(key) as id, json_int("foo", val) as f1)
+-> (partition by id partitions=20)
+-> (store stream);
+OK
+
+joined := (join input1 with input2 on id=not_exist within=5m);
+cannot join with column 'not_exist' - it is not a known column in the input stream (line 1 column 42):
+joined := (join input1 with input2 on id=not_exist within=5m)
+                                         ^
+
+joined := (join input1 with input2 on not_exist=id within=5m);
+cannot join with column 'not_exist' - it is not a known column in the input stream (line 1 column 39):
+joined := (join input1 with input2 on not_exist=id within=5m)
+                                      ^
+
+joined := (join input1 with input2 on not_exist=not_exist within=5m);
+cannot join with column 'not_exist' - it is not a known column in the input stream (line 1 column 39):
+joined := (join input1 with input2 on not_exist=not_exist within=5m)
+                                      ^
+
+joined := (join input1 on id=id) within=5m);
+expected 'with' but found 'on' (line 1 column 24):
+joined := (join input1 on id=id) within=5m)
+                       ^
+
+joined := (join input1 with input2 on id=id within="badgers");
+expected duration but found '"badgers"' (line 1 column 52):
+joined := (join input1 with input2 on id=id within="badgers")
+                                                   ^
+
+joined := (join input1 with input2 on id=id within=badgers);
+expected duration but found 'badgers' (line 1 column 52):
+joined := (join input1 with input2 on id=id within=badgers)
+                                                   ^
+
+-- joining on event_time or offset is not allowed;
+
+joined := (join input1 with input2 on event_time=event_time within=5m);
+joining with column 'event_time' is not allowed (line 1 column 39):
+joined := (join input1 with input2 on event_time=event_time within=5m)
+                                      ^
+
+joined := (join input1 with input2 on offset=offset within=5m);
+joining with column 'offset' is not allowed (line 1 column 39):
+joined := (join input1 with input2 on offset=offset within=5m)
+                                      ^
+
+-- all join columns must use the same join type;
+
+joined := (join input1 with input2 on id=id, f1*=id within=5m);
+the same join type (one of `=`, `*=` or `=*`) must be used for all join expression (line 1 column 48):
+joined := (join input1 with input2 on id=id, f1*=id within=5m)
+                                               ^
+
+-- cannot join columns of different types;
+
+joined := (join input1 with input2 on id=f1 within=5m);
+cannot join columns 'id' and 'f1' - they have different types string and int (line 1 column 41):
+joined := (join input1 with input2 on id=f1 within=5m)
+                                        ^
+
+-- within clause mandatory on stream-stream join;
+
+joined := (join input1 with input2 on id=f1);
+'within' must be specified for a stream-stream join (line 1 column 12):
+joined := (join input1 with input2 on id=f1)
+           ^
+
+delete(input1);
+OK
+delete(input2);
+OK
+
+--delete topic topic1;
+--delete topic topic2;

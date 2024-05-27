@@ -1,0 +1,49 @@
+set max_line_width 200;
+
+topic1 := (kafka in partitions = 10)
+-> (project  
+    key,
+    json_int("v0",val) as v0,
+    json_float("v1",val) as v1,
+    json_bool("v2",val) as v2,
+    to_decimal(json_string("v3", val),38,6) as v3,
+    json_string("v4", val) as v4,
+    to_bytes(json_string("v5", val)) as v5,
+    parse_date(json_string("v6", val), "2006-01-02 15:04:05.999999") as v6)
+-> (store stream);
+
+topic2 := (kafka in partitions = 1)
+-> (project  
+    key,
+    json_int("v0",val) as v0,
+    json_float("v1",val) as v1,
+    json_bool("v2",val) as v2,
+    to_decimal(json_string("v3", val),38,6) as v3,
+    json_string("v4", val) as v4,
+    to_bytes(json_string("v5", val)) as v5,
+    parse_date(json_string("v6", val), "2006-01-02 15:04:05.999999") as v6)
+-> (store stream);
+
+topic3 := (kafka in partitions = 1000)
+-> (project  
+    key,
+    json_int("v0",val) as v0,
+    json_float("v1",val) as v1,
+    json_bool("v2",val) as v2,
+    to_decimal(json_string("v3", val),38,6) as v3,
+    json_string("v4", val) as v4,
+    to_bytes(json_string("v5", val)) as v5,
+    parse_date(json_string("v6", val), "2006-01-02 15:04:05.999999") as v6)
+-> (store stream);
+
+--produce data dataset_1;
+--produce data dataset_2;
+--produce data dataset_3;
+
+(scan all from topic1) -> (sort by key);
+(scan all from topic2) -> (sort by key);
+(scan all from topic3) -> (sort by key);
+
+delete(topic1);
+delete(topic2);
+delete(topic3);

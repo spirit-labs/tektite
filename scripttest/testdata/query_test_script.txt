@@ -1,0 +1,250 @@
+set max_line_width 300;
+--create topic test_topic 16;
+
+test_stream :=
+(bridge from
+    test_topic
+    partitions = 16
+    props = ()
+)
+-> (project 
+    key,
+    json_int("v0",val) as v0,
+    json_float("v1",val) as v1,
+    json_bool("v2",val) as v2,
+    to_decimal(json_string("v3", val),38,6) as v3,
+    json_string("v4", val) as v4,
+    to_bytes(json_string("v5", val)) as v5,
+    parse_date(json_string("v6", val), "2006-01-02 15:04:05.999999") as v6)
+-> (store stream);
+
+test_table := test_stream -> (store table by key);
+
+test_agg := test_stream -> (aggregate sum(v0) by key);
+
+--create topic test_topic2 16;
+
+test_stream_one_row :=
+(bridge from
+    test_topic2
+    partitions = 16
+    props = ()
+)
+-> (project 
+    key,
+    json_int("v0",val) as v0,
+    json_float("v1",val) as v1,
+    json_bool("v2",val) as v2,
+    to_decimal(json_string("v3", val),38,6) as v3,
+    json_string("v4", val) as v4,
+    to_bytes(json_string("v5", val)) as v5,
+    parse_date(json_string("v6", val), "2006-01-02 15:04:05.999999") as v6)
+-> (store stream);
+
+--load data dataset_1;
+
+--load data dataset_2;
+
+-- test scan all;
+
+-- no sort;
+
+(scan all from test_stream_one_row);
+
+(scan all from test_stream) -> (sort by key);
+
+-- scan all using columns - shouldn't have offset and event_time;
+
+(scan all from test_stream) -> (project v0, v1, v2) -> (sort by v0);
+
+(scan all from test_agg) -> (sort by key);
+
+(scan all from test_table) -> (sort by key);
+
+(scan all from test_table) -> (filter by v0 != 1000) -> (sort by v0);
+
+delete(test_agg);
+delete(test_table);
+delete(test_stream);
+delete(test_stream_one_row);
+
+--delete topic test_topic2;
+--delete topic test_topic;
+
+-- get operator;
+
+--create topic test_topic 16;
+
+test_stream :=
+(bridge from
+    test_topic
+    partitions = 16
+    props = ()
+)
+-> (project 
+    key,
+    json_int("v0",val) as v0,
+    json_float("v1",val) as v1,
+    json_bool("v2",val) as v2,
+    to_decimal(json_string("v3", val),38,6) as v3,
+    json_string("v4", val) as v4,
+    to_bytes(json_string("v5", val)) as v5,
+    parse_date(json_string("v6", val), "2006-01-02 15:04:05.999999") as v6)
+-> (store stream);
+
+test_table0 := test_stream -> (partition by v0 partitions=10) -> (store table by v0);
+test_table1 := test_stream -> (partition by v1 partitions=10) -> (store table by v1);
+test_table2 := test_stream -> (partition by v2 partitions=10) -> (store table by v2);
+test_table3 := test_stream -> (partition by v3 partitions=10) -> (store table by v3);
+test_table4 := test_stream -> (partition by v4 partitions=10) -> (store table by v4);
+test_table5 := test_stream -> (partition by v5 partitions=10) -> (store table by v5);
+test_table6 := test_stream -> (partition by v6 partitions=10) -> (store table by v6);
+
+test_agg := test_stream -> (partition by v0 partitions=10) -> (aggregate sum(v1) by v0);
+
+--load data dataset_1;
+
+(get 1005 from test_table0);
+
+(get 9.23f from test_table1);
+
+(get to_decimal("32345678.7654321", 38, 6) from test_table3);
+
+(get "foobar08" from test_table4);
+
+(get to_bytes("somebytes04") from test_table5);
+
+(get parse_date("2008-04-03 23:22:17.123", "2006-01-02 15:04:05.999999") from test_table6);
+
+(get 1005 from test_agg);
+
+(get "foobar08" from test_table4) -> (filter by v1 == 8.23f);
+
+-- scan;
+
+(scan 1003 to 1008 from test_table0) -> (sort by v0);
+
+(scan 1003 to end from test_table0) -> (sort by v0);
+
+(scan start to 1008 from test_table0) -> (sort by v0);
+
+(scan 1003 to 1008 incl from test_table0) -> (sort by v0);
+
+(scan 1003 excl to 1008 from test_table0) -> (sort by v0);
+
+-- TODO rest of column types;
+
+delete(test_table6);
+delete(test_table5);
+delete(test_table4);
+delete(test_table3);
+delete(test_table2);
+delete(test_table1);
+delete(test_table0);
+delete(test_agg);
+delete(test_stream);
+
+--delete topic test_topic;
+
+-- get with composite key;
+
+--create topic test_topic 16;
+
+test_stream :=
+(bridge from
+    test_topic
+    partitions = 16
+    props = ()
+)
+-> (project
+    key,
+    json_int("v0",val) as v0,
+    json_int("v1",val) as v1,
+    json_int("v2",val) as v2)
+-> (store stream);
+
+test_table := test_stream -> (partition by v0,v1 partitions=10) -> (store table by v0,v1);
+
+--load data dataset_3;
+
+(scan all from test_table) -> (sort by v0,v1);
+
+(get 1000 from test_table) -> (sort by v0,v1);
+(get 2000 from test_table) -> (sort by v0,v1);
+
+(get 2000, 3000 from test_table);
+
+delete(test_table);
+delete(test_stream);
+--delete topic test_topic;
+
+
+
+-- query errors;
+
+stream1 :=
+(bridge from
+    test_topic
+    partitions = 10
+    props = ()
+) -> (store table by key);
+
+-- unknown sort column;
+
+(scan all from stream1) -> (sort by foo);
+
+-- sort must be last operator;
+
+(scan all from stream1) -> (sort by key) -> (filter by key == 2);
+
+-- no partition in query;
+
+(scan all from stream1) -> (partition by key partitions=10) -> (sort by key);
+
+(scan all from stream1) -> (partition by key partitions=10);
+
+-- no aggregate in query;
+
+(scan all from stream1) -> (aggregate sum(val) by key) -> (sort by key);
+
+(scan all from stream1) -> (aggregate sum(val) by key);
+
+-- no (store stream) in query;
+
+(scan all from stream1) -> (store stream);
+
+(scan all from stream1) -> (store stream) -> (sort by key);
+
+-- no table in query;
+
+(scan all from stream1) -> (store table by key);
+
+(scan all from stream1) -> (store table by key) -> (sort by key);
+
+-- no bridge from in query;
+
+(scan all from stream1)
+-> (bridge from
+  test_topic
+  partitions = 10
+  props = (
+
+  )
+);
+
+delete(stream1);
+
+-- cannot execute get on stream;
+
+stream2 :=
+(bridge from
+    test_topic
+    partitions = 10
+    props = ()
+) -> (store stream);
+
+(get 1 from stream2);
+
+(scan 1 to 10 from stream2);
+
+delete(stream2);

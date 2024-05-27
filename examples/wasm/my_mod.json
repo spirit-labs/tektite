@@ -1,0 +1,9 @@
+{
+  "name": "my_mod",
+  "functions": {
+    "repeatString": {
+      "paramTypes": ["string", "int"],
+      "returnType": "string"
+    }
+  }
+}

@@ -1,0 +1,93 @@
+set max_line_width 200;
+OK
+--create topic test_topic 16;
+
+stream1 :=
+(bridge from
+    test_topic
+    partitions = 16
+    props = ()
+)
+-> (project
+    key,
+    json_int("v0",val) as v0,
+    json_float("v1",val) as v1,
+    json_bool("v2",val) as v2,
+    to_decimal(json_string("v3", val),38,6) as v3,
+    json_string("v4", val) as v4,
+    to_bytes(json_string("v5", val)) as v5,
+    parse_date(json_string("v6", val), "2006-01-02 15:04:05.999999") as v6)
+-> (store stream);
+OK
+
+stream2 := stream1
+-> (filter by v0 > 1005 && v1 < 9f)
+-> (store stream);
+OK
+
+--load data dataset_1;
+
+(scan all from stream2) -> (sort by v0);
++-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| offset               | event_time                 | key          | v0                   | v1           | v2           | v3           | v4           | v5           | v6                         |
++-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| 0                    | 2006-01-02 15:10:05.000000 | key07        | 1006                 | 7.230000     | true         | 72345678.7.. | foobar07     | somebytes07  | 2008-04-03 23:27:17.123000 |
+| 1                    | 2006-01-02 15:11:05.000000 | key08        | 1007                 | 8.230000     | false        | 82345678.7.. | foobar08     | somebytes08  | 2008-04-03 23:28:17.123000 |
++-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+2 rows returned
+
+delete(stream2);
+OK
+delete(stream1);
+OK
+--delete topic test_topic;
+
+-- filter that doesn't pass anything;
+
+--create topic test_topic 16;
+
+stream1 :=
+(bridge from
+    test_topic
+    partitions = 16
+    props = ()
+)
+-> (project
+    key,
+    json_int("v0",val) as v0,
+    json_float("v1",val) as v1,
+    json_bool("v2",val) as v2,
+    to_decimal(json_string("v3", val),38,6) as v3,
+    json_string("v4", val) as v4,
+    to_bytes(json_string("v5", val)) as v5,
+    parse_date(json_string("v6", val), "2006-01-02 15:04:05.999999") as v6)
+-> (store stream);
+OK
+
+stream2 := stream1
+-> (filter by false)
+-> (store stream);
+OK
+
+--load data dataset_1;
+
+(scan all from stream2);
++-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| offset               | event_time                 | key          | v0                   | v1           | v2           | v3           | v4           | v5           | v6                         |
++-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+0 rows returned
+
+delete(stream2);
+OK
+
+-- invalid filter expression;
+
+stream2 := stream1 -> (filter by foo);
+unknown column 'foo'. (available columns: offset: int, event_time: timestamp, key: bytes, v0: int, v1: float, v2: bool, v3: decimal(38,6), v4: string, v5: bytes, v6: timestamp) (line 1 column 34):
+stream2 := stream1 -> (filter by foo)
+                                 ^
+
+delete(stream1);
+OK
+
+--delete topic test_topic;
