@@ -20,3 +20,4 @@ tree (LSM) for storage of data. At the low level, data is stored in an object st
 Please see [the docs](http://www.tektitedb.com) to learn more about Tektite.
 
 Please also consult [the wiki](https://github.com/spirit-labs/tektite/wiki)
+
