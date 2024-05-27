@@ -1,4 +1,5 @@
 site_name: Tektite
+repo_url: https://github.com/spirit-labs/tektite/
 theme:
   name: material
   palette:
