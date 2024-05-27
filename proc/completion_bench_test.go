@@ -19,6 +19,7 @@ func BenchmarkCompletion(b *testing.B) {
 
 func BenchmarkDirect(b *testing.B) {
 	var o obj
+	// foo foo foo
 	tot := 0
 	for i := 0; i < b.N; i++ {
 		tot += o.dFunc1(i)
