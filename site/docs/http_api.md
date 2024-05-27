@@ -122,7 +122,7 @@ Tektite will attempt to convert arguments of a particular JSON type to the corre
 * Tektite type `timestamp`: will convert from a JSON `number` that represents number of milliseconds from Unix Epoch.
 * For a `null` Tektite argument value, a JSON `null` should be passed as the argument.
 
-## Registering / unregistering WASM modules
+## Registering and unregistering WASM modules
 
 You use the HTTP API to register / unregister WASM modules:
 

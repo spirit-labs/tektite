@@ -9,23 +9,25 @@
       
       
       
+        <link rel="prev" href="../backfill/">
       
-        <link rel="next" href="installation/">
+      
+        <link rel="next" href="../http_api/">
       
       
-      <link rel="icon" href="assets/images/favicon.png">
+      <link rel="icon" href="../assets/images/favicon.png">
       <meta name="generator" content="mkdocs-1.6.0, mkdocs-material-9.5.21">
     
     
       
-        <title>Tektite</title>
+        <title>Object stores - Tektite</title>
       
     
     
-      <link rel="stylesheet" href="assets/stylesheets/main.66ac8b77.min.css">
+      <link rel="stylesheet" href="../assets/stylesheets/main.66ac8b77.min.css">
       
         
-        <link rel="stylesheet" href="assets/stylesheets/palette.06af60db.min.css">
+        <link rel="stylesheet" href="../assets/stylesheets/palette.06af60db.min.css">
       
       
 
@@ -44,7 +46,7 @@
       
     
     
-    <script>__md_scope=new URL(".",location),__md_hash=e=>[...e].reduce((e,_)=>(e<<5)-e+_.charCodeAt(0),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce((e,_)=>(e<<5)-e+_.charCodeAt(0),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
 
@@ -68,7 +70,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#what-is-tektite" class="md-skip">
+        <a href="#object-stores" class="md-skip">
           Skip to content
         </a>
       
@@ -84,7 +86,7 @@
 
 <header class="md-header md-header--shadow" data-md-component="header">
   <nav class="md-header__inner md-grid" aria-label="Header">
-    <a href="." title="Tektite" class="md-header__button md-logo" aria-label="Tektite" data-md-component="logo">
+    <a href=".." title="Tektite" class="md-header__button md-logo" aria-label="Tektite" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54Z"/></svg>
@@ -104,7 +106,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Home
+              Object stores
             
           </span>
         </div>
@@ -179,7 +181,7 @@
 
 <nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
   <label class="md-nav__title" for="__drawer">
-    <a href="." title="Tektite" class="md-nav__button md-logo" aria-label="Tektite" data-md-component="logo">
+    <a href=".." title="Tektite" class="md-nav__button md-logo" aria-label="Tektite" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54Z"/></svg>
@@ -189,6 +191,406 @@
   </label>
   
   <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Home
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../installation/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Installation
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting_started/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Getting started
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../conceptual_model/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Concepts
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../running_servers/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Running servers
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cli/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    The command line
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../topics/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Topics
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../projections/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Projections
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../filtering/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Filters
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../persistence/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Persistence
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../aggregating/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Aggregations
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../watermarks/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Watermarks
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../joins/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Joins
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../union/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Unions
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../queries/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Queries
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../bridging/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Bridges
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../partitions/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Partitions
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../expressions/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Expressions
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../functions/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Functions
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../backfill/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Back-filling
+  </span>
+  
+
+      </a>
+    </li>
+  
+
     
       
       
@@ -210,18 +612,18 @@
           
   
   <span class="md-ellipsis">
-    Home
+    Object stores
   </span>
   
 
           <span class="md-nav__icon md-icon"></span>
         </label>
       
-      <a href="." class="md-nav__link md-nav__link--active">
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   <span class="md-ellipsis">
-    Home
+    Object stores
   </span>
   
 
@@ -243,11 +645,53 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#current-status" class="md-nav__link">
+  <a href="#minio-object-store-client" class="md-nav__link">
     <span class="md-ellipsis">
-      Current Status
+      MinIO object store client
     </span>
   </a>
+  
+    <nav class="md-nav" aria-label="MinIO object store client">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#setting-up-a-minio-cluster" class="md-nav__link">
+    <span class="md-ellipsis">
+      Setting up a MinIO cluster
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#using-minio-for-development" class="md-nav__link">
+    <span class="md-ellipsis">
+      Using MinIO for development
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#starting-minio" class="md-nav__link">
+    <span class="md-ellipsis">
+      Starting MinIO
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#minio-console" class="md-nav__link">
+    <span class="md-ellipsis">
+      MinIO console
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -266,407 +710,7 @@
   
   
     <li class="md-nav__item">
-      <a href="installation/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    Installation
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="getting_started/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    Getting started
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="conceptual_model/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    Concepts
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="running_servers/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    Running servers
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="cli/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    The command line
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="topics/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    Topics
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="projections/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    Projections
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="filtering/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    Filters
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="persistence/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    Persistence
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="aggregating/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    Aggregations
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="watermarks/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    Watermarks
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="joins/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    Joins
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="union/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    Unions
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="queries/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    Queries
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="bridging/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    Bridges
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="partitions/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    Partitions
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="expressions/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    Expressions
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="functions/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    Functions
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="backfill/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    Back-filling
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="object_stores/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    Object stores
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="http_api/" class="md-nav__link">
+      <a href="../http_api/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -686,7 +730,7 @@
   
   
     <li class="md-nav__item">
-      <a href="wasm/" class="md-nav__link">
+      <a href="../wasm/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -706,7 +750,7 @@
   
   
     <li class="md-nav__item">
-      <a href="admin_console/" class="md-nav__link">
+      <a href="../admin_console/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -726,7 +770,7 @@
   
   
     <li class="md-nav__item">
-      <a href="cookbook/" class="md-nav__link">
+      <a href="../cookbook/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -746,7 +790,7 @@
   
   
     <li class="md-nav__item">
-      <a href="configuration/" class="md-nav__link">
+      <a href="../configuration/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -786,11 +830,53 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#current-status" class="md-nav__link">
+  <a href="#minio-object-store-client" class="md-nav__link">
     <span class="md-ellipsis">
-      Current Status
+      MinIO object store client
     </span>
   </a>
+  
+    <nav class="md-nav" aria-label="MinIO object store client">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#setting-up-a-minio-cluster" class="md-nav__link">
+    <span class="md-ellipsis">
+      Setting up a MinIO cluster
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#using-minio-for-development" class="md-nav__link">
+    <span class="md-ellipsis">
+      Using MinIO for development
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#starting-minio" class="md-nav__link">
+    <span class="md-ellipsis">
+      Starting MinIO
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#minio-console" class="md-nav__link">
+    <span class="md-ellipsis">
+      MinIO console
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -809,33 +895,37 @@
                   
 
 
-<h1 id="what-is-tektite">What is Tektite?</h1>
-<p>Tektite is a powerful Apache Kafka compatible event streaming database that combines the functionality seen in vanilla
-event streaming platforms such as Apache Kafka or RedPanda with the event processing functionality found in platforms such as
-Apache Flink.</p>
-<ul>
-<li>Create Topics just like Kafka or RedPanda. Access them using any Kafka client.</li>
-<li>Filter, Transform and process data using a powerful expression language and function library.</li>
-<li>Implement custom processing as WebAssembly modules running in the server</li>
-<li>Maintain real-time windowed aggregations and materialized views over your data</li>
-<li>Perform stream/stream and stream/table joins to create new streams</li>
-<li>Bridge to and from existing external Kafka compatible servers</li>
-<li>Query the data in any stream or table as if it were a database table</li>
-</ul>
-<p>Unlike other offerings, Tektite is not just a bolt on layer over an existing database or event streaming platform.</p>
-<p>It is designed from first principles to be fast and scale to any size. It contains its own distributed log structured merge
-tree (LSM) for storage of data. At the low level, data is stored in an object store such Amazon S3 or MinIO.</p>
-<ul>
-<li>Learn about Tektite <a href="conceptual_model/">concepts</a></li>
-<li>Try the <a href="getting_started/">getting started</a></li>
-</ul>
-<p>It's suggested that the rest of the documentation is read in the order it appears in the left hand navigation list.</p>
-<h2 id="current-status">Current Status</h2>
-<ul>
-<li>Tektite is currently in active development and working towards a production-ready 1.0 release later in 2024</li>
-<li>Tektite is usable and development is very advanced with most features complete.</li>
-<li>We will be working heavily on automated testing and performance over the next few months to make sure Tektite is rock-solid and fast for the 1.0 release.</li>
-</ul>
+<h1 id="object-stores">Object stores</h1>
+<p>Tektite uses an object store such as <a href="https://min.io/">MinIO</a> or <a href="https://aws.amazon.com/pm/serv-s3/">Amazon S3</a> for durably storing data. Object stores are great
+for reliably storing huge amounts of data, but usually work best when data is stored and retrieved in large chunks.
+Also, operations, especially write operations, can also have high latency as they may have to touch replicas which might
+be in different availability zones for reliability.</p>
+<p>This makes object stores a poor choice as a <em>direct</em> data store for an event streaming / processing platform where we often
+need to make many small reads and writes, and we want low latency for serving data quickly to consumers.</p>
+<p>Tektite implements a distributed level based log structured merge tree, where the data is maintained as SSTables in multiple levels 
+of the tree. The SSTables are persisted in the object store and 'hot' tables are cached in the Tektite cluster for fast access.
+SSTables are asynchronously flushed to the object store.</p>
+<h2 id="minio-object-store-client">MinIO object store client</h2>
+<p><a href="https://min.io/">MinIO</a> is an easy-to-use object store that can scale to very large number of objects, but also be easily deployed as single
+server on your laptop during development.</p>
+<p>Tektite uses the MinIO golang client to access an object store. MinIO is Amazon S3 compatible so this client also works when
+your object store is S3.</p>
+<h3 id="setting-up-a-minio-cluster">Setting up a MinIO cluster</h3>
+<p>Please see the <a href="https://min.io/docs/minio/macos/index.html">MinIO docs</a> for how to setup a MinIO cluster</p>
+<h3 id="using-minio-for-development">Using MinIO for development</h3>
+<p>Docs to install MinIO for MacOS are <a href="https://min.io/docs/minio/macos/index.html">here</a> </p>
+<p>In summary:</p>
+<pre><code>brew install minio/stable/minio
+</code></pre>
+<h3 id="starting-minio">Starting MinIO</h3>
+<p>Start it with</p>
+<pre><code>minio server ~/tektite-data
+</code></pre>
+<p>This would store the MinIO data in the <code>~/tektite-data</code> directory</p>
+<h3 id="minio-console">MinIO console</h3>
+<p>This is at <a href="http://localhost:9000"><code>http://localhost:9000</code></a></p>
+<p>Default username/password is <code>minioadmin/minioadmin</code></p>
+<p>Here you can view and create/delete buckets and create keys.</p>
 
 
 
@@ -882,10 +972,10 @@ tree (LSM) for storage of data. At the low level, data is stored in an object st
     </div>
     
     
-    <script id="__config" type="application/json">{"base": ".", "features": [], "search": "assets/javascripts/workers/search.b8dbb3d2.min.js", "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}}</script>
+    <script id="__config" type="application/json">{"base": "..", "features": [], "search": "../assets/javascripts/workers/search.b8dbb3d2.min.js", "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}}</script>
     
     
-      <script src="assets/javascripts/bundle.a7c05c9e.min.js"></script>
+      <script src="../assets/javascripts/bundle.a7c05c9e.min.js"></script>
       
     
   </body>

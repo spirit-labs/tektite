@@ -9,23 +9,25 @@
       
       
       
+        <link rel="prev" href="../partitions/">
       
-        <link rel="next" href="installation/">
+      
+        <link rel="next" href="../functions/">
       
       
-      <link rel="icon" href="assets/images/favicon.png">
+      <link rel="icon" href="../assets/images/favicon.png">
       <meta name="generator" content="mkdocs-1.6.0, mkdocs-material-9.5.21">
     
     
       
-        <title>Tektite</title>
+        <title>Expressions - Tektite</title>
       
     
     
-      <link rel="stylesheet" href="assets/stylesheets/main.66ac8b77.min.css">
+      <link rel="stylesheet" href="../assets/stylesheets/main.66ac8b77.min.css">
       
         
-        <link rel="stylesheet" href="assets/stylesheets/palette.06af60db.min.css">
+        <link rel="stylesheet" href="../assets/stylesheets/palette.06af60db.min.css">
       
       
 
@@ -44,7 +46,7 @@
       
     
     
-    <script>__md_scope=new URL(".",location),__md_hash=e=>[...e].reduce((e,_)=>(e<<5)-e+_.charCodeAt(0),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce((e,_)=>(e<<5)-e+_.charCodeAt(0),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
 
@@ -68,7 +70,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#what-is-tektite" class="md-skip">
+        <a href="#expressions" class="md-skip">
           Skip to content
         </a>
       
@@ -84,7 +86,7 @@
 
 <header class="md-header md-header--shadow" data-md-component="header">
   <nav class="md-header__inner md-grid" aria-label="Header">
-    <a href="." title="Tektite" class="md-header__button md-logo" aria-label="Tektite" data-md-component="logo">
+    <a href=".." title="Tektite" class="md-header__button md-logo" aria-label="Tektite" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54Z"/></svg>
@@ -104,7 +106,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Home
+              Expressions
             
           </span>
         </div>
@@ -179,7 +181,7 @@
 
 <nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
   <label class="md-nav__title" for="__drawer">
-    <a href="." title="Tektite" class="md-nav__button md-logo" aria-label="Tektite" data-md-component="logo">
+    <a href=".." title="Tektite" class="md-nav__button md-logo" aria-label="Tektite" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54Z"/></svg>
@@ -189,6 +191,346 @@
   </label>
   
   <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Home
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../installation/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Installation
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting_started/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Getting started
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../conceptual_model/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Concepts
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../running_servers/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Running servers
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cli/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    The command line
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../topics/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Topics
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../projections/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Projections
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../filtering/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Filters
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../persistence/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Persistence
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../aggregating/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Aggregations
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../watermarks/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Watermarks
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../joins/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Joins
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../union/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Unions
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../queries/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Queries
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../bridging/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Bridges
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../partitions/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Partitions
+  </span>
+  
+
+      </a>
+    </li>
+  
+
     
       
       
@@ -210,18 +552,18 @@
           
   
   <span class="md-ellipsis">
-    Home
+    Expressions
   </span>
   
 
           <span class="md-nav__icon md-icon"></span>
         </label>
       
-      <a href="." class="md-nav__link md-nav__link--active">
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   <span class="md-ellipsis">
-    Home
+    Expressions
   </span>
   
 
@@ -243,9 +585,45 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#current-status" class="md-nav__link">
+  <a href="#constants" class="md-nav__link">
     <span class="md-ellipsis">
-      Current Status
+      Constants
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#column-identifiers" class="md-nav__link">
+    <span class="md-ellipsis">
+      Column identifiers
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#operators" class="md-nav__link">
+    <span class="md-ellipsis">
+      Operators
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#function-calls" class="md-nav__link">
+    <span class="md-ellipsis">
+      Function calls
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#examples" class="md-nav__link">
+    <span class="md-ellipsis">
+      Examples
     </span>
   </a>
   
@@ -266,347 +644,7 @@
   
   
     <li class="md-nav__item">
-      <a href="installation/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    Installation
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="getting_started/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    Getting started
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="conceptual_model/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    Concepts
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="running_servers/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    Running servers
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="cli/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    The command line
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="topics/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    Topics
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="projections/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    Projections
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="filtering/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    Filters
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="persistence/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    Persistence
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="aggregating/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    Aggregations
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="watermarks/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    Watermarks
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="joins/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    Joins
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="union/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    Unions
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="queries/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    Queries
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="bridging/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    Bridges
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="partitions/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    Partitions
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="expressions/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    Expressions
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="functions/" class="md-nav__link">
+      <a href="../functions/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -626,7 +664,7 @@
   
   
     <li class="md-nav__item">
-      <a href="backfill/" class="md-nav__link">
+      <a href="../backfill/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -646,7 +684,7 @@
   
   
     <li class="md-nav__item">
-      <a href="object_stores/" class="md-nav__link">
+      <a href="../object_stores/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -666,7 +704,7 @@
   
   
     <li class="md-nav__item">
-      <a href="http_api/" class="md-nav__link">
+      <a href="../http_api/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -686,7 +724,7 @@
   
   
     <li class="md-nav__item">
-      <a href="wasm/" class="md-nav__link">
+      <a href="../wasm/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -706,7 +744,7 @@
   
   
     <li class="md-nav__item">
-      <a href="admin_console/" class="md-nav__link">
+      <a href="../admin_console/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -726,7 +764,7 @@
   
   
     <li class="md-nav__item">
-      <a href="cookbook/" class="md-nav__link">
+      <a href="../cookbook/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -746,7 +784,7 @@
   
   
     <li class="md-nav__item">
-      <a href="configuration/" class="md-nav__link">
+      <a href="../configuration/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -786,9 +824,45 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#current-status" class="md-nav__link">
+  <a href="#constants" class="md-nav__link">
     <span class="md-ellipsis">
-      Current Status
+      Constants
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#column-identifiers" class="md-nav__link">
+    <span class="md-ellipsis">
+      Column identifiers
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#operators" class="md-nav__link">
+    <span class="md-ellipsis">
+      Operators
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#function-calls" class="md-nav__link">
+    <span class="md-ellipsis">
+      Function calls
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#examples" class="md-nav__link">
+    <span class="md-ellipsis">
+      Examples
     </span>
   </a>
   
@@ -809,33 +883,71 @@
                   
 
 
-<h1 id="what-is-tektite">What is Tektite?</h1>
-<p>Tektite is a powerful Apache Kafka compatible event streaming database that combines the functionality seen in vanilla
-event streaming platforms such as Apache Kafka or RedPanda with the event processing functionality found in platforms such as
-Apache Flink.</p>
+<h1 id="expressions">Expressions</h1>
+<p>Expressions are used in Tektite <a href="../projections/">projections</a>, <a href="../filtering/">filters</a>, <a href="../aggregating/">aggregations</a> and <a href="../queries/#the-sort-operator">sorts</a>.</p>
+<p>Expressions are composed of constants, column identifiers, operators and <a href="../functions/">function</a> calls.</p>
+<p>Expressions have a return type which is any of the Tektite data types: <code>int</code>, <code>float</code>, <code>bool</code>, <code>decimal</code>, <code>string</code>, <code>bytes</code> or <code>timestamp</code>.</p>
+<p>When evaluated, an expression will return a value with a type equal to the return type, or <code>null</code>.</p>
+<p>If any operand to an expression is null, the expression evaluates to <code>null</code>.</p>
+<h2 id="constants">Constants</h2>
+<p>These can be </p>
 <ul>
-<li>Create Topics just like Kafka or RedPanda. Access them using any Kafka client.</li>
-<li>Filter, Transform and process data using a powerful expression language and function library.</li>
-<li>Implement custom processing as WebAssembly modules running in the server</li>
-<li>Maintain real-time windowed aggregations and materialized views over your data</li>
-<li>Perform stream/stream and stream/table joins to create new streams</li>
-<li>Bridge to and from existing external Kafka compatible servers</li>
-<li>Query the data in any stream or table as if it were a database table</li>
+<li>String literals. Enclosed in double quotes, e.g. <code>"aardvarks"</code>. The quotes are not part of the string literal.
+If your string literal contains quotes, they must be escaped with backslash e.g. <code>"\"hello\""</code></li>
+<li>Integer literals. E.g. <code>23</code>, <code>134353</code>, <code>-45</code>, <code>0</code></li>
+<li>Float literals. These are suffixed with <code>f</code>. E.g. <code>23.23f</code>, <code>-2.3e22f</code></li>
+<li>Bool literals. <code>true</code> or <code>false</code></li>
 </ul>
-<p>Unlike other offerings, Tektite is not just a bolt on layer over an existing database or event streaming platform.</p>
-<p>It is designed from first principles to be fast and scale to any size. It contains its own distributed log structured merge
-tree (LSM) for storage of data. At the low level, data is stored in an object store such Amazon S3 or MinIO.</p>
+<h2 id="column-identifiers">Column identifiers</h2>
+<p>A column identifier references a column in the schema that the expression applies to. It's just the name of the column:</p>
+<h2 id="operators">Operators</h2>
+<p>Tektite supports the following operators:</p>
+<p>Arithmetic operators</p>
 <ul>
-<li>Learn about Tektite <a href="conceptual_model/">concepts</a></li>
-<li>Try the <a href="getting_started/">getting started</a></li>
+<li><code>+</code> - addition: supported for types <code>int</code>, <code>float</code>, <code>decimal</code>, <code>timestamp</code></li>
+<li><code>-</code> - subtraction: supported for types <code>int</code>, <code>float</code>, <code>decimal</code>, <code>timestamp</code></li>
+<li><code>*</code> - multiplication: supported for types <code>int</code>, <code>float</code>, <code>decimal</code>, <code>timestamp</code></li>
+<li><code>/</code> - division: supported for types <code>int</code>, <code>float</code>, <code>decimal</code>, <code>timestamp</code></li>
+<li><code>%</code> - modulus: supported for type <code>int</code></li>
 </ul>
-<p>It's suggested that the rest of the documentation is read in the order it appears in the left hand navigation list.</p>
-<h2 id="current-status">Current Status</h2>
+<p>Comparison operators</p>
 <ul>
-<li>Tektite is currently in active development and working towards a production-ready 1.0 release later in 2024</li>
-<li>Tektite is usable and development is very advanced with most features complete.</li>
-<li>We will be working heavily on automated testing and performance over the next few months to make sure Tektite is rock-solid and fast for the 1.0 release.</li>
+<li><code>==</code> - equality: supported for <code>int</code>, <code>float</code>, <code>bool</code>, <code>decimal</code>, <code>string</code>, <code>bytes</code>, <code>timestamp</code></li>
+<li><code>!=</code> - inequality: supported for <code>int</code>, <code>float</code>, <code>bool</code>, <code>decimal</code>, <code>string</code>, <code>bytes</code>, <code>timestamp</code></li>
+<li><code>&gt;</code>  - greater than: supported for <code>int</code>, <code>float</code>, <code>decimal</code>, <code>string</code>, <code>bytes</code>, <code>timestamp</code></li>
+<li><code>&gt;=</code> - greater than or equal: supported for <code>int</code>, <code>float</code>, <code>decimal</code>, <code>string</code>, <code>bytes</code>, <code>timestamp</code></li>
+<li><code>&lt;</code>  - less than: supported for <code>int</code>, <code>float</code>, <code>decimal</code>, <code>string</code>, <code>bytes</code>, <code>timestamp</code></li>
+<li><code>&lt;=</code> - less than or equal: supported for <code>int</code>, <code>float</code>, <code>decimal</code>, <code>string</code>, <code>bytes</code>, <code>timestamp</code></li>
 </ul>
+<p><code>bool</code>ean operators - operands must be of type <code>bool</code></p>
+<ul>
+<li><code>&amp;&amp;</code> - and</li>
+<li><code>||</code> - or</li>
+<li><code>!</code> - not</li>
+</ul>
+<h2 id="function-calls">Function calls</h2>
+<p>Tektite comes with a library of built-in <a href="../functions/">functions</a> - and you can also write your own custom functions
+using WebAssembly and use them the same way as the built-in functions.</p>
+<p>Functions are used in expressions by writing the function name followed by left parenthesis followed by expression list
+followed by right parenthesis.</p>
+<h2 id="examples">Examples</h2>
+<p>Here are some example expressions:</p>
+<pre><code>my-stream := parent-stream -&gt;
+    (project col3 + 10, sub_str(col7, 10 * col2, 12), col9 == &quot;uk&quot;) -&gt;
+    (store stream)
+
+my-stream := parent-stream -&gt;
+    (filter by my_wasm_func(price * 1.23f) &amp;&amp; !my_other_wasm_func(name)) -&gt;
+    (store stream)    
+
+sales_tots := sales -&gt;
+    (aggregate count(price), sum(price + adjust) by 
+        to_lower(country), if(is_capital, city, &quot;other&quot;))    
+
+(scan all from sales_tots)
+    -&gt; (sort by sub_str(col2, 3, 10), to_lower(col2))     
+
+</code></pre>
 
 
 
@@ -882,10 +994,10 @@ tree (LSM) for storage of data. At the low level, data is stored in an object st
     </div>
     
     
-    <script id="__config" type="application/json">{"base": ".", "features": [], "search": "assets/javascripts/workers/search.b8dbb3d2.min.js", "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}}</script>
+    <script id="__config" type="application/json">{"base": "..", "features": [], "search": "../assets/javascripts/workers/search.b8dbb3d2.min.js", "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}}</script>
     
     
-      <script src="assets/javascripts/bundle.a7c05c9e.min.js"></script>
+      <script src="../assets/javascripts/bundle.a7c05c9e.min.js"></script>
       
     
   </body>

@@ -9,23 +9,25 @@
       
       
       
+        <link rel="prev" href="../filtering/">
       
-        <link rel="next" href="installation/">
+      
+        <link rel="next" href="../aggregating/">
       
       
-      <link rel="icon" href="assets/images/favicon.png">
+      <link rel="icon" href="../assets/images/favicon.png">
       <meta name="generator" content="mkdocs-1.6.0, mkdocs-material-9.5.21">
     
     
       
-        <title>Tektite</title>
+        <title>Persistence - Tektite</title>
       
     
     
-      <link rel="stylesheet" href="assets/stylesheets/main.66ac8b77.min.css">
+      <link rel="stylesheet" href="../assets/stylesheets/main.66ac8b77.min.css">
       
         
-        <link rel="stylesheet" href="assets/stylesheets/palette.06af60db.min.css">
+        <link rel="stylesheet" href="../assets/stylesheets/palette.06af60db.min.css">
       
       
 
@@ -44,7 +46,7 @@
       
     
     
-    <script>__md_scope=new URL(".",location),__md_hash=e=>[...e].reduce((e,_)=>(e<<5)-e+_.charCodeAt(0),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce((e,_)=>(e<<5)-e+_.charCodeAt(0),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
 
@@ -68,7 +70,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#what-is-tektite" class="md-skip">
+        <a href="#persistence" class="md-skip">
           Skip to content
         </a>
       
@@ -84,7 +86,7 @@
 
 <header class="md-header md-header--shadow" data-md-component="header">
   <nav class="md-header__inner md-grid" aria-label="Header">
-    <a href="." title="Tektite" class="md-header__button md-logo" aria-label="Tektite" data-md-component="logo">
+    <a href=".." title="Tektite" class="md-header__button md-logo" aria-label="Tektite" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54Z"/></svg>
@@ -104,7 +106,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Home
+              Persistence
             
           </span>
         </div>
@@ -179,7 +181,7 @@
 
 <nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
   <label class="md-nav__title" for="__drawer">
-    <a href="." title="Tektite" class="md-nav__button md-logo" aria-label="Tektite" data-md-component="logo">
+    <a href=".." title="Tektite" class="md-nav__button md-logo" aria-label="Tektite" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54Z"/></svg>
@@ -189,6 +191,186 @@
   </label>
   
   <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Home
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../installation/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Installation
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting_started/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Getting started
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../conceptual_model/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Concepts
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../running_servers/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Running servers
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cli/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    The command line
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../topics/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Topics
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../projections/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Projections
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../filtering/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Filters
+  </span>
+  
+
+      </a>
+    </li>
+  
+
     
       
       
@@ -210,18 +392,18 @@
           
   
   <span class="md-ellipsis">
-    Home
+    Persistence
   </span>
   
 
           <span class="md-nav__icon md-icon"></span>
         </label>
       
-      <a href="." class="md-nav__link md-nav__link--active">
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   <span class="md-ellipsis">
-    Home
+    Persistence
   </span>
   
 
@@ -243,9 +425,18 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#current-status" class="md-nav__link">
+  <a href="#persistent-streams" class="md-nav__link">
     <span class="md-ellipsis">
-      Current Status
+      Persistent streams
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#tables" class="md-nav__link">
+    <span class="md-ellipsis">
+      Tables
     </span>
   </a>
   
@@ -266,187 +457,7 @@
   
   
     <li class="md-nav__item">
-      <a href="installation/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    Installation
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="getting_started/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    Getting started
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="conceptual_model/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    Concepts
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="running_servers/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    Running servers
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="cli/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    The command line
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="topics/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    Topics
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="projections/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    Projections
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="filtering/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    Filters
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="persistence/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    Persistence
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="aggregating/" class="md-nav__link">
+      <a href="../aggregating/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -466,7 +477,7 @@
   
   
     <li class="md-nav__item">
-      <a href="watermarks/" class="md-nav__link">
+      <a href="../watermarks/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -486,7 +497,7 @@
   
   
     <li class="md-nav__item">
-      <a href="joins/" class="md-nav__link">
+      <a href="../joins/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -506,7 +517,7 @@
   
   
     <li class="md-nav__item">
-      <a href="union/" class="md-nav__link">
+      <a href="../union/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -526,7 +537,7 @@
   
   
     <li class="md-nav__item">
-      <a href="queries/" class="md-nav__link">
+      <a href="../queries/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -546,7 +557,7 @@
   
   
     <li class="md-nav__item">
-      <a href="bridging/" class="md-nav__link">
+      <a href="../bridging/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -566,7 +577,7 @@
   
   
     <li class="md-nav__item">
-      <a href="partitions/" class="md-nav__link">
+      <a href="../partitions/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -586,7 +597,7 @@
   
   
     <li class="md-nav__item">
-      <a href="expressions/" class="md-nav__link">
+      <a href="../expressions/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -606,7 +617,7 @@
   
   
     <li class="md-nav__item">
-      <a href="functions/" class="md-nav__link">
+      <a href="../functions/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -626,7 +637,7 @@
   
   
     <li class="md-nav__item">
-      <a href="backfill/" class="md-nav__link">
+      <a href="../backfill/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -646,7 +657,7 @@
   
   
     <li class="md-nav__item">
-      <a href="object_stores/" class="md-nav__link">
+      <a href="../object_stores/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -666,7 +677,7 @@
   
   
     <li class="md-nav__item">
-      <a href="http_api/" class="md-nav__link">
+      <a href="../http_api/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -686,7 +697,7 @@
   
   
     <li class="md-nav__item">
-      <a href="wasm/" class="md-nav__link">
+      <a href="../wasm/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -706,7 +717,7 @@
   
   
     <li class="md-nav__item">
-      <a href="admin_console/" class="md-nav__link">
+      <a href="../admin_console/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -726,7 +737,7 @@
   
   
     <li class="md-nav__item">
-      <a href="cookbook/" class="md-nav__link">
+      <a href="../cookbook/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -746,7 +757,7 @@
   
   
     <li class="md-nav__item">
-      <a href="configuration/" class="md-nav__link">
+      <a href="../configuration/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -786,9 +797,18 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#current-status" class="md-nav__link">
+  <a href="#persistent-streams" class="md-nav__link">
     <span class="md-ellipsis">
-      Current Status
+      Persistent streams
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#tables" class="md-nav__link">
+    <span class="md-ellipsis">
+      Tables
     </span>
   </a>
   
@@ -809,33 +829,65 @@
                   
 
 
-<h1 id="what-is-tektite">What is Tektite?</h1>
-<p>Tektite is a powerful Apache Kafka compatible event streaming database that combines the functionality seen in vanilla
-event streaming platforms such as Apache Kafka or RedPanda with the event processing functionality found in platforms such as
-Apache Flink.</p>
-<ul>
-<li>Create Topics just like Kafka or RedPanda. Access them using any Kafka client.</li>
-<li>Filter, Transform and process data using a powerful expression language and function library.</li>
-<li>Implement custom processing as WebAssembly modules running in the server</li>
-<li>Maintain real-time windowed aggregations and materialized views over your data</li>
-<li>Perform stream/stream and stream/table joins to create new streams</li>
-<li>Bridge to and from existing external Kafka compatible servers</li>
-<li>Query the data in any stream or table as if it were a database table</li>
-</ul>
-<p>Unlike other offerings, Tektite is not just a bolt on layer over an existing database or event streaming platform.</p>
-<p>It is designed from first principles to be fast and scale to any size. It contains its own distributed log structured merge
-tree (LSM) for storage of data. At the low level, data is stored in an object store such Amazon S3 or MinIO.</p>
-<ul>
-<li>Learn about Tektite <a href="conceptual_model/">concepts</a></li>
-<li>Try the <a href="getting_started/">getting started</a></li>
-</ul>
-<p>It's suggested that the rest of the documentation is read in the order it appears in the left hand navigation list.</p>
-<h2 id="current-status">Current Status</h2>
-<ul>
-<li>Tektite is currently in active development and working towards a production-ready 1.0 release later in 2024</li>
-<li>Tektite is usable and development is very advanced with most features complete.</li>
-<li>We will be working heavily on automated testing and performance over the next few months to make sure Tektite is rock-solid and fast for the 1.0 release.</li>
-</ul>
+<h1 id="persistence">Persistence</h1>
+<h2 id="persistent-streams">Persistent streams</h2>
+<p>Let's take an example of creating a new stream by filtering an existing stream. This one takes the <code>sales</code> stream and only lets UK sales through:</p>
+<pre><code>my-stream := sales -&gt; (filter by by country = &quot;UK&quot;)
+</code></pre>
+<p>This is a perfectly valid new stream, and can have child streams, but by itself it is not persistent.</p>
+<p>If you want to make a stream persistent, such that the data is durably stored, and it can be queried, then you use
+a <code>store stream</code> operator.</p>
+<pre><code>my-stream := sales -&gt;
+    (filter by by country = &quot;UK&quot;) --&gt;
+    (store stream)
+</code></pre>
+<p>A persistent stream is given an extra column <code>offset</code>. This is an automatically generated monotonically increasing sequence
+per partition (there can be gaps in the sequence, but it always increases)</p>
+<p>The operators <code>topic</code> and <code>kafka out</code> have a "built-in" store stream, so you don't need to add one yourself. So the following
+streams are also persistent, i.e. they are queryable:</p>
+<pre><code>my-topic := (topic partitions=16)
+
+exposed-sales := sales -&gt; (kafka out)
+</code></pre>
+<p>The persisted data for a stream is never overwritten, the <code>offset</code> column always increases.</p>
+<h2 id="tables">Tables</h2>
+<p>The other way that operators can persist queryable data is as <em>tables</em>.</p>
+<p>A table differs from a persistent stream in that it has a <em>key</em>. There can be multiple columns in the key, and the columns
+can be of any valid Tektite data type.</p>
+<p>Entries for the same key are updated as new data arrives with the same key.</p>
+<p>The operators that persist data as tables are the <a href="../aggregating/"><code>aggregate</code></a> and <code>store table</code> operators.</p>
+<p>Here's an example aggregate:</p>
+<pre><code>my-agg := sales -&gt;
+    (aggregate count(amount), max(amount) by country, city)
+</code></pre>
+<p>This would store aggregate results in a table with key made of columns <code>country</code> and <code>city</code>.</p>
+<p>You can also use a <code>store table</code> operator to persist stream data with a key.</p>
+<p>For example, let's say we have a stream which contains IoT sensor readings and has the schema:</p>
+<pre><code>event_time: timestamp
+sensor_id: string
+temperature: float
+country: string
+area: string
+</code></pre>
+<p>We could use a <code>store table</code> operator to create a new stream which takes the stream of sensor readings and persists the latest 
+reading for a particular sensor. This table would be queryable.</p>
+<pre><code>latest_sensor_readings := sensor_readings -&gt;
+    (store table by sensor_id)
+</code></pre>
+<p>The <code>store table</code> operator takes a list of columns.  The syntax is <code>store table by &lt;column list&gt;</code>. The column list defines
+which columns form the key of the table.</p>
+<p>The table can then be <a href="../queries/">queried</a>, e.g. to list all latest UK sensor readings:</p>
+<pre><code>(scan all from latest_sensor_readings) -&gt; (filter by country = &quot;UK&quot;)
+</code></pre>
+<p>And to lookup latest reading for a specific sensor (key lookup):</p>
+<pre><code>(get &quot;sensor34567&quot; from latest_sensor_readings)
+</code></pre>
+<p>The column list can be omitted altogether in a <code>store table</code>. In this case only a single row per partition will be retained.
+This is often used in conjunction with a <code>partition by const</code>, to store the last received value:</p>
+<pre><code>overall_latest_sensor_reading := sensor_readings -&gt;
+    (partition by const partitions = 1) -&gt;
+    (store table)
+</code></pre>
 
 
 
@@ -882,10 +934,10 @@ tree (LSM) for storage of data. At the low level, data is stored in an object st
     </div>
     
     
-    <script id="__config" type="application/json">{"base": ".", "features": [], "search": "assets/javascripts/workers/search.b8dbb3d2.min.js", "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}}</script>
+    <script id="__config" type="application/json">{"base": "..", "features": [], "search": "../assets/javascripts/workers/search.b8dbb3d2.min.js", "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}}</script>
     
     
-      <script src="assets/javascripts/bundle.a7c05c9e.min.js"></script>
+      <script src="../assets/javascripts/bundle.a7c05c9e.min.js"></script>
       
     
   </body>

@@ -84,7 +84,7 @@ In the directory there must be the `.wasm` file and the corresponding `.json` de
 tektite> register_wasm("examples/wasm/my_mod.wasm");
 ```
 
-You can also [register WASM modules using the HTTP API](http_api.md#registering--unregistering-wasm-modules) and using the
+You can also [register WASM modules using the HTTP API](http_api.md#registering-and-unregistering-wasm-modules) and using the
 golang client.
 
 ## Create a stream that uses the module

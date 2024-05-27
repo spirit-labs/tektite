@@ -9,23 +9,25 @@
       
       
       
+        <link rel="prev" href="../watermarks/">
       
-        <link rel="next" href="installation/">
+      
+        <link rel="next" href="../union/">
       
       
-      <link rel="icon" href="assets/images/favicon.png">
+      <link rel="icon" href="../assets/images/favicon.png">
       <meta name="generator" content="mkdocs-1.6.0, mkdocs-material-9.5.21">
     
     
       
-        <title>Tektite</title>
+        <title>Joins - Tektite</title>
       
     
     
-      <link rel="stylesheet" href="assets/stylesheets/main.66ac8b77.min.css">
+      <link rel="stylesheet" href="../assets/stylesheets/main.66ac8b77.min.css">
       
         
-        <link rel="stylesheet" href="assets/stylesheets/palette.06af60db.min.css">
+        <link rel="stylesheet" href="../assets/stylesheets/palette.06af60db.min.css">
       
       
 
@@ -44,7 +46,7 @@
       
     
     
-    <script>__md_scope=new URL(".",location),__md_hash=e=>[...e].reduce((e,_)=>(e<<5)-e+_.charCodeAt(0),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce((e,_)=>(e<<5)-e+_.charCodeAt(0),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
 
@@ -68,7 +70,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#what-is-tektite" class="md-skip">
+        <a href="#joins" class="md-skip">
           Skip to content
         </a>
       
@@ -84,7 +86,7 @@
 
 <header class="md-header md-header--shadow" data-md-component="header">
   <nav class="md-header__inner md-grid" aria-label="Header">
-    <a href="." title="Tektite" class="md-header__button md-logo" aria-label="Tektite" data-md-component="logo">
+    <a href=".." title="Tektite" class="md-header__button md-logo" aria-label="Tektite" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54Z"/></svg>
@@ -104,7 +106,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Home
+              Joins
             
           </span>
         </div>
@@ -179,7 +181,7 @@
 
 <nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
   <label class="md-nav__title" for="__drawer">
-    <a href="." title="Tektite" class="md-nav__button md-logo" aria-label="Tektite" data-md-component="logo">
+    <a href=".." title="Tektite" class="md-nav__button md-logo" aria-label="Tektite" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54Z"/></svg>
@@ -189,6 +191,246 @@
   </label>
   
   <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Home
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../installation/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Installation
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting_started/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Getting started
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../conceptual_model/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Concepts
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../running_servers/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Running servers
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cli/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    The command line
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../topics/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Topics
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../projections/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Projections
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../filtering/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Filters
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../persistence/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Persistence
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../aggregating/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Aggregations
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../watermarks/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Watermarks
+  </span>
+  
+
+      </a>
+    </li>
+  
+
     
       
       
@@ -210,18 +452,18 @@
           
   
   <span class="md-ellipsis">
-    Home
+    Joins
   </span>
   
 
           <span class="md-nav__icon md-icon"></span>
         </label>
       
-      <a href="." class="md-nav__link md-nav__link--active">
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   <span class="md-ellipsis">
-    Home
+    Joins
   </span>
   
 
@@ -243,9 +485,18 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#current-status" class="md-nav__link">
+  <a href="#stream-stream-joins" class="md-nav__link">
     <span class="md-ellipsis">
-      Current Status
+      Stream-stream joins
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#stream-table-joins" class="md-nav__link">
+    <span class="md-ellipsis">
+      Stream-table joins
     </span>
   </a>
   
@@ -266,247 +517,7 @@
   
   
     <li class="md-nav__item">
-      <a href="installation/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    Installation
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="getting_started/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    Getting started
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="conceptual_model/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    Concepts
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="running_servers/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    Running servers
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="cli/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    The command line
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="topics/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    Topics
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="projections/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    Projections
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="filtering/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    Filters
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="persistence/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    Persistence
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="aggregating/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    Aggregations
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="watermarks/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    Watermarks
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="joins/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    Joins
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="union/" class="md-nav__link">
+      <a href="../union/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -526,7 +537,7 @@
   
   
     <li class="md-nav__item">
-      <a href="queries/" class="md-nav__link">
+      <a href="../queries/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -546,7 +557,7 @@
   
   
     <li class="md-nav__item">
-      <a href="bridging/" class="md-nav__link">
+      <a href="../bridging/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -566,7 +577,7 @@
   
   
     <li class="md-nav__item">
-      <a href="partitions/" class="md-nav__link">
+      <a href="../partitions/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -586,7 +597,7 @@
   
   
     <li class="md-nav__item">
-      <a href="expressions/" class="md-nav__link">
+      <a href="../expressions/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -606,7 +617,7 @@
   
   
     <li class="md-nav__item">
-      <a href="functions/" class="md-nav__link">
+      <a href="../functions/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -626,7 +637,7 @@
   
   
     <li class="md-nav__item">
-      <a href="backfill/" class="md-nav__link">
+      <a href="../backfill/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -646,7 +657,7 @@
   
   
     <li class="md-nav__item">
-      <a href="object_stores/" class="md-nav__link">
+      <a href="../object_stores/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -666,7 +677,7 @@
   
   
     <li class="md-nav__item">
-      <a href="http_api/" class="md-nav__link">
+      <a href="../http_api/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -686,7 +697,7 @@
   
   
     <li class="md-nav__item">
-      <a href="wasm/" class="md-nav__link">
+      <a href="../wasm/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -706,7 +717,7 @@
   
   
     <li class="md-nav__item">
-      <a href="admin_console/" class="md-nav__link">
+      <a href="../admin_console/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -726,7 +737,7 @@
   
   
     <li class="md-nav__item">
-      <a href="cookbook/" class="md-nav__link">
+      <a href="../cookbook/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -746,7 +757,7 @@
   
   
     <li class="md-nav__item">
-      <a href="configuration/" class="md-nav__link">
+      <a href="../configuration/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -786,9 +797,18 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#current-status" class="md-nav__link">
+  <a href="#stream-stream-joins" class="md-nav__link">
     <span class="md-ellipsis">
-      Current Status
+      Stream-stream joins
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#stream-table-joins" class="md-nav__link">
+    <span class="md-ellipsis">
+      Stream-table joins
     </span>
   </a>
   
@@ -809,33 +829,111 @@
                   
 
 
-<h1 id="what-is-tektite">What is Tektite?</h1>
-<p>Tektite is a powerful Apache Kafka compatible event streaming database that combines the functionality seen in vanilla
-event streaming platforms such as Apache Kafka or RedPanda with the event processing functionality found in platforms such as
-Apache Flink.</p>
-<ul>
-<li>Create Topics just like Kafka or RedPanda. Access them using any Kafka client.</li>
-<li>Filter, Transform and process data using a powerful expression language and function library.</li>
-<li>Implement custom processing as WebAssembly modules running in the server</li>
-<li>Maintain real-time windowed aggregations and materialized views over your data</li>
-<li>Perform stream/stream and stream/table joins to create new streams</li>
-<li>Bridge to and from existing external Kafka compatible servers</li>
-<li>Query the data in any stream or table as if it were a database table</li>
-</ul>
-<p>Unlike other offerings, Tektite is not just a bolt on layer over an existing database or event streaming platform.</p>
-<p>It is designed from first principles to be fast and scale to any size. It contains its own distributed log structured merge
-tree (LSM) for storage of data. At the low level, data is stored in an object store such Amazon S3 or MinIO.</p>
-<ul>
-<li>Learn about Tektite <a href="conceptual_model/">concepts</a></li>
-<li>Try the <a href="getting_started/">getting started</a></li>
-</ul>
-<p>It's suggested that the rest of the documentation is read in the order it appears in the left hand navigation list.</p>
-<h2 id="current-status">Current Status</h2>
-<ul>
-<li>Tektite is currently in active development and working towards a production-ready 1.0 release later in 2024</li>
-<li>Tektite is usable and development is very advanced with most features complete.</li>
-<li>We will be working heavily on automated testing and performance over the next few months to make sure Tektite is rock-solid and fast for the 1.0 release.</li>
-</ul>
+<h1 id="joins">Joins</h1>
+<p>Tektite allows you to join streams with other streams to create new streams, or to join streams with table to create new streams.</p>
+<p>The streams can be any Tektite stream, so you can join two Tektite topics, a Tektite topic with an imported external
+topic, two external topics (e.g. an Apache Kafka topic with a RedPanda topic), or any other stream with any other stream!</p>
+<h2 id="stream-stream-joins">Stream-stream joins</h2>
+<p>A stream-stream join, joins a stream with another stream to create a new stream. Rows are joined by matching one or more
+key columns on the incoming streams and specifying a window.</p>
+<p>For example, the following join creates an output row when there's a sale and a payment for the same transaction id in
+a window of 5 minutes.</p>
+<pre><code>matched_sales :=
+    (join sales with payments on tx_id=transaction_id within = 5m) -&gt;
+    (store stream);
+</code></pre>
+<p>In the above the left stream is <code>sales</code> and has a key column <code>tx_id</code> which contains the transaction id. The right stream
+is <code>payments</code> and contains a column <code>transaction_id</code> which contains the transaction id.</p>
+<p>A stream-stream join <em>must</em> have a <code>within</code> argument that specifies the size of the window. The window size is a duration
+like <code>5m</code>, <code>12h</code> or <code>10s</code>.</p>
+<p>A join creates output columns for each input column of the left and right streams. Columns that come from the left stream
+are prefixed with <code>l_</code> and columns that come from the right stream are prefixed with <code>r_</code>.</p>
+<p>If sales has the following schema:</p>
+<pre><code>event_time: timestamp
+tx_id: int
+product_id: string
+price: decimal(10, 2)
+customer_id: string
+</code></pre>
+<p>And payments has the following schema:</p>
+<pre><code>event_time: timestamp
+transaction_id: int
+payment_type: string
+payment_provider: string
+</code></pre>
+<p>Then the output of the join will have the following schema:</p>
+<pre><code>event_time: timestamp
+l_event_time: timestamp
+l_tx_id: int
+l_product_id: string
+l_price: decimal(10, 2)
+l_customer_id: string
+r_event_time: timestamp
+r_payment_type: string
+r_payment_provider: string
+</code></pre>
+<p>Note that the join columns (<code>l_tx_id</code>) is only included once as it's the same for left and right.</p>
+<p>Often you will only want a subset of the columns or want to change their names or order. A <code>project</code> operator is used to do that:</p>
+<pre><code>matched_sales :=
+    (join sales with payments on tx_id = transaction_id within = 5m) -&gt;
+    (project l_tx_id as tx_id,
+             l_customer_id as cust_id,
+             l_price as price, 
+             r_payment_type as payment_type) -&gt;
+    (store stream);
+</code></pre>
+<p>You can also join on multiple columns. In this case the join columns are separated by a comma.</p>
+<pre><code>matched_sales :=
+    (join sales with payments
+        on tx_id = transaction_id, country = country_id
+        within = 5m) -&gt;
+    (project l_tx_id as tx_id,
+             l_customer_id as cust_id,
+             l_price as price, 
+             r_payment_type as payment_type) -&gt;
+    (store stream);
+</code></pre>
+<h2 id="stream-table-joins">Stream-table joins</h2>
+<p>Tables are persisted by <code>aggregate</code> and <code>to table</code> operators. They differ from stream data in that they have a key so later rows with the
+same key overwrite earlier rows, and they have no <code>offset</code> column.</p>
+<p>With Tektite, you can join a stream with a table. This is often used to 'enrich' stream data with value looked up from the table.
+The stream-table join can be an inner join, or an outer join.</p>
+<p>With an inner join, a row is output from the join if the incoming stream data finds a match in the table.</p>
+<p>With an outer join a row is output from the join whether or not a match is found in the table. If no match is found the columns in the output that
+come from the table will be <code>null</code>.</p>
+<p>Let's say we have a table <code>cust_data</code> which contains latest customer data.</p>
+<pre><code>cust_data := cust_updates_stream -&gt; (to table key = &quot;cust_id&quot;)
+</code></pre>
+<p>And a stream topic sales which contains sales events:</p>
+<pre><code>sales := (topic partitions = 16)
+</code></pre>
+<p>We can create a new stream that enriches the sales stream with customer data. We will use a projection to extract the
+columns of interest:</p>
+<pre><code>enriched_sales := 
+    (join sales with cust_data on c_id = customer_id) -&gt;
+    (project l_c_id as customer_id,
+             r_cust_name as customer_name
+             r_cust_address as customer_address
+             l_tx_id as tx_id,
+             l_amount as amount,
+             l_price as price) -&gt;
+    (store stream)         
+</code></pre>
+<p>In the above we define the join columns with a single <code>=</code> (<code>c_id = customer_id</code>). This means it's an inner join and a row
+will only be output if a matching customer row is found for an incoming sale.</p>
+<p>If we want a row to be output irrespective of whether a matching customer row was found we use <code>=*</code> to define the join 
+columns:</p>
+<pre><code>enriched_sales := 
+    (join sales with cust_data on c_id *= customer_id) -&gt;
+    (project l_c_id as customer_id,
+             r_cust_name as customer_name
+             r_cust_address as customer_address
+             l_tx_id as tx_id,
+             l_amount as amount,
+             l_price as price) -&gt;
+    (store stream)         
+</code></pre>
+<p>This means it's an outer join. The <code>*</code> must be on the stream side of the join.</p>
 
 
 
@@ -882,10 +980,10 @@ tree (LSM) for storage of data. At the low level, data is stored in an object st
     </div>
     
     
-    <script id="__config" type="application/json">{"base": ".", "features": [], "search": "assets/javascripts/workers/search.b8dbb3d2.min.js", "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}}</script>
+    <script id="__config" type="application/json">{"base": "..", "features": [], "search": "../assets/javascripts/workers/search.b8dbb3d2.min.js", "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}}</script>
     
     
-      <script src="assets/javascripts/bundle.a7c05c9e.min.js"></script>
+      <script src="../assets/javascripts/bundle.a7c05c9e.min.js"></script>
       
     
   </body>

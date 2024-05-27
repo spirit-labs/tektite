@@ -35,8 +35,8 @@ At the low-level Tektite stores data in an [object store](object_stores.md) like
 development server but don't want to lose data when it restarts you can use a configuration that uses a local MinIO instance
 for persistence.
 
-First, please make sure [MinIO is installed](object_stores.md#installing-minio) and [started](object_stores.md#starting-minio) and you've
-created a bucket called `tektite-dev` and a [secret key and access key](object_stores.md#creating-keys).
+First, please make sure [MinIO is installed](object_stores.md#minio-console) and [started](object_stores.md#starting-minio) and you've
+created a bucket called `tektite-dev` and a [secret key and access key](object_stores.md#minio-console).
 
 Now, edit `cfg/standalone-minio.conf` and enter your secret key and access key in the `minio-secret-key` and
 `minio-access-key` configuration properties.
@@ -85,8 +85,8 @@ Please see the [chapter on object stores](object_stores.md) for more information
 
 ### Start MinIO
 
-First, please make sure [MinIO is installed](object_stores.md#installing-minio) and [started](object_stores.md#starting-minio) and you've created a bucket called `tektite-dev`
-and a [secret key and access key](object_stores.md#creating-keys).
+First, please make sure [MinIO is installed](object_stores.md#minio-console) and [started](object_stores.md#starting-minio) and you've created a bucket called `tektite-dev`
+and a [secret key and access key](object_stores.md#minio-console).
 
 Now, edit `cfg/cluster-minio.conf` and enter your secret key and access key in the `minio-secret-key` and
 `minio-access-key` configuration properties.

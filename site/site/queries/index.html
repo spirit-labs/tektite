@@ -1,0 +1,1189 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+      
+        <link rel="prev" href="../union/">
+      
+      
+        <link rel="next" href="../bridging/">
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.0, mkdocs-material-9.5.21">
+    
+    
+      
+        <title>Queries - Tektite</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.66ac8b77.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.06af60db.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce((e,_)=>(e<<5)-e+_.charCodeAt(0),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+    
+  </head>
+  
+  
+    
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#queries" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="Tektite" class="md-header__button md-logo" aria-label="Tektite" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54Z"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3V6m0 5h18v2H3v-2m0 5h18v2H3v-2Z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Tektite
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Queries
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+    
+    
+    
+    
+      <label class="md-header__button md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.516 6.516 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5Z"/></svg>
+      </label>
+      <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.516 6.516 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5Z"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11h12Z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12 19 6.41Z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+    
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="Tektite" class="md-nav__button md-logo" aria-label="Tektite" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54Z"/></svg>
+
+    </a>
+    Tektite
+  </label>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Home
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../installation/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Installation
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting_started/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Getting started
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../conceptual_model/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Concepts
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../running_servers/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Running servers
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cli/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    The command line
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../topics/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Topics
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../projections/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Projections
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../filtering/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Filters
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../persistence/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Persistence
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../aggregating/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Aggregations
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../watermarks/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Watermarks
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../joins/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Joins
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../union/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Unions
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  <span class="md-ellipsis">
+    Queries
+  </span>
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  <span class="md-ellipsis">
+    Queries
+  </span>
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#key-lookups" class="md-nav__link">
+    <span class="md-ellipsis">
+      Key lookups
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#table-scans" class="md-nav__link">
+    <span class="md-ellipsis">
+      Table scans
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#range-scans" class="md-nav__link">
+    <span class="md-ellipsis">
+      Range scans
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-sort-operator" class="md-nav__link">
+    <span class="md-ellipsis">
+      The sort operator
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#legal-operators-in-queries" class="md-nav__link">
+    <span class="md-ellipsis">
+      Legal operators in queries
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#using-the-tektite-http-api-for-queries" class="md-nav__link">
+    <span class="md-ellipsis">
+      Using the Tektite HTTP API for queries
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../bridging/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Bridges
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../partitions/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Partitions
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../expressions/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Expressions
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../functions/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Functions
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../backfill/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Back-filling
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../object_stores/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Object stores
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../http_api/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    HTTP API
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../wasm/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    WebAssembly
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../admin_console/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Admin Console
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cookbook/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Cookbook
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../configuration/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Configuration
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#key-lookups" class="md-nav__link">
+    <span class="md-ellipsis">
+      Key lookups
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#table-scans" class="md-nav__link">
+    <span class="md-ellipsis">
+      Table scans
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#range-scans" class="md-nav__link">
+    <span class="md-ellipsis">
+      Range scans
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-sort-operator" class="md-nav__link">
+    <span class="md-ellipsis">
+      The sort operator
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#legal-operators-in-queries" class="md-nav__link">
+    <span class="md-ellipsis">
+      Legal operators in queries
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#using-the-tektite-http-api-for-queries" class="md-nav__link">
+    <span class="md-ellipsis">
+      Using the Tektite HTTP API for queries
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+<h1 id="queries">Queries</h1>
+<p>Any data in a <a href="../persistence/">persistent stream or table</a> can be queried.</p>
+<p>Tektite implements queries as transient streams that only exist as long as the query. Raw data from the query source
+is fed into one end of the stream, and results are obtained from the other end.</p>
+<p>Tektite two ways of reading data into the query stream - key lookups and range scans.</p>
+<h2 id="key-lookups">Key lookups</h2>
+<p>A key lookup retrieves all matching rows given a key value.</p>
+<p>For example, let's say we have a table that contains customer information and has a key <code>customer_id</code></p>
+<pre><code>cust_info := cust_stream -&gt;
+    (partition by customer_id partitions = 16) -&gt;
+    (store table by customer_id)
+</code></pre>
+<p>And we want to look up a specific customer with <code>customer_id</code> = <code>cust54323</code>.</p>
+<p>We use a <code>get</code> operator to do the lookup:</p>
+<pre><code>tektite&gt; (get &quot;cust54323&quot; from cust_info);
++---------------------------------------------------------------------------------------------------------------------+
+| event_time                 | customer_id         | name                | age                  | city                |
++---------------------------------------------------------------------------------------------------------------------+
+| 2024-05-15 09:10:07.375000 | cust54323           | joe bloggs          | 43                   | miami               |
++---------------------------------------------------------------------------------------------------------------------+
+1 row returned
+</code></pre>
+<p>We can also look up in tables with composite keys. Let's say we have an aggregation with a composite key of <code>[country, city]</code></p>
+<pre><code>sales_by_country_city := sales -&gt;
+   (partition by country partitions=16) -&gt;
+   (aggregate min(amount), max(amount), count(amount), sum(amount)
+       by country, city);
+</code></pre>
+<p>We can use the <code>get</code> operator to look up a single row by specifying values for both <code>country</code> and <code>city</code>:</p>
+<pre><code>tektite&gt; (get &quot;usa&quot;, &quot;austin&quot; from sales_by_country_city);
++--------------------------------------------------------------------------------------------------------------------+
+| event_time                 | country    | city       | min(amou.. | max(amou.. | count(amount)        | sum(amou.. |
++--------------------------------------------------------------------------------------------------------------------+
+| 2024-05-15 09:18:25.576000 | usa        | austin     | 23.23      | 23.23      | 1                    | 23.23      |
++--------------------------------------------------------------------------------------------------------------------+
+1 row returned
+</code></pre>
+<p>We don't need to specify all the values for the key, we can omit ones on the right. This lets us look up all rows for a
+particular country:</p>
+<pre><code>tektite&gt; (get &quot;usa&quot; from sales_by_country_city);
++--------------------------------------------------------------------------------------------------------------------+
+| event_time                 | country    | city       | min(amou.. | max(amou.. | count(amount)        | sum(amou.. |
++--------------------------------------------------------------------------------------------------------------------+
+| 2024-05-15 09:18:25.576000 | usa        | austin     | 23.23      | 23.23      | 1                    | 23.23      |
+| 2024-05-15 09:18:25.957000 | usa        | miami      | 56.23      | 56.23      | 1                    | 56.23      |
++--------------------------------------------------------------------------------------------------------------------+
+2 rows returned
+</code></pre>
+<p>You can use a <code>project</code> operator to transform the data received:</p>
+<pre><code>tektite&gt; (get &quot;usa&quot; from sales_by_country_city) -&gt;
+    (project country, to_upper(city) as ucity);
++---------------------------------------------------------------------------------------------------------------------+
+| country                                                  | ucity                                                    |
++---------------------------------------------------------------------------------------------------------------------+
+| usa                                                      | MIAMI                                                    |
+| usa                                                      | AUSTIN                                                   |
++---------------------------------------------------------------------------------------------------------------------+
+</code></pre>
+<p>You might want to sort the results if you are returning more than one row:</p>
+<pre><code>tektite&gt; (get &quot;usa&quot; from sales_by_country_city) -&gt;
+    (project country, to_upper(city) as ucity) -&gt;
+    (sort by ucity);
++---------------------------------------------------------------------------------------------------------------------+
+| country                                                  | ucity                                                    |
++---------------------------------------------------------------------------------------------------------------------+
+| usa                                                      | AUSTIN                                                   |
+| usa                                                      | MIAMI                                                    |
++---------------------------------------------------------------------------------------------------------------------+
+2 rows returned
+</code></pre>
+<h2 id="table-scans">Table scans</h2>
+<p>Sometimes you may want to scan all the data in a table. You do this with the <code>scan all</code> operator:</p>
+<pre><code>tektite&gt; (scan all from sales_by_country_city);
++--------------------------------------------------------------------------------------------------------------------+
+| event_time                 | country    | city       | min(amou.. | max(amou.. | count(amount)        | sum(amou.. |
++--------------------------------------------------------------------------------------------------------------------+
+| 2024-05-15 09:18:25.535000 | uk         | manchester | 56.23      | 56.23      | 1                    | 56.23      |
+| 2024-05-15 09:18:25.576000 | usa        | austin     | 23.23      | 23.23      | 1                    | 23.23      |
+| 2024-05-15 09:18:25.957000 | usa        | miami      | 56.23      | 56.23      | 1                    | 56.23      |
+| 2024-05-15 09:18:25.557000 | uk         | london     | 76.23      | 85.23      | 2                    | 161.46     |
++--------------------------------------------------------------------------------------------------------------------+
+4 rows returned
+</code></pre>
+<p>As with any query you can use <code>filter</code>, <code>project</code> or <code>sort</code> in the query stream:</p>
+<pre><code>tektite&gt; (scan all from sales_by_country_city) -&gt;
+    (filter by city != &quot;manchester&quot;) -&gt;
+    (project country, to_upper(city) as ucity) -&gt;
+    (sort by ucity);
++---------------------------------------------------------------------------------------------------------------------+
+| country                                                  | ucity                                                    |
++---------------------------------------------------------------------------------------------------------------------+
+| usa                                                      | AUSTIN                                                   |
+| uk                                                       | LONDON                                                   |
+| usa                                                      | MIAMI                                                    |
++---------------------------------------------------------------------------------------------------------------------+
+3 rows returned
+</code></pre>
+<h2 id="range-scans">Range scans</h2>
+<p>A range scan matches all key values within a range.</p>
+<p>The key of this table is <code>[country, city]</code> so the following scan will match any countries with a country that is 
+lexographically greater than or equal to <code>f</code> and less than <code>h</code></p>
+<pre><code>tektite&gt; (scan &quot;f&quot; to &quot;h&quot; from sales_by_country_city) -&gt; (sort by country);
++--------------------------------------------------------------------------------------------------------------------+
+| event_time                 | country    | city       | min(amou.. | max(amou.. | count(amount)        | sum(amou.. |
++--------------------------------------------------------------------------------------------------------------------+
+| 2024-05-15 10:27:24.676000 | france     | paris      | 23.23      | 23.23      | 1                    | 23.23      |
+| 2024-05-15 10:27:24.699000 | france     | lyon       | 56.23      | 56.23      | 1                    | 56.23      |
+| 2024-05-15 10:27:24.720000 | germany    | berlin     | 23.23      | 23.23      | 1                    | 23.23      |
+| 2024-05-15 10:27:25.164000 | germany    | hamburg    | 56.23      | 56.23      | 1                    | 56.23      |
++--------------------------------------------------------------------------------------------------------------------+
+4 rows returned
+</code></pre>
+<p>The range can include all components of a composite key, so the following query will just return the row for <code>lyon</code></p>
+<pre><code>tektite&gt; (scan &quot;france&quot;, &quot;lyon&quot; to &quot;france&quot;, &quot;m&quot; from
+            sales_by_country_city) -&gt;
+         (sort by country);
++--------------------------------------------------------------------------------------------------------------------+
+| event_time                 | country    | city       | min(amou.. | max(amou.. | count(amount)        | sum(amou.. |
++--------------------------------------------------------------------------------------------------------------------+
+| 2024-05-15 10:27:24.699000 | france     | lyon       | 56.23      | 56.23      | 1                    | 56.23      |
++--------------------------------------------------------------------------------------------------------------------+
+1 row returned
+</code></pre>
+<p>By default, the lower bound of the range is <em>inclusive</em> and the upper bound is <em>exclusive</em>. So the following query also
+doesn't return the row for <code>paris</code>.</p>
+<pre><code>tektite&gt; (scan &quot;france&quot;, &quot;lyon&quot; to &quot;france&quot;, &quot;paris&quot; from
+             sales_by_country_city) -&gt;
+         (sort by country);
++--------------------------------------------------------------------------------------------------------------------+
+| event_time                 | country    | city       | min(amou.. | max(amou.. | count(amount)        | sum(amou.. |
++--------------------------------------------------------------------------------------------------------------------+
+| 2024-05-15 10:27:24.699000 | france     | lyon       | 56.23      | 56.23      | 1                    | 56.23      |
++--------------------------------------------------------------------------------------------------------------------+
+1 row returned
+</code></pre>
+<p>The upper bound can be made inclusive with <code>incl</code>:</p>
+<pre><code>tektite&gt; (scan &quot;france&quot;, &quot;lyon&quot; to &quot;france&quot;, &quot;paris&quot; incl from
+             sales_by_country_city) -&gt;
+         (sort by country);
++--------------------------------------------------------------------------------------------------------------------+
+| event_time                 | country    | city       | min(amou.. | max(amou.. | count(amount)        | sum(amou.. |
++--------------------------------------------------------------------------------------------------------------------+
+| 2024-05-15 10:27:24.699000 | france     | lyon       | 56.23      | 56.23      | 1                    | 56.23      |
+| 2024-05-15 10:27:24.676000 | france     | paris      | 23.23      | 23.23      | 1                    | 23.23      |
++--------------------------------------------------------------------------------------------------------------------+
+2 rows returned
+</code></pre>
+<p>The lower bound can be made exclusive with <code>excl</code>:</p>
+<pre><code>tektite&gt; (scan &quot;france&quot;, &quot;lyon&quot; excl to &quot;france&quot;, &quot;paris&quot; incl from
+             sales_by_country_city) -&gt;
+         (sort by country);
++--------------------------------------------------------------------------------------------------------------------+
+| event_time                 | country    | city       | min(amou.. | max(amou.. | count(amount)        | sum(amou.. |
++--------------------------------------------------------------------------------------------------------------------+
+| 2024-05-15 10:27:24.676000 | france     | paris      | 23.23      | 23.23      | 1                    | 23.23      |
++--------------------------------------------------------------------------------------------------------------------+
+1 row returned
+</code></pre>
+<p>If you want to scan from a lower bound but don't want an upper bound you can use the special upper bound <code>end</code></p>
+<pre><code>tektite&gt; (scan &quot;germany&quot; to end from sales_by_country_city) -&gt;
+    (sort by country);
++--------------------------------------------------------------------------------------------------------------------+
+| event_time                 | country    | city       | min(amou.. | max(amou.. | count(amount)        | sum(amou.. |
++--------------------------------------------------------------------------------------------------------------------+
+| 2024-05-15 10:27:25.164000 | germany    | hamburg    | 56.23      | 56.23      | 1                    | 56.23      |
+| 2024-05-15 10:27:24.720000 | germany    | berlin     | 23.23      | 23.23      | 1                    | 23.23      |
+| 2024-05-15 09:18:25.535000 | uk         | manchester | 56.23      | 56.23      | 1                    | 56.23      |
+| 2024-05-15 09:18:25.557000 | uk         | london     | 76.23      | 85.23      | 2                    | 161.46     |
+| 2024-05-15 09:18:25.576000 | usa        | austin     | 23.23      | 23.23      | 1                    | 23.23      |
+| 2024-05-15 09:18:25.957000 | usa        | miami      | 56.23      | 56.23      | 1                    | 56.23      |
++--------------------------------------------------------------------------------------------------------------------+
+6 rows returned
+</code></pre>
+<p>You can also use the special lower bound <code>start</code> to scan from the first key up to some upper bound:</p>
+<pre><code>tektite&gt; (scan start to &quot;uk&quot; incl from sales_by_country_city) -&gt; (sort by country);
++--------------------------------------------------------------------------------------------------------------------+
+| event_time                 | country    | city       | min(amou.. | max(amou.. | count(amount)        | sum(amou.. |
++--------------------------------------------------------------------------------------------------------------------+
+| 2024-05-15 10:27:24.699000 | france     | lyon       | 56.23      | 56.23      | 1                    | 56.23      |
+| 2024-05-15 10:27:24.676000 | france     | paris      | 23.23      | 23.23      | 1                    | 23.23      |
+| 2024-05-15 10:27:25.164000 | germany    | hamburg    | 56.23      | 56.23      | 1                    | 56.23      |
+| 2024-05-15 10:27:24.720000 | germany    | berlin     | 23.23      | 23.23      | 1                    | 23.23      |
+| 2024-05-15 09:18:25.535000 | uk         | manchester | 56.23      | 56.23      | 1                    | 56.23      |
+| 2024-05-15 09:18:25.557000 | uk         | london     | 76.23      | 85.23      | 2                    | 161.46     |
++--------------------------------------------------------------------------------------------------------------------+
+6 rows returned
+</code></pre>
+<p>You can also scan <code>start</code> to <code>end</code>. This identical to using a <code>scan all</code> operator.</p>
+<pre><code>tektite&gt; (scan start to end from sales_by_country_city) -&gt; (sort by country);
++--------------------------------------------------------------------------------------------------------------------+
+| event_time                 | country    | city       | min(amou.. | max(amou.. | count(amount)        | sum(amou.. |
++--------------------------------------------------------------------------------------------------------------------+
+| 2024-05-15 10:27:24.699000 | france     | lyon       | 56.23      | 56.23      | 1                    | 56.23      |
+| 2024-05-15 10:27:24.676000 | france     | paris      | 23.23      | 23.23      | 1                    | 23.23      |
+| 2024-05-15 10:27:25.164000 | germany    | hamburg    | 56.23      | 56.23      | 1                    | 56.23      |
+| 2024-05-15 10:27:24.720000 | germany    | berlin     | 23.23      | 23.23      | 1                    | 23.23      |
+| 2024-05-15 09:18:25.557000 | uk         | london     | 76.23      | 85.23      | 2                    | 161.46     |
+| 2024-05-15 09:18:25.535000 | uk         | manchester | 56.23      | 56.23      | 1                    | 56.23      |
+| 2024-05-15 09:18:25.957000 | usa        | miami      | 56.23      | 56.23      | 1                    | 56.23      |
+| 2024-05-15 09:18:25.576000 | usa        | austin     | 23.23      | 23.23      | 1                    | 23.23      |
++--------------------------------------------------------------------------------------------------------------------+
+8 rows returned
+</code></pre>
+<h2 id="the-sort-operator">The sort operator</h2>
+<p>This operator can only be used in queries, and is used to sort the data by a list of expressions. Each sort expression is
+applied from left to right.</p>
+<p>The expressions are standard Tektite expressions and support all the operators and functions, or custom WebAssembly functions
+that you can use in any expression.</p>
+<p>Some examples:</p>
+<pre><code>(scan all from latest_sensor_readings) -&gt;
+    (sort by country, to_upper(city))
+
+(scan all from cust_data) -&gt;
+    (sort by my_custom_wasm_function(cust_name, cust_address, cust_age))
+</code></pre>
+<h2 id="legal-operators-in-queries">Legal operators in queries</h2>
+<p>Queries don't support all the operators that you can use in static streams. The following operators are supported in queries:</p>
+<ul>
+<li><code>get</code></li>
+<li><code>scan all</code></li>
+<li><code>scan</code></li>
+<li><code>project</code></li>
+<li><code>filter</code></li>
+<li><code>sort</code></li>
+</ul>
+<p>Notably we do not support aggregations or joins for queries. The Tektite approach is to maintain joins and aggregations
+on the write path as static streams, and keep the read path (queries) lightweight.</p>
+<h2 id="using-the-tektite-http-api-for-queries">Using the Tektite HTTP API for queries</h2>
+<p>Queries can be executed at the <a href="../cli/">CLI</a> for ad-hoc purposes, but to execute queries from your application, you use the <a href="../http_api/">Tektite HTTP API</a>, this also allows you to prepare statements to avoid
+the cost of setting up the query each time.</p>
+<p>If you're using golang in your application we also provide a simple golang client which allows you to execute and prepare statements and
+queries. This is a simple convenience wrapper around the HTTP API which you can use directly if you prefer.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    <script id="__config" type="application/json">{"base": "..", "features": [], "search": "../assets/javascripts/workers/search.b8dbb3d2.min.js", "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.a7c05c9e.min.js"></script>
+      
+    
+  </body>
+</html>
