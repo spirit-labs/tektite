@@ -17,4 +17,6 @@ Unlike other offerings, Tektite is not just a bolt on layer over an existing dat
 It is designed from first principles to be fast and scale to any size. It contains its own distributed log structured merge
 tree (LSM) for storage of data. At the low level, data is stored in an object store such Amazon S3 or MinIO.
 
-Please see [the docs](http://www.tektitedb.com) to learn more.
+Please see [the docs](http://www.tektitedb.com) to learn more about Tektite.
+
+Please also consult [the wiki](https://github.com/spirit-labs/tektite/wiki)
