@@ -21,4 +21,3 @@ integration/java/kafkatest/dependency-reduced-pom.xml
 testutils/*.txt
 testUtils/*.lock
 .python-version
-.github/**
