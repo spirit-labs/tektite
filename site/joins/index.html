@@ -846,7 +846,7 @@ key columns on the incoming streams and specifying a window.</p>
 <p>For example, the following join creates an output row when there's a sale and a payment for the same transaction id in
 a window of 5 minutes.</p>
 <pre><code>matched_sales :=
-    (join sales with payments on tx_id=transaction_id within = 5m) -&gt;
+    (join sales with payments by tx_id=transaction_id within = 5m) -&gt;
     (store stream);
 </code></pre>
 <p>In the above the left stream is <code>sales</code> and has a key column <code>tx_id</code> which contains the transaction id. The right stream
@@ -882,7 +882,7 @@ r_payment_provider: string
 <p>Note that the join columns (<code>l_tx_id</code>) is only included once as it's the same for left and right.</p>
 <p>Often you will only want a subset of the columns or want to change their names or order. A <code>project</code> operator is used to do that:</p>
 <pre><code>matched_sales :=
-    (join sales with payments on tx_id = transaction_id within = 5m) -&gt;
+    (join sales with payments by tx_id = transaction_id within = 5m) -&gt;
     (project l_tx_id as tx_id,
              l_customer_id as cust_id,
              l_price as price, 
@@ -892,7 +892,7 @@ r_payment_provider: string
 <p>You can also join on multiple columns. In this case the join columns are separated by a comma.</p>
 <pre><code>matched_sales :=
     (join sales with payments
-        on tx_id = transaction_id, country = country_id
+        by tx_id = transaction_id, country = country_id
         within = 5m) -&gt;
     (project l_tx_id as tx_id,
              l_customer_id as cust_id,
@@ -917,7 +917,7 @@ come from the table will be <code>null</code>.</p>
 <p>We can create a new stream that enriches the sales stream with customer data. We will use a projection to extract the
 columns of interest:</p>
 <pre><code>enriched_sales := 
-    (join sales with cust_data on c_id = customer_id) -&gt;
+    (join sales with cust_data by c_id = customer_id) -&gt;
     (project l_c_id as customer_id,
              r_cust_name as customer_name
              r_cust_address as customer_address
@@ -931,7 +931,7 @@ will only be output if a matching customer row is found for an incoming sale.</p
 <p>If we want a row to be output irrespective of whether a matching customer row was found we use <code>=*</code> to define the join 
 columns:</p>
 <pre><code>enriched_sales := 
-    (join sales with cust_data on c_id *= customer_id) -&gt;
+    (join sales with cust_data by c_id *= customer_id) -&gt;
     (project l_c_id as customer_id,
              r_cust_name as customer_name
              r_cust_address as customer_address

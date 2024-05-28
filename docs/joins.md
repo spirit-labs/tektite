@@ -15,7 +15,7 @@ a window of 5 minutes.
 
 ```
 matched_sales :=
-    (join sales with payments on tx_id=transaction_id within = 5m) ->
+    (join sales with payments by tx_id=transaction_id within = 5m) ->
     (store stream);
 ```
 
@@ -67,7 +67,7 @@ Often you will only want a subset of the columns or want to change their names o
 
 ```
 matched_sales :=
-    (join sales with payments on tx_id = transaction_id within = 5m) ->
+    (join sales with payments by tx_id = transaction_id within = 5m) ->
     (project l_tx_id as tx_id,
              l_customer_id as cust_id,
              l_price as price, 
@@ -80,7 +80,7 @@ You can also join on multiple columns. In this case the join columns are separat
 ```
 matched_sales :=
     (join sales with payments
-        on tx_id = transaction_id, country = country_id
+        by tx_id = transaction_id, country = country_id
         within = 5m) ->
     (project l_tx_id as tx_id,
              l_customer_id as cust_id,
@@ -119,7 +119,7 @@ columns of interest:
 
 ```
 enriched_sales := 
-    (join sales with cust_data on c_id = customer_id) ->
+    (join sales with cust_data by c_id = customer_id) ->
     (project l_c_id as customer_id,
              r_cust_name as customer_name
              r_cust_address as customer_address
@@ -137,7 +137,7 @@ columns:
 
 ```
 enriched_sales := 
-    (join sales with cust_data on c_id *= customer_id) ->
+    (join sales with cust_data by c_id *= customer_id) ->
     (project l_c_id as customer_id,
              r_cust_name as customer_name
              r_cust_address as customer_address
