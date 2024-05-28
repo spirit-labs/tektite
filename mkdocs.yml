@@ -29,7 +29,6 @@ nav:
   - HTTP API: 'http_api.md'
   - WebAssembly: 'wasm.md'
   - Admin Console: 'admin_console.md'
-  - Cookbook: 'cookbook.md'
   - Configuration: 'configuration.md'
 markdown_extensions:
   - tables

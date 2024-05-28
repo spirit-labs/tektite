@@ -9,10 +9,6 @@
       
       
       
-        <link rel="prev" href="../admin_console/">
-      
-      
-        <link rel="next" href="../configuration/">
       
       
       <link rel="icon" href="../assets/images/favicon.png">
@@ -20,7 +16,7 @@
     
     
       
-        <title>Cookbook - Tektite</title>
+        <title>Tektite Cookbook - Tektite</title>
       
     
     
@@ -106,7 +102,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Cookbook
+              Tektite Cookbook
             
           </span>
         </div>
@@ -692,270 +688,6 @@
   
 
       </a>
-    </li>
-  
-
-    
-      
-      
-  
-  
-    
-  
-  
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  <span class="md-ellipsis">
-    Cookbook
-  </span>
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
-        
-  
-  <span class="md-ellipsis">
-    Cookbook
-  </span>
-  
-
-      </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#topics" class="md-nav__link">
-    <span class="md-ellipsis">
-      Topics
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Topics">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#vanilla-topic" class="md-nav__link">
-    <span class="md-ellipsis">
-      Vanilla topic
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#topic-with-filter-on-json-field-in-message" class="md-nav__link">
-    <span class="md-ellipsis">
-      Topic with filter on JSON field in message
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#topic-with-filter-on-kafka-header" class="md-nav__link">
-    <span class="md-ellipsis">
-      Topic with filter on Kafka header
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#topic-that-transforms-body" class="md-nav__link">
-    <span class="md-ellipsis">
-      Topic that transforms body
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#topic-that-transforms-body-with-wasm-function" class="md-nav__link">
-    <span class="md-ellipsis">
-      Topic that transforms body with WASM function
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#write-only-topic-to-tektite-stream" class="md-nav__link">
-    <span class="md-ellipsis">
-      Write only topic to Tektite stream
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#write-only-topic-that-sends-to-external-topic" class="md-nav__link">
-    <span class="md-ellipsis">
-      Write only topic that sends to external topic
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#expose-existing-stream-as-read-only-topic" class="md-nav__link">
-    <span class="md-ellipsis">
-      Expose existing stream as read-only topic
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#expose-external-topic-as-read-only-tektite-topic" class="md-nav__link">
-    <span class="md-ellipsis">
-      Expose external topic as read only Tektite topic
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#expose-external-topic-as-read-only-tektite-topic-after-filtering" class="md-nav__link">
-    <span class="md-ellipsis">
-      Expose external topic as read only Tektite topic after filtering
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#joins" class="md-nav__link">
-    <span class="md-ellipsis">
-      Joins
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Joins">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#join-two-tektite-topics-to-create-new-read-only-topic" class="md-nav__link">
-    <span class="md-ellipsis">
-      Join two Tektite topics to create new read-only topic
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#join-tektite-topic-with-external-topic-and-store-as-internal-stream" class="md-nav__link">
-    <span class="md-ellipsis">
-      Join Tektite topic with external-topic and store as internal stream
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#enrich-tektite-topic-with-customer-data" class="md-nav__link">
-    <span class="md-ellipsis">
-      Enrich Tektite topic with customer data
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#repartitioning" class="md-nav__link">
-    <span class="md-ellipsis">
-      Repartitioning
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Repartitioning">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#repartition-external-topic" class="md-nav__link">
-    <span class="md-ellipsis">
-      Repartition external topic
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#aggregations" class="md-nav__link">
-    <span class="md-ellipsis">
-      Aggregations
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#sales-totals-by-region-last-hour-from-external-topic" class="md-nav__link">
-    <span class="md-ellipsis">
-      Sales totals by region last hour from external topic
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Sales totals by region last hour from external topic">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#union" class="md-nav__link">
-    <span class="md-ellipsis">
-      Union
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
