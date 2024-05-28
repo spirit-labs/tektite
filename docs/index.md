@@ -21,10 +21,14 @@ Apache Flink™.
 
 Unlike most streaming offerings, Tektite is not just a bolt on layer over an existing database or event streaming platform.
 
-It is designed from first principles to be fast and scale to any size.
+It is a true database, designed from first principles to be fast and scale to huge sizes.
 
-It contains its own distributed log structured merge tree (LSM) for storage of data. At the low level, data is stored in
-an object store such as Amazon S3 or MinIO.
+Tektite nodes do not use the file system for storing data, instead, they provide a replicated cache for hot data.
+Data is stored persistently in an object store like Amazon S3 or MinIO and Tektite includes its own distributed log structured
+merge tree (LSM) for efficient retrieval and compaction of stored data.
+
+Removing local file storage makes Tektite clusters easier to deploy and manage, and potentially cheaper to run than existing
+alternatives. Not having file(s) per topic partition potentially allows Tektite to scale to many more topics and partitions.
 
 * Learn about Tektite [concepts](conceptual_model.md)
 * Try the [getting started](getting_started.md)

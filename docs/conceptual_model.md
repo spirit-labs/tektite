@@ -1,7 +1,7 @@
 # Conceptual Model
 
-Event Streaming platforms such as Apache Kafka or Red Panda and event processing platforms such as Apache Flink are
-traditionally seen as separate beasts, but fundamentally both just manage streams of data.
+Event Streaming platforms such as Apache Kafka or Red Panda and event processing platforms such as Apache Flink have evolved
+as separate beasts, but the fundamental abstraction in both is the same - a stream of data.
 
 Tektite exposes the stream processing primitives, so they can be assembled together in different ways to create all the things
 you find in event streaming and event processing platforms, but in a single unified platform.
@@ -9,8 +9,6 @@ you find in event streaming and event processing platforms, but in a single unif
 Wouldn’t it be nice if you could deploy a topic, but also with some filtering or processing happening on the server? Or to join
 two Kafka topics with a one-liner, and avoid spinning up a separate Flink cluster to do this? Or maybe you want to run some
 custom processing on your Kafka cluster?
-
-It's like a Swiss Army Knife for event streaming. The language that Tektite uses to define streams is called Tektite Streaming Language (TSL).
 
 Let's discuss the conceptual model of Tektite in more detail.
 
