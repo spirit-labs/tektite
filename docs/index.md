@@ -34,10 +34,9 @@ alternatives. Not having file(s) per topic partition potentially allows Tektite 
 * Learn about Tektite [concepts](conceptual_model.md)
 * Try the [getting started](getting_started.md)
 
-It's suggested that the rest of the documentation is read in the order it appears in the left hand navigation list.
-
 ## Current Status
 
 * Tektite is currently in active development and working towards a production-ready 1.0 release later in 2024
 * Development is advanced with most features complete.
 * We will be working heavily on automated testing and performance over the next few months to make sure Tektite is rock-solid and fast for the 1.0 release.
+* If you're interested - please [get involved!](https://github.com/spirit-labs/tektite/blob/main/CONTRIBUTING.MD)
