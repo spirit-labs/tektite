@@ -133,7 +133,7 @@ func TestHTTPWithTLSClientAuthFailUntrustedClientCertProvided(t *testing.T) {
 		ClientCertsPath: selfSignedClientCertPath,
 		ClientAuth:      "require-and-verify-client-cert",
 	}
-	expected := "connection error: remote error: tls: bad certificate\n"
+	expected := "connection error: remote error: tls: certificate required\n"
 	testCliFailure(t, clientTLSConfig, serverTLSConfig, expected)
 }
 
