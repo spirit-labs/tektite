@@ -460,6 +460,11 @@ func (j *JoinOperator) handleIncomingStreamTable(batch *evbatch.Batch, execCtx S
 	for i := 0; i < rc; i++ {
 		lookupStart := encoding.EncodeEntryPrefix(uint64(j.externalTableID), uint64(execCtx.PartitionID()), keyInitialBufferSize)
 		lookupStart = evbatch.EncodeKeyCols(batch, i, ctx.incomingKeyCols, lookupStart)
+		// If all key values are null then there will just be a 0 null marker for each key col plus the prefix
+		if len(lookupStart) == 16+len(ctx.incomingKeyCols) {
+			// We don't join on null (result of null == null is false, same in SQL)
+			continue
+		}
 		lookupEnd := common.IncrementBytesBigEndian(lookupStart)
 		log.Debugf("looking up row in external table start %v end %v version %d", lookupStart, lookupEnd, execCtx.WriteVersion())
 		incomingET := eventTimeCol.Get(i).Val
@@ -481,6 +486,12 @@ func (j *JoinOperator) handleIncomingStreamTable(batch *evbatch.Batch, execCtx S
 	return nil, nil
 }
 
+func isNullKey(key []byte, keyColIndexes []int) bool {
+	// If all key values are null then there will just be a 0 null marker for each key col plus the prefix plus the
+	// encoded event time
+	return len(key) == 16+9+len(keyColIndexes)-1
+}
+
 func (j *JoinOperator) handleIncomingStreamStream(batch *evbatch.Batch, execCtx StreamExecContext,
 	ctx *handleIncomingCtx, includeNonMatched bool) (*evbatch.Batch, error) {
 
@@ -489,12 +500,17 @@ func (j *JoinOperator) handleIncomingStreamStream(batch *evbatch.Batch, execCtx 
 	rc := batch.RowCount
 	eventTimeCol := batch.GetTimestampColumn(ctx.eventTimeColIndex)
 	var outBuilders []evbatch.ColumnBuilder
-	log.Debugf("in handleIncoming, rowCount is %d", rc)
-	batch.Dump()
 	for i := 0; i < rc; i++ {
 		// We store the incoming in the internal table
 		persistKeyBuff := encoding.EncodeEntryPrefix(uint64(ctx.incomingSlabID), uint64(execCtx.PartitionID()), keyInitialBufferSize)
 		persistKeyBuff = evbatch.EncodeKeyCols(batch, i, ctx.incomingKeyCols, persistKeyBuff)
+
+		// If all key values are null then there will just be a 0 null marker for each key col plus the prefix plus the
+		// encoded event time
+		if len(persistKeyBuff) == 16+9+len(ctx.incomingKeyCols)-1 {
+			// We don't join on null (result of null == null is false, same in SQL)
+			continue
+		}
 
 		// It's possible that two events might arrive with the exact same event_time and with exact same join columns
 		// but other columns are different. If we just keyed the table with the join columns and event_time then later
