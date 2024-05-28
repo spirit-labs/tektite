@@ -24,8 +24,9 @@ Unlike most streaming offerings, Tektite is not just a bolt on layer over an exi
 It is a true database, designed from first principles to be fast and scale to huge sizes.
 
 Tektite nodes do not use the file system for storing data, instead, they provide a replicated cache for hot data.
+
 Data is stored persistently in an object store like Amazon S3 or MinIO and Tektite includes its own distributed log structured
-merge tree (LSM) for efficient retrieval and compaction of stored data.
+merge tree ([LSM](https://en.wikipedia.org/wiki/Log-structured_merge-tree)) for efficient retrieval and compaction of stored data.
 
 Removing local file storage makes Tektite clusters easier to deploy and manage, and potentially cheaper to run than existing
 alternatives. Not having file(s) per topic partition potentially allows Tektite to scale to many more topics and partitions.
