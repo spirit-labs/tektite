@@ -28,7 +28,7 @@ payments :=
 -> (store stream);
 OK
 
-transactions_with_payments := (join transactions with payments on cust_id=cust_id within=5m) -> (store stream);
+transactions_with_payments := (join transactions with payments by cust_id=cust_id within=5m) -> (store stream);
 OK
 
 -- tx000001 - payment000001 - no match as not matching keys;
@@ -124,7 +124,7 @@ payments :=
 -> (store stream);
 OK
 
-transactions_with_payments := (join transactions with payments on cust_id=cust_id within=5m) -> (store stream);
+transactions_with_payments := (join transactions with payments by cust_id=cust_id within=5m) -> (store stream);
 OK
 
 --load data payments_data_1;
@@ -190,7 +190,7 @@ payments :=
 -> (store stream);
 OK
 
-transactions_with_payments := (join transactions with payments on tcust_id=pcust_id,tcurrency=pcurrency,tcost=pcost within=5m) -> (store stream);
+transactions_with_payments := (join transactions with payments by tcust_id=pcust_id,tcurrency=pcurrency,tcost=pcost within=5m) -> (store stream);
 OK
 
 -- load transactions before payments;
@@ -205,9 +205,9 @@ OK
 -- tx000005 - payment000005 - no match - only currency and cost match
 -- tx000006 - payment000006 - no match - payment too late after transaction
 -- tx000007 - payment000007 - no match - transaction too late after payment
--- tx000008 - payment000008 - single match on all key cols
--- tx000009 - payment000009, payment000010, payment000011 - multiple match on all key cols;
--- tx000010, tx000011, tx000012 - payment000012 - multiple match on all key cols;
+-- tx000008 - payment000008 - single match by all key cols
+-- tx000009 - payment000009, payment000010, payment000011 - multiple match by all key cols;
+-- tx000010, tx000011, tx000012 - payment000012 - multiple match by all key cols;
 -- tx000013 - payment000013, payment000014, payment000015 - all key cols and event_time are identical - all matches should be returned;
 -- tx000014, tx000015, tx000016 - payment000016 - all key cols and event_time are identical - all matches should be returned;
 
@@ -272,7 +272,7 @@ payments :=
 -> (store stream);
 OK
 
-transactions_with_payments := (join transactions with payments on tcust_id=pcust_id,tcurrency=pcurrency,tcost=pcost within=5m) -> (store stream);
+transactions_with_payments := (join transactions with payments by tcust_id=pcust_id,tcurrency=pcurrency,tcost=pcost within=5m) -> (store stream);
 OK
 
 --load data payments_data_2;
@@ -342,7 +342,7 @@ payments :=
 -> (partition by pcust_id, pcurrency, pcost partitions=20);
 OK
 
-transactions_with_payments := (join transactions with payments on tcust_id=pcust_id,tcurrency=pcurrency,tcost=pcost within=5m) -> (store stream);
+transactions_with_payments := (join transactions with payments by tcust_id=pcust_id,tcurrency=pcurrency,tcost=pcost within=5m) -> (store stream);
 OK
 
 --load data transactions_data_2;
@@ -410,7 +410,7 @@ payments :=
 -> (partition by pcust_id, pcurrency, pcost partitions=20);
 OK
 
-transactions_with_payments := (join transactions with payments on tcust_id=pcust_id,tcurrency=pcurrency,tcost=pcost within=5m) -> (store stream);
+transactions_with_payments := (join transactions with payments by tcust_id=pcust_id,tcurrency=pcurrency,tcost=pcost within=5m) -> (store stream);
 OK
 
 --load data transactions_data_2;
@@ -478,7 +478,7 @@ payments :=
 -> (store stream);
 OK
 
-transactions_with_payments := (join transactions with payments on tcust_id=pcust_id,tcurrency=pcurrency,tcost=pcost within=5m) -> (store stream);
+transactions_with_payments := (join transactions with payments by tcust_id=pcust_id,tcurrency=pcurrency,tcost=pcost within=5m) -> (store stream);
 OK
 
 --load data transactions_data_2;
@@ -546,7 +546,7 @@ payments :=
 -> (store stream);
 OK
 
-transactions_with_payments := (join transactions with payments on tcust_id=pcust_id,tcurrency=pcurrency,tcost=pcost within=5m) -> (store stream);
+transactions_with_payments := (join transactions with payments by tcust_id=pcust_id,tcurrency=pcurrency,tcost=pcost within=5m) -> (store stream);
 OK
 
 --load data payments_data_2;
@@ -621,7 +621,7 @@ input2 :=
 -> (store stream);
 OK
 
-joined := (join input1 with input2 on int_col=int_col,float_col=float_col,bool_col=bool_col,decimal_col=decimal_col,
+joined := (join input1 with input2 by int_col=int_col,float_col=float_col,bool_col=bool_col,decimal_col=decimal_col,
 string_col=string_col,bytes_col=bytes_col,timestamp_col=timestamp_col within=5m) -> (store stream);
 OK
 
@@ -681,7 +681,7 @@ payments :=
 -> (store stream);
 OK
 
-transactions_with_payments := (join transactions with payments on cust_id*=cust_id within=5m) -> (store stream);
+transactions_with_payments := (join transactions with payments by cust_id*=cust_id within=5m) -> (store stream);
 OK
 
 --load data transactions_data_1;
@@ -766,7 +766,7 @@ payments :=
 -> (store stream);
 OK
 
-transactions_with_payments := (join transactions with payments on cust_id*=cust_id within=5m) -> (store stream);
+transactions_with_payments := (join transactions with payments by cust_id*=cust_id within=5m) -> (store stream);
 OK
 
 --load data payments_data_1;
@@ -842,7 +842,7 @@ payments :=
 -> (store stream);
 OK
 
-transactions_with_payments := (join transactions with payments on cust_id=*cust_id within=5m) -> (store stream);
+transactions_with_payments := (join transactions with payments by cust_id=*cust_id within=5m) -> (store stream);
 OK
 
 --load data payments_data_1;
@@ -927,7 +927,7 @@ payments :=
 -> (store stream);
 OK
 
-transactions_with_payments := (join transactions with payments on cust_id=*cust_id within=5m) -> (store stream);
+transactions_with_payments := (join transactions with payments by cust_id=*cust_id within=5m) -> (store stream);
 OK
 
 --load data transactions_data_1;
@@ -983,19 +983,19 @@ input :=
 -> (store stream);
 OK
 
-joined := (join not_exist with not_exist on foo=foo within=5m);
+joined := (join not_exist with not_exist by foo=foo within=5m);
 unknown stream 'not_exist' (line 1 column 17):
-joined := (join not_exist with not_exist on foo=foo within=5m)
+joined := (join not_exist with not_exist by foo=foo within=5m)
                 ^
 
-joined := (join not_exist with input on foo=foo within=5m);
+joined := (join not_exist with input by foo=foo within=5m);
 unknown stream 'not_exist' (line 1 column 17):
-joined := (join not_exist with input on foo=foo within=5m)
+joined := (join not_exist with input by foo=foo within=5m)
                 ^
 
-joined := (join input with not_exist on foo=foo within=5m);
+joined := (join input with not_exist by foo=foo within=5m);
 unknown stream 'not_exist' (line 1 column 28):
-joined := (join input with not_exist on foo=foo within=5m)
+joined := (join input with not_exist by foo=foo within=5m)
                            ^
 
 delete(input);
@@ -1015,67 +1015,67 @@ input2 :=
 -> (store stream);
 OK
 
-joined := (join input1 with input2 on id=not_exist within=5m);
+joined := (join input1 with input2 by id=not_exist within=5m);
 cannot join with column 'not_exist' - it is not a known column in the input stream (line 1 column 42):
-joined := (join input1 with input2 on id=not_exist within=5m)
+joined := (join input1 with input2 by id=not_exist within=5m)
                                          ^
 
-joined := (join input1 with input2 on not_exist=id within=5m);
+joined := (join input1 with input2 by not_exist=id within=5m);
 cannot join with column 'not_exist' - it is not a known column in the input stream (line 1 column 39):
-joined := (join input1 with input2 on not_exist=id within=5m)
+joined := (join input1 with input2 by not_exist=id within=5m)
                                       ^
 
-joined := (join input1 with input2 on not_exist=not_exist within=5m);
+joined := (join input1 with input2 by not_exist=not_exist within=5m);
 cannot join with column 'not_exist' - it is not a known column in the input stream (line 1 column 39):
-joined := (join input1 with input2 on not_exist=not_exist within=5m)
+joined := (join input1 with input2 by not_exist=not_exist within=5m)
                                       ^
 
-joined := (join input1 on id=id) within=5m);
-expected 'with' but found 'on' (line 1 column 24):
-joined := (join input1 on id=id) within=5m)
+joined := (join input1 by id=id) within=5m);
+expected 'with' but found 'by' (line 1 column 24):
+joined := (join input1 by id=id) within=5m)
                        ^
 
-joined := (join input1 with input2 on id=id within="badgers");
+joined := (join input1 with input2 by id=id within="badgers");
 expected duration but found '"badgers"' (line 1 column 52):
-joined := (join input1 with input2 on id=id within="badgers")
+joined := (join input1 with input2 by id=id within="badgers")
                                                    ^
 
-joined := (join input1 with input2 on id=id within=badgers);
+joined := (join input1 with input2 by id=id within=badgers);
 expected duration but found 'badgers' (line 1 column 52):
-joined := (join input1 with input2 on id=id within=badgers)
+joined := (join input1 with input2 by id=id within=badgers)
                                                    ^
 
--- joining on event_time or offset is not allowed;
+-- joining by event_time or offset is not allowed;
 
-joined := (join input1 with input2 on event_time=event_time within=5m);
+joined := (join input1 with input2 by event_time=event_time within=5m);
 joining with column 'event_time' is not allowed (line 1 column 39):
-joined := (join input1 with input2 on event_time=event_time within=5m)
+joined := (join input1 with input2 by event_time=event_time within=5m)
                                       ^
 
-joined := (join input1 with input2 on offset=offset within=5m);
+joined := (join input1 with input2 by offset=offset within=5m);
 joining with column 'offset' is not allowed (line 1 column 39):
-joined := (join input1 with input2 on offset=offset within=5m)
+joined := (join input1 with input2 by offset=offset within=5m)
                                       ^
 
 -- all join columns must use the same join type;
 
-joined := (join input1 with input2 on id=id, f1*=id within=5m);
+joined := (join input1 with input2 by id=id, f1*=id within=5m);
 the same join type (one of `=`, `*=` or `=*`) must be used for all join expression (line 1 column 48):
-joined := (join input1 with input2 on id=id, f1*=id within=5m)
+joined := (join input1 with input2 by id=id, f1*=id within=5m)
                                                ^
 
 -- cannot join columns of different types;
 
-joined := (join input1 with input2 on id=f1 within=5m);
+joined := (join input1 with input2 by id=f1 within=5m);
 cannot join columns 'id' and 'f1' - they have different types string and int (line 1 column 41):
-joined := (join input1 with input2 on id=f1 within=5m)
+joined := (join input1 with input2 by id=f1 within=5m)
                                         ^
 
--- within clause mandatory on stream-stream join;
+-- within clause mandatory by stream-stream join;
 
-joined := (join input1 with input2 on id=f1);
+joined := (join input1 with input2 by id=f1);
 'within' must be specified for a stream-stream join (line 1 column 12):
-joined := (join input1 with input2 on id=f1)
+joined := (join input1 with input2 by id=f1)
            ^
 
 delete(input1);

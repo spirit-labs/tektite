@@ -1256,7 +1256,7 @@ func TestParseStreamStreamRightOuterJoin(t *testing.T) {
 }
 
 func testParseStreamStreamJoin(t *testing.T, joinType string) {
-	input := fmt.Sprintf("my_stream := (join left_stream with right_stream on lf1 %s rf1 within 5m)", joinType)
+	input := fmt.Sprintf("my_stream := (join left_stream with right_stream by lf1 %s rf1 within 5m)", joinType)
 	within := 5 * time.Minute
 	expected := CreateStreamDesc{
 		StreamName: "my_stream",
@@ -1277,7 +1277,7 @@ func testParseStreamStreamJoin(t *testing.T, joinType string) {
 	}
 	testParseCreateStream(t, input, expected)
 
-	input = fmt.Sprintf("my_stream := (join left_stream with right_stream on lf1 %s rf1, lf2 %s rf2, lf3 %s rf3 within 5m)",
+	input = fmt.Sprintf("my_stream := (join left_stream with right_stream by lf1 %s rf1, lf2 %s rf2, lf3 %s rf3 within 5m)",
 		joinType, joinType, joinType)
 	expected = CreateStreamDesc{
 		StreamName: "my_stream",
@@ -1308,7 +1308,7 @@ func testParseStreamStreamJoin(t *testing.T, joinType string) {
 	}
 	testParseCreateStream(t, input, expected)
 
-	input = fmt.Sprintf("my_stream := (join left_stream with right_stream on lf1 %s rf1 within 5m retention 1h)",
+	input = fmt.Sprintf("my_stream := (join left_stream with right_stream by lf1 %s rf1 within 5m retention 1h)",
 		joinType)
 	retention := 1 * time.Hour
 	expected = CreateStreamDesc{
@@ -1331,7 +1331,7 @@ func testParseStreamStreamJoin(t *testing.T, joinType string) {
 	}
 	testParseCreateStream(t, input, expected)
 
-	input = fmt.Sprintf("my_stream := (join left_stream with right_stream on lf1 %s rf1 within=5m retention=1h)",
+	input = fmt.Sprintf("my_stream := (join left_stream with right_stream by lf1 %s rf1 within=5m retention=1h)",
 		joinType)
 	expected = CreateStreamDesc{
 		StreamName: "my_stream",
@@ -1355,7 +1355,7 @@ func testParseStreamStreamJoin(t *testing.T, joinType string) {
 }
 
 func TestParseStreamTableJoin(t *testing.T) {
-	input := "my_stream := (join table left_table with right_stream on lf1 = rf1)"
+	input := "my_stream := (join table left_table with right_stream by lf1 = rf1)"
 	expected := CreateStreamDesc{
 		StreamName: "my_stream",
 		OperatorDescs: []Parseable{
@@ -1375,7 +1375,7 @@ func TestParseStreamTableJoin(t *testing.T) {
 	}
 	testParseCreateStream(t, input, expected)
 
-	input = "my_stream := (join table left_table with right_stream on lf1 =* rf1)"
+	input = "my_stream := (join table left_table with right_stream by lf1 =* rf1)"
 	expected = CreateStreamDesc{
 		StreamName: "my_stream",
 		OperatorDescs: []Parseable{
@@ -1395,7 +1395,7 @@ func TestParseStreamTableJoin(t *testing.T) {
 	}
 	testParseCreateStream(t, input, expected)
 
-	input = "my_stream := (join left_stream with table right_table on lf1 = rf1)"
+	input = "my_stream := (join left_stream with table right_table by lf1 = rf1)"
 	expected = CreateStreamDesc{
 		StreamName: "my_stream",
 		OperatorDescs: []Parseable{
@@ -1415,7 +1415,7 @@ func TestParseStreamTableJoin(t *testing.T) {
 	}
 	testParseCreateStream(t, input, expected)
 
-	input = "my_stream := (join left_stream with table right_table on lf1 *= rf1)"
+	input = "my_stream := (join left_stream with table right_table by lf1 *= rf1)"
 	expected = CreateStreamDesc{
 		StreamName: "my_stream",
 		OperatorDescs: []Parseable{
@@ -1435,7 +1435,7 @@ func TestParseStreamTableJoin(t *testing.T) {
 	}
 	testParseCreateStream(t, input, expected)
 
-	input = "my_stream := (join table left_table with right_stream on lf1 = rf1 retention = 1h)"
+	input = "my_stream := (join table left_table with right_stream by lf1 = rf1 retention = 1h)"
 	retention := 1 * time.Hour
 	expected = CreateStreamDesc{
 		StreamName: "my_stream",
@@ -1474,44 +1474,44 @@ my_stream := (join input1)
 	testFailedToParseCreateStream(t, input, expectedMsg)
 
 	input = "my_stream := (join input1 with input2)"
-	expectedMsg = `expected 'on' but found ')' (line 1 column 38):
+	expectedMsg = `expected 'by' but found ')' (line 1 column 38):
 my_stream := (join input1 with input2)
                                      ^`
 	testFailedToParseCreateStream(t, input, expectedMsg)
 
-	input = "my_stream := (join input1 with input2 on)"
+	input = "my_stream := (join input1 with input2 by)"
 	expectedMsg = `there must be at least one join column expression (line 1 column 41):
-my_stream := (join input1 with input2 on)
+my_stream := (join input1 with input2 by)
                                         ^`
 	testFailedToParseCreateStream(t, input, expectedMsg)
 
-	input = "my_stream := (join input1 with input2 on f1)"
+	input = "my_stream := (join input1 with input2 by f1)"
 	expectedMsg = `expected one of '=', '*=', '=*' but found ')' (line 1 column 44):
-my_stream := (join input1 with input2 on f1)
+my_stream := (join input1 with input2 by f1)
                                            ^`
 	testFailedToParseCreateStream(t, input, expectedMsg)
 
-	input = "my_stream := (join input1 with input2 on f1 = )"
+	input = "my_stream := (join input1 with input2 by f1 = )"
 	expectedMsg = `expected identifier but found ')' (line 1 column 47):
-my_stream := (join input1 with input2 on f1 = )
+my_stream := (join input1 with input2 by f1 = )
                                               ^`
 	testFailedToParseCreateStream(t, input, expectedMsg)
 
-	input = "my_stream := (join input1 with input2 on f1 = f2 f3 = f4)"
+	input = "my_stream := (join input1 with input2 by f1 = f2 f3 = f4)"
 	expectedMsg = `expected ',' but found 'f3' (line 1 column 50):
-my_stream := (join input1 with input2 on f1 = f2 f3 = f4)
+my_stream := (join input1 with input2 by f1 = f2 f3 = f4)
                                                  ^`
 	testFailedToParseCreateStream(t, input, expectedMsg)
 
-	input = "my_stream := (join input1 with input2 on f1 = f2, f3 = f4 within foo)"
+	input = "my_stream := (join input1 with input2 by f1 = f2, f3 = f4 within foo)"
 	expectedMsg = `expected '=' or duration but found 'foo' (line 1 column 66):
-my_stream := (join input1 with input2 on f1 = f2, f3 = f4 within foo)
+my_stream := (join input1 with input2 by f1 = f2, f3 = f4 within foo)
                                                                  ^`
 	testFailedToParseCreateStream(t, input, expectedMsg)
 
-	input = "my_stream := (join input1 with input2 on f1 = f2, f3 = f4 within 5m retention foo)"
+	input = "my_stream := (join input1 with input2 by f1 = f2, f3 = f4 within 5m retention foo)"
 	expectedMsg = `expected '=' or duration but found 'foo' (line 1 column 79):
-my_stream := (join input1 with input2 on f1 = f2, f3 = f4 within 5m retention foo)
+my_stream := (join input1 with input2 by f1 = f2, f3 = f4 within 5m retention foo)
                                                                               ^`
 	testFailedToParseCreateStream(t, input, expectedMsg)
 }
@@ -2153,7 +2153,7 @@ func TestParseOperatorsWithFollowingOperator(t *testing.T) {
 	testParseCreateStream(t, input, expected)
 
 	within := 5 * time.Minute
-	input = `my_stream := (join s1 with s2 on f1=f1 within 5m) -> (store stream)`
+	input = `my_stream := (join s1 with s2 by f1=f1 within 5m) -> (store stream)`
 	expected = CreateStreamDesc{
 		StreamName: "my_stream",
 		OperatorDescs: []Parseable{

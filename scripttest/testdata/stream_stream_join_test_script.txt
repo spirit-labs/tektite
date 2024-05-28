@@ -25,7 +25,7 @@ payments :=
 -> (partition by cust_id partitions=20)
 -> (store stream);
 
-transactions_with_payments := (join transactions with payments on cust_id=cust_id within=5m) -> (store stream);
+transactions_with_payments := (join transactions with payments by cust_id=cust_id within=5m) -> (store stream);
 
 -- tx000001 - payment000001 - no match as not matching keys;
 
@@ -110,7 +110,7 @@ payments :=
 -> (partition by cust_id partitions=20)
 -> (store stream);
 
-transactions_with_payments := (join transactions with payments on cust_id=cust_id within=5m) -> (store stream);
+transactions_with_payments := (join transactions with payments by cust_id=cust_id within=5m) -> (store stream);
 
 --load data payments_data_1;
 --load data transactions_data_1;
@@ -171,7 +171,7 @@ payments :=
 -> (partition by pcust_id, pcurrency, pcost partitions=20)
 -> (store stream);
 
-transactions_with_payments := (join transactions with payments on tcust_id=pcust_id,tcurrency=pcurrency,tcost=pcost within=5m) -> (store stream);
+transactions_with_payments := (join transactions with payments by tcust_id=pcust_id,tcurrency=pcurrency,tcost=pcost within=5m) -> (store stream);
 
 -- load transactions before payments;
 
@@ -185,9 +185,9 @@ transactions_with_payments := (join transactions with payments on tcust_id=pcust
 -- tx000005 - payment000005 - no match - only currency and cost match
 -- tx000006 - payment000006 - no match - payment too late after transaction
 -- tx000007 - payment000007 - no match - transaction too late after payment
--- tx000008 - payment000008 - single match on all key cols
--- tx000009 - payment000009, payment000010, payment000011 - multiple match on all key cols;
--- tx000010, tx000011, tx000012 - payment000012 - multiple match on all key cols;
+-- tx000008 - payment000008 - single match by all key cols
+-- tx000009 - payment000009, payment000010, payment000011 - multiple match by all key cols;
+-- tx000010, tx000011, tx000012 - payment000012 - multiple match by all key cols;
 -- tx000013 - payment000013, payment000014, payment000015 - all key cols and event_time are identical - all matches should be returned;
 -- tx000014, tx000015, tx000016 - payment000016 - all key cols and event_time are identical - all matches should be returned;
 
@@ -248,7 +248,7 @@ payments :=
 -> (partition by pcust_id, pcurrency, pcost partitions=20)
 -> (store stream);
 
-transactions_with_payments := (join transactions with payments on tcust_id=pcust_id,tcurrency=pcurrency,tcost=pcost within=5m) -> (store stream);
+transactions_with_payments := (join transactions with payments by tcust_id=pcust_id,tcurrency=pcurrency,tcost=pcost within=5m) -> (store stream);
 
 --load data payments_data_2;
 --load data transactions_data_2;
@@ -313,7 +313,7 @@ payments :=
     to_decimal(json_string("cost", val),38,6) as pcost)
 -> (partition by pcust_id, pcurrency, pcost partitions=20);
 
-transactions_with_payments := (join transactions with payments on tcust_id=pcust_id,tcurrency=pcurrency,tcost=pcost within=5m) -> (store stream);
+transactions_with_payments := (join transactions with payments by tcust_id=pcust_id,tcurrency=pcurrency,tcost=pcost within=5m) -> (store stream);
 
 --load data transactions_data_2;
 --load data payments_data_2;
@@ -376,7 +376,7 @@ payments :=
     to_decimal(json_string("cost", val),38,6) as pcost)
 -> (partition by pcust_id, pcurrency, pcost partitions=20);
 
-transactions_with_payments := (join transactions with payments on tcust_id=pcust_id,tcurrency=pcurrency,tcost=pcost within=5m) -> (store stream);
+transactions_with_payments := (join transactions with payments by tcust_id=pcust_id,tcurrency=pcurrency,tcost=pcost within=5m) -> (store stream);
 
 --load data transactions_data_2;
 --load data payments_data_2;
@@ -439,7 +439,7 @@ payments :=
 -> (partition by pcust_id, pcurrency, pcost partitions=20)
 -> (store stream);
 
-transactions_with_payments := (join transactions with payments on tcust_id=pcust_id,tcurrency=pcurrency,tcost=pcost within=5m) -> (store stream);
+transactions_with_payments := (join transactions with payments by tcust_id=pcust_id,tcurrency=pcurrency,tcost=pcost within=5m) -> (store stream);
 
 --load data transactions_data_2;
 --load data payments_data_2;
@@ -502,7 +502,7 @@ payments :=
 -> (partition by pcust_id, pcurrency, pcost partitions=20)
 -> (store stream);
 
-transactions_with_payments := (join transactions with payments on tcust_id=pcust_id,tcurrency=pcurrency,tcost=pcost within=5m) -> (store stream);
+transactions_with_payments := (join transactions with payments by tcust_id=pcust_id,tcurrency=pcurrency,tcost=pcost within=5m) -> (store stream);
 
 --load data payments_data_2;
 --load data transactions_data_2;
@@ -572,7 +572,7 @@ input2 :=
 -> (partition by int_col, float_col, bool_col, decimal_col, string_col, bytes_col, timestamp_col partitions=20)
 -> (store stream);
 
-joined := (join input1 with input2 on int_col=int_col,float_col=float_col,bool_col=bool_col,decimal_col=decimal_col,
+joined := (join input1 with input2 by int_col=int_col,float_col=float_col,bool_col=bool_col,decimal_col=decimal_col,
 string_col=string_col,bytes_col=bytes_col,timestamp_col=timestamp_col within=5m) -> (store stream);
 
 --load data input1_data1;
@@ -627,7 +627,7 @@ payments :=
 -> (partition by cust_id partitions=20)
 -> (store stream);
 
-transactions_with_payments := (join transactions with payments on cust_id*=cust_id within=5m) -> (store stream);
+transactions_with_payments := (join transactions with payments by cust_id*=cust_id within=5m) -> (store stream);
 
 --load data transactions_data_1;
 --load data payments_data_1;
@@ -707,7 +707,7 @@ payments :=
 -> (partition by cust_id partitions=20)
 -> (store stream);
 
-transactions_with_payments := (join transactions with payments on cust_id*=cust_id within=5m) -> (store stream);
+transactions_with_payments := (join transactions with payments by cust_id*=cust_id within=5m) -> (store stream);
 
 --load data payments_data_1;
 --load data transactions_data_1;
@@ -778,7 +778,7 @@ payments :=
 -> (partition by cust_id partitions=20)
 -> (store stream);
 
-transactions_with_payments := (join transactions with payments on cust_id=*cust_id within=5m) -> (store stream);
+transactions_with_payments := (join transactions with payments by cust_id=*cust_id within=5m) -> (store stream);
 
 --load data payments_data_1;
 --load data transactions_data_1;
@@ -858,7 +858,7 @@ payments :=
 -> (partition by cust_id partitions=20)
 -> (store stream);
 
-transactions_with_payments := (join transactions with payments on cust_id=*cust_id within=5m) -> (store stream);
+transactions_with_payments := (join transactions with payments by cust_id=*cust_id within=5m) -> (store stream);
 
 --load data transactions_data_1;
 --load data payments_data_1;
@@ -910,11 +910,11 @@ input :=
 -> (partition by id partitions=20)
 -> (store stream);
 
-joined := (join not_exist with not_exist on foo=foo within=5m);
+joined := (join not_exist with not_exist by foo=foo within=5m);
 
-joined := (join not_exist with input on foo=foo within=5m);
+joined := (join not_exist with input by foo=foo within=5m);
 
-joined := (join input with not_exist on foo=foo within=5m);
+joined := (join input with not_exist by foo=foo within=5m);
 
 delete(input);
 
@@ -930,35 +930,35 @@ input2 :=
 -> (partition by id partitions=20)
 -> (store stream);
 
-joined := (join input1 with input2 on id=not_exist within=5m);
+joined := (join input1 with input2 by id=not_exist within=5m);
 
-joined := (join input1 with input2 on not_exist=id within=5m);
+joined := (join input1 with input2 by not_exist=id within=5m);
 
-joined := (join input1 with input2 on not_exist=not_exist within=5m);
+joined := (join input1 with input2 by not_exist=not_exist within=5m);
 
-joined := (join input1 on id=id) within=5m);
+joined := (join input1 by id=id) within=5m);
 
-joined := (join input1 with input2 on id=id within="badgers");
+joined := (join input1 with input2 by id=id within="badgers");
 
-joined := (join input1 with input2 on id=id within=badgers);
+joined := (join input1 with input2 by id=id within=badgers);
 
--- joining on event_time or offset is not allowed;
+-- joining by event_time or offset is not allowed;
 
-joined := (join input1 with input2 on event_time=event_time within=5m);
+joined := (join input1 with input2 by event_time=event_time within=5m);
 
-joined := (join input1 with input2 on offset=offset within=5m);
+joined := (join input1 with input2 by offset=offset within=5m);
 
 -- all join columns must use the same join type;
 
-joined := (join input1 with input2 on id=id, f1*=id within=5m);
+joined := (join input1 with input2 by id=id, f1*=id within=5m);
 
 -- cannot join columns of different types;
 
-joined := (join input1 with input2 on id=f1 within=5m);
+joined := (join input1 with input2 by id=f1 within=5m);
 
--- within clause mandatory on stream-stream join;
+-- within clause mandatory by stream-stream join;
 
-joined := (join input1 with input2 on id=f1);
+joined := (join input1 with input2 by id=f1);
 
 delete(input1);
 delete(input2);

@@ -25,7 +25,7 @@ stream1 := (filter by f1 > 10);
 
 -- join must be first operator;
 
-stream1 := (kafka in partitions =10) -> (join s1 with s2 on f1=f1 within 5m);
+stream1 := (kafka in partitions =10) -> (join s1 with s2 by f1=f1 within 5m);
 
 -- kafka in must be first operator;
 

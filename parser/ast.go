@@ -1224,7 +1224,7 @@ func (j *JoinDesc) parse(context *ParseContext) error {
 	j.RightStream = rightStreamToken.Value
 	j.RightStreamToken = rightStreamToken
 
-	if _, err := context.expectToken("on"); err != nil {
+	if _, err := context.expectToken("by"); err != nil {
 		return err
 	}
 	joinElements, token, err := parseJoinElements(context)
