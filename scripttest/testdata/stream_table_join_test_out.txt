@@ -32,7 +32,7 @@ cust_info :=
 -> (store table by c_cust_id);
 OK
 
-enriched_transactions := (join transactions with table cust_info on t_cust_id=c_cust_id) -> (store stream);
+enriched_transactions := (join transactions with table cust_info by t_cust_id=c_cust_id) -> (store stream);
 OK
 
 -- tx000001 - does not match;
@@ -95,7 +95,7 @@ cust_info :=
 -> (store table by c_cust_id);
 OK
 
-enriched_transactions := (join transactions with table cust_info on t_cust_id=c_cust_id) -> (store stream);
+enriched_transactions := (join transactions with table cust_info by t_cust_id=c_cust_id) -> (store stream);
 OK
 
 --load data transactions_data_1;
@@ -150,7 +150,7 @@ cust_info :=
 -> (store table by c_cust_id);
 OK
 
-enriched_transactions := (join table cust_info with transactions on c_cust_id=t_cust_id) -> (store stream);
+enriched_transactions := (join table cust_info with transactions by c_cust_id=t_cust_id) -> (store stream);
 OK
 
 --load data cust_info_data_1;
@@ -207,7 +207,7 @@ cust_info :=
 -> (store table by c_cust_id);
 OK
 
-enriched_transactions := (join transactions with table cust_info on t_cust_id*=c_cust_id) -> (store stream);
+enriched_transactions := (join transactions with table cust_info by t_cust_id*=c_cust_id) -> (store stream);
 OK
 
 --load data cust_info_data_1;
@@ -266,7 +266,7 @@ cust_info :=
 -> (store table by c_cust_id);
 OK
 
-enriched_transactions := (join table cust_info with transactions on c_cust_id=*t_cust_id) -> (store stream);
+enriched_transactions := (join table cust_info with transactions by c_cust_id=*t_cust_id) -> (store stream);
 OK
 
 --load data cust_info_data_1;
@@ -296,7 +296,7 @@ OK
 --delete topic transactions_topic;
 --delete topic cust_updates_topic;
 
--- join on multiple keys;
+-- join by multiple keys;
 
 --create topic transactions_topic;
 --create topic cust_updates_topic;
@@ -327,7 +327,7 @@ cust_info :=
 -> (store table by c_cust_id, c_country);
 OK
 
-enriched_transactions := (join transactions with table cust_info on t_cust_id=c_cust_id, t_country=c_country) -> (store stream);
+enriched_transactions := (join transactions with table cust_info by t_cust_id=c_cust_id, t_country=c_country) -> (store stream);
 OK
 
 --load data cust_info_data_2;
@@ -389,9 +389,9 @@ OK
 -- should fail - we disallow this as table doesn't have same key as join and multiple rows for same cust_id can be in
 -- different partitions so lookup would not necessarily return all matching rows;
 
-enriched_transactions := (join transactions with table cust_info on t_cust_id=c_cust_id) -> (store stream);
+enriched_transactions := (join transactions with table cust_info by t_cust_id=c_cust_id) -> (store stream);
 specified join columns for table on the right of the join do not match the stored key columns in the table (line 1 column 27):
-enriched_transactions := (join transactions with table cust_info on t_cust_id=c_cust_id) -> (store stream)
+enriched_transactions := (join transactions with table cust_info by t_cust_id=c_cust_id) -> (store stream)
                           ^
 
 delete(cust_info);
@@ -435,9 +435,9 @@ OK
 
 -- should fail - different numbers of partitions;
 
-enriched_transactions := (join transactions with table cust_info on t_cust_id=c_cust_id) -> (store stream);
+enriched_transactions := (join transactions with table cust_info by t_cust_id=c_cust_id) -> (store stream);
 cannot join 'transactions' and 'cust_info' directly - they must have same number of partitions and same mapping (line 1 column 27):
-enriched_transactions := (join transactions with table cust_info on t_cust_id=c_cust_id) -> (store stream)
+enriched_transactions := (join transactions with table cust_info by t_cust_id=c_cust_id) -> (store stream)
                           ^
 
 delete(cust_info);
@@ -479,9 +479,9 @@ OK
 
 -- should fail - different mapping;
 
-enriched_transactions := (join transactions with table cust_info on t_cust_id=c_cust_id) -> (store stream);
+enriched_transactions := (join transactions with table cust_info by t_cust_id=c_cust_id) -> (store stream);
 cannot join 'transactions' and 'cust_info' directly - they must have same number of partitions and same mapping (line 1 column 27):
-enriched_transactions := (join transactions with table cust_info on t_cust_id=c_cust_id) -> (store stream)
+enriched_transactions := (join transactions with table cust_info by t_cust_id=c_cust_id) -> (store stream)
                           ^
 
 delete(cust_info);
@@ -521,9 +521,9 @@ cust_info :=
 -> (store table by c_cust_id);
 OK
 
-enriched_transactions := (join table transactions with table cust_info on t_cust_id=c_cust_id) -> (store stream);
+enriched_transactions := (join table transactions with table cust_info by t_cust_id=c_cust_id) -> (store stream);
 cannot join a table with a table (line 1 column 27):
-enriched_transactions := (join table transactions with table cust_info on t_cust_id=c_cust_id) -> (store stream)
+enriched_transactions := (join table transactions with table cust_info by t_cust_id=c_cust_id) -> (store stream)
                           ^
 
 delete(cust_info);
@@ -563,30 +563,30 @@ cust_info :=
 -> (store table by c_cust_id);
 OK
 
-enriched_transactions := (join table cust_info with transactions on c_cust_id*=t_cust_id) -> (store stream);
+enriched_transactions := (join table cust_info with transactions by c_cust_id*=t_cust_id) -> (store stream);
 with an outer join, the outer side of the join cannot be a table (line 1 column 38):
-enriched_transactions := (join table cust_info with transactions on c_cust_id*=t_cust_id) -> (store stream)
+enriched_transactions := (join table cust_info with transactions by c_cust_id*=t_cust_id) -> (store stream)
                                      ^
 
 -- cannot do right outer join if the right side is the table side;
 
-enriched_transactions := (join transactions with table cust_info on t_cust_id=*c_cust_id) -> (store stream);
+enriched_transactions := (join transactions with table cust_info by t_cust_id=*c_cust_id) -> (store stream);
 with an outer join, the outer side of the join cannot be a table (line 1 column 56):
-enriched_transactions := (join transactions with table cust_info on t_cust_id=*c_cust_id) -> (store stream)
+enriched_transactions := (join transactions with table cust_info by t_cust_id=*c_cust_id) -> (store stream)
                                                        ^
 
 -- cannot have within clause for stream-table join;
 
-enriched_transactions := (join transactions with table cust_info on t_cust_id=c_cust_id within=5m) -> (store stream);
+enriched_transactions := (join transactions with table cust_info by t_cust_id=c_cust_id within=5m) -> (store stream);
 'within' must not be specified for a stream-table join (line 1 column 89):
-enriched_transactions := (join transactions with table cust_info on t_cust_id=c_cust_id within=5m) -> (store stream)
+enriched_transactions := (join transactions with table cust_info by t_cust_id=c_cust_id within=5m) -> (store stream)
                                                                                         ^
 
 -- retention must not be specified;
 
-enriched_transactions := (join transactions with table cust_info on t_cust_id=c_cust_id retention=5m) -> (store stream);
+enriched_transactions := (join transactions with table cust_info by t_cust_id=c_cust_id retention=5m) -> (store stream);
 'retention' must not be specified for a stream-table join (line 1 column 89):
-enriched_transactions := (join transactions with table cust_info on t_cust_id=c_cust_id retention=5m) -> (store stream)
+enriched_transactions := (join transactions with table cust_info by t_cust_id=c_cust_id retention=5m) -> (store stream)
                                                                                         ^
 
 delete(cust_info);
