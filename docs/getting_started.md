@@ -171,7 +171,7 @@ The new stream will receive a message if messages with matching keys arrive on `
 The new stream is then persisted with a `store stream` operator.
 
 ```
-tektite> joined := (join my-topic with other-topic on key = key within 10s) ->
+tektite> joined := (join my-topic with other-topic by key = key within 10s) ->
     (store stream);
 OK
 ```

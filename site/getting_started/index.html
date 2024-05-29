@@ -1054,7 +1054,7 @@ OK
 <p>And then we're going to create a new stream by joining <code>my-topic</code> with <code>other-topic</code> on the key of the message.</p>
 <p>The new stream will receive a message if messages with matching keys arrive on <code>my-topic</code> and <code>other-topic</code> within a 10-second window.
 The new stream is then persisted with a <code>store stream</code> operator.</p>
-<pre><code>tektite&gt; joined := (join my-topic with other-topic on key = key within 10s) -&gt;
+<pre><code>tektite&gt; joined := (join my-topic with other-topic by key = key within 10s) -&gt;
     (store stream);
 OK
 </code></pre>
