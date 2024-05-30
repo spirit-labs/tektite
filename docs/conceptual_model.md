@@ -27,7 +27,7 @@ my-topic := (topic partitions = 16)
 Here's another stream, let's look at the syntax in more detail:
 
 ```
-my-stream := (kafka in) -> (filter by len(value) > 1000) -> (kafka out)
+my-stream := (kafka in partitions = 3) -> (filter by len(value) > 1000) -> (kafka out)
 ```
 
 Here, we create a new stream called `my-stream` and it's composed of three operators. There's a `kafka in` operator, 
