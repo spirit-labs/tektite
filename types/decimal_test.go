@@ -1,27 +1,90 @@
 package types
 
 import (
-	"github.com/apache/arrow/go/v11/arrow/decimal128"
-	"github.com/stretchr/testify/require"
 	"math"
 	"testing"
+
+	"github.com/apache/arrow/go/v11/arrow/decimal128"
+	"github.com/stretchr/testify/require"
 )
 
-func TestEqualsSamePrecScale(t *testing.T) {
-	d1 := createDecimal(123421, 10, 2)
-	d2 := createDecimal(123421, 10, 2)
-	d3 := createDecimal(456456, 10, 2)
-	require.True(t, d1.Equals(&d2))
-	require.True(t, d2.Equals(&d1))
-	require.False(t, d3.Equals(&d2))
-	require.False(t, d2.Equals(&d3))
-}
-
-func TestEqualsDifferentPrecScale(t *testing.T) {
-	d1 := createDecimal(123421, 10, 2)
-	d2 := createDecimal(12342100, 13, 4)
-	require.True(t, d1.Equals(&d2))
-	require.True(t, d2.Equals(&d1))
+func TestDecimal_Equals(t *testing.T) {
+	type d struct {
+		Num       int64
+		Precision int
+		Scale     int
+	}
+	tests := []struct {
+		name string
+		d1   d
+		d2   d
+		want bool
+	}{
+		{
+			name: "same precision and scale and equal values (+ve)",
+			d1:   d{123421, 10, 2},
+			d2:   d{123421, 10, 2},
+			want: true,
+		},
+		{
+			name: "same precision and scale and not equal values (+ve)",
+			d1:   d{123421, 10, 2},
+			d2:   d{456456, 10, 2},
+			want: false,
+		},
+		{
+			name: "same precision and scale and equal values (-ve)",
+			d1:   d{-123421, 10, 2},
+			d2:   d{-123421, 10, 2},
+			want: true,
+		},
+		{
+			name: "same precision and scale and not equal values (-ve)",
+			d1:   d{-123421, 10, 2},
+			d2:   d{-456456, 10, 2},
+			want: false,
+		},
+		{
+			name: "different precision and scale and equal values (+ve)",
+			d1:   d{123421, 10, 2},
+			d2:   d{12342100, 13, 4},
+			want: true,
+		},
+		{
+			name: "different precision and scale and not equal values (+ve)",
+			d1:   d{123421, 10, 2},
+			d2:   d{45645600, 13, 4},
+			want: false,
+		},
+		{
+			name: "different precision and scale and equal values (-ve)",
+			d1:   d{-123421, 10, 2},
+			d2:   d{-12342100, 13, 4},
+			want: true,
+		},
+		{
+			name: "different precision and scale and not equal values (-ve)",
+			d1:   d{-123421, 10, 2},
+			d2:   d{-45645600, 13, 4},
+			want: false,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(
+			tc.name, func(t *testing.T) {
+				d1 := createDecimal(tc.d1.Num, tc.d1.Precision, tc.d1.Scale)
+				d2 := createDecimal(tc.d2.Num, tc.d2.Precision, tc.d2.Scale)
+				got := d1.Equals(&d2)
+				if got != tc.want {
+					t.Errorf("Equals() d1 -> d2 = %v, want %v", got, tc.want)
+				}
+				got = d2.Equals(&d1)
+				if got != tc.want {
+					t.Errorf("Equals() d2 -> d1 = %v, want %v", got, tc.want)
+				}
+			},
+		)
+	}
 }
 
 func TestLessThanSamePrecScale(t *testing.T) {
@@ -349,8 +412,14 @@ func TestConvertPrecisionAndScale(t *testing.T) {
 	require.Equal(t, "123456.6543210000", d2.String())
 }
 
-func createDecimal(lo uint64, prec int, scale int) Decimal {
-	num := decimal128.New(0, lo)
+func createDecimal(lo int64, prec int, scale int) Decimal {
+	var num decimal128.Num
+	if lo >= 0 {
+		num = decimal128.New(0, uint64(lo))
+	} else {
+		num = decimal128.New(-1, uint64(lo))
+	}
+
 	return Decimal{
 		Num:       num,
 		Precision: prec,
