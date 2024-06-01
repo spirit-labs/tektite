@@ -22,10 +22,11 @@ type SSTable struct {
 	creationTime uint64
 
 	//  data contains
-	//  ╭──────┬───────────────╮
-	//  │format│ metadataOffset│
-	//  │1 byte│ 4 bytes       │
-	//  ╰──────┴───────────────╯
+	//  ╭──────┬──────────────╮
+	//  │format│metadataOffset│
+	//  ├──────┼──────────────┤
+	//  │1 byte│ 4 bytes      │
+	//  ╰──────┴──────────────╯
 	//  ╭─────────┬────────────────┬────────────┬──────────────────╮
 	//  │keyLength│ key            │ valueLength│ value            │
 	//  ├─────────┼────────────────┼────────────┼──────────────────┤ ... repeat KV pairs
