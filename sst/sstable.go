@@ -20,8 +20,32 @@ type SSTable struct {
 	numDeletes   uint32
 	indexOffset  uint32
 	creationTime uint64
-	data         []byte
+
+	//  data contains
+	//  ╭──────┬───────────────╮
+	//  │format│ metadataOffset│
+	//  │1 byte│ 4 bytes       │
+	//  ╰──────┴───────────────╯
+	//  ╭─────────┬────────────────┬────────────┬──────────────────╮
+	//  │keyLength│ key            │ valueLength│ value            │
+	//  ├─────────┼────────────────┼────────────┼──────────────────┤ ... repeat KV pairs
+	//  │4 bytes  │ keyLength bytes│ 4 bytes    │ valueLength bytes│
+	//  ╰─────────┴────────────────┴────────────┴──────────────────╯
+	//  ╭───────────────────────────────────────────┬──────────╮
+	//  │key + (padding if keyLength < maxKeyLength)│ keyOffset│
+	//  ├───────────────────────────────────────────┼──────────┤ ... repeat Key and offset pairs
+	//  │maxKeyLength bytes                         │ 4 bytes  │
+	//  ╰───────────────────────────────────────────┴──────────╯
+	data []byte
 }
+
+// metadata contains
+// ╭────────────┬───────────┬───────────┬────────────┬─────────────╮
+// │maxKeyLength│ numEntries│ numDeletes│ indexOffset│ creationTime│
+// ├────────────┼───────────┼───────────┼────────────┼─────────────┤
+// │4 bytes     │ 4 bytes   │ 4 bytes   │ 4 bytes    │ 8 bytes     │
+// ╰────────────┴───────────┴───────────┴────────────┴─────────────╯
+const metadataSize = 24
 
 func BuildSSTable(format common.DataFormat, buffSizeEstimate int, entriesEstimate int,
 	iter iteration.Iterator) (*SSTable, []byte, []byte, uint64, uint64, error) {
@@ -152,12 +176,12 @@ func (s *SSTable) Deserialize(buff []byte, offset int) int {
 	s.numDeletes, offset = encoding.ReadUint32FromBufferLE(buff, offset)
 	s.indexOffset, offset = encoding.ReadUint32FromBufferLE(buff, offset)
 	s.creationTime, offset = encoding.ReadUint64FromBufferLE(buff, offset)
-	s.data = buff[:len(buff)-24]
+	s.data = buff[:len(buff)-metadataSize]
 	return offset
 }
 
 func (s *SSTable) SizeBytes() int {
-	return len(s.data) + 24
+	return len(s.data) + metadataSize
 }
 
 func (s *SSTable) NumEntries() int {
