@@ -96,6 +96,7 @@ type ProcessorManager struct {
 	failureEnabled              bool
 	levelMgrInitialisedCallback func() error
 	wfpCalled                   bool
+	processorDataKeys           map[int][]byte
 }
 
 type BatchForwarder interface {
@@ -129,6 +130,7 @@ type Replicator interface {
 	GetReplicatedBatchCount() int
 	SetInitialisedCallback(callback func() error)
 	CheckSync()
+	IsInitialised() bool
 }
 
 type BatchHandlerFactory func(processorID int) BatchHandler
@@ -162,6 +164,10 @@ func NewProcessorManagerWithFailure(clustStateMgr clustStateManager, receiverInf
 func NewProcessorManagerWithVmgrClient(clustStateMgr clustStateManager, receiverInfoProvider ReceiverInfoProvider,
 	store *store2.Store, cfg *conf.Config, replicatorFactory ReplicatorFactory, batchHandlerFactory BatchHandlerFactory,
 	levelManagerFlushNotifier FlushNotifier, ingestNotififer IngestNotifier, failureEnabled bool, vmgrClient vmgr.Client) *ProcessorManager {
+	processorDataKeys := map[int][]byte{}
+	if cfg.ProcessingEnabled && cfg.ProcessorCount > 0 {
+		processorDataKeys = generateProcessorDataKeys(cfg.ProcessorCount)
+	}
 	pm := &ProcessorManager{
 		cfg:                        cfg,
 		clustStateMgr:              clustStateMgr,
@@ -175,6 +181,7 @@ func NewProcessorManagerWithVmgrClient(clustStateMgr clustStateManager, receiver
 		processorListeners:         map[string]ProcessorListener{},
 		failureEnabled:             failureEnabled,
 		vMgrClient:                 vmgrClient,
+		processorDataKeys:          processorDataKeys,
 		clusterVersion:             -1,
 		currWriteVersion:           -1,
 		lastCompletedVersion:       -1,
@@ -268,13 +275,14 @@ func (m *ProcessorManager) EnsureReplicatorsReady() error {
 			if !common.IsUnavailableError(err) {
 				return err
 			}
-			time.Sleep(10 * time.Millisecond)
+			time.Sleep(25 * time.Millisecond)
 			dur := time.Now().Sub(start)
 			if dur >= 5*time.Second {
-				log.Warnf("waiting for replicators to be ready, returned err: %v", err)
+				log.Warnf("%s: waiting for replicators to be ready, returned err: %v", m.cfg.LogScope, err)
 			}
 			if dur >= 5*time.Minute {
-				return errors.New("timed out waiting for replicators to be ready")
+				log.Errorf("%s: timed out waiting for replicators to be ready:\n%s", m.cfg.LogScope, common.GetAllStacks())
+				return errors.Errorf("%s: timed out waiting for replicators to be ready", m.cfg.LogScope)
 			}
 		}
 	}
@@ -419,7 +427,7 @@ func (m *ProcessorManager) GetLeaderNode(processorID int) (int, error) {
 	if !ok {
 		// This can occur if cluster not ready - client will retry, and it will resolve
 		return 0, errors.WithStack(errors.NewTektiteErrorf(errors.Unavailable,
-			"no processor available when getting leader node for group %d", processorID))
+			"no processor available when getting leader node for processor %d", processorID))
 	}
 	groupState := o.(clustmgr.GroupState) //nolint:forcetypeassert
 	for _, groupNode := range groupState.GroupNodes {
@@ -680,7 +688,7 @@ func (m *ProcessorManager) callClusterStateHandlers(cs clustmgr.ClusterState) er
 func (m *ProcessorManager) HandleClusterState(cs clustmgr.ClusterState) error {
 	m.lock.Lock()
 	defer m.lock.Unlock()
-	log.Debugf("node %d received cluster state %v", m.cfg.NodeID, cs)
+	log.Debugf("%s: node %d received cluster state %v", m.cfg.LogScope, m.cfg.NodeID, cs)
 	if m.isStopped() {
 		log.Debugf("node %d is stopped", m.cfg.NodeID)
 
@@ -796,8 +804,9 @@ func (m *ProcessorManager) processGroupState(processorID int, gs []clustmgr.Grou
 			if !ok {
 				// create the processor
 				batchHandler := m.batchHandlerFactory(processorID)
-				proc = NewProcessor(processorID, m.cfg, m.store, m, batchHandler, m.receiverInfoProvider)
-				log.Debugf("node %d created new processor %d", m.cfg.NodeID, processorID)
+				dataKey := m.processorDataKeys[processorID]
+				proc = NewProcessor(processorID, m.cfg, m.store, m, batchHandler, m.receiverInfoProvider, dataKey)
+				log.Debugf("%s: node %d created new processor %d", m.cfg.LogScope, m.cfg.NodeID, processorID)
 				proc.SetVersionCompleteHandler(func(version int, requiredCompletions int, commandID int, doom bool, cf func(error)) {
 					m.vMgrClient.VersionComplete(version, requiredCompletions, commandID, doom, cf)
 				})
@@ -1202,6 +1211,10 @@ type noopReplicator struct {
 	proc         Processor
 	initCallback func() error
 	initialised  bool
+}
+
+func (n *noopReplicator) IsInitialised() bool {
+	return true
 }
 
 func (n *noopReplicator) CheckSync() {

@@ -14,7 +14,6 @@ import (
 	"github.com/spirit-labs/tektite/objstore"
 	"github.com/spirit-labs/tektite/protos/clustermsgs"
 	"github.com/spirit-labs/tektite/remoting"
-	"github.com/spirit-labs/tektite/retention"
 	"github.com/spirit-labs/tektite/tabcache"
 	"math"
 	"sync"
@@ -49,23 +48,21 @@ type Store struct {
 	mtMaxReplaceTime            uint64
 	lastCommittedBatchSequences sync.Map
 	stopWg                      sync.WaitGroup
-	prefixRetentionsService     *retention.PrefixRetentionsService
 	clusterVersion              uint64
 	versionFlushedHandler       func(version int)
 	clearFlushedLock            sync.Mutex
 	periodicMtInQueue           atomic.Bool // we limit to one empty memtable for periodic flush in queue at any one time
 	shutdownFlushImmediate      bool
 	clearing                    common.AtomicBool
+	//flushing                    common.AtomicBool
 }
 
-func NewStore(cloudStoreClient objstore.Client, levelManagerClient levels.Client, tableCache *tabcache.Cache,
-	prefixRetentionService *retention.PrefixRetentionsService, conf conf.Config) *Store {
+func NewStore(cloudStoreClient objstore.Client, levelManagerClient levels.Client, tableCache *tabcache.Cache, conf conf.Config) *Store {
 	return &Store{
 		conf:                    conf,
 		cloudStoreClient:        cloudStoreClient,
 		levelManagerClient:      levelManagerClient,
 		tableCache:              tableCache,
-		prefixRetentionsService: prefixRetentionService,
 		mtMaxReplaceTime:        uint64(conf.MemtableMaxReplaceInterval),
 		lastCompletedVersion:    -2, // -2 as -1 is a valid value
 		lastLocalFlushedVersion: -1,
@@ -195,6 +192,11 @@ func (s *Store) flush(shutdown bool) (chan error, error) {
 	// been flushed
 	s.lock.Lock()
 	defer s.lock.Unlock()
+	//if s.flushing.Get() {
+	//	// Don't flush again if already flushing
+	//	return nil, nil
+	//}
+	//s.flushing.Set(true)
 
 	if shutdown {
 		// During shutdown any completed version will trigger a store flush in order to speed up the shutdown process.
@@ -207,10 +209,14 @@ func (s *Store) flush(shutdown bool) (chan error, error) {
 	ch := make(chan error, 1)
 	log.Debugf("node %d adding flushed callback on memtable %s", s.conf.NodeID, s.memTable.Uuid)
 	s.memTable.AddFlushedCallback(func(err error) {
+		s.lock.Lock()
+		defer s.lock.Unlock()
+		//s.flushing.Set(false)
 		ch <- err
 	})
 	log.Debugf("replacing memtable %s on node %d because of flush", s.memTable.Uuid, s.conf.NodeID)
 	if err := s.replaceMemtable0(s.memTable, true, true); err != nil {
+		//s.flushing.Set(false)
 		return nil, err
 	}
 	return ch, nil
@@ -375,10 +381,8 @@ func (s *Store) GetWithMaxVersion(key []byte, maxVersion uint64) ([]byte, error)
 	log.Debugf("seq:%d node: %d store GetWithMaxVersion key start:%v key end:%v maxVersion:%d", s.conf.NodeID,
 		key, keyEnd, maxVersion)
 
-	matchingPrefixes := s.prefixRetentionsService.GetMatchingPrefixRetentions(key, keyEnd, true)
-
 	// First look in live memTable
-	val, err := findInMemtable(s.memTable, key, keyEnd, matchingPrefixes, maxVersion)
+	val, err := findInMemtable(s.memTable, key, keyEnd, maxVersion)
 	if err != nil {
 		return nil, err
 	}
@@ -389,7 +393,7 @@ func (s *Store) GetWithMaxVersion(key []byte, maxVersion uint64) ([]byte, error)
 	// Then in the memTables in the flush queue from newest to oldest
 	for i := len(s.mtQueue) - 1; i >= 0; i-- {
 		entry := s.mtQueue[i]
-		val, err := findInMemtable(entry.memtable, key, keyEnd, matchingPrefixes, maxVersion)
+		val, err := findInMemtable(entry.memtable, key, keyEnd, maxVersion)
 		if err != nil {
 			return nil, err
 		}
@@ -410,23 +414,18 @@ func (s *Store) GetWithMaxVersion(key []byte, maxVersion uint64) ([]byte, error)
 		return nil, err
 	}
 	log.Debugf("created merging iter %p", iter)
-	val, err = getWithIteratorNoVersionCheck(iter, key, matchingPrefixes)
+	val, err = getWithIteratorNoVersionCheck(iter, key)
 	if err != nil {
 		return nil, err
 	}
 	return val, nil
 }
 
-func findInMemtable(mt *mem.Memtable, key []byte, keyEnd []byte, matchingPrefixes []retention.PrefixRetention,
-	maxVersion uint64) ([]byte, error) {
-	return getWithIterator(mt.NewIterator(key, keyEnd), key, matchingPrefixes, maxVersion)
+func findInMemtable(mt *mem.Memtable, key []byte, keyEnd []byte, maxVersion uint64) ([]byte, error) {
+	return getWithIterator(mt.NewIterator(key, keyEnd), key, maxVersion)
 }
 
-func getWithIterator(iter iteration.Iterator, key []byte, matchingPrefixes []retention.PrefixRetention,
-	maxVersion uint64) ([]byte, error) {
-	if matchingPrefixes != nil {
-		iter = levels.NewRemoveExpiredEntriesIterator(iter, matchingPrefixes, 0, 0)
-	}
+func getWithIterator(iter iteration.Iterator, key []byte, maxVersion uint64) ([]byte, error) {
 	for {
 		valid, err := iter.IsValid()
 		if err != nil {
@@ -451,10 +450,7 @@ func getWithIterator(iter iteration.Iterator, key []byte, matchingPrefixes []ret
 	}
 }
 
-func getWithIteratorNoVersionCheck(iter iteration.Iterator, key []byte, matchingPrefixes []retention.PrefixRetention) ([]byte, error) {
-	if matchingPrefixes != nil {
-		iter = levels.NewRemoveExpiredEntriesIterator(iter, matchingPrefixes, 0, 0)
-	}
+func getWithIteratorNoVersionCheck(iter iteration.Iterator, key []byte) ([]byte, error) {
 	valid, err := iter.IsValid()
 	if err != nil {
 		return nil, err
@@ -501,7 +497,6 @@ type completedVersionHandler struct {
 func (c *completedVersionHandler) HandleMessage(messageHolder remoting.MessageHolder) (remoting.ClusterMessage, error) {
 	vbm := messageHolder.Message.(*clustermsgs.VersionsMessage)
 	c.s.updateLastCompletedVersion(vbm.CompletedVersion)
-	c.s.prefixRetentionsService.SetVersions(vbm.CurrentVersion, vbm.FlushedVersion)
 	return nil, nil
 }
 

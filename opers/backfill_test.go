@@ -343,7 +343,8 @@ func setup(t *testing.T, maxBackFillBatchSize int, fromTableID int, partitionCou
 func writeRowsToPartition(t *testing.T, partID int, numRows int, tableID int, store *store2.Store, version int) {
 	mb := mem.NewBatch()
 	for j := 0; j < numRows; j++ {
-		keyPrefix := encoding.EncodeEntryPrefix(uint64(tableID), uint64(partID), 33)
+		partitionHash := proc.CalcPartitionHash("bar", uint64(partID))
+		keyPrefix := encoding.EncodeEntryPrefix(partitionHash, uint64(tableID), 25)
 		key := append(keyPrefix, 1) // not null byte
 		key = encoding.KeyEncodeInt(key, int64(j))
 		key = encoding.EncodeVersion(key, uint64(version))

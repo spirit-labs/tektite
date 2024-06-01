@@ -7,6 +7,7 @@ import (
 	"fmt"
 	kafkago "github.com/confluentinc/confluent-kafka-go/kafka"
 	"github.com/docker/docker/client"
+	"github.com/google/uuid"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/conf"
 	log "github.com/spirit-labs/tektite/logger"
@@ -41,7 +42,8 @@ func TestBridgeKafkaInitiallyUnavailable(t *testing.T) {
 	clientTLSConfig := tekclient.TLSConfig{
 		TrustedCertsPath: serverCertPath,
 	}
-	s, objStore := startStandaloneServerWithObjStore(t)
+	clusterName := uuid.NewString()
+	s, objStore := startStandaloneServerWithObjStore(t, clusterName)
 	defer func() {
 		err := s.Stop()
 		require.NoError(t, err)
@@ -106,7 +108,8 @@ func TestBridgeSimulateNetworkFailure(t *testing.T) {
 	clientTLSConfig := tekclient.TLSConfig{
 		TrustedCertsPath: serverCertPath,
 	}
-	s, objStore := startStandaloneServerWithObjStore(t)
+	clusterName := uuid.NewString()
+	s, objStore := startStandaloneServerWithObjStore(t, clusterName)
 	defer func() {
 		err := s.Stop()
 		require.NoError(t, err)
@@ -194,7 +197,8 @@ func TestRestartBridgeMessagesStored(t *testing.T) {
 	clientTLSConfig := tekclient.TLSConfig{
 		TrustedCertsPath: serverCertPath,
 	}
-	s, objStore := startStandaloneServerWithObjStore(t)
+	clusterName := uuid.NewString()
+	s, objStore := startStandaloneServerWithObjStore(t, clusterName)
 	defer func() {
 		err := s.Stop()
 		require.NoError(t, err)
@@ -248,7 +252,7 @@ egest_stream := local_topic -> (bridge to remote_topic props = ("bootstrap.serve
 
 	// restart
 
-	s = startStandaloneServer(t, cfg.DevObjectStoreAddresses[0])
+	s = startStandaloneServer(t, cfg.DevObjectStoreAddresses[0], clusterName)
 	log.Debug("restarted server")
 
 	// unpause container
@@ -293,19 +297,21 @@ func sendMessages(numMessages int, startIndex int, topicName string, producer *k
 	return msgs, nil
 }
 
-func startStandaloneServerWithObjStore(t *testing.T) (*server.Server, *dev.Store) {
+func startStandaloneServerWithObjStore(t *testing.T, clusterName string) (*server.Server, *dev.Store) {
 	objStoreAddress, err := common.AddressWithPort("localhost")
 	require.NoError(t, err)
 	objStore := dev.NewDevStore(objStoreAddress)
 	err = objStore.Start()
 	require.NoError(t, err)
-	s := startStandaloneServer(t, objStoreAddress)
+	s := startStandaloneServer(t, objStoreAddress, clusterName)
 	return s, objStore
 }
 
-func startStandaloneServer(t *testing.T, objStoreAddress string) *server.Server {
+func startStandaloneServer(t *testing.T, objStoreAddress string, clusterName string) *server.Server {
 	cfg := conf.Config{}
+	cfg.LogScope = t.Name()
 	cfg.ApplyDefaults()
+	cfg.ClusterName = clusterName
 	cfg.ProcessorCount = 16
 	cfg.ProcessingEnabled = true
 	cfg.LevelManagerEnabled = true
@@ -331,6 +337,7 @@ func startStandaloneServer(t *testing.T, objStoreAddress string) *server.Server 
 	cfg.ClientType = conf.KafkaClientTypeConfluent
 	cfg.ObjectStoreType = conf.DevObjectStoreType
 	cfg.DevObjectStoreAddresses = []string{objStoreAddress}
+	cfg.ClusterManagerKeyPrefix = uuid.NewString() // test needs unique etcd namespace
 	s, err := server.NewServer(cfg)
 	require.NoError(t, err)
 	err = s.Start()

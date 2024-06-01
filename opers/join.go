@@ -52,6 +52,7 @@ type JoinOperator struct {
 	procReceiverBarrierVersions []map[int]int
 	leftInput                   Operator
 	rightInput                  Operator
+	hashCache                   *partitionHashCache
 }
 
 type JoinType int
@@ -61,7 +62,7 @@ const JoinTypeInner = JoinType(0)
 const JoinTypeLeftOuter = JoinType(1)
 const JoinTypeRightOuter = JoinType(2)
 
-const keyInitialBufferSize = 32
+const keyInitialBufferSize = 48
 
 var leftIndicator = []byte{0}
 var rightIndicator = []byte{1}
@@ -350,6 +351,7 @@ func NewJoinOperator(leftTableSlabID int, rightTableSlabID int, left Operator, r
 		keySequences:                keySequences,
 		forwardProcIDs:              forwardProcIDs,
 		procReceiverBarrierVersions: procReceiverBarrierVersions,
+		hashCache:                   newPartitionHashCache(outSchema.MappingID, outSchema.Partitions),
 	}
 	if !leftIsTable {
 		jo.leftInput = &inputOper{
@@ -454,14 +456,15 @@ func (j *JoinOperator) handleIncomingStreamTable(batch *evbatch.Batch, execCtx S
 	includeNonMatched bool) (*evbatch.Batch, error) {
 
 	// It's a stream-table/table-stream join, we look up in the table that's external to the join.
+	partitionHash := j.hashCache.getHash(execCtx.PartitionID())
 	rc := batch.RowCount
 	eventTimeCol := batch.GetTimestampColumn(ctx.eventTimeColIndex)
 	var outBuilders []evbatch.ColumnBuilder
 	for i := 0; i < rc; i++ {
-		lookupStart := encoding.EncodeEntryPrefix(uint64(j.externalTableID), uint64(execCtx.PartitionID()), keyInitialBufferSize)
+		lookupStart := encoding.EncodeEntryPrefix(partitionHash, uint64(j.externalTableID), keyInitialBufferSize)
 		lookupStart = evbatch.EncodeKeyCols(batch, i, ctx.incomingKeyCols, lookupStart)
 		// If all key values are null then there will just be a 0 null marker for each key col plus the prefix
-		if len(lookupStart) == 16+len(ctx.incomingKeyCols) {
+		if len(lookupStart) == 24+len(ctx.incomingKeyCols) {
 			// We don't join on null (result of null == null is false, same in SQL)
 			continue
 		}
@@ -486,28 +489,23 @@ func (j *JoinOperator) handleIncomingStreamTable(batch *evbatch.Batch, execCtx S
 	return nil, nil
 }
 
-func isNullKey(key []byte, keyColIndexes []int) bool {
-	// If all key values are null then there will just be a 0 null marker for each key col plus the prefix plus the
-	// encoded event time
-	return len(key) == 16+9+len(keyColIndexes)-1
-}
-
 func (j *JoinOperator) handleIncomingStreamStream(batch *evbatch.Batch, execCtx StreamExecContext,
 	ctx *handleIncomingCtx, includeNonMatched bool) (*evbatch.Batch, error) {
 
 	// stream-stream join
 
+	partitionHash := j.hashCache.getHash(execCtx.PartitionID())
 	rc := batch.RowCount
 	eventTimeCol := batch.GetTimestampColumn(ctx.eventTimeColIndex)
 	var outBuilders []evbatch.ColumnBuilder
 	for i := 0; i < rc; i++ {
 		// We store the incoming in the internal table
-		persistKeyBuff := encoding.EncodeEntryPrefix(uint64(ctx.incomingSlabID), uint64(execCtx.PartitionID()), keyInitialBufferSize)
+		persistKeyBuff := encoding.EncodeEntryPrefix(partitionHash, uint64(ctx.incomingSlabID), keyInitialBufferSize)
 		persistKeyBuff = evbatch.EncodeKeyCols(batch, i, ctx.incomingKeyCols, persistKeyBuff)
 
 		// If all key values are null then there will just be a 0 null marker for each key col plus the prefix plus the
 		// encoded event time
-		if len(persistKeyBuff) == 16+9+len(ctx.incomingKeyCols)-1 {
+		if len(persistKeyBuff) == 24+9+len(ctx.incomingKeyCols)-1 {
 			// We don't join on null (result of null == null is false, same in SQL)
 			continue
 		}
@@ -521,8 +519,6 @@ func (j *JoinOperator) handleIncomingStreamStream(batch *evbatch.Batch, execCtx 
 		j.keySequences[procID]++ // Safe to increment with no lock, as processor always on same GR
 
 		persistKeyBuff = encoding.EncodeVersion(persistKeyBuff, uint64(execCtx.WriteVersion()))
-
-		log.Debugf("persisting with version %d", execCtx.WriteVersion())
 
 		persistRowBuff := evbatch.EncodeRowCols(batch, i, ctx.incomingRowCols, make([]byte, 0, rowInitialBufferSize))
 
@@ -543,8 +539,8 @@ func (j *JoinOperator) handleIncomingStreamStream(batch *evbatch.Batch, execCtx 
 
 		// We lookup from (et - within) to (et + within)
 
-		lookupStart := encoding.EncodeEntryPrefix(uint64(ctx.lookupSlabID), uint64(execCtx.PartitionID()), lpkb)
-		lookupStart = append(lookupStart, persistKeyBuff[16:lpkb-24]...) // append the key without the prefix and event_time, sequence and version
+		lookupStart := encoding.EncodeEntryPrefix(partitionHash, uint64(ctx.lookupSlabID), lpkb)
+		lookupStart = append(lookupStart, persistKeyBuff[24:lpkb-24]...) // append the key without the prefix and event_time, sequence and version
 		incomingET := eventTimeCol.Get(i).Val
 
 		// note that within upper bound is inclusive, this ensures the join gives the same results irrespective of
@@ -559,13 +555,11 @@ func (j *JoinOperator) handleIncomingStreamStream(batch *evbatch.Batch, execCtx 
 		// The event time part of the key is always the last element on the key
 		lookupStart = encoding.KeyEncodeInt(lookupStart, etBoundFrom) // note iterator upper bound is exclusive
 
-		log.Debugf("lookupstart is %v", lookupStart)
-
 		lookupEnd := make([]byte, lpkb-24, lpkb-16)
 		copy(lookupEnd, lookupStart)
 		lookupEnd = encoding.KeyEncodeInt(lookupEnd, etBoundTo)
 
-		log.Debugf("looking up with maxversion %d", execCtx.WriteVersion())
+		log.Debugf("lookup start %v end %v maxVersion %d", lookupStart, lookupEnd, execCtx.WriteVersion())
 		iter, err := j.st.NewIterator(lookupStart, lookupEnd, uint64(execCtx.WriteVersion()), false)
 		if err != nil {
 			return nil, err
@@ -721,7 +715,6 @@ func (j *JoinOperator) forwardBatchToReceiver(left bool, batch *evbatch.Batch, e
 
 func (j *JoinOperator) dispatchBatch(batch *evbatch.Batch, execCtx StreamExecContext) (*evbatch.Batch, error) {
 	if batch != nil {
-		log.Debugf("join sending result batch downstream")
 		return nil, j.sendBatchDownStream(batch, execCtx)
 	}
 	return nil, nil

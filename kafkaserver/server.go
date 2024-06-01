@@ -388,6 +388,7 @@ type TopicInfoProvider interface {
 
 type ConsumerInfoProvider interface {
 	SlabID() int
+	PartitionMapping() string
 	EarliestOffset(partitionID int) (int64, int64, bool)
 	LatestOffset(partitionID int) (int64, int64, bool, error)
 	OffsetByTimestamp(timestamp types.Timestamp, partitionID int) (int64, int64, bool)

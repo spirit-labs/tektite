@@ -2,10 +2,10 @@ package levels
 
 import (
 	"encoding/binary"
+	"github.com/spirit-labs/tektite/encoding"
 	"github.com/spirit-labs/tektite/errors"
 	"github.com/spirit-labs/tektite/protos/clustermsgs"
 	"github.com/spirit-labs/tektite/remoting"
-	"github.com/spirit-labs/tektite/retention"
 )
 
 type getTableIDsInRangeMessageHandler struct {
@@ -19,7 +19,7 @@ func (g *getTableIDsInRangeMessageHandler) HandleMessage(holder remoting.Message
 	if g.ms.levelManager == nil {
 		return nil, createNotLeaderError(g.ms)
 	}
-	tids, lmNow, deadVersions, err := g.ms.levelManager.GetTableIDsForRange(msg.KeyStart, msg.KeyEnd)
+	tids, deadVersions, err := g.ms.levelManager.GetTableIDsForRange(msg.KeyStart, msg.KeyEnd)
 	if err != nil {
 		return nil, err
 	}
@@ -33,29 +33,27 @@ func (g *getTableIDsInRangeMessageHandler) HandleMessage(holder remoting.Message
 		}
 	}
 	return &clustermsgs.LevelManagerGetTableIDsForRangeResponse{
-		Payload:         bytes,
-		LevelManagerNow: lmNow,
-		DeadVersions:    dead,
+		Payload:      bytes,
+		DeadVersions: dead,
 	}, nil
 }
 
-type getPrefixRetentionsHandler struct {
+type getSlabRetentionHandler struct {
 	ms *LevelManagerService
 }
 
-func (g *getPrefixRetentionsHandler) HandleMessage(remoting.MessageHolder) (remoting.ClusterMessage, error) {
+func (g *getSlabRetentionHandler) HandleMessage(holder remoting.MessageHolder) (remoting.ClusterMessage, error) {
 	g.ms.lock.RLock()
 	defer g.ms.lock.RUnlock()
 	if g.ms.levelManager == nil {
 		return nil, createNotLeaderError(g.ms)
 	}
-	prefixRetentions, err := g.ms.levelManager.GetPrefixRetentions()
+	msg := holder.Message.(*clustermsgs.LevelManagerGetSlabRetentionMessage)
+	slabRetention, err := g.ms.levelManager.GetSlabRetention(int(msg.SlabId))
 	if err != nil {
 		return nil, err
 	}
-	bytes := make([]byte, 0, 256)
-	bytes = retention.SerializePrefixRetentions(bytes, prefixRetentions)
-	return &clustermsgs.LevelManagerRawResponse{Payload: bytes}, nil
+	return &clustermsgs.LevelManagerGetSlabRetentionResponse{Retention: int64(slabRetention)}, nil
 }
 
 type l0AddHandler struct {
@@ -101,20 +99,38 @@ func (l *LevelManagerService) callCommandBatchIngestorSync(buff []byte) error {
 	return <-ch
 }
 
-type registerPrefixRetentionHandler struct {
+type registerSlabRetentionHandler struct {
 	ms *LevelManagerService
 }
 
-func (r *registerPrefixRetentionHandler) HandleMessage(holder remoting.MessageHolder) (remoting.ClusterMessage, error) {
+func (r *registerSlabRetentionHandler) HandleMessage(holder remoting.MessageHolder) (remoting.ClusterMessage, error) {
 	r.ms.lock.RLock()
 	defer r.ms.lock.RUnlock()
 	if r.ms.levelManager == nil {
 		return nil, createNotLeaderError(r.ms)
 	}
-	msg := holder.Message.(*clustermsgs.LevelManagerRegisterPrefixRetentionsRequest)
-	buff := make([]byte, 0, 1+len(msg.Payload))
-	buff = append(buff, RegisterPrefixRetentionsCommand)
-	buff = append(buff, msg.Payload...)
+	msg := holder.Message.(*clustermsgs.LevelManagerRegisterSlabRetentionMessage)
+	buff := make([]byte, 0, 17)
+	buff = append(buff, RegisterSlabRetentionCommand)
+	buff = encoding.AppendUint64ToBufferLE(buff, uint64(msg.SlabId))
+	buff = encoding.AppendUint64ToBufferLE(buff, uint64(msg.Retention))
+	return nil, r.ms.callCommandBatchIngestorSync(buff)
+}
+
+type unregisterSlabRetentionHandler struct {
+	ms *LevelManagerService
+}
+
+func (r *unregisterSlabRetentionHandler) HandleMessage(holder remoting.MessageHolder) (remoting.ClusterMessage, error) {
+	r.ms.lock.RLock()
+	defer r.ms.lock.RUnlock()
+	if r.ms.levelManager == nil {
+		return nil, createNotLeaderError(r.ms)
+	}
+	msg := holder.Message.(*clustermsgs.LevelManagerUnregisterSlabRetentionMessage)
+	buff := make([]byte, 0, 17)
+	buff = append(buff, UnregisterSlabRetentionCommand)
+	buff = encoding.AppendUint64ToBufferLE(buff, uint64(msg.SlabId))
 	return nil, r.ms.callCommandBatchIngestorSync(buff)
 }
 
@@ -193,13 +209,15 @@ func (g *compactionPollMessageHandler) HandleMessage(holder remoting.MessageHold
 func (l *LevelManagerService) SetClusterMessageHandlers(remotingServer remoting.Server) {
 	remotingServer.RegisterBlockingMessageHandler(remoting.ClusterMessageLevelManagerGetTableIDsForRangeMessage,
 		&getTableIDsInRangeMessageHandler{ms: l})
-	remotingServer.RegisterBlockingMessageHandler(remoting.ClusterMessageLevelManagerGetPrefixRetentionsMessage,
-		&getPrefixRetentionsHandler{ms: l})
+	remotingServer.RegisterBlockingMessageHandler(remoting.ClusterMessageLevelManagerGetSlabRetentionMessage,
+		&getSlabRetentionHandler{ms: l})
 	remotingServer.RegisterBlockingMessageHandler(remoting.ClusterMessageLevelManagerApplyChangesMessage,
 		&applyChangesHandler{ms: l})
 	remotingServer.RegisterMessageHandler(remoting.ClusterMessageLevelManagerL0AddMessage, &l0AddHandler{ms: l})
-	remotingServer.RegisterBlockingMessageHandler(remoting.ClusterMessageLevelManagerRegisterPrefixRetentionsMessage,
-		&registerPrefixRetentionHandler{ms: l})
+	remotingServer.RegisterBlockingMessageHandler(remoting.ClusterMessageLevelManagerRegisterSlabRetentionMessage,
+		&registerSlabRetentionHandler{ms: l})
+	remotingServer.RegisterBlockingMessageHandler(remoting.ClusterMessageLevelManagerUnregisterSlabRetentionMessage,
+		&unregisterSlabRetentionHandler{ms: l})
 	remotingServer.RegisterMessageHandler(remoting.ClusterMessageCompactionPollMessage,
 		&compactionPollMessageHandler{ms: l})
 	remotingServer.RegisterBlockingMessageHandler(remoting.ClusterMessageLevelManagerStoreLastFlushedVersionMessage,
@@ -221,13 +239,6 @@ func (l *LevelManagerService) connectionClosed(id int) {
 }
 
 type commandBatchIngestor func(bytes []byte, completionFunc func(error))
-
-func EncodeRegisterPrefixRetentionsCommand(prefixRetentions []retention.PrefixRetention) []byte {
-	buff := make([]byte, 0, 256)
-	buff = append(buff, RegisterPrefixRetentionsCommand)
-	buff = retention.SerializePrefixRetentions(buff, prefixRetentions)
-	return buff
-}
 
 func createNotLeaderError(lms *LevelManagerService) error {
 	leaderNode, err := lms.leaderNodeProvider.GetLeaderNode(lms.cfg.ProcessorCount)

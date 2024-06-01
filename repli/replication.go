@@ -109,6 +109,7 @@ const (
 func (r *replicator) SetLeader(sufficientReplicas bool, clusterVersion int) {
 	r.lock.Lock()
 	defer r.lock.Unlock()
+	log.Debugf("%s: setting leader for replicator %d, sufficientReplicas:?%t clusterVersion:%d", r.cfg.LogScope, r.id, sufficientReplicas, clusterVersion)
 	if clusterVersion != -1 {
 		// A new leader
 		r.leaderClusterVersion = clusterVersion

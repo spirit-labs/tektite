@@ -16,6 +16,7 @@ type MergingIterator struct {
 	currIndex                int
 	minNonCompactableVersion uint64
 	noDropOnNext             bool
+	prefixTombstone          []byte
 }
 
 func NewMergingIterator(iters []Iterator, preserveTombstones bool, highestVersion uint64) (*MergingIterator, error) {
@@ -51,9 +52,9 @@ func (m *MergingIterator) IsValid() (bool, error) {
 	repeat := true
 	for repeat {
 		// Now find the smallest key, choosing the highest version when keys draw
-		var smallestKeyNoVersion []byte
+		var chosenKeyNoVersion []byte
 		var smallestIndex int
-		var highestVersionSameKey uint64
+		var chosenKeyVersion uint64
 		var chosenKey []byte
 		var chosenValue []byte
 	outer:
@@ -73,7 +74,8 @@ func (m *MergingIterator) IsValid() (bool, error) {
 				// Skip past keys with too high a version
 				// - version is stored inverted so higher version comes before lower version for same key
 				ver = math.MaxUint64 - binary.BigEndian.Uint64(c.Key[len(c.Key)-8:])
-				if ver <= m.highestVersion {
+				// prefix tombstones always have version math.MaxUint64 and are never screened out
+				if ver <= m.highestVersion || ver == math.MaxUint64 {
 					break
 				}
 				if log.DebugEnabled {
@@ -85,54 +87,54 @@ func (m *MergingIterator) IsValid() (bool, error) {
 				}
 			}
 			keyNoVersion := c.Key[:len(c.Key)-8] // Key without version
-			if smallestKeyNoVersion == nil {
-				smallestKeyNoVersion = keyNoVersion
+			if chosenKeyNoVersion == nil {
+				chosenKeyNoVersion = keyNoVersion
 				smallestIndex = i
-				highestVersionSameKey = ver
+				chosenKeyVersion = ver
 				chosenKey = c.Key
 				chosenValue = c.Value
 			} else {
-				diff := bytes.Compare(keyNoVersion, smallestKeyNoVersion)
+				diff := bytes.Compare(keyNoVersion, chosenKeyNoVersion)
 				if diff < 0 {
-					smallestKeyNoVersion = keyNoVersion
+					chosenKeyNoVersion = keyNoVersion
 					smallestIndex = i
-					highestVersionSameKey = ver
+					chosenKeyVersion = ver
 					chosenKey = c.Key
 					chosenValue = c.Value
 				} else if diff == 0 {
 					// Keys are same
 
 					// choose the highest version, and drop the other one as long as the highest version < minNonCompactable
-					if ver > highestVersionSameKey {
+					if ver > chosenKeyVersion {
 						// the current version is higher so drop the previous highest if the current version is compactable
 						// note we can only drop the previous highest if *this* version is compactable as dropping it
 						// will leave this version, and if its non compactable it means that snapshot rollback could
 						// remove it, which would leave nothing.
 						if ver < m.minNonCompactableVersion {
 							if log.DebugEnabled {
-								log.Debugf("%p mi: dropping as key version %d less than minnoncompactable (1) %d highestVersionSameKey %d: key %v (%s) value %v (%s)",
-									m, highestVersionSameKey, m.minNonCompactableVersion, highestVersionSameKey, chosenKey, string(chosenKey), chosenValue, string(chosenValue))
+								log.Debugf("%p mi: dropping as key version %d less than minnoncompactable (1) %d chosenKeyVersion %d: key %v (%s) value %v (%s)",
+									m, chosenKeyVersion, m.minNonCompactableVersion, chosenKeyVersion, chosenKey, string(chosenKey), chosenValue, string(chosenValue))
 							}
 							if err := m.iters[smallestIndex].Next(); err != nil {
 								return false, err
 							}
 						}
-						smallestKeyNoVersion = keyNoVersion
+						chosenKeyNoVersion = keyNoVersion
 						smallestIndex = i
-						highestVersionSameKey = ver
+						chosenKeyVersion = ver
 						chosenKey = c.Key
 						chosenValue = c.Value
-					} else if ver < highestVersionSameKey {
+					} else if ver < chosenKeyVersion {
 						// the previous highest version is higher than this version, so we can remove this version
 						// as long as previous highest is compactable
-						if highestVersionSameKey < m.minNonCompactableVersion {
+						if chosenKeyVersion < m.minNonCompactableVersion {
 							// drop this entry if the version is compactable
 							if err := iter.Next(); err != nil { // Advance iter as not the highest version
 								return false, err
 							}
 							if log.DebugEnabled {
-								log.Debugf("%p mi: dropping as key version %d less than minnoncompactable (2) %d highestVersionSameKey %d: key %v (%s) value %v (%s)",
-									m, ver, m.minNonCompactableVersion, highestVersionSameKey, c.Key, string(c.Key), c.Value, string(c.Value))
+								log.Debugf("%p mi: dropping as key version %d less than minnoncompactable (2) %d chosenKeyVersion %d: key %v (%s) value %v (%s)",
+									m, ver, m.minNonCompactableVersion, chosenKeyVersion, c.Key, string(c.Key), c.Value, string(c.Value))
 							}
 						}
 					} else {
@@ -149,18 +151,41 @@ func (m *MergingIterator) IsValid() (bool, error) {
 			}
 		}
 
-		if smallestKeyNoVersion == nil {
+		if chosenKeyNoVersion == nil {
 			// Nothing valid
 			return false, nil
 		}
 
-		if len(chosenValue) == 0 && !m.preserveTombstones {
-			// Tombstone - advance the iter
+		if m.prefixTombstone != nil {
+			lpt := len(m.prefixTombstone)
+			lck := len(chosenKey)
+			if lck >= lpt && bytes.Compare(m.prefixTombstone, chosenKey[:lpt]) == 0 {
+				// The key matches current prefix tombstone
+				// skip past it
+				if err := m.iters[smallestIndex].Next(); err != nil {
+					return false, err
+				}
+				continue
+			} else {
+				// does not match - reset the prefix tombstone
+				m.prefixTombstone = nil
+			}
+		}
+
+		isTombstone := len(chosenValue) == 0
+		if isTombstone && chosenKeyVersion == math.MaxUint64 {
+			// We have a tombstone, keep track of it. Prefix tombstones (used for deletes of partitions)
+			// are identified by having a version of math.MaxUint64
+			m.prefixTombstone = chosenKeyNoVersion
+		}
+		if !m.preserveTombstones && (isTombstone || chosenKeyVersion == math.MaxUint64) {
+			// We have a tombstone or a prefix tombstone end marker - skip past it
+			// End marker also is identified as having a version of math.MaxUint64
 			if err := m.iters[smallestIndex].Next(); err != nil {
 				return false, err
 			}
-			// We will repeat the loop
 		} else {
+			// output the entry
 			m.current.Key = chosenKey
 			m.current.Value = chosenValue
 			m.currIndex = smallestIndex

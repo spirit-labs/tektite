@@ -7,6 +7,7 @@ import (
 	"github.com/spirit-labs/tektite/evbatch"
 	"github.com/spirit-labs/tektite/expr"
 	"github.com/spirit-labs/tektite/parser"
+	"github.com/spirit-labs/tektite/proc"
 	"github.com/spirit-labs/tektite/types"
 	"github.com/stretchr/testify/require"
 	"math"
@@ -1165,7 +1166,7 @@ func testAggregateWithStoredData(t *testing.T, inColumnNames []string, inColumnT
 		KeyExprsStrings:      keyExprStrs,
 	}
 
-	agg, err := NewAggregateOperator(&OperatorSchema{EventSchema: inSchema}, aggDesc, tableID,
+	agg, err := NewAggregateOperator(&OperatorSchema{EventSchema: inSchema, PartitionScheme: PartitionScheme{MappingID: "mapping", Partitions: 200}}, aggDesc, tableID,
 		-1, -1, -1, 0, 0, nil, 0, false, false,
 		&expr.ExpressionFactory{})
 	require.NoError(t, err)
@@ -1199,14 +1200,15 @@ func verifyOutDataFromEntries(t *testing.T, entries []common.KV, outData [][]any
 	for _, entry := range entries {
 		outValue, _ := encoding.DecodeRowToSlice(entry.Value, 0, agg.aggColTypes)
 		outKey := make([]any, len(agg.keyColHolders))
-		tabID, _ := encoding.ReadUint64FromBufferBE(entry.Key, 0)
-		partID, _ := encoding.ReadUint64FromBufferBE(entry.Key, 8)
+		partHash := entry.Key[:16]
+		tabID, _ := encoding.ReadUint64FromBufferBE(entry.Key, 16)
 		ver, _ := encoding.ReadUint64FromBufferBE(entry.Key, len(entry.Key)-8)
 		ver = math.MaxUint64 - ver
 		require.Equal(t, tableID, int(tabID))
-		require.Equal(t, partitionID, int(partID))
+		expectedPartHash := proc.CalcPartitionHash(agg.outSchema.MappingID, uint64(partitionID))
+		require.Equal(t, expectedPartHash, partHash)
 		require.Equal(t, version, int(ver))
-		key := entry.Key[16:]
+		key := entry.Key[24:]
 		outKey, _, err := encoding.DecodeKeyToSlice(key, 0, agg.keyColTypes)
 		require.NoError(t, err)
 		actualOut := make([]any, len(agg.aggStateSchema.ColumnTypes()))

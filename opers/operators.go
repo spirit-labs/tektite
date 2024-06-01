@@ -99,7 +99,8 @@ func createInColIndexMap(schema *evbatch.EventSchema) map[string]int {
 func storeBatchInTable(batch *evbatch.Batch, keyCols []int, rowCols []int,
 	keyPrefix []byte, execCtx StreamExecContext, nodeID int, noCache bool) {
 	for i := 0; i < batch.RowCount; i++ {
-		keyBuff := evbatch.EncodeKeyCols(batch, i, keyCols, keyPrefix)
+		keyBuff := common.CopyByteSlice(keyPrefix)
+		keyBuff = evbatch.EncodeKeyCols(batch, i, keyCols, keyBuff)
 		rowBuff := make([]byte, 0, rowInitialBufferSize)
 		rowBuff = evbatch.EncodeRowCols(batch, i, rowCols, rowBuff)
 		keyBuff = encoding.EncodeVersion(keyBuff, uint64(execCtx.WriteVersion()))
@@ -107,7 +108,7 @@ func storeBatchInTable(batch *evbatch.Batch, keyCols []int, rowCols []int,
 			panic(fmt.Sprintf("invalid write version: %d", execCtx.WriteVersion()))
 		}
 		if log.DebugEnabled {
-			log.Debugf("node %d storing key %v (%s) value %v (%s) with version %d", nodeID, keyBuff, string(keyBuff),
+			log.Debugf("stream/table node %d storing key %v (%s) value %v (%s) with version %d", nodeID, keyBuff, string(keyBuff),
 				rowBuff, string(rowBuff), execCtx.WriteVersion())
 		}
 		execCtx.StoreEntry(common.KV{
@@ -209,7 +210,7 @@ func (b *BaseOperator) SendQueryBatchDownStream(batch *evbatch.Batch, execCtx Qu
 
 func LoadColsFromKey(colBuilders []evbatch.ColumnBuilder, keyColumnTypes []types.ColumnType, keyColIndexes []int,
 	keyBuff []byte) error {
-	off := 16
+	off := 24
 	for i, colIndex := range keyColIndexes {
 		isNull := keyBuff[off] == 0
 		off++

@@ -38,7 +38,6 @@ var CommandsColumnTypes = []types.ColumnType{types.ColumnTypeInt, types.ColumnTy
 type Manager interface {
 	ExecuteCommand(command string) error
 	SetCommandSignaller(signaller Signaller)
-	SetPrefixRetentionService(dps PrefixRetention)
 	HandleClusterState(cs clustmgr.ClusterState) error
 	Start() error
 	Stop() error
@@ -54,7 +53,6 @@ type manager struct {
 	lockManager            lock.Manager
 	commandSignaller       Signaller
 	batchForwarder         batchForwarder
-	prefixRetentionService PrefixRetention
 	parser                 *parser.Parser
 	lastProcessedCommandID int64
 	commandsOpSchema       *opers.OperatorSchema
@@ -64,10 +62,6 @@ type manager struct {
 	testSource             bool
 	stopped                atomic.Bool
 	loadCommandsTimer      *common.TimerHandle
-}
-
-type PrefixRetention interface {
-	HasPendingPrefixesToRegister() bool
 }
 
 type batchForwarder interface {
@@ -92,10 +86,6 @@ func NewCommandManager(streamManager opers.StreamManager, queryManager query.Man
 		parser:                 parser,
 		lastProcessedCommandID: -1,
 	}
-}
-
-func (m *manager) SetPrefixRetentionService(dps PrefixRetention) {
-	m.prefixRetentionService = dps
 }
 
 func (m *manager) SetCommandSignaller(signaller Signaller) {
@@ -376,12 +366,6 @@ func (m *manager) maybeCompact() error {
 		return nil
 	}
 	if len(m.commandIDsToClear) == 0 {
-		return nil
-	}
-	if m.prefixRetentionService.HasPendingPrefixesToRegister() {
-		// We cannot compact if there are any pending deleted prefixes, as otherwise, if the stream undeploy
-		// command which caused a deleted prefix is compacted, then the node crashes, on recovery the command
-		// will not be there so won't be replayed and so the prefix will never get registered.
 		return nil
 	}
 

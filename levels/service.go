@@ -10,6 +10,7 @@ import (
 	"github.com/spirit-labs/tektite/tabcache"
 	"github.com/spirit-labs/tektite/types"
 	"sync"
+	"sync/atomic"
 )
 
 type LevelManagerService struct {
@@ -19,6 +20,7 @@ type LevelManagerService struct {
 	tabCache             *tabcache.Cache
 	commandBatchIngestor commandBatchIngestor
 	levelManager         *LevelManager
+	levelManagerRef      atomic.Pointer[LevelManager]
 	leaderNodeProvider   LeaderNodeProvider
 	stopped              bool
 	clustStateNotifier   clustmgr.ClusterStateNotifier
@@ -26,9 +28,10 @@ type LevelManagerService struct {
 
 const (
 	ApplyChangesCommand byte = iota + 10
-	RegisterPrefixRetentionsCommand
 	RegisterDeadVersionRangeCommand
 	StoreLastFlushedVersionCommand
+	RegisterSlabRetentionCommand
+	UnregisterSlabRetentionCommand
 )
 
 var CommandColumnTypes = []types.ColumnType{types.ColumnTypeBytes}
@@ -64,12 +67,6 @@ func (l *LevelManagerService) Stop() error {
 	return nil
 }
 
-func (l *LevelManagerService) GetLevelManager() *LevelManager {
-	l.lock.Lock()
-	defer l.lock.Unlock()
-	return l.levelManager
-}
-
 func (l *LevelManagerService) HandleClusterState(cs clustmgr.ClusterState) error {
 	l.lock.Lock()
 	defer l.lock.Unlock()
@@ -81,6 +78,7 @@ func (l *LevelManagerService) HandleClusterState(cs clustmgr.ClusterState) error
 			log.Debugf("levelmanager starting on node %d", l.cfg.NodeID)
 			l.levelManager = NewLevelManager(l.cfg, l.cloudStore, l.tabCache, l.commandBatchIngestor,
 				true, false, true)
+			l.levelManagerRef.Store(l.levelManager)
 			return l.levelManager.Start(false)
 		}
 	} else {
@@ -89,6 +87,7 @@ func (l *LevelManagerService) HandleClusterState(cs clustmgr.ClusterState) error
 				return err
 			}
 			l.levelManager = nil
+			l.levelManagerRef.Store(nil)
 		}
 	}
 	return nil
@@ -122,13 +121,10 @@ func (l *LevelManagerService) isLeader(cs *clustmgr.ClusterState) bool {
 	return leaderNode == l.cfg.NodeID
 }
 
-func (l *LevelManagerService) GetMapper() (*LevelManager, error) {
-	l.lock.RLock()
-	defer l.lock.RUnlock()
-	if l.stopped {
-		return nil, errors.New("LevelManager service is stopped")
-	}
-	return l.levelManager, nil
+func (l *LevelManagerService) GetLevelManager() *LevelManager {
+	// We use an atomic pointer to avoid a deadlock situation between processing level manager commands and handling
+	// cluster state which sets level manager
+	return l.levelManagerRef.Load()
 }
 
 func (l *LevelManagerService) Shutdown() (bool, error) {

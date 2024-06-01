@@ -1,6 +1,7 @@
 package encoding
 
 import (
+	"encoding/binary"
 	"github.com/apache/arrow/go/v11/arrow/decimal128"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/errors"
@@ -206,11 +207,10 @@ func KeyDecodeString(buffer []byte, offset int) (string, int, error) {
 	return common.ByteSliceToStringZeroCopy(res), offset, nil
 }
 
-func EncodeEntryPrefix(slabID uint64, partitionID uint64, capac int) []byte {
-	keyBuff := make([]byte, 0, capac)
-	// Data key must be in big-endian order so that byte-by-byte key comparison correctly orders the keys
-	keyBuff = AppendUint64ToBufferBE(keyBuff, slabID)
-	keyBuff = AppendUint64ToBufferBE(keyBuff, partitionID)
+func EncodeEntryPrefix(partitionHash []byte, slabID uint64, capac int) []byte {
+	keyBuff := make([]byte, 24, capac)
+	copy(keyBuff, partitionHash)
+	binary.BigEndian.PutUint64(keyBuff[16:], slabID)
 	return keyBuff
 }
 

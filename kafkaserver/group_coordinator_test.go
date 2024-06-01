@@ -1677,7 +1677,12 @@ func callJoinGroupSyncWithApiVersion(gc *GroupCoordinator, groupID string, clien
 }
 
 type testConsumerInfoProvider struct {
-	slabID int
+	slabID    int
+	mappingID string
+}
+
+func (t *testConsumerInfoProvider) PartitionMapping() string {
+	return t.mappingID
 }
 
 func (t *testConsumerInfoProvider) SlabID() int {

@@ -2,6 +2,7 @@ package iteration
 
 import (
 	"github.com/spirit-labs/tektite/common"
+	"github.com/spirit-labs/tektite/encoding"
 )
 
 func NewStaticIterator(entries []common.KV) *StaticIterator {
@@ -13,6 +14,10 @@ type StaticIterator struct {
 	pos                int
 	hasValidOverride   bool
 	validOverRideValue bool
+}
+
+func (s *StaticIterator) Reset() {
+	s.pos = 0
 }
 
 func (s *StaticIterator) SetValidOverride(valid bool) {
@@ -27,6 +32,13 @@ func (s *StaticIterator) UnsetValidOverride() {
 func (s *StaticIterator) AddKVAsString(k string, v string) {
 	s.kvs = append(s.kvs, common.KV{
 		Key:   []byte(k),
+		Value: []byte(v),
+	})
+}
+
+func (s *StaticIterator) AddKVAsStringWithVersion(k string, v string, ver uint64) {
+	s.kvs = append(s.kvs, common.KV{
+		Key:   encoding.EncodeVersion([]byte(k), ver),
 		Value: []byte(v),
 	})
 }

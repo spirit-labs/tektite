@@ -14,12 +14,12 @@ type StoreStreamOperator struct {
 	keyCols       []int
 	rowCols       []int
 	slabID        int
-	keyPrefix     []byte
 	nodeID        int
 	addOffset     bool
 	nextOffsets   []int64
 	store         store
 	offsetsSlabID int
+	hashCache     *partitionHashCache
 }
 
 func NewStoreStreamOperator(inSchema *OperatorSchema, slabID int, offsetsSlabID int, store store, nodeID int) (*StoreStreamOperator, error) {
@@ -45,12 +45,10 @@ func NewStoreStreamOperator(inSchema *OperatorSchema, slabID int, offsetsSlabID 
 	outSchema := inSchema.Copy()
 	outSchema.EventSchema = outEventSchema
 
-	keyPrefix := encoding.AppendUint64ToBufferBE(nil, uint64(slabID))
 	return &StoreStreamOperator{
 		inSchema:      inSchema,
 		outSchema:     outSchema,
 		slabID:        slabID,
-		keyPrefix:     keyPrefix,
 		keyCols:       []int{0},
 		rowCols:       rowCols,
 		nodeID:        nodeID,
@@ -58,6 +56,7 @@ func NewStoreStreamOperator(inSchema *OperatorSchema, slabID int, offsetsSlabID 
 		store:         store,
 		offsetsSlabID: offsetsSlabID,
 		nextOffsets:   nextOffsets,
+		hashCache:     newPartitionHashCache(inSchema.MappingID, inSchema.Partitions),
 	}, nil
 }
 
@@ -88,10 +87,10 @@ func (ts *StoreStreamOperator) HandleStreamBatch(batch *evbatch.Batch, execCtx S
 		batch = evbatch.NewBatch(ts.outSchema.EventSchema, newCols...)
 
 		ts.nextOffsets[execCtx.PartitionID()] = kOffset
-		storeOffset(execCtx, kOffset, ts.offsetsSlabID, execCtx.WriteVersion())
+		storeOffset(execCtx, kOffset, ts.offsetsSlabID, execCtx.WriteVersion(), ts.inSchema.MappingID)
 	}
-
-	keyPrefix := encoding.AppendUint64ToBufferBE(ts.keyPrefix, uint64(execCtx.PartitionID()))
+	partitionHash := ts.hashCache.getHash(execCtx.PartitionID())
+	keyPrefix := encoding.EncodeEntryPrefix(partitionHash, uint64(ts.slabID), 64)
 	storeBatchInTable(batch, []int{0}, ts.rowCols, keyPrefix, execCtx, ts.nodeID, false)
 	return batch, ts.sendBatchDownStream(batch, execCtx)
 }
@@ -106,7 +105,7 @@ func (ts *StoreStreamOperator) getNextOffset(partitionID int) (int64, error) {
 		return nextOffset, nil
 	}
 	// Load from store
-	return loadOffset(ts.offsetsSlabID, partitionID, ts.store)
+	return loadOffset(ts.offsetsSlabID, partitionID, ts.inSchema.MappingID, ts.store)
 }
 
 func (ts *StoreStreamOperator) InSchema() *OperatorSchema {

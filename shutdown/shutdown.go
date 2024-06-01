@@ -1,12 +1,16 @@
 package shutdown
 
 import (
+	"context"
+	"fmt"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/conf"
 	"github.com/spirit-labs/tektite/errors"
 	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/protos/clustermsgs"
 	"github.com/spirit-labs/tektite/remoting"
+	clientv3 "go.etcd.io/etcd/client/v3"
+	"go.uber.org/zap"
 	"time"
 )
 
@@ -96,5 +100,24 @@ func doShutdown(cfg *conf.Config, client *remoting.Client, succeedIfNodeDown boo
 		log.Debugf("shutdown phase %d complete", phase)
 	}
 
+	// Now we delete the cluster from etcd
+	clusterPrefix := fmt.Sprintf("%s%s/", cfg.ClusterManagerKeyPrefix, cfg.ClusterName)
+	etcdLogger := log.CreateLogger(zap.ErrorLevel, "console")
+	cli, err := clientv3.New(clientv3.Config{
+		Endpoints:   cfg.ClusterManagerAddresses,
+		DialTimeout: 5 * time.Second,
+		Logger:      etcdLogger,
+	})
+	if err == nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_, err = cli.Delete(ctx, clusterPrefix, clientv3.WithPrefix())
+	}
+	if err != nil {
+		log.Warnf("failed to delete cluster state from etcd: %v", err)
+	}
+	if err := cli.Close(); err != nil {
+		log.Debugf("failed to close etcd client: %v", err)
+	}
 	return nil
 }

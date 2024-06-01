@@ -759,8 +759,9 @@ type queryLoader struct {
 }
 
 func (ql *queryLoader) start() error {
+	mappingID := ql.info.SlabInfo.Schema.MappingID
 	for i, partID := range ql.partitionIDs {
-		iter, err := ql.getOperator.CreateIterator(partID, ql.args, ql.highestVersion)
+		iter, err := ql.getOperator.CreateIterator(mappingID, partID, ql.args, ql.highestVersion)
 		if err != nil {
 			return err
 		}

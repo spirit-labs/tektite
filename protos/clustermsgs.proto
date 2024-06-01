@@ -64,13 +64,9 @@ message LevelManagerGetTableIDsForRangeMessage {
   bytes key_end = 2;
 }
 
-message LevelManagerGetPrefixRetentionsMessage {
-}
-
 message LevelManagerGetTableIDsForRangeResponse {
   bytes payload = 1;
-  uint64 level_manager_now = 2;
-  repeated LevelManagerVersionRange dead_versions = 3;
+  repeated LevelManagerVersionRange dead_versions = 2;
 }
 
 message LevelManagerVersionRange {
@@ -94,10 +90,6 @@ message LevelManagerL0AddRequest {
   bytes payload = 1;
 }
 
-message LevelManagerRegisterPrefixRetentionsRequest {
-  bytes payload = 1;
-}
-
 message LevelManagerLoadLastFlushedVersionMessage {
 }
 
@@ -114,6 +106,23 @@ message LevelManagerGetStatsMessage {
 
 message LevelManagerGetStatsResponse {
   bytes payload = 1;
+}
+
+message LevelManagerRegisterSlabRetentionMessage {
+  int64 slab_id = 1;
+  int64 retention = 2;
+}
+
+message LevelManagerUnregisterSlabRetentionMessage {
+  int64 slab_id = 1;
+}
+
+message LevelManagerGetSlabRetentionMessage {
+  int64 slab_id = 1;
+}
+
+message LevelManagerGetSlabRetentionResponse {
+  int64 retention = 1;
 }
 
 // Compaction messages

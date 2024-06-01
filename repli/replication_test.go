@@ -137,10 +137,17 @@ func TestInsufficientReplicas(t *testing.T) {
 	processor, ok := procMgrs[1].GetProcessor(0)
 	require.True(t, ok)
 
+	// Wait until initialised
+	ok, err := testutils.WaitUntilWithError(func() (bool, error) {
+		return processor.GetReplicator().IsInitialised(), nil
+	}, 5*time.Second, 10*time.Millisecond)
+	require.NoError(t, err)
+	require.True(t, ok)
+
 	pb := createProcessBatch(0, 0)
 	repli := processor.GetReplicator()
 
-	err := replicateBatchSync(pb, repli)
+	err = replicateBatchSync(pb, repli)
 	require.Error(t, err)
 	// Insufficient replicas, so replicator should be paused
 	require.Equal(t, "replicator is paused", err.Error())

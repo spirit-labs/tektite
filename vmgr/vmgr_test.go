@@ -9,7 +9,6 @@ import (
 	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/protos/clustermsgs"
 	"github.com/spirit-labs/tektite/remoting"
-	"github.com/spirit-labs/tektite/retention"
 	"github.com/spirit-labs/tektite/sequence"
 	"github.com/spirit-labs/tektite/testutils"
 	"github.com/stretchr/testify/require"
@@ -1388,33 +1387,19 @@ func (t *testLevelMgrClient) getDeadVersionRange() *levels.VersionRange {
 	return t.deadVersionRange
 }
 
-func (t *testLevelMgrClient) GetTableIDsForRange([]byte, []byte) (levels.OverlappingTableIDs, uint64, []levels.VersionRange, error) {
-
-	panic("not implemented")
-}
-
-func (t *testLevelMgrClient) GetPrefixRetentions() ([]retention.PrefixRetention, error) {
-
+func (t *testLevelMgrClient) GetTableIDsForRange([]byte, []byte) (levels.OverlappingTableIDs, []levels.VersionRange, error) {
 	panic("not implemented")
 }
 
 func (t *testLevelMgrClient) RegisterL0Tables(levels.RegistrationBatch) error {
-
 	panic("not implemented")
 }
 
 func (t *testLevelMgrClient) ApplyChanges(levels.RegistrationBatch) error {
-
-	panic("not implemented")
-}
-
-func (t *testLevelMgrClient) RegisterPrefixRetentions([]retention.PrefixRetention) error {
-
 	panic("not implemented")
 }
 
 func (t *testLevelMgrClient) PollForJob() (*levels.CompactionJob, error) {
-
 	panic("not implemented")
 }
 
@@ -1444,13 +1429,25 @@ func (t *testLevelMgrClient) LoadLastFlushedVersion() (int64, error) {
 	return t.lastFlushedVersion, nil
 }
 
-func (t *testLevelMgrClient) Start() error {
+func (t *testLevelMgrClient) RegisterSlabRetention(slabID int, retention time.Duration) error {
+	panic("not implemented")
 
+}
+
+func (t *testLevelMgrClient) UnregisterSlabRetention(slabID int) error {
+	panic("not implemented")
+
+}
+
+func (t *testLevelMgrClient) GetSlabRetention(slabID int) (time.Duration, error) {
+	panic("not implemented")
+}
+
+func (t *testLevelMgrClient) Start() error {
 	panic("not implemented")
 }
 
 func (t *testLevelMgrClient) Stop() error {
-
 	panic("not implemented")
 }
 

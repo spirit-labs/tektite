@@ -407,7 +407,7 @@ func TestForwardingMultipleReceiversAndProcessors(t *testing.T) {
 		}
 		batchHandlers = append(batchHandlers, batchHandler)
 
-		proc := NewProcessor(i, cfg, st, batchForwarder, batchHandler, batchHandler).(*processor)
+		proc := NewProcessor(i, cfg, st, batchForwarder, batchHandler, batchHandler, createDataKey(i)).(*processor)
 
 		proc.SetVersionCompleteHandler(vHandler.versionComplete)
 
@@ -559,7 +559,7 @@ func TestBarrierNewerVersionOverridesVersionBeingCompleted(t *testing.T) {
 		}
 		batchHandlers = append(batchHandlers, batchHandler)
 
-		proc := NewProcessor(i, cfg, st, batchForwarder, batchHandler, batchHandler).(*processor)
+		proc := NewProcessor(i, cfg, st, batchForwarder, batchHandler, batchHandler, createDataKey(i)).(*processor)
 
 		proc.SetVersionCompleteHandler(vHandler.versionComplete)
 
@@ -860,7 +860,7 @@ func TestBarriersWithForwarding(t *testing.T) {
 		}
 		batchHandlers = append(batchHandlers, batchHandler)
 
-		proc := NewProcessor(i, cfg, st, batchForwarder, batchHandler, batchHandler).(*processor)
+		proc := NewProcessor(i, cfg, st, batchForwarder, batchHandler, batchHandler, createDataKey(i)).(*processor)
 
 		proc.SetVersionCompleteHandler(vHandler.versionComplete)
 
@@ -995,7 +995,7 @@ func TestForwardAfterUnavailability(t *testing.T) {
 		},
 	}
 
-	proc1 := NewProcessor(1, cfg, st, forwarder, batchHandler1, batchHandler1).(*processor)
+	proc1 := NewProcessor(1, cfg, st, forwarder, batchHandler1, batchHandler1, createDataKey(1)).(*processor)
 	proc1.SetVersionCompleteHandler(vHandler.versionComplete)
 	proc1.SetLeader()
 
@@ -1014,7 +1014,7 @@ func TestForwardAfterUnavailability(t *testing.T) {
 			1001: 2,
 		},
 	}
-	proc2 := NewProcessor(2, cfg, st, forwarder, batchHandler2, batchHandler2).(*processor)
+	proc2 := NewProcessor(2, cfg, st, forwarder, batchHandler2, batchHandler2, createDataKey(2)).(*processor)
 	proc2.SetVersionCompleteHandler(vHandler.versionComplete)
 	proc2.SetLeader()
 
@@ -1080,7 +1080,7 @@ func TestLoadStoreReplBatchSeq(t *testing.T) {
 		require.NoError(t, err)
 	}()
 
-	proc1 := NewProcessor(1, cfg, st, nil, nil, nil).(*processor)
+	proc1 := NewProcessor(1, cfg, st, nil, nil, nil, createDataKey(1)).(*processor)
 	proc1.SetLeader()
 
 	seq, err := proc1.LoadLastProcessedReplBatchSeq(500)
@@ -1101,7 +1101,7 @@ func TestLoadStoreReplBatchSeq(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, int64(-1), seq)
 
-	proc2 := NewProcessor(2, cfg, st, nil, nil, nil).(*processor)
+	proc2 := NewProcessor(2, cfg, st, nil, nil, nil, createDataKey(2)).(*processor)
 	proc2.SetLeader()
 
 	batch = &ProcessBatch{Version: 500, ReplSeq: 56}
@@ -1247,7 +1247,11 @@ func createProcessor(t *testing.T, id int, batchForwarder BatchForwarder, batchH
 	st := store.TestStore()
 	err := st.Start()
 	require.NoError(t, err)
-	return NewProcessor(id, cfg, st, batchForwarder, batchHandler, receiverInfoProvider).(*processor), st
+	return NewProcessor(id, cfg, st, batchForwarder, batchHandler, receiverInfoProvider, createDataKey(id)).(*processor), st
+}
+
+func createDataKey(processorID int) []byte {
+	return CalcPartitionHash("", uint64(processorID))
 }
 
 type testForwarder struct {

@@ -13,7 +13,6 @@ import (
 	"github.com/spirit-labs/tektite/proc"
 	"github.com/spirit-labs/tektite/remoting"
 	"github.com/spirit-labs/tektite/repli"
-	"github.com/spirit-labs/tektite/retention"
 	"github.com/spirit-labs/tektite/sequence"
 	"github.com/spirit-labs/tektite/store"
 	"github.com/spirit-labs/tektite/tabcache"
@@ -42,6 +41,7 @@ func TestLevelManagerCluster(t *testing.T) {
 	cloudStore := dev.NewInMemStore(0)
 	tcConf := conf.Config{}
 	tcConf.ApplyDefaults()
+	tcConf.LogScope = t.Name()
 	tabCache, err := tabcache.NewTableCache(cloudStore, &tcConf)
 	require.NoError(t, err)
 	seqMgr := sequence.NewInMemSequenceManager()
@@ -65,6 +65,7 @@ func TestLevelManagerCluster(t *testing.T) {
 		clustStateMgrs = append(clustStateMgrs, clustStateMgr)
 		cfg := &conf.Config{}
 		cfg.ApplyDefaults()
+		cfg.LogScope = t.Name()
 		cfg.NodeID = i
 		cfg.ClusterAddresses = remotingAddresses
 		// There are no processors used for data-processing, however there will be one more than this (i.e. 1) for
@@ -149,6 +150,7 @@ func TestLevelManagerCluster(t *testing.T) {
 
 	// Test local client
 	cfg := &conf.Config{}
+	cfg.LogScope = t.Name()
 	cfg.ClusterAddresses = remotingAddresses
 	cfg.ApplyDefaults()
 	cfg.ProcessorCount = 0
@@ -185,7 +187,7 @@ func sendClientCommands(t *testing.T, client levels.Client) {
 	})
 	require.NoError(t, err)
 
-	tids, _, _, err := client.GetTableIDsForRange([]byte("key01"), []byte("key09"))
+	tids, _, err := client.GetTableIDsForRange([]byte("key01"), []byte("key09"))
 	require.NoError(t, err)
 	require.NotNil(t, tids)
 
@@ -212,19 +214,12 @@ func sendClientCommands(t *testing.T, client levels.Client) {
 	require.Error(t, err)
 	require.Equal(t, "registration batch version is too low", err.Error())
 
-	pr := retention.PrefixRetention{
-		Prefix:    []byte("some_prefix"),
-		Retention: 12345,
-	}
-	err = client.RegisterPrefixRetentions([]retention.PrefixRetention{pr})
+	err = client.RegisterSlabRetention(12345, 2*time.Hour)
 	require.NoError(t, err)
 
-	prefixRetentions, err := client.GetPrefixRetentions()
+	retention, err := client.GetSlabRetention(12345)
 	require.NoError(t, err)
-	require.Equal(t, 1, len(prefixRetentions))
-	pref := prefixRetentions[0]
-	require.Equal(t, "some_prefix", string(pref.Prefix))
-	require.Equal(t, 12345, int(pref.Retention))
+	require.Equal(t, 2*time.Hour, retention)
 
 	regBatch = levels.RegistrationBatch{
 		ClusterName:    "test_cluster",
@@ -249,7 +244,7 @@ func sendClientCommands(t *testing.T, client levels.Client) {
 	err = client.ApplyChanges(regBatch)
 	require.NoError(t, err)
 
-	tids, _, _, err = client.GetTableIDsForRange([]byte("key20"), []byte("key25"))
+	tids, _, err = client.GetTableIDsForRange([]byte("key20"), []byte("key25"))
 	require.NoError(t, err)
 	require.NotNil(t, tids)
 	require.Equal(t, 1, len(tids))

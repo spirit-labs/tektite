@@ -5,6 +5,7 @@ import (
 	"github.com/spirit-labs/tektite/encoding"
 	log "github.com/spirit-labs/tektite/logger"
 	"github.com/stretchr/testify/require"
+	"math"
 	"testing"
 )
 
@@ -413,6 +414,69 @@ func TestCompactionMergingIteratorWithTombstonesPreserved(t *testing.T) {
 	mi, err := NewCompactionMergingIterator(iters, true, 7)
 	require.NoError(t, err)
 	expectEntries(t, mi, 0, 10, 1, 21, 2, 32, 2, -1, 2, 12, 3, 33, 3, 13, 3, -1)
+}
+
+func TestMergingIteratorPrefixTombstoneDoNotPreserve(t *testing.T) {
+	iter1 := &StaticIterator{}
+	iter1.AddKVAsStringWithVersion("a/", "val1", 1)
+	iter1.AddKVAsStringWithVersion("a/b", "val2", 1)
+	iter1.AddKVAsStringWithVersion("a/c", "val3", 1)
+	iter1.AddKVAsStringWithVersion("a/c/a", "val4", 1)
+	iter1.AddKVAsStringWithVersion("a/c/a/b", "val5", 1)
+	iter1.AddKVAsStringWithVersion("a/d/a", "val7", 1)
+	iter1.AddKVAsStringWithVersion("a/d/a/b", "val8", 1)
+
+	iter2 := &StaticIterator{}
+	iter2.AddKVAsStringWithVersion("a/c", "", math.MaxUint64)
+	iter2.AddKVAsStringWithVersion("a/d/0", "x", math.MaxUint64)
+
+	iters := []Iterator{iter2, iter1}
+	mi, err := NewMergingIterator(iters, false, 2)
+	require.NoError(t, err)
+
+	requireEntry(t, mi, "a/", "val1", false)
+	requireEntry(t, mi, "a/b", "val2", false)
+	requireEntry(t, mi, "a/d/a", "val7", false)
+	requireEntry(t, mi, "a/d/a/b", "val8", false)
+}
+
+func TestMergingIteratorPrefixTombstonePreserveTombstones(t *testing.T) {
+	iter1 := &StaticIterator{}
+	iter1.AddKVAsStringWithVersion("a/", "val1", 1)
+	iter1.AddKVAsStringWithVersion("a/b", "val2", 1)
+	iter1.AddKVAsStringWithVersion("a/c", "val3", 1)
+	iter1.AddKVAsStringWithVersion("a/c/a", "val4", 1)
+	iter1.AddKVAsStringWithVersion("a/c/a/b", "val5", 1)
+	iter1.AddKVAsStringWithVersion("a/c/a/b/c", "val6", 1)
+	iter1.AddKVAsStringWithVersion("a/d/a", "val8", 1)
+	iter1.AddKVAsStringWithVersion("a/d/a/b", "val9", 1)
+
+	iter2 := &StaticIterator{}
+	iter2.AddKVAsStringWithVersion("a/c", "", math.MaxUint64)
+	iter2.AddKVAsStringWithVersion("a/d/0", "x", math.MaxUint64)
+
+	iters := []Iterator{iter2, iter1}
+	mi, err := NewMergingIterator(iters, true, 1)
+	require.NoError(t, err)
+
+	requireEntry(t, mi, "a/", "val1", false)
+	requireEntry(t, mi, "a/b", "val2", false)
+
+	requireEntry(t, mi, "a/c", "", false)
+	requireEntry(t, mi, "a/d/0", "x", false)
+
+	requireEntry(t, mi, "a/d/a", "val8", false)
+	requireEntry(t, mi, "a/d/a/b", "val9", true)
+}
+
+func requireEntry(t *testing.T, iter Iterator, expectedKey string, expectedVal string, last bool) {
+	requireIterValid(t, iter, true)
+	curr := iter.Current()
+	require.Equal(t, expectedKey, string(curr.Key[:len(curr.Key)-8]))
+	require.Equal(t, expectedVal, string(curr.Value))
+	if !last {
+		require.NoError(t, iter.Next())
+	}
 }
 
 func expectEntry(t *testing.T, iter Iterator, expKey int, expVal int) {

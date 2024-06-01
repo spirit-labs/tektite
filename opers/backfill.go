@@ -32,6 +32,7 @@ type BackfillOperator struct {
 	stopped              bool
 	storeCommittedAsync  bool
 	timers               sync.Map
+	hashCache            *partitionHashCache
 }
 
 // Always accessed from same GR apart from the closed atomic bool
@@ -70,11 +71,13 @@ func NewBackfillOperator(schema *OperatorSchema, store store, cfg *conf.Config, 
 		maxBackfillBatchSize: maxBackfillBatchSize,
 		receiverID:           receiverID,
 		storeCommittedAsync:  storeCommittedAsync,
+		hashCache:            newPartitionHashCache(schema.MappingID, schema.Partitions),
 	}
 }
 
 func (b *BackfillOperator) storeCommittedOffSetForPartition(partititionID int, offset int64, execCtx StreamExecContext) {
-	key := encoding.EncodeEntryPrefix(common.BackfillOffsetSlabID, 0, 48)
+	partitionHash := b.hashCache.getHash(execCtx.PartitionID())
+	key := encoding.EncodeEntryPrefix(partitionHash, common.BackfillOffsetSlabID, 56)
 	key = encoding.AppendUint64ToBufferBE(key, uint64(b.fromSlabID))
 	key = encoding.AppendUint64ToBufferBE(key, uint64(b.receiverID))
 	key = encoding.AppendUint64ToBufferBE(key, uint64(partititionID))
@@ -338,10 +341,11 @@ func (b *BackfillOperator) initialiseIterator(execCtx StreamExecContext, info *i
 }
 
 func (b *BackfillOperator) initialiseIteratorAtOffset(partID int, offset int64, info *iteratorInfo) error {
-	keyStart := encoding.EncodeEntryPrefix(uint64(b.fromSlabID), uint64(partID), 25)
+	partitionHash := b.hashCache.getHash(partID)
+	keyStart := encoding.EncodeEntryPrefix(partitionHash, uint64(b.fromSlabID), 33)
 	keyStart = append(keyStart, 1) // not null
 	keyStart = encoding.KeyEncodeInt(keyStart, offset)
-	keyEnd := encoding.EncodeEntryPrefix(uint64(b.fromSlabID), uint64(partID+1), 16)
+	keyEnd := encoding.EncodeEntryPrefix(partitionHash, uint64(b.fromSlabID)+1, 32)
 	iter, err := b.store.NewIterator(keyStart, keyEnd, math.MaxInt64, false)
 	if err != nil {
 		return err
@@ -354,7 +358,8 @@ func (b *BackfillOperator) initialiseIteratorAtOffset(partID int, offset int64, 
 }
 
 func (b *BackfillOperator) loadCommittedOffsetForPartition(execCtx StreamExecContext) (int64, bool, error) {
-	key := encoding.EncodeEntryPrefix(common.BackfillOffsetSlabID, 0, 40)
+	partitionHash := b.hashCache.getHash(execCtx.PartitionID())
+	key := encoding.EncodeEntryPrefix(partitionHash, common.BackfillOffsetSlabID, 40)
 	key = encoding.AppendUint64ToBufferBE(key, uint64(b.fromSlabID))
 	key = encoding.AppendUint64ToBufferBE(key, uint64(b.receiverID))
 	key = encoding.AppendUint64ToBufferBE(key, uint64(execCtx.PartitionID()))
@@ -392,7 +397,7 @@ func (b *BackfillOperator) loadBatchForPartition(partID int) (*evbatch.Batch, er
 			break
 		}
 		curr := info.iter.Current()
-		k, _ := encoding.KeyDecodeInt(curr.Key, 17) // 17 as 1 byte null marker before offset
+		k, _ := encoding.KeyDecodeInt(curr.Key, 25) // 17 as 1 byte null marker before offset
 		lastLoadedOffset = k
 		colBuilders[0].(*evbatch.IntColBuilder).Append(k)
 		buff := curr.Value

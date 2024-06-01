@@ -10,7 +10,6 @@ import (
 	iteration2 "github.com/spirit-labs/tektite/iteration"
 	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/objstore"
-	"github.com/spirit-labs/tektite/retention"
 	"github.com/spirit-labs/tektite/sst"
 	"github.com/spirit-labs/tektite/tabcache"
 	"sync"
@@ -19,12 +18,13 @@ import (
 )
 
 func NewCompactionWorkerService(cfg *conf.Config, levelMgrClientFactory ClientFactory, tableCache *tabcache.Cache,
-	objStoreClient objstore.Client) *CompactionWorkerService {
+	objStoreClient objstore.Client, retentions bool) *CompactionWorkerService {
 	return &CompactionWorkerService{
 		cfg:                   cfg,
 		levelMgrClientFactory: levelMgrClientFactory,
 		tableCache:            tableCache,
 		objStoreClient:        objStoreClient,
+		retentions:            retentions,
 	}
 }
 
@@ -37,6 +37,7 @@ type CompactionWorkerService struct {
 	started               bool
 	lock                  sync.Mutex
 	gotPrefixRetentions   bool
+	retentions            bool
 }
 
 const workerRetryInterval = 500 * time.Millisecond
@@ -49,8 +50,9 @@ func (c *CompactionWorkerService) Start() error {
 	}
 	for i := 0; i < c.cfg.CompactionWorkerCount; i++ {
 		worker := &compactionWorker{
-			cws:    c,
-			client: c.levelMgrClientFactory.CreateLevelManagerClient(),
+			cws:            c,
+			client:         c.levelMgrClientFactory.CreateLevelManagerClient(),
+			slabRetentions: map[int]time.Duration{},
 		}
 		c.workers = append(c.workers, worker)
 		worker.start()
@@ -84,10 +86,25 @@ func (c *CompactionWorkerService) Stop() error {
 }
 
 type compactionWorker struct {
-	cws     *CompactionWorkerService
-	started atomic.Bool
-	stopWg  sync.WaitGroup
-	client  Client
+	cws            *CompactionWorkerService
+	started        atomic.Bool
+	stopWg         sync.WaitGroup
+	client         Client
+	slabRetentions map[int]time.Duration
+}
+
+func (c *compactionWorker) GetSlabRetention(slabID int) (time.Duration, error) {
+	// we cache the slab retentions
+	ret, ok := c.slabRetentions[slabID]
+	if ok {
+		return ret, nil
+	}
+	ret, err := c.client.GetSlabRetention(slabID)
+	if err != nil {
+		return 0, err
+	}
+	c.slabRetentions[slabID] = ret
+	return ret, nil
 }
 
 func (c *compactionWorker) start() {
@@ -169,6 +186,7 @@ func (c *compactionWorker) processJob(job *CompactionJob) ([]RegistrationEntry, 
 	for _, overlapping := range job.tables {
 		tablesInMerge += len(overlapping)
 	}
+	var maxAddedTime uint64
 	tablesToMerge := make([][]tableToMerge, len(job.tables))
 	for i, overlapping := range job.tables {
 		tables := make([]tableToMerge, len(overlapping))
@@ -182,17 +200,24 @@ func (c *compactionWorker) processJob(job *CompactionJob) ([]RegistrationEntry, 
 					string(t.table.SSTableID))
 			}
 			tables[j] = tableToMerge{
-				prefixRetentions:  t.expiredPrefixes,
 				deadVersionRanges: t.deadVersionRanges,
 				sst:               ssTable,
 				id:                t.table.SSTableID,
+			}
+			if t.table.AddedTime > maxAddedTime {
+				// We compute the maxAddedTime time - this is used for the AddedTime of any new sstables created.
+				maxAddedTime = t.table.AddedTime
 			}
 		}
 		tablesToMerge[i] = tables
 	}
 	mergeStart := time.Now()
+	var retProvider RetentionProvider
+	if c.cws.retentions {
+		retProvider = c
+	}
 	infos, err := mergeSSTables(common.DataFormatV1, tablesToMerge, job.preserveTombstones,
-		c.cws.cfg.CompactionMaxSSTableSize, job.lastFlushedVersion, job.id)
+		c.cws.cfg.CompactionMaxSSTableSize, job.lastFlushedVersion, job.id, retProvider, job.serverTime)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -226,14 +251,16 @@ func (c *compactionWorker) processJob(job *CompactionJob) ([]RegistrationEntry, 
 	var tableEntries []TableEntry
 	for i, info := range infos {
 		tableEntries = append(tableEntries, TableEntry{
-			SSTableID:   ids[i],
-			RangeStart:  info.rangeStart,
-			RangeEnd:    info.rangeEnd,
-			MinVersion:  info.minVersion,
-			MaxVersion:  info.maxVersion,
-			DeleteRatio: info.deleteRatio,
-			NumEntries:  uint64(info.sst.NumEntries()),
-			Size:        uint64(info.sst.SizeBytes()),
+			SSTableID:        ids[i],
+			RangeStart:       info.rangeStart,
+			RangeEnd:         info.rangeEnd,
+			MinVersion:       info.minVersion,
+			MaxVersion:       info.maxVersion,
+			DeleteRatio:      info.deleteRatio,
+			NumEntries:       uint64(info.sst.NumEntries()),
+			Size:             uint64(info.sst.SizeBytes()),
+			AddedTime:        maxAddedTime,
+			NumPrefixDeletes: info.numPrefixDeletes,
 		})
 		log.Debugf("compaction %s created table %v delete ratio %f preserve tombstones %t", job.id, ids[i], info.deleteRatio,
 			job.preserveTombstones)
@@ -248,30 +275,33 @@ func changesToApply(newTables []TableEntry, job *CompactionJob) ([]RegistrationE
 	var registrations []RegistrationEntry
 	for _, newTable := range newTables {
 		registrations = append(registrations, RegistrationEntry{
-			Level:       job.levelFrom + 1,
-			TableID:     newTable.SSTableID,
-			KeyStart:    newTable.RangeStart,
-			KeyEnd:      newTable.RangeEnd,
-			MinVersion:  newTable.MinVersion,
-			MaxVersion:  newTable.MaxVersion,
-			DeleteRatio: newTable.DeleteRatio,
-			NumEntries:  newTable.NumEntries,
-			TableSize:   newTable.Size,
+			Level:            job.levelFrom + 1,
+			TableID:          newTable.SSTableID,
+			KeyStart:         newTable.RangeStart,
+			KeyEnd:           newTable.RangeEnd,
+			MinVersion:       newTable.MinVersion,
+			MaxVersion:       newTable.MaxVersion,
+			DeleteRatio:      newTable.DeleteRatio,
+			NumEntries:       newTable.NumEntries,
+			TableSize:        newTable.Size,
+			AddedTime:        newTable.AddedTime,
+			NumPrefixDeletes: newTable.NumPrefixDeletes,
 		})
 	}
 	var deRegistrations []RegistrationEntry
 	for _, overlapping := range job.tables {
 		for _, ssTable := range overlapping {
 			deRegistrations = append(deRegistrations, RegistrationEntry{
-				Level:       ssTable.level,
-				TableID:     ssTable.table.SSTableID,
-				KeyStart:    ssTable.table.RangeStart,
-				KeyEnd:      ssTable.table.RangeEnd,
-				MinVersion:  ssTable.table.MinVersion,
-				MaxVersion:  ssTable.table.MaxVersion,
-				DeleteRatio: ssTable.table.DeleteRatio,
-				NumEntries:  ssTable.table.NumEntries,
-				TableSize:   ssTable.table.Size,
+				Level:            ssTable.level,
+				TableID:          ssTable.table.SSTableID,
+				KeyStart:         ssTable.table.RangeStart,
+				KeyEnd:           ssTable.table.RangeEnd,
+				MinVersion:       ssTable.table.MinVersion,
+				MaxVersion:       ssTable.table.MaxVersion,
+				DeleteRatio:      ssTable.table.DeleteRatio,
+				NumEntries:       ssTable.table.NumEntries,
+				TableSize:        ssTable.table.Size,
+				NumPrefixDeletes: ssTable.table.NumPrefixDeletes,
 			})
 		}
 	}
@@ -295,8 +325,7 @@ func (c *compactionWorker) moveTables(tables []tableToCompact, fromLevel int, pr
 				DeleteRatio: tableToCompact.table.DeleteRatio,
 				NumEntries:  tableToCompact.table.NumEntries,
 				TableSize:   tableToCompact.table.Size,
-				// Note we do not set CreationTime as this is only used for newly added tables in order to determine
-				// retention
+				AddedTime:   tableToCompact.table.AddedTime,
 			})
 		}
 	}
@@ -316,14 +345,13 @@ func (c *compactionWorker) moveTables(tables []tableToCompact, fromLevel int, pr
 }
 
 type tableToMerge struct {
-	prefixRetentions  []retention.PrefixRetention
 	deadVersionRanges []VersionRange
 	sst               *sst.SSTable
 	id                sst.SSTableID
 }
 
 func mergeSSTables(format common.DataFormat, tables [][]tableToMerge, preserveTombstones bool, maxTableSize int,
-	lastFlushedVersion int64, jobID string) ([]ssTableInfo, error) {
+	lastFlushedVersion int64, jobID string, retentionProvider RetentionProvider, serverTime uint64) ([]ssTableInfo, error) {
 
 	totEntries := 0
 	totDataSize := 0
@@ -338,14 +366,9 @@ func mergeSSTables(format common.DataFormat, tables [][]tableToMerge, preserveTo
 			if len(table.deadVersionRanges) > 0 {
 				sstIter = NewRemoveDeadVersionsIterator(sstIter, table.deadVersionRanges)
 			}
-			if len(table.prefixRetentions) > 0 {
-				// We pass in zero for creationTime and now, as we know that all the prefix retentions will have retention
-				// set to zero anyway (expiration is calculated on the level manager),
-				// so they are not used in the iterator
-				sstIter = NewRemoveExpiredEntriesIterator(sstIter, table.prefixRetentions,
-					0, 0)
+			if retentionProvider != nil {
+				sstIter = NewRemoveExpiredEntriesIterator(sstIter, table.sst.CreationTime(), serverTime, retentionProvider)
 			}
-
 			sourceIters[j] = sstIter
 
 			if err != nil {
@@ -396,12 +419,13 @@ func mergeSSTables(format common.DataFormat, tables [][]tableToMerge, preserveTo
 			return nil, err
 		}
 		outTables = append(outTables, ssTableInfo{
-			sst:         ssTable,
-			rangeStart:  smallestKey,
-			rangeEnd:    largestKey,
-			minVersion:  minVersion,
-			maxVersion:  maxVersion,
-			deleteRatio: ssTable.DeleteRatio(),
+			sst:              ssTable,
+			rangeStart:       smallestKey,
+			rangeEnd:         largestKey,
+			minVersion:       minVersion,
+			maxVersion:       maxVersion,
+			deleteRatio:      ssTable.DeleteRatio(),
+			numPrefixDeletes: uint32(ssTable.NumPrefixDeletes()),
 		})
 		totMergedEntries += ssTable.NumEntries()
 	}
