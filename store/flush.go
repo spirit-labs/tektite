@@ -24,8 +24,8 @@ type flushQueueEntry struct {
 	memtable             *mem.Memtable
 	tableInfo            *ssTableInfo
 	lastCompletedVersion int64
-	minVersion           int64
-	maxVersion           int64
+	minVersion           uint64
+	maxVersion           uint64
 }
 
 type FmtEntry struct {
@@ -73,8 +73,8 @@ func (s *Store) buildSSTable(entry *flushQueueEntry) error {
 		smallestKey: smallestKey,
 		ssTable:     ssTable,
 	}
-	entry.minVersion = int64(minVersion)
-	entry.maxVersion = int64(maxVersion)
+	entry.minVersion = minVersion
+	entry.maxVersion = maxVersion
 	if minVersion == 0 && maxVersion == 0 {
 		log.Warnf("building sstable from memtable %s min and max version is zero", entry.memtable.Uuid)
 	}
@@ -137,9 +137,7 @@ func (s *Store) maybeFlushSSTables() error {
 			if err := s.buildSSTable(entry); err != nil {
 				return err
 			}
-			if entry.maxVersion == -1 {
-				panic("invalid max version")
-			}
+
 			// Push and register the SSTable
 			id := []byte(fmt.Sprintf("sst-%s", uuid.New().String()))
 			tableBytes := entry.tableInfo.ssTable.Serialize()

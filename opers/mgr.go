@@ -19,6 +19,7 @@ import (
 	"github.com/spirit-labs/tektite/proc"
 	"github.com/spirit-labs/tektite/retention"
 	"github.com/spirit-labs/tektite/types"
+	"math"
 	"reflect"
 	"sort"
 	"strings"
@@ -162,8 +163,8 @@ type streamManager struct {
 	lastCommandID          int64
 }
 
-func (pm *streamManager) GetIngestedMessageCount() int {
-	return int(atomic.LoadUint64(&pm.ingestedMessageCount))
+func (sm *streamManager) GetIngestedMessageCount() int {
+	return int(atomic.LoadUint64(&sm.ingestedMessageCount))
 }
 
 type StreamInfo struct {
@@ -285,53 +286,53 @@ func validateStream(streamDesc *parser.CreateStreamDesc) error {
 	return nil
 }
 
-func (pm *streamManager) SetProcessorManager(procMgr ProcessorManager) {
-	pm.lock.Lock()
-	defer pm.lock.Unlock()
-	pm.processorManager = procMgr
+func (sm *streamManager) SetProcessorManager(procMgr ProcessorManager) {
+	sm.lock.Lock()
+	defer sm.lock.Unlock()
+	sm.processorManager = procMgr
 }
 
-func (pm *streamManager) PrepareForShutdown() {
-	pm.shutdownLock.Lock()
-	defer pm.shutdownLock.Unlock()
-	pm.shuttingDown = true
+func (sm *streamManager) PrepareForShutdown() {
+	sm.shutdownLock.Lock()
+	defer sm.shutdownLock.Unlock()
+	sm.shuttingDown = true
 }
 
-func (pm *streamManager) StreamCount() int {
-	pm.lock.Lock()
-	defer pm.lock.Unlock()
-	return len(pm.streams) - pm.sysStreamCount // we don't count the system ones
+func (sm *streamManager) StreamCount() int {
+	sm.lock.Lock()
+	defer sm.lock.Unlock()
+	return len(sm.streams) - sm.sysStreamCount // we don't count the system ones
 }
 
-func (pm *streamManager) RegisterChangeListener(listener func(string, bool)) {
-	pm.lock.Lock()
-	defer pm.lock.Unlock()
-	pm.changeListeners = append(pm.changeListeners, listener)
+func (sm *streamManager) RegisterChangeListener(listener func(string, bool)) {
+	sm.lock.Lock()
+	defer sm.lock.Unlock()
+	sm.changeListeners = append(sm.changeListeners, listener)
 }
 
-func (pm *streamManager) callChangeListeners(streamName string, deployed bool) {
-	for _, listener := range pm.changeListeners {
+func (sm *streamManager) callChangeListeners(streamName string, deployed bool) {
+	for _, listener := range sm.changeListeners {
 		listener(streamName, deployed)
 	}
 }
 
-func (pm *streamManager) DeployStream(streamDesc parser.CreateStreamDesc, receiverSequences []int,
+func (sm *streamManager) DeployStream(streamDesc parser.CreateStreamDesc, receiverSequences []int,
 	slabSequences []int, tsl string, commandID int64) error {
 	if isReservedIdentifierName(streamDesc.StreamName) {
 		return statementErrorAtTokenNamef(streamDesc.StreamName, &streamDesc, "stream name '%s' is a reserved name", streamDesc.StreamName)
 	}
-	_, exists := pm.streams[streamDesc.StreamName]
+	_, exists := sm.streams[streamDesc.StreamName]
 	if exists {
 		return statementErrorAtTokenNamef(streamDesc.StreamName, &streamDesc, "stream '%s' already exists", streamDesc.StreamName)
 	}
 	if err := validateStream(&streamDesc); err != nil {
 		return err
 	}
-	streamDesc = pm.maybeRewriteDesc(streamDesc)
-	return pm.deployStream(streamDesc, receiverSequences, slabSequences, tsl, commandID)
+	streamDesc = sm.maybeRewriteDesc(streamDesc)
+	return sm.deployStream(streamDesc, receiverSequences, slabSequences, tsl, commandID)
 }
 
-func (pm *streamManager) maybeRewriteDesc(streamDesc parser.CreateStreamDesc) parser.CreateStreamDesc {
+func (sm *streamManager) maybeRewriteDesc(streamDesc parser.CreateStreamDesc) parser.CreateStreamDesc {
 	var descs []parser.Parseable
 	for _, desc := range streamDesc.OperatorDescs {
 		topicDesc, ok := desc.(*parser.TopicDesc)
@@ -356,16 +357,16 @@ func (pm *streamManager) maybeRewriteDesc(streamDesc parser.CreateStreamDesc) pa
 	return streamDesc
 }
 
-func (pm *streamManager) deployStream(streamDesc parser.CreateStreamDesc, receiverSequences []int,
+func (sm *streamManager) deployStream(streamDesc parser.CreateStreamDesc, receiverSequences []int,
 	slabSequences []int, tsl string, commandID int64) error {
 	log.Debugf("deploying stream %s", streamDesc.StreamName)
-	pm.shutdownLock.Lock()
-	defer pm.shutdownLock.Unlock()
-	if pm.shuttingDown {
+	sm.shutdownLock.Lock()
+	defer sm.shutdownLock.Unlock()
+	if sm.shuttingDown {
 		return errors.NewTektiteErrorf(errors.ShutdownError, "cluster is shutting down")
 	}
-	pm.lock.Lock()
-	defer pm.lock.Unlock()
+	sm.lock.Lock()
+	defer sm.lock.Unlock()
 	var operators []Operator
 	var prevOperator Operator
 	var kafkaEndpointInfo *KafkaEndpointInfo
@@ -380,7 +381,7 @@ func (pm *streamManager) deployStream(streamDesc parser.CreateStreamDesc, receiv
 		var err error
 		switch op := desc.(type) {
 		case *TestSourceDesc:
-			partitionScheme := NewPartitionScheme(streamDesc.StreamName, op.Partitions, false, pm.cfg.ProcessorCount)
+			partitionScheme := NewPartitionScheme(streamDesc.StreamName, op.Partitions, false, sm.cfg.ProcessorCount)
 			operSchema := &OperatorSchema{
 				EventSchema:     evbatch.NewEventSchema(op.ColumnNames, op.ColumnTypes),
 				PartitionScheme: partitionScheme,
@@ -389,42 +390,42 @@ func (pm *streamManager) deployStream(streamDesc parser.CreateStreamDesc, receiv
 				schema: operSchema,
 			}
 		case *parser.BridgeFromDesc:
-			oper, err = pm.deployBridgeFromOperator(streamDesc.StreamName, op, receiverSliceSeqs, slabSliceSeqs, extraSlabInfos)
+			oper, err = sm.deployBridgeFromOperator(streamDesc.StreamName, op, receiverSliceSeqs, slabSliceSeqs, extraSlabInfos)
 		case *parser.BridgeToDesc:
-			oper, prefixRetentions, userSlab, err = pm.deployBridgeToOperator(streamDesc.StreamName, op, prevOperator, receiverSliceSeqs,
+			oper, prefixRetentions, userSlab, err = sm.deployBridgeToOperator(streamDesc.StreamName, op, prevOperator, receiverSliceSeqs,
 				slabSliceSeqs, extraSlabInfos, prefixRetentions)
 		case *parser.KafkaInDesc:
-			oper, kafkaEndpointInfo, err = pm.deployKafkaInOperator(streamDesc.StreamName, op, receiverSliceSeqs,
+			oper, kafkaEndpointInfo, err = sm.deployKafkaInOperator(streamDesc.StreamName, op, receiverSliceSeqs,
 				slabSliceSeqs)
 		case *parser.KafkaOutDesc:
-			oper, prefixRetentions, userSlab, err = pm.deployKafkaOutOperator(streamDesc.StreamName, op,
+			oper, prefixRetentions, userSlab, err = sm.deployKafkaOutOperator(streamDesc.StreamName, op,
 				prevOperator, kafkaEndpointInfo, slabSliceSeqs, extraSlabInfos, prefixRetentions)
 		case *parser.FilterDesc:
-			oper, err = NewFilterOperator(prevOperator.OutSchema(), op.Expr, pm.expressionFactory)
+			oper, err = NewFilterOperator(prevOperator.OutSchema(), op.Expr, sm.expressionFactory)
 		case *parser.ProjectDesc:
-			oper, err = NewProjectOperator(prevOperator.OutSchema(), op.Expressions, true, pm.expressionFactory)
+			oper, err = NewProjectOperator(prevOperator.OutSchema(), op.Expressions, true, sm.expressionFactory)
 		case *parser.PartitionDesc:
-			oper, err = pm.deployPartitionOperator(op, prevOperator, receiverSliceSeqs)
+			oper, err = sm.deployPartitionOperator(op, prevOperator, receiverSliceSeqs)
 		case *parser.AggregateDesc:
-			oper, prefixRetentions, userSlab, err = pm.deployAggregateOperator(streamDesc.StreamName, op, prevOperator,
-				slabSliceSeqs, receiverSliceSeqs, prefixRetentions, pm.stor, extraSlabInfos)
+			oper, prefixRetentions, userSlab, err = sm.deployAggregateOperator(streamDesc.StreamName, op, prevOperator,
+				slabSliceSeqs, receiverSliceSeqs, prefixRetentions, sm.stor, extraSlabInfos)
 		case *parser.StoreStreamDesc:
-			oper, prefixRetentions, userSlab, err = pm.deployStoreStreamOperator(streamDesc.StreamName, op,
+			oper, prefixRetentions, userSlab, err = sm.deployStoreStreamOperator(streamDesc.StreamName, op,
 				prevOperator, slabSliceSeqs, extraSlabInfos, prefixRetentions)
 		case *parser.StoreTableDesc:
-			oper, prefixRetentions, userSlab, err = pm.deployStoreTableOperator(streamDesc.StreamName, op, prevOperator,
+			oper, prefixRetentions, userSlab, err = sm.deployStoreTableOperator(streamDesc.StreamName, op, prevOperator,
 				slabSliceSeqs, prefixRetentions)
 		case *parser.BackfillDesc:
-			oper, err = pm.deployBackfillOperator(operators, receiverSliceSeqs, op)
+			oper, err = sm.deployBackfillOperator(operators, receiverSliceSeqs, op)
 		case *parser.JoinDesc:
 			var deferredWiring func(info *StreamInfo)
-			oper, extraSlabInfos, prefixRetentions, deferredWiring, err = pm.deployJoinOperator(streamDesc.StreamName, op, receiverSliceSeqs,
+			oper, extraSlabInfos, prefixRetentions, deferredWiring, err = sm.deployJoinOperator(streamDesc.StreamName, op, receiverSliceSeqs,
 				slabSliceSeqs, extraSlabInfos, prefixRetentions)
 			if err == nil {
 				deferredWirings = append(deferredWirings, deferredWiring)
 			}
 		case *parser.ContinuationDesc:
-			upstreamStream, ok := pm.streams[op.ParentStreamName]
+			upstreamStream, ok := sm.streams[op.ParentStreamName]
 			if !ok {
 				return statementErrorAtTokenNamef(op.ParentStreamName, op, "unknown parent stream '%s'",
 					op.ParentStreamName)
@@ -439,12 +440,12 @@ func (pm *streamManager) deployStream(streamDesc parser.CreateStreamDesc, receiv
 				info.UpstreamStreamNames[upstreamStream.StreamDesc.StreamName] = oper
 				upstreamStream.DownstreamStreamNames[streamDesc.StreamName] = struct{}{}
 				upstreamLastOper.AddDownStreamOperator(oper)
-				pm.storeStreamMeta(upstreamStream)
+				sm.storeStreamMeta(upstreamStream)
 			}
 			deferredWirings = append(deferredWirings, deferredWiring)
 		case *parser.UnionDesc:
 			var deferredWiring func(info *StreamInfo)
-			oper, deferredWiring, err = pm.deployUnionOperator(streamDesc.StreamName, op, receiverSliceSeqs)
+			oper, deferredWiring, err = sm.deployUnionOperator(streamDesc.StreamName, op, receiverSliceSeqs)
 			deferredWirings = append(deferredWirings, deferredWiring)
 		default:
 			panic("unexpected operator")
@@ -481,36 +482,36 @@ func (pm *streamManager) deployStream(streamDesc parser.CreateStreamDesc, receiv
 			nextOper := operators[i+1]
 			oper.AddDownStreamOperator(nextOper)
 		}
-		if pm.loaded {
-			if err := oper.Setup(pm); err != nil {
+		if sm.loaded {
+			if err := oper.Setup(sm); err != nil {
 				return err
 			}
 		}
 	}
-	pm.streams[streamDesc.StreamName] = info
+	sm.streams[streamDesc.StreamName] = info
 	if kafkaEndpointInfo != nil {
-		pm.kafkaEndpoints[streamDesc.StreamName] = kafkaEndpointInfo
+		sm.kafkaEndpoints[streamDesc.StreamName] = kafkaEndpointInfo
 	}
-	pm.invalidateCachedInfo()
+	sm.invalidateCachedInfo()
 	for _, prefixRetention := range prefixRetentions {
-		pm.prefixRetentionService.AddPrefixRetention(prefixRetention)
+		sm.prefixRetentionService.AddPrefixRetention(prefixRetention)
 	}
 	for _, deferred := range deferredWirings {
 		deferred(info)
 	}
-	pm.storeStreamMeta(info)
-	pm.lastCommandID = commandID
-	if pm.loaded {
-		pm.calculateInjectableReceivers()
+	sm.storeStreamMeta(info)
+	sm.lastCommandID = commandID
+	if sm.loaded {
+		sm.calculateInjectableReceivers()
 	}
-	pm.callChangeListeners(streamDesc.StreamName, true)
-	if pm.loaded {
-		pm.processorManager.AfterReceiverChange() // Must be outside of lock
+	sm.callChangeListeners(streamDesc.StreamName, true)
+	if sm.loaded {
+		sm.processorManager.AfterReceiverChange() // Must be outside of lock
 	}
 	return nil
 }
 
-func (pm *streamManager) deployBridgeFromOperator(streamName string, op *parser.BridgeFromDesc,
+func (sm *streamManager) deployBridgeFromOperator(streamName string, op *parser.BridgeFromDesc,
 	receiverSliceSeqs *sliceSeq, slabSliceSeqs *sliceSeq, extraSlabInfos map[string]*SlabInfo) (*BridgeFromOperator, error) {
 	receiverID := receiverSliceSeqs.GetNextID()
 	var pollTimeout = defaultPollTimeout
@@ -529,19 +530,21 @@ func (pm *streamManager) deployBridgeFromOperator(streamName string, op *parser.
 	}
 	dedupSlabID := slabSliceSeqs.GetNextID()
 
+	bf, err := NewBridgeFromOperator(receiverID, pollTimeout, maxPollMessages, op.TopicName, op.Partitions,
+		op.Props, sm.messageClientFactory, sm.disableIngest,
+		sm.stor, sm.processorManager, dedupSlabID, sm.cfg, &sm.ingestedMessageCount, getMappingID(), &sm.ingestEnabled,
+		&sm.lastFlushedVersion)
+	if err != nil {
+		return nil, err
+	}
 	extraSlabInfos[fmt.Sprintf("dedup-bridge-from-%s-%d", streamName, dedupSlabID)] =
 		&SlabInfo{
 			StreamName: streamName,
 			SlabID:     dedupSlabID,
 			Type:       SlabTypeInternal,
+			Schema:     bf.OutSchema(),
 		}
-	bf, err := NewBridgeFromOperator(receiverID, pollTimeout, maxPollMessages, op.TopicName, op.Partitions,
-		op.Props, pm.messageClientFactory, pm.disableIngest,
-		pm.stor, pm.processorManager, dedupSlabID, pm.cfg, &pm.ingestedMessageCount, getMappingID(), &pm.ingestEnabled,
-		&pm.lastFlushedVersion)
-	if err != nil {
-		return nil, err
-	}
+
 	wmType, wmLateness, wmIdleTimeout, err := defaultWatermarkArgs(op.WatermarkType, op.WatermarkLateness,
 		op.WatermarkIdleTimeout, op)
 	if err != nil {
@@ -549,7 +552,7 @@ func (pm *streamManager) deployBridgeFromOperator(streamName string, op *parser.
 	}
 	watermarkOperator := NewWaterMarkOperator(bf.InSchema(), wmType, wmLateness, wmIdleTimeout)
 	bf.watermarkOperator = watermarkOperator
-	pm.bridgeFromOpers[bf] = struct{}{}
+	sm.bridgeFromOpers[bf] = struct{}{}
 	return bf, nil
 }
 
@@ -573,7 +576,7 @@ func defaultWatermarkArgs(wmType *string, wmLateness *time.Duration, wmIdleTimeo
 	return wType, lateness, idleTimeout, nil
 }
 
-func (pm *streamManager) deployBridgeToOperator(streamName string, op *parser.BridgeToDesc, prevOperator Operator,
+func (sm *streamManager) deployBridgeToOperator(streamName string, op *parser.BridgeToDesc, prevOperator Operator,
 	receiverSliceSeqs *sliceSeq, slabSliceSeqs *sliceSeq, extraSlabInfos map[string]*SlabInfo,
 	prefixRetentions []retention.PrefixRetention) (*BridgeToOperator,
 	[]retention.PrefixRetention, *SlabInfo, error) {
@@ -593,6 +596,7 @@ func (pm *streamManager) deployBridgeToOperator(streamName string, op *parser.Br
 				StreamName: streamName,
 				SlabID:     offsetsSlabID,
 				Type:       SlabTypeInternal,
+				Schema:     prevOperator.OutSchema(),
 			}
 	}
 	var ret time.Duration
@@ -601,7 +605,7 @@ func (pm *streamManager) deployBridgeToOperator(streamName string, op *parser.Br
 	} else {
 		ret = 24 * time.Hour
 	}
-	sso, prefixRetentions, userSlabInfo, err := pm.setupStoreStreamOperator(streamName, ret, prevOperator.OutSchema(),
+	sso, prefixRetentions, userSlabInfo, err := sm.setupStoreStreamOperator(streamName, ret, prevOperator.OutSchema(),
 		slabID, offsetsSlabID, prefixRetentions)
 	if err != nil {
 		return nil, nil, nil, err
@@ -611,8 +615,8 @@ func (pm *streamManager) deployBridgeToOperator(streamName string, op *parser.Br
 		prefixRetentions = append(prefixRetentions, *prefRetention)
 	}
 	backfillReceiverID := receiverSliceSeqs.GetNextID()
-	bfo := NewBackfillOperator(sso.OutSchema(), pm.stor, pm.cfg, slabID, pm.cfg.MaxBackfillBatchSize, backfillReceiverID, true)
-	bt, err := NewBridgeToOperator(op, sso, bfo, pm.messageClientFactory)
+	bfo := NewBackfillOperator(sso.OutSchema(), sm.stor, sm.cfg, slabID, sm.cfg.MaxBackfillBatchSize, backfillReceiverID, true)
+	bt, err := NewBridgeToOperator(op, sso, bfo, sm.messageClientFactory)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -630,12 +634,12 @@ func getMappingID() string {
 	return "_default_"
 }
 
-func (pm *streamManager) deployKafkaInOperator(streamName string, op *parser.KafkaInDesc,
+func (sm *streamManager) deployKafkaInOperator(streamName string, op *parser.KafkaInDesc,
 	receiverSliceSeqs *sliceSeq, slabSliceSeqs *sliceSeq) (Operator, *KafkaEndpointInfo, error) {
 	receiverID := receiverSliceSeqs.GetNextID()
 	offsetsSlabID := slabSliceSeqs.GetNextID()
-	kafkaIn := NewKafkaInOperator(getMappingID(), pm.stor, offsetsSlabID, receiverID,
-		op.Partitions, pm.cfg.KafkaUseServerTimestamp, pm.cfg.ProcessorCount)
+	kafkaIn := NewKafkaInOperator(getMappingID(), sm.stor, offsetsSlabID, receiverID,
+		op.Partitions, sm.cfg.KafkaUseServerTimestamp, sm.cfg.ProcessorCount)
 	wmType, wmLateness, wmIdleTimeout, err := defaultWatermarkArgs(op.WatermarkType, op.WatermarkLateness,
 		op.WatermarkIdleTimeout, op)
 	if err != nil {
@@ -651,10 +655,10 @@ func (pm *streamManager) deployKafkaInOperator(streamName string, op *parser.Kaf
 	return kafkaIn, kafkaEndpointInfo, nil
 }
 
-func (pm *streamManager) setupStoreStreamOperator(streamName string, retention time.Duration,
+func (sm *streamManager) setupStoreStreamOperator(streamName string, retention time.Duration,
 	schema *OperatorSchema, slabID int, offsetsSlabID int,
 	prefixRetentions []retention.PrefixRetention) (*StoreStreamOperator, []retention.PrefixRetention, *SlabInfo, error) {
-	tso, err := NewStoreStreamOperator(schema, slabID, offsetsSlabID, pm.stor, pm.cfg.NodeID)
+	tso, err := NewStoreStreamOperator(schema, slabID, offsetsSlabID, sm.stor, sm.cfg.NodeID)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -672,7 +676,7 @@ func (pm *streamManager) setupStoreStreamOperator(streamName string, retention t
 	return tso, prefixRetentions, userSlabInfo, nil
 }
 
-func (pm *streamManager) deployStoreStreamOperator(streamName string, op *parser.StoreStreamDesc,
+func (sm *streamManager) deployStoreStreamOperator(streamName string, op *parser.StoreStreamDesc,
 	prevOperator Operator, slabSliceSeqs *sliceSeq, extraSlabInfos map[string]*SlabInfo,
 	prefixRetentions []retention.PrefixRetention) (Operator, []retention.PrefixRetention, *SlabInfo, error) {
 	slabID := slabSliceSeqs.GetNextID()
@@ -685,13 +689,14 @@ func (pm *streamManager) deployStoreStreamOperator(streamName string, op *parser
 				StreamName: streamName,
 				SlabID:     offsetsSlabID,
 				Type:       SlabTypeInternal,
+				Schema:     prevOperator.OutSchema(),
 			}
 	}
 	ret := time.Duration(0)
 	if op.Retention != nil {
 		ret = *op.Retention
 	}
-	return pm.setupStoreStreamOperator(streamName, ret, prevOperator.OutSchema(), slabID, offsetsSlabID, prefixRetentions)
+	return sm.setupStoreStreamOperator(streamName, ret, prevOperator.OutSchema(), slabID, offsetsSlabID, prefixRetentions)
 }
 
 func verifyKafkaSchema(eventSchema *evbatch.EventSchema) bool {
@@ -708,7 +713,7 @@ func verifyKafkaSchema(eventSchema *evbatch.EventSchema) bool {
 	return reflect.DeepEqual(colTypesToMatch, KafkaSchema.ColumnTypes()[1:])
 }
 
-func (pm *streamManager) deployKafkaOutOperator(streamName string, op *parser.KafkaOutDesc,
+func (sm *streamManager) deployKafkaOutOperator(streamName string, op *parser.KafkaOutDesc,
 	prevOperator Operator, kafkaEndpointInfo *KafkaEndpointInfo, slabSliceSeqs *sliceSeq,
 	extraSlabInfos map[string]*SlabInfo, prefixRetentions []retention.PrefixRetention) (Operator, []retention.PrefixRetention, *SlabInfo, error) {
 
@@ -728,6 +733,7 @@ func (pm *streamManager) deployKafkaOutOperator(streamName string, op *parser.Ka
 				StreamName: streamName,
 				SlabID:     offsetsSlabID,
 				Type:       SlabTypeInternal,
+				Schema:     prevOperator.OutSchema(),
 			}
 	}
 	// The consumer_endpoint operator wraps a to-stream operator, we create that next
@@ -735,7 +741,7 @@ func (pm *streamManager) deployKafkaOutOperator(streamName string, op *parser.Ka
 	if op.Retention != nil {
 		ret = *op.Retention
 	}
-	storeStreamOperator, prefixRetentions, userSlabInfo, err := pm.setupStoreStreamOperator(streamName, ret, prevOperator.OutSchema(),
+	storeStreamOperator, prefixRetentions, userSlabInfo, err := sm.setupStoreStreamOperator(streamName, ret, prevOperator.OutSchema(),
 		slabID, offsetsSlabID, prefixRetentions)
 
 	storeOffset := false
@@ -743,7 +749,7 @@ func (pm *streamManager) deployKafkaOutOperator(streamName string, op *parser.Ka
 		// Already have an offset on the stream, so we need to locate the offset slabID - we need to traverse upstream
 		// from this operator until we find a to-stream with addOffset = false or a kafka in
 		var err error
-		offsetsSlabID, err = pm.findOffsetsSlabID(prevOperator)
+		offsetsSlabID, err = sm.findOffsetsSlabID(prevOperator)
 		if err != nil {
 			return nil, nil, nil, err
 		}
@@ -759,7 +765,7 @@ func (pm *streamManager) deployKafkaOutOperator(streamName string, op *parser.Ka
 		}
 	}
 	kafkaOutOper, err := NewKafkaOutOperator(storeStreamOperator, slabID, offsetsSlabID, prevOperator.OutSchema(),
-		pm.stor, storeOffset)
+		sm.stor, storeOffset)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -777,7 +783,7 @@ func (pm *streamManager) deployKafkaOutOperator(streamName string, op *parser.Ka
 		updatedExisting = true
 	}
 	if !updatedExisting {
-		pm.kafkaEndpoints[streamName] = &KafkaEndpointInfo{
+		sm.kafkaEndpoints[streamName] = &KafkaEndpointInfo{
 			Name:        streamName,
 			OutEndpoint: kafkaOutOper,
 			Schema:      prevOperator.OutSchema(),
@@ -786,7 +792,7 @@ func (pm *streamManager) deployKafkaOutOperator(streamName string, op *parser.Ka
 	return kafkaOutOper, prefixRetentions, userSlabInfo, nil
 }
 
-func (pm *streamManager) deployPartitionOperator(op *parser.PartitionDesc,
+func (sm *streamManager) deployPartitionOperator(op *parser.PartitionDesc,
 	prevOperator Operator, receiverSliceSeqs *sliceSeq) (Operator, error) {
 	receiverID := receiverSliceSeqs.GetNextID()
 	var mappingID string
@@ -799,15 +805,15 @@ func (pm *streamManager) deployPartitionOperator(op *parser.PartitionDesc,
 		return nil, statementErrorAtTokenNamef("partitions", op, "invalid value for 'partitions' - must be > 0")
 	}
 	po, err := NewPartitionOperator(prevOperator.OutSchema(), op.KeyExprs, op.Partitions, receiverID, mappingID,
-		pm.cfg, op)
+		sm.cfg, op)
 	if err != nil {
 		return nil, err
 	}
-	pm.partitionOperators[po] = struct{}{}
+	sm.partitionOperators[po] = struct{}{}
 	return po, nil
 }
 
-func (pm *streamManager) deployAggregateOperator(streamName string, op *parser.AggregateDesc,
+func (sm *streamManager) deployAggregateOperator(streamName string, op *parser.AggregateDesc,
 	prevOperator Operator, slabSliceSeqs *sliceSeq, receiverSliceSeqs *sliceSeq,
 	prefixRetentions []retention.PrefixRetention, store store, extraSlabInfos map[string]*SlabInfo) (Operator, []retention.PrefixRetention, *SlabInfo, error) {
 	windowed := op.Size != nil
@@ -817,6 +823,7 @@ func (pm *streamManager) deployAggregateOperator(streamName string, op *parser.A
 			StreamName: streamName,
 			SlabID:     aggStateSlabID,
 			Type:       SlabTypeInternal,
+			Schema:     prevOperator.OutSchema(),
 		}
 	openWindowsSlabID := -1
 	var size, hop time.Duration
@@ -840,6 +847,7 @@ func (pm *streamManager) deployAggregateOperator(streamName string, op *parser.A
 				StreamName: streamName,
 				SlabID:     openWindowsSlabID,
 				Type:       SlabTypeInternal,
+				Schema:     prevOperator.OutSchema(),
 			}
 		if op.IncludeWindowCols != nil {
 			includeWindowCols = *op.IncludeWindowCols
@@ -893,7 +901,7 @@ func (pm *streamManager) deployAggregateOperator(streamName string, op *parser.A
 		}
 	}
 	aggOper, err := NewAggregateOperator(prevOperator.OutSchema(), op, aggStateSlabID, openWindowsSlabID, resultsSlabID,
-		closedWindowReceiverID, size, hop, store, lateness, storeResults, includeWindowCols, pm.expressionFactory)
+		closedWindowReceiverID, size, hop, store, lateness, storeResults, includeWindowCols, sm.expressionFactory)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -916,11 +924,11 @@ func (pm *streamManager) deployAggregateOperator(streamName string, op *parser.A
 	return aggOper, prefixRetentions, userSlab, nil
 }
 
-func (pm *streamManager) deployStoreTableOperator(streamName string, op *parser.StoreTableDesc,
+func (sm *streamManager) deployStoreTableOperator(streamName string, op *parser.StoreTableDesc,
 	prevOperator Operator, slabSliceSeqs *sliceSeq,
 	prefixRetentions []retention.PrefixRetention) (Operator, []retention.PrefixRetention, *SlabInfo, error) {
 	slabID := slabSliceSeqs.GetNextID()
-	to, err := NewStoreTableOperator(prevOperator.OutSchema(), slabID, pm.stor, op.KeyCols, pm.cfg.NodeID, false, op)
+	to, err := NewStoreTableOperator(prevOperator.OutSchema(), slabID, sm.stor, op.KeyCols, sm.cfg.NodeID, false, op)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -942,7 +950,7 @@ func (pm *streamManager) deployStoreTableOperator(streamName string, op *parser.
 	return to, prefixRetentions, userSlab, nil
 }
 
-func (pm *streamManager) deployBackfillOperator(operators []Operator,
+func (sm *streamManager) deployBackfillOperator(operators []Operator,
 	receiverSliceSeqs *sliceSeq, desc *parser.BackfillDesc) (*BackfillOperator, error) {
 	// Already verified in validateStream() so this is safe:
 	continuation := operators[0].(*ContinuationOperator)
@@ -954,20 +962,20 @@ func (pm *streamManager) deployBackfillOperator(operators []Operator,
 			"parent stream '%s' must be a stored stream when there is a 'backfill' operator", upstreamStream.StreamDesc.StreamName)
 	}
 	receiverID := receiverSliceSeqs.GetNextID()
-	backfillOper := NewBackfillOperator(fromSlab.Schema, pm.stor, pm.cfg, fromSlab.SlabID,
-		pm.cfg.MaxBackfillBatchSize, receiverID, false)
+	backfillOper := NewBackfillOperator(fromSlab.Schema, sm.stor, sm.cfg, fromSlab.SlabID,
+		sm.cfg.MaxBackfillBatchSize, receiverID, false)
 	return backfillOper, nil
 }
 
-func (pm *streamManager) deployJoinOperator(streamName string, op *parser.JoinDesc,
+func (sm *streamManager) deployJoinOperator(streamName string, op *parser.JoinDesc,
 	receiverSliceSeqs *sliceSeq, slabSliceSeqs *sliceSeq, extraSlabInfos map[string]*SlabInfo,
 	prefixRetentions []retention.PrefixRetention) (*JoinOperator, map[string]*SlabInfo, []retention.PrefixRetention,
 	func(info *StreamInfo), error) {
-	leftStream, ok := pm.streams[op.LeftStream]
+	leftStream, ok := sm.streams[op.LeftStream]
 	if !ok {
 		return nil, nil, nil, nil, statementErrorAtTokenNamef(op.LeftStream, op, "unknown stream '%s'", op.LeftStream)
 	}
-	rightStream, ok := pm.streams[op.RightStream]
+	rightStream, ok := sm.streams[op.RightStream]
 	if !ok {
 		return nil, nil, nil, nil, statementErrorAtTokenNamef(op.RightStream, op, "unknown stream '%s'", op.RightStream)
 	}
@@ -990,6 +998,7 @@ func (pm *streamManager) deployJoinOperator(streamName string, op *parser.JoinDe
 			StreamName: streamName,
 			SlabID:     leftSlabID,
 			Type:       SlabTypeInternal,
+			Schema:     leftSchema,
 		}
 	rightSlabID := slabSliceSeqs.GetNextID()
 	extraSlabInfos[fmt.Sprintf("join-%s-right", streamName)] =
@@ -997,6 +1006,7 @@ func (pm *streamManager) deployJoinOperator(streamName string, op *parser.JoinDe
 			StreamName: streamName,
 			SlabID:     rightSlabID,
 			Type:       SlabTypeInternal,
+			Schema:     leftSchema,
 		}
 
 	if op.LeftIsTable && op.RightIsTable {
@@ -1039,7 +1049,7 @@ func (pm *streamManager) deployJoinOperator(streamName string, op *parser.JoinDe
 		})
 	}
 	jo, err := NewJoinOperator(leftSlabID, rightSlabID, leftOper, rightOper, op.LeftIsTable, op.RightIsTable, leftStream.UserSlab,
-		rightStream.UserSlab, op.JoinElements, within, pm.stor, pm.cfg.NodeID, receiverID, op)
+		rightStream.UserSlab, op.JoinElements, within, sm.stor, sm.cfg.NodeID, receiverID, op)
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
@@ -1061,19 +1071,19 @@ func (pm *streamManager) deployJoinOperator(streamName string, op *parser.JoinDe
 		}
 
 		// Upstream info has changed so need to persist again
-		pm.storeStreamMeta(leftStream)
-		pm.storeStreamMeta(rightStream)
+		sm.storeStreamMeta(leftStream)
+		sm.storeStreamMeta(rightStream)
 	}
 
 	return jo, extraSlabInfos, prefixRetentions, deferredWiring, nil
 }
 
-func (pm *streamManager) deployUnionOperator(streamName string, desc *parser.UnionDesc, receiverSliceSeqs *sliceSeq) (Operator, func(info *StreamInfo), error) {
+func (sm *streamManager) deployUnionOperator(streamName string, desc *parser.UnionDesc, receiverSliceSeqs *sliceSeq) (Operator, func(info *StreamInfo), error) {
 	var schema *OperatorSchema
 	var inputs []Operator
 	var inputInfos []*StreamInfo
 	for i, feedingStreamName := range desc.StreamNames {
-		stream, ok := pm.streams[feedingStreamName]
+		stream, ok := sm.streams[feedingStreamName]
 		if !ok {
 			return nil, nil, statementErrorAtTokenNamef(feedingStreamName, desc, "unknown stream '%s'", feedingStreamName)
 		}
@@ -1116,13 +1126,13 @@ func (pm *streamManager) deployUnionOperator(streamName string, desc *parser.Uni
 			inputInfo.DownstreamStreamNames[streamName] = struct{}{}
 			inputs[i].AddDownStreamOperator(uo)
 			// Upstream info has changed so need to persist again
-			pm.storeStreamMeta(inputInfo)
+			sm.storeStreamMeta(inputInfo)
 		}
 	}
 	return uo, deferredWiring, nil
 }
 
-func (pm *streamManager) findOffsetsSlabID(oper Operator) (int, error) {
+func (sm *streamManager) findOffsetsSlabID(oper Operator) (int, error) {
 	switch o := oper.(type) {
 	case *StoreStreamOperator:
 		if o.addOffset {
@@ -1137,43 +1147,43 @@ func (pm *streamManager) findOffsetsSlabID(oper Operator) (int, error) {
 	default:
 		parent := oper.GetParentOperator()
 		if parent != nil {
-			return pm.findOffsetsSlabID(parent)
+			return sm.findOffsetsSlabID(parent)
 		}
 	}
 	return -1, nil
 }
 
-func (pm *streamManager) Loaded() {
-	pm.lock.Lock()
-	defer pm.lock.Unlock()
-	for _, pInfo := range pm.streams {
+func (sm *streamManager) Loaded() {
+	sm.lock.Lock()
+	defer sm.lock.Unlock()
+	for _, pInfo := range sm.streams {
 		ops := pInfo.Operators
 		for _, op := range ops {
-			if err := op.Setup(pm); err != nil {
+			if err := op.Setup(sm); err != nil {
 				log.Errorf("failure in operator setup %v", err)
 			}
 		}
 	}
-	pm.calculateInjectableReceivers()
-	pm.loaded = true
+	sm.calculateInjectableReceivers()
+	sm.loaded = true
 	// We must call AfterReceiverChange to invalidate processor manager and processor cached receiver info state
 	// otherwise correct barriers might not be injected
 	// must be called with lock held for consistent versions
-	pm.processorManager.AfterReceiverChange()
+	sm.processorManager.AfterReceiverChange()
 }
 
-func (pm *streamManager) UndeployStream(deleteStreamDesc parser.DeleteStreamDesc, commandID int64) error {
-	pm.shutdownLock.Lock()
-	defer pm.shutdownLock.Unlock()
-	log.Debugf("undeploying stream %s", deleteStreamDesc.StreamName)
-	if pm.shuttingDown {
+func (sm *streamManager) UndeployStream(deleteStreamDesc parser.DeleteStreamDesc, commandID int64) error {
+	sm.shutdownLock.Lock()
+	defer sm.shutdownLock.Unlock()
+	log.Infof("undeploying stream %s", deleteStreamDesc.StreamName)
+	if sm.shuttingDown {
 		return errors.NewTektiteErrorf(errors.ShutdownError, "cluster is shutting down")
 	}
-	pm.lock.Lock()
-	defer pm.lock.Unlock()
+	sm.lock.Lock()
+	defer sm.lock.Unlock()
 
 	// First we look up the stream info
-	info, ok := pm.streams[deleteStreamDesc.StreamName]
+	info, ok := sm.streams[deleteStreamDesc.StreamName]
 	if !ok {
 		return statementErrorAtTokenNamef(deleteStreamDesc.StreamName, &deleteStreamDesc, "unknown stream '%s'", deleteStreamDesc.StreamName)
 	}
@@ -1192,9 +1202,9 @@ func (pm *streamManager) UndeployStream(deleteStreamDesc parser.DeleteStreamDesc
 	}
 	info.Undeploying = true
 
-	if pm.loaded {
+	if sm.loaded {
 		for _, oper := range info.Operators {
-			oper.Teardown(pm, &pm.lock)
+			oper.Teardown(sm, &sm.lock)
 		}
 	}
 
@@ -1208,9 +1218,9 @@ func (pm *streamManager) UndeployStream(deleteStreamDesc parser.DeleteStreamDesc
 			"cannot delete stream %s - it has child streams: %v - they must be deleted first",
 			deleteStreamDesc.StreamName, dsNames)
 	}
-	delete(pm.streams, deleteStreamDesc.StreamName)
+	delete(sm.streams, deleteStreamDesc.StreamName)
 	for upstreamStreamName, oper := range info.UpstreamStreamNames {
-		upstream, ok := pm.streams[upstreamStreamName]
+		upstream, ok := sm.streams[upstreamStreamName]
 		if !ok {
 			panic("cannot find upstream")
 		}
@@ -1219,59 +1229,92 @@ func (pm *streamManager) UndeployStream(deleteStreamDesc parser.DeleteStreamDesc
 			upstream.Operators[len(upstream.Operators)-1].RemoveDownStreamOperator(oper)
 		}
 	}
-	delete(pm.kafkaEndpoints, info.StreamDesc.StreamName)
+	delete(sm.kafkaEndpoints, info.StreamDesc.StreamName)
 	kafkaInOper, ok := info.Operators[0].(*BridgeFromOperator)
 	if ok {
-		delete(pm.bridgeFromOpers, kafkaInOper)
+		delete(sm.bridgeFromOpers, kafkaInOper)
 	}
 	partitionOper, ok := info.Operators[0].(*PartitionOperator)
 	if ok {
-		delete(pm.partitionOperators, partitionOper)
+		delete(sm.partitionOperators, partitionOper)
 	}
 	// Now delete the data from the store
 	if info.UserSlab != nil {
-		pm.deleteSlab(info.UserSlab)
+		if err := sm.deleteSlab(info.UserSlab); err != nil {
+			return err
+		}
 	}
 	for _, slabInfo := range info.ExtraSlabs {
-		pm.deleteSlab(slabInfo)
+		if err := sm.deleteSlab(slabInfo); err != nil {
+			return err
+		}
 	}
-	pm.invalidateCachedInfo()
-	pm.deleteStreamMeta(deleteStreamDesc.StreamName)
-	if pm.loaded {
-		pm.calculateInjectableReceivers()
+	sm.invalidateCachedInfo()
+	sm.deleteStreamMeta(deleteStreamDesc.StreamName)
+	if sm.loaded {
+		sm.calculateInjectableReceivers()
 	}
-	pm.callChangeListeners(deleteStreamDesc.StreamName, false)
-	pm.lastCommandID = commandID
-	if pm.loaded {
+	sm.callChangeListeners(deleteStreamDesc.StreamName, false)
+	sm.lastCommandID = commandID
+	if sm.loaded {
 		// Note, this must be called with the stream manager lock held to ensure that barriers don't get injected
 		// with stale receivers after a stream has been deployed - otherwise we could have data flowing through
 		// the newly updated graph but barriers only injected in some of it. If the version then completed it would
 		// be invalid
-		pm.processorManager.AfterReceiverChange()
+		sm.processorManager.AfterReceiverChange()
 	}
 	return nil
 }
 
-func (pm *streamManager) deleteSlab(slabInfo *SlabInfo) {
-	prefix := encoding.AppendUint64ToBufferBE(nil, uint64(slabInfo.SlabID))
-	pm.prefixRetentionService.AddPrefixRetention(retention.PrefixRetention{Prefix: prefix})
+func (sm *streamManager) deleteSlab(slabInfo *SlabInfo) error {
+	mb := mem.NewBatch()
+
+	for i := 0; i < slabInfo.Schema.Partitions; i++ {
+		// Write a tombstone for the partition
+		tombstone := encoding.AppendUint64ToBufferBE(nil, uint64(slabInfo.SlabID))
+		tombstone = encoding.AppendUint64ToBufferBE(tombstone, uint64(i))
+		// Prefix tombstones are special in that they always have a version of max version - this identifies them
+		mb.AddEntry(common.KV{
+			Key: encoding.EncodeVersion(tombstone, math.MaxUint64),
+		})
+
+		// And we write an end marker - the end marker is the next partition id + a zero so as not to conflict with
+		// any tombstone on the next partition
+		// We write an end marker so that the sstable tyo be pushed will have a prefix tombstone and the end marker
+		// in the same sstable. When this gets merged into L1 it will overlap with all sstables in L1 with same partition
+		// and will delete all those entries, leaving just the tombstone and the end marker, and that will repeat through
+		// the levels of the database
+		endMarker := encoding.AppendUint64ToBufferBE(nil, uint64(slabInfo.SlabID))
+		endMarker = encoding.AppendUint64ToBufferBE(endMarker, uint64(i)+1)
+		endMarker = append(endMarker, 0)
+
+		mb.AddEntry(common.KV{
+			Key:   encoding.EncodeVersion(endMarker, math.MaxUint64),
+			Value: []byte{'x'}, // value doesn't matter, but it must have a value
+		})
+	}
+
+	// TODO when we move to partition hashes as prefix we will have to:
+	// a) write many prefixes - one for each partition hash
+	// b) execute the write on the processor that owns the partition, not directly like this.
+	return sm.stor.Write(mb)
 }
 
-func (pm *streamManager) RegisterSystemSlab(slabName string, persistorReceiverID int, deleterReceiverID int,
+func (sm *streamManager) RegisterSystemSlab(slabName string, persistorReceiverID int, deleterReceiverID int,
 	slabID int, schema *OperatorSchema, keyCols []string, noCache bool) error {
-	pm.lock.Lock()
-	defer pm.lock.Unlock()
-	to, err := NewStoreTableOperator(schema, slabID, pm.stor, keyCols, -1, noCache, nil)
+	sm.lock.Lock()
+	defer sm.lock.Unlock()
+	to, err := NewStoreTableOperator(schema, slabID, sm.stor, keyCols, -1, noCache, nil)
 	if err != nil {
 		return err
 	}
-	pm.receivers[persistorReceiverID] = &sysTableReceiver{schema: schema, oper: to}
+	sm.receivers[persistorReceiverID] = &sysTableReceiver{schema: schema, oper: to}
 	if deleterReceiverID != -1 {
-		del, err := NewRowDeleteOperator(schema, slabID, pm.stor, to.inKeyCols)
+		del, err := NewRowDeleteOperator(schema, slabID, sm.stor, to.inKeyCols)
 		if err != nil {
 			return err
 		}
-		pm.receivers[deleterReceiverID] = &sysTableReceiver{oper: del, schema: del.schema}
+		sm.receivers[deleterReceiverID] = &sysTableReceiver{oper: del, schema: del.schema}
 	}
 	var keyColIndexes []int
 	for _, keyCol := range keyCols {
@@ -1293,17 +1336,17 @@ func (pm *streamManager) RegisterSystemSlab(slabName string, persistorReceiverID
 		UserSlab:     slabInfo,
 		SystemStream: true,
 	}
-	pm.streams[slabName] = streamInfo
-	pm.sysStreamCount++
+	sm.streams[slabName] = streamInfo
+	sm.sysStreamCount++
 	return nil
 }
 
 const sysStreamName = "sys.streams"
 
-func (pm *streamManager) Start() error {
-	pm.lock.Lock()
-	defer pm.lock.Unlock()
-	pm.streams[sysStreamName] = &StreamInfo{
+func (sm *streamManager) Start() error {
+	sm.lock.Lock()
+	defer sm.lock.Unlock()
+	sm.streams[sysStreamName] = &StreamInfo{
 		UserSlab: &SlabInfo{
 			StreamName: sysStreamName,
 			SlabID:     common.StreamMetaSlabID,
@@ -1323,20 +1366,20 @@ func (pm *streamManager) Start() error {
 		SystemStream: true,
 		StreamMeta:   true,
 	}
-	pm.sysStreamCount++
+	sm.sysStreamCount++
 	return nil
 }
 
-func (pm *streamManager) Stop() error {
-	pm.lock.Lock()
-	defer pm.lock.Unlock()
-	for _, info := range pm.streams {
+func (sm *streamManager) Stop() error {
+	sm.lock.Lock()
+	defer sm.lock.Unlock()
+	for _, info := range sm.streams {
 		for _, oper := range info.Operators {
 			// Makes sure oper resources are cleaned up - e.g. kafka_in consumers are stopped
-			oper.Teardown(pm, &pm.lock)
+			oper.Teardown(sm, &sm.lock)
 		}
 	}
-	delete(pm.streams, sysStreamName)
+	delete(sm.streams, sysStreamName)
 	return nil
 }
 
@@ -1370,72 +1413,72 @@ func (s *sysTableReceiver) RequiresBarriersInjection() bool {
 	return false
 }
 
-func (pm *streamManager) GetStream(name string) *StreamInfo {
-	pm.lock.Lock()
-	defer pm.lock.Unlock()
-	return pm.streams[name]
+func (sm *streamManager) GetStream(name string) *StreamInfo {
+	sm.lock.Lock()
+	defer sm.lock.Unlock()
+	return sm.streams[name]
 }
 
-func (pm *streamManager) GetAllStreams() []*StreamInfo {
-	pm.lock.Lock()
-	defer pm.lock.Unlock()
-	allStreams := make([]*StreamInfo, 0, len(pm.streams))
-	for _, info := range pm.streams {
+func (sm *streamManager) GetAllStreams() []*StreamInfo {
+	sm.lock.Lock()
+	defer sm.lock.Unlock()
+	allStreams := make([]*StreamInfo, 0, len(sm.streams))
+	for _, info := range sm.streams {
 		allStreams = append(allStreams, info)
 	}
 	return allStreams
 }
 
-func (pm *streamManager) GetKafkaEndpoint(name string) *KafkaEndpointInfo {
-	pm.lock.Lock()
-	defer pm.lock.Unlock()
-	return pm.kafkaEndpoints[name]
+func (sm *streamManager) GetKafkaEndpoint(name string) *KafkaEndpointInfo {
+	sm.lock.Lock()
+	defer sm.lock.Unlock()
+	return sm.kafkaEndpoints[name]
 }
 
-func (pm *streamManager) GetAllKafkaEndpoints() []*KafkaEndpointInfo {
-	pm.lock.Lock()
-	defer pm.lock.Unlock()
+func (sm *streamManager) GetAllKafkaEndpoints() []*KafkaEndpointInfo {
+	sm.lock.Lock()
+	defer sm.lock.Unlock()
 	var endpoints []*KafkaEndpointInfo
-	for _, endpoint := range pm.kafkaEndpoints {
+	for _, endpoint := range sm.kafkaEndpoints {
 		endpoints = append(endpoints, endpoint)
 	}
 	return endpoints
 }
 
-func (pm *streamManager) RegisterReceiverWithLock(id int, receiver Receiver) {
-	pm.lock.Lock()
-	defer pm.lock.Unlock()
-	pm.RegisterReceiver(id, receiver)
+func (sm *streamManager) RegisterReceiverWithLock(id int, receiver Receiver) {
+	sm.lock.Lock()
+	defer sm.lock.Unlock()
+	sm.RegisterReceiver(id, receiver)
 }
 
-func (pm *streamManager) RegisterReceiver(id int, receiver Receiver) {
+func (sm *streamManager) RegisterReceiver(id int, receiver Receiver) {
 	if receiver == nil {
 		panic("cannot register nil receiver")
 	}
-	pm.receivers[id] = receiver
+	sm.receivers[id] = receiver
 }
 
-func (pm *streamManager) UnregisterReceiver(id int) {
-	delete(pm.receivers, id)
+func (sm *streamManager) UnregisterReceiver(id int) {
+	delete(sm.receivers, id)
 }
 
-func (pm *streamManager) ProcessorManager() ProcessorManager {
-	return pm.processorManager
+func (sm *streamManager) ProcessorManager() ProcessorManager {
+	return sm.processorManager
 }
 
-func (pm *streamManager) numStreams() int {
-	pm.lock.Lock()
-	defer pm.lock.Unlock()
-	return len(pm.streams)
+func (sm *streamManager) numStreams() int {
+	sm.lock.Lock()
+	defer sm.lock.Unlock()
+	return len(sm.streams)
 }
 
 // BatchHandler implementation
 
-func (pm *streamManager) HandleProcessBatch(processor proc.Processor, processBatch *proc.ProcessBatch,
+func (sm *streamManager) HandleProcessBatch(processor proc.Processor, processBatch *proc.ProcessBatch,
 	_ bool) (bool, *mem.Batch, []*proc.ProcessBatch, error) {
-	pm.lock.RLock()
-	defer pm.lock.RUnlock()
-	receiver, ok := pm.receivers[processBatch.ReceiverID]
+	sm.lock.RLock()
+	defer sm.lock.RUnlock()
+	receiver, ok := sm.receivers[processBatch.ReceiverID]
 	if !ok {
 		if !processBatch.Barrier {
 			// normal to get these for a barrier shortly after undeploy so we don't log in that case
@@ -1453,7 +1496,7 @@ func (pm *streamManager) HandleProcessBatch(processor proc.Processor, processBat
 		eventSchema = receiverInSchema.EventSchema
 	}
 	processBatch.CheckDeserializeEvBatch(eventSchema)
-	ec := pm.newExecContext(processBatch, processor)
+	ec := sm.newExecContext(processBatch, processor)
 
 	if processBatch.Barrier {
 		// We set the last executed command id on the barrier. The command id is propagated as barriers are forwarded
@@ -1461,7 +1504,7 @@ func (pm *streamManager) HandleProcessBatch(processor proc.Processor, processBat
 		// id is the same for all processors completing a version. In this way we can guarantee if we complete a version
 		// ok then barriers have been sent through the graph as of the same command id and therefore the version
 		// is consistent. If version manager receives different command id then the version is doomed and advanced.
-		processBatch.CommandID = int(pm.lastCommandID)
+		processBatch.CommandID = int(sm.lastCommandID)
 		err := receiver.ReceiveBarrier(ec)
 		if err != nil {
 			return false, nil, nil, err
@@ -1476,10 +1519,10 @@ func (pm *streamManager) HandleProcessBatch(processor proc.Processor, processBat
 	}
 }
 
-func (pm *streamManager) GetForwardingProcessorCount(receiverID int) (int, bool) {
-	pm.lock.RLock()
-	defer pm.lock.RUnlock()
-	receiver, ok := pm.receivers[receiverID]
+func (sm *streamManager) GetForwardingProcessorCount(receiverID int) (int, bool) {
+	sm.lock.RLock()
+	defer sm.lock.RUnlock()
+	receiver, ok := sm.receivers[receiverID]
 	if !ok {
 		return 0, false
 	}
@@ -1493,17 +1536,17 @@ To compute this number we must compute all the receivers which do not forward an
 "terminal receivers". We then sum the number of processors that each of the terminal receivers run on - as
 each processor will send a different completion.
 */
-func (pm *streamManager) GetRequiredCompletions() int {
-	pm.lock.Lock()
-	defer pm.lock.Unlock()
-	if pm.requiredCompletions != -1 {
-		return pm.requiredCompletions
+func (sm *streamManager) GetRequiredCompletions() int {
+	sm.lock.Lock()
+	defer sm.lock.Unlock()
+	if sm.requiredCompletions != -1 {
+		return sm.requiredCompletions
 	}
 
 	// First we create a tree of the roots and any operators that forward barriers to other processors, e.g.
 	// partition, join etc
 	tree := &partitionTree{}
-	for _, receiver := range pm.receivers {
+	for _, receiver := range sm.receivers {
 		if receiver.RequiresBarriersInjection() {
 			// top level operator (kafka_in)
 			oper, ok := receiver.(Operator)
@@ -1527,9 +1570,9 @@ func (pm *streamManager) GetRequiredCompletions() int {
 
 	// We add one for the dummy receiver - this ensures we always have at least one receiver so versions can always
 	// complete
-	pm.requiredCompletions = requiredCompletions + 1
+	sm.requiredCompletions = requiredCompletions + 1
 
-	return pm.requiredCompletions
+	return sm.requiredCompletions
 }
 
 func buildPartitionTree(operator Operator, tree *partitionTree) {
@@ -1577,9 +1620,9 @@ func recurseFindTerminalOperators(tree *partitionTree) []Operator {
 	return schemas
 }
 
-func (pm *streamManager) calculateInjectableReceivers() {
+func (sm *streamManager) calculateInjectableReceivers() {
 	injectableReceivers := map[int][]int{}
-	for id, receiver := range pm.receivers {
+	for id, receiver := range sm.receivers {
 		if receiver.RequiresBarriersInjection() {
 			for _, procID := range receiver.OutSchema().PartitionScheme.ProcessorIDs {
 				injectableReceivers[procID] = append(injectableReceivers[procID], id)
@@ -1587,15 +1630,15 @@ func (pm *streamManager) calculateInjectableReceivers() {
 		}
 
 	}
-	pm.injectableReceivers.Store(&injectableReceivers)
+	sm.injectableReceivers.Store(&injectableReceivers)
 }
 
-func (pm *streamManager) GetInjectableReceivers(processorID int) []int {
+func (sm *streamManager) GetInjectableReceivers(processorID int) []int {
 	// Note that this method must not lock on the stream manager to avoid a deadlock situation when deploying
 	// a stream, where the stream mgr is locked and attempts to lock the processor manager to register a listener
 	// and when handling a version broadcast which locks the processor manager then attempts to lock stream manager
 	// when calling this method.
-	receivers := *pm.injectableReceivers.Load()
+	receivers := *sm.injectableReceivers.Load()
 	return receivers[processorID]
 }
 
@@ -1608,23 +1651,23 @@ func createPrefixRetention(ret time.Duration, slabID int) *retention.PrefixReten
 	return &retention.PrefixRetention{Prefix: prefix, Retention: uint64(ret.Milliseconds())}
 }
 
-func (pm *streamManager) invalidateCachedInfo() {
-	pm.requiredCompletions = -1
+func (sm *streamManager) invalidateCachedInfo() {
+	sm.requiredCompletions = -1
 }
 
-func (pm *streamManager) StopIngest() error {
-	pm.lock.Lock()
-	log.Debugf("node %d stream manager stop ingest", pm.cfg.NodeID)
-	pm.ingestEnabled.Store(false)
+func (sm *streamManager) StopIngest() error {
+	sm.lock.Lock()
+	log.Debugf("node %d stream manager stop ingest", sm.cfg.NodeID)
+	sm.ingestEnabled.Store(false)
 	var fkOpers []*BridgeFromOperator
-	for fk := range pm.bridgeFromOpers {
+	for fk := range sm.bridgeFromOpers {
 		fkOpers = append(fkOpers, fk)
 	}
 	var partOpers []*PartitionOperator
-	for po := range pm.partitionOperators {
+	for po := range sm.partitionOperators {
 		partOpers = append(partOpers, po)
 	}
-	pm.lock.Unlock()
+	sm.lock.Unlock()
 	// We must call stopIngest outside lock to avoid a deadlock, where we stop ingest which waits for message consumers
 	// to stop, but message consumer could be waiting for ingest to complete, but the processor is blocked trying to
 	// call HandleProcessBatch on the stream manager (which gets read lock)
@@ -1634,13 +1677,13 @@ func (pm *streamManager) StopIngest() error {
 	return nil
 }
 
-func (pm *streamManager) StartIngest(version int) error {
-	pm.lock.Lock()
-	defer pm.lock.Unlock()
-	log.Debugf("node %d stream manager start ingest, version %d", pm.cfg.NodeID, version)
-	pm.ingestEnabled.Store(true)
-	atomic.StoreInt64(&pm.lastFlushedVersion, int64(version))
-	for fk := range pm.bridgeFromOpers {
+func (sm *streamManager) StartIngest(version int) error {
+	sm.lock.Lock()
+	defer sm.lock.Unlock()
+	log.Debugf("node %d stream manager start ingest, version %d", sm.cfg.NodeID, version)
+	sm.ingestEnabled.Store(true)
+	atomic.StoreInt64(&sm.lastFlushedVersion, int64(version))
+	for fk := range sm.bridgeFromOpers {
 		if err := fk.startIngest(int64(version)); err != nil {
 			return err
 		}
@@ -1648,18 +1691,18 @@ func (pm *streamManager) StartIngest(version int) error {
 	return nil
 }
 
-func (pm *streamManager) Dump() {
-	pm.lock.Lock()
-	defer pm.lock.Unlock()
-	log.Infof("dumping stream manager on node %d", pm.cfg.NodeID)
-	for _, p := range pm.streams {
+func (sm *streamManager) Dump() {
+	sm.lock.Lock()
+	defer sm.lock.Unlock()
+	log.Infof("dumping stream manager on node %d", sm.cfg.NodeID)
+	for _, p := range sm.streams {
 		log.Infof("stream: %s: %v", p.StreamDesc.StreamName, p)
 	}
 }
 
 // storeStreamMeta - stores the stream info in a mem table, so it can be queried like any other table.
 // note this is not a real persistent table
-func (pm *streamManager) storeStreamMeta(info *StreamInfo) {
+func (sm *streamManager) storeStreamMeta(info *StreamInfo) {
 	// convert to batch
 	builders := evbatch.CreateColBuilders(streamSchema.ColumnTypes())
 	builders[0].(*evbatch.StringColBuilder).Append(info.StreamDesc.StreamName)
@@ -1701,23 +1744,23 @@ func (pm *streamManager) storeStreamMeta(info *StreamInfo) {
 	rowBuff := make([]byte, 0, rowInitialBufferSize)
 	rowBuff = evbatch.EncodeRowCols(batch, 0, []int{1, 2, 3, 4, 5, 6, 7, 8}, rowBuff)
 	log.Debugf("storing stream meta for stream %s with key: %v", info.StreamDesc.StreamName, keyBuff)
-	pm.streamMemStore.Put(string(keyBuff), rowBuff)
+	sm.streamMemStore.Put(string(keyBuff), rowBuff)
 }
 
-func (pm *streamManager) deleteStreamMeta(streamName string) {
+func (sm *streamManager) deleteStreamMeta(streamName string) {
 	keyBuff := createTableKeyPrefix(common.StreamMetaSlabID, 0, 64)
 	keyBuff = append(keyBuff, 1)
 	keyBuff = encoding.KeyEncodeString(keyBuff, streamName)
 	keyBuff = encoding.EncodeVersion(keyBuff, 0) // not versioned
 	log.Debugf("deleting stream meta for stream %s with key: %v", streamName, keyBuff)
-	pm.streamMemStore.Remove(string(keyBuff))
+	sm.streamMemStore.Remove(string(keyBuff))
 }
 
-func (pm *streamManager) streamMetaIterator(startKey []byte, endKey []byte) iteration.Iterator {
-	pm.lock.RLock()
-	defer pm.lock.RUnlock()
+func (sm *streamManager) streamMetaIterator(startKey []byte, endKey []byte) iteration.Iterator {
+	sm.lock.RLock()
+	defer sm.lock.RUnlock()
 	var entries []common.KV
-	iter := pm.streamMemStore.Iterator()
+	iter := sm.streamMemStore.Iterator()
 	for iter.Next() {
 		key := []byte(iter.Key().(string))
 		value := iter.Value().([]byte)
@@ -1731,8 +1774,8 @@ func (pm *streamManager) streamMetaIterator(startKey []byte, endKey []byte) iter
 	return iteration.NewStaticIterator(entries)
 }
 
-func (pm *streamManager) StreamMetaIteratorProvider() *StreamMetaIteratorProvider {
-	return pm.streamMetaIterProvider
+func (sm *streamManager) StreamMetaIteratorProvider() *StreamMetaIteratorProvider {
+	return sm.streamMetaIterProvider
 }
 
 type StreamMetaIteratorProvider struct {
@@ -1790,11 +1833,11 @@ type buildersInfo struct {
 	processorID int
 }
 
-func (pm *streamManager) newExecContext(processBatch *proc.ProcessBatch, processor proc.Processor) *execContext {
+func (sm *streamManager) newExecContext(processBatch *proc.ProcessBatch, processor proc.Processor) *execContext {
 	return &execContext{
 		processBatch: processBatch,
 		processor:    processor,
-		store:        pm.stor,
+		store:        sm.stor,
 	}
 }
 
