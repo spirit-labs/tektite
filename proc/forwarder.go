@@ -50,7 +50,7 @@ func (m *ProcessorManager) ForwardBatch(batch *ProcessBatch, replicate bool, com
 		return
 	}
 
-	if leaderNode == m.cfg.NodeID {
+	if leaderNode == *m.cfg.NodeID {
 		// Processor is local
 		processor, ok := m.GetProcessor(batch.ProcessorID)
 		if !ok {

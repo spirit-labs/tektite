@@ -468,12 +468,12 @@ log-format = "console"
 `
 	cfg := &conf.Config{}
 	cfg.ApplyDefaults()
-	cfg.HttpApiTlsConfig = conf.TLSConfig{
+	cfg.HttpApiTlsConfig = &conf.TLSConfig{
 		Enabled:  true,
 		KeyPath:  serverKeyPath,
 		CertPath: serverCertPath,
 	}
-	cfg.Original = cfgOrig
+	cfg.Original = &cfgOrig
 
 	testAdminConsole(t, "config", levels.Stats{}, nil, nil, cfg, nil, expected)
 }
@@ -656,7 +656,7 @@ Live nodes: [0 1 2]<br></br>
 </html>`
 	cfg := &conf.Config{}
 	cfg.ApplyDefaults()
-	cfg.HttpApiTlsConfig = conf.TLSConfig{
+	cfg.HttpApiTlsConfig = &conf.TLSConfig{
 		Enabled:  true,
 		KeyPath:  serverKeyPath,
 		CertPath: serverCertPath,
@@ -675,7 +675,8 @@ func testAdminConsole(t *testing.T, path string, stats levels.Stats, kafkaEndpoi
 
 	port := testutils.PortProvider.GetPort(t)
 	address := fmt.Sprintf("localhost:%d", port)
-	cfg.AdminConsoleEnabled = true
+	adminConsoleEnabled := true
+	cfg.AdminConsoleEnabled = &adminConsoleEnabled
 	cfg.AdminConsoleAddresses = []string{address}
 
 	levelMgrClient := &testLevelMgrClient{}

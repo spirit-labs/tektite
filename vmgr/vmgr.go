@@ -75,8 +75,8 @@ type Client interface {
 
 func NewVersionManager(seqMgr sequence.Manager, levelMgrClient levels.Client, cfg *conf.Config,
 	serverAddresses ...string) *VersionManager {
-	requiredProcessorCount := cfg.ProcessorCount
-	if cfg.LevelManagerEnabled {
+	requiredProcessorCount := *cfg.ProcessorCount
+	if *cfg.LevelManagerEnabled {
 		requiredProcessorCount++
 	}
 	vmgr := &VersionManager{
@@ -112,7 +112,7 @@ func (v *VersionManager) Stop() error {
 		return nil
 	}
 
-	log.Debugf("node %d vmgr stopping", v.cfg.NodeID)
+	log.Debugf("node %d vmgr stopping", *v.cfg.NodeID)
 
 	// Make sure activating goroutine stops if in progress
 	v.activating.Store(false)
@@ -120,7 +120,7 @@ func (v *VersionManager) Stop() error {
 	v.activateWg.Wait()
 
 	v.lock.Lock()
-	log.Debugf("node %d vmgr stopping, active? %t", v.cfg.NodeID, v.active)
+	log.Debugf("node %d vmgr stopping, active? %t", *v.cfg.NodeID, v.active)
 	v.active = false
 	bvt := v.broadcastVersionsTimer
 	if bvt != nil {
@@ -172,7 +172,7 @@ func (v *VersionManager) Activate() {
 }
 
 func (v *VersionManager) activate() {
-	log.Debugf("vmgr activating on node %d", v.cfg.NodeID)
+	log.Debugf("vmgr activating on node %d", *v.cfg.NodeID)
 	v.activating.Store(true)
 	v.activateWg.Add(1)
 	// We run activation on a separate goroutine as it needs to contact the level manager which might not be available,
@@ -182,7 +182,7 @@ func (v *VersionManager) activate() {
 		if err := v.doActivate(); err != nil {
 			log.Errorf("failed to activate version manager: %v", err)
 		}
-		log.Debugf("vmgr now activated on node %d", v.cfg.NodeID)
+		log.Debugf("vmgr now activated on node %d", *v.cfg.NodeID)
 	})
 }
 
@@ -191,13 +191,13 @@ func (v *VersionManager) doActivate() error {
 	var lfv int64
 	for {
 		var err error
-		log.Debugf("node %d vmgr loading last flushed version", v.cfg.NodeID)
+		log.Debugf("node %d vmgr loading last flushed version", *v.cfg.NodeID)
 		lfv, err = v.levelMgrClient.LoadLastFlushedVersion()
 		if err == nil {
 			break
 		}
 		if !v.IsActivating() {
-			log.Debugf("node %d breaking out of activation loop", v.cfg.NodeID)
+			log.Debugf("node %d breaking out of activation loop", *v.cfg.NodeID)
 			// break out of loop if activation cancelled - e.g. during stop or deactivation
 			break
 		}
@@ -259,7 +259,7 @@ func (v *VersionManager) StopCompletion() {
 // Shutdown waits for the version to be flushed, then it makes sure the flushedVersion has been written to the level
 // manager, before stopping.
 func (v *VersionManager) Shutdown() (bool, error) {
-	log.Debugf("node %d version manager shutdown", v.cfg.NodeID)
+	log.Debugf("node %d version manager shutdown", *v.cfg.NodeID)
 	v.lock.Lock()
 
 	if err := v.checkActive(); err != nil {
@@ -275,7 +275,7 @@ func (v *VersionManager) Shutdown() (bool, error) {
 	// If the version is not flushed yet, we wait
 	if v.lastVersionToFlush < shutdownVersion {
 		log.Debugf("node %d vmgr shutdown - waiting for version %d to be flushed, last %d",
-			v.cfg.NodeID, shutdownVersion, v.lastVersionToFlush)
+			*v.cfg.NodeID, shutdownVersion, v.lastVersionToFlush)
 
 		v.shutdownFlushVersion = shutdownVersion
 		v.shutdownWg = &sync.WaitGroup{}
@@ -285,7 +285,7 @@ func (v *VersionManager) Shutdown() (bool, error) {
 		wg := v.shutdownWg
 		v.lock.Unlock()
 
-		log.Debugf("node %d versionManager waiting for version %d to be flushed to version manager", v.cfg.NodeID,
+		log.Debugf("node %d versionManager waiting for version %d to be flushed to version manager", *v.cfg.NodeID,
 			shutdownVersion)
 
 		// we wait for version to be flushed outside lock
@@ -293,7 +293,7 @@ func (v *VersionManager) Shutdown() (bool, error) {
 		v.lock.Lock()
 	}
 
-	log.Debugf("node %d versionManager waiting for version %d to be flushed to levelManager", v.cfg.NodeID,
+	log.Debugf("node %d versionManager waiting for version %d to be flushed to levelManager", *v.cfg.NodeID,
 		v.lastVersionToFlush)
 
 	// Now we must store flushed version in level manager, without the lock held
@@ -364,7 +364,7 @@ func (v *VersionManager) HandleClusterState(cs clustmgr.ClusterState) error {
 			v.lock.Unlock()
 		}
 	}()
-	log.Debugf("node %d vmgr handling cluster state version %d", v.cfg.NodeID, cs.Version)
+	log.Debugf("node %d vmgr handling cluster state version %d", *v.cfg.NodeID, cs.Version)
 	if v.isLeader(&cs) {
 		log.Debugf("node is leader, activating? %t active? %t", v.IsActivating(), v.active)
 		if !v.IsActivating() && !v.active {
@@ -417,7 +417,7 @@ func (v *VersionManager) isLeader(cs *clustmgr.ClusterState) bool {
 		}
 	}
 	log.Debugf("leader node for version manager is %d", leaderNode)
-	return leaderNode == v.cfg.NodeID
+	return leaderNode == *v.cfg.NodeID
 }
 
 func (v *VersionManager) GetVersions() (int, int, int, error) {
@@ -568,7 +568,7 @@ func (v *VersionManager) VersionComplete(version int, requiredCompletions int, c
 		if err := v.setNextCurrentVersion(); err != nil {
 			return err
 		}
-		log.Debugf("node %d version %d is complete current version is now %d", v.cfg.NodeID, v.lastCompletedVersion, v.currentVersion)
+		log.Debugf("node %d version %d is complete current version is now %d", *v.cfg.NodeID, v.lastCompletedVersion, v.currentVersion)
 		v.completionCount = 0
 		v.currentCommandID = -1
 		v.broadcastVersions()
@@ -601,17 +601,17 @@ func (v *VersionManager) checkActive() error {
 		// We don't return an unavailable as that would cause clients to retry - and then that can cause shutdown to
 		// hang, e.g. waiting for stores to close who are trying to flush a version.
 		return errors.NewTektiteErrorf(errors.VersionManagerShutdown,
-			fmt.Sprintf("version manager is shutdown on node %d", v.cfg.NodeID))
+			fmt.Sprintf("version manager is shutdown on node %d", *v.cfg.NodeID))
 	}
 	if !v.active {
 		return errors.NewTektiteErrorf(errors.Unavailable,
-			fmt.Sprintf("version manager is not active on node %d", v.cfg.NodeID))
+			fmt.Sprintf("version manager is not active on node %d", *v.cfg.NodeID))
 	}
 	return nil
 }
 
 func (v *VersionManager) scheduleBroadcast(first bool) {
-	v.broadcastVersionsTimer = common.ScheduleTimer(v.cfg.VersionCompletedBroadcastInterval, first, func() {
+	v.broadcastVersionsTimer = common.ScheduleTimer(*v.cfg.VersionCompletedBroadcastInterval, first, func() {
 		v.lock.Lock()
 		defer v.lock.Unlock()
 		if !v.active {
@@ -647,7 +647,7 @@ func (v *VersionManager) doBroadcastVersions() {
 
 func (v *VersionManager) scheduleLastFlushedVersion(first bool) {
 	log.Debugf("vmgr scheduling flush after %d ms", v.cfg.VersionManagerStoreFlushedInterval.Milliseconds())
-	v.flushedVersionTimer = common.ScheduleTimer(v.cfg.VersionManagerStoreFlushedInterval, first, func() {
+	v.flushedVersionTimer = common.ScheduleTimer(*v.cfg.VersionManagerStoreFlushedInterval, first, func() {
 		v.storeLastFlushedVersion()
 	})
 }

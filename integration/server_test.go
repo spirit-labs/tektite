@@ -12,6 +12,7 @@ import (
 	"github.com/spirit-labs/tektite/shutdown"
 	"github.com/spirit-labs/tektite/tekclient"
 	"github.com/spirit-labs/tektite/testutils"
+	"github.com/spirit-labs/tektite/types"
 	"github.com/stretchr/testify/require"
 	"testing"
 	"time"
@@ -59,32 +60,32 @@ func startClusterWithConfigSetter(t *testing.T, numServers int, fk *fake.Kafka, 
 	cfg := conf.Config{}
 	cfg.ApplyDefaults()
 	cfg.ClusterAddresses = remotingAddresses
-	cfg.HttpApiEnabled = true
+	cfg.HttpApiEnabled = types.AddressOf(true)
 	cfg.HttpApiAddresses = httpServerListenAddresses
-	cfg.HttpApiTlsConfig = tlsConf
-	cfg.ProcessingEnabled = true
-	cfg.LevelManagerEnabled = true
-	cfg.MinSnapshotInterval = 100 * time.Millisecond
-	cfg.CompactionWorkersEnabled = true
+	cfg.HttpApiTlsConfig = &tlsConf
+	cfg.ProcessingEnabled = types.AddressOf(true)
+	cfg.LevelManagerEnabled = types.AddressOf(true)
+	cfg.MinSnapshotInterval = types.AddressOf(100 * time.Millisecond)
+	cfg.CompactionWorkersEnabled = types.AddressOf(true)
 
 	// In real life don't want to set this so low otherwise cluster state will be calculated when just one node
 	// is started with all leaders
-	cfg.ClusterStateUpdateInterval = 10 * time.Millisecond
+	cfg.ClusterStateUpdateInterval = types.AddressOf(10 * time.Millisecond)
 
 	// Set this low so store retries quickly to get prefix retentions on startup.
-	cfg.LevelManagerRetryDelay = 10 * time.Millisecond
+	*cfg.LevelManagerRetryDelay = 10 * time.Millisecond
 
 	cfg.DevObjectStoreAddresses = []string{objStoreAddress}
 
 	// Give each test a different etcd prefix, so they have separate namespaces
-	cfg.ClusterManagerKeyPrefix = fmt.Sprintf("tektite-integration-tests-%s", t.Name())
+	cfg.ClusterManagerKeyPrefix = types.AddressOf(fmt.Sprintf("tektite-integration-tests-%s", t.Name()))
 	if configSetter != nil {
 		configSetter(&cfg)
 	}
 
 	for i := 0; i < numServers; i++ {
 		cfgCopy := cfg
-		cfgCopy.NodeID = i
+		cfgCopy.NodeID = &i
 		s, err := server.NewServerWithClientFactory(cfgCopy, fake.NewFakeMessageClientFactory(fk))
 		require.NoError(t, err)
 		servers = append(servers, s)

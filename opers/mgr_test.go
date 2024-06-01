@@ -162,7 +162,7 @@ func testBridgeFromOper(t *testing.T, msgs [][]*kafka.Message, numFailuresToCrea
 	require.Equal(t, commandID, pi.CommandID)
 	sinkOper := pi.Operators[len(pi.Operators)-1].(*testSinkOper)
 
-	expectedMapping := CalcProcessorPartitionMapping("_default_", numPartitions, cfg.ProcessorCount)
+	expectedMapping := CalcProcessorPartitionMapping("_default_", numPartitions, *cfg.ProcessorCount)
 	// Activate each processor
 	for processorID := range expectedMapping {
 		pm.AddActiveProcessor(processorID)
@@ -267,7 +267,7 @@ func TestAddRemoveProcessors(t *testing.T) {
 	require.Equal(t, 0, ki.numConsumers())
 
 	var processorIDs []int
-	expectedMapping := CalcProcessorPartitionMapping("_default_", numPartitions, cfg.ProcessorCount)
+	expectedMapping := CalcProcessorPartitionMapping("_default_", numPartitions, *cfg.ProcessorCount)
 	// Gather some processor ids
 	for processorID := range expectedMapping {
 		processorIDs = append(processorIDs, processorID)
@@ -366,7 +366,7 @@ func TestGetInjectableReceivers(t *testing.T) {
 		processorSet2[procID] = struct{}{}
 	}
 
-	for procID := 0; procID < cfg.ProcessorCount; procID++ {
+	for procID := 0; procID < *cfg.ProcessorCount; procID++ {
 		var expectedReceiverIDs []int
 		if procID == 0 {
 			expectedReceiverIDs = append(expectedReceiverIDs, common.DummyReceiverID)
@@ -386,7 +386,7 @@ func TestGetInjectableReceivers(t *testing.T) {
 
 	err = mgr.UndeployStream(parser.DeleteStreamDesc{StreamName: "test_stream1"}, 0)
 	require.NoError(t, err)
-	for procID := 0; procID < cfg.ProcessorCount; procID++ {
+	for procID := 0; procID < *cfg.ProcessorCount; procID++ {
 		var expectedReceiverIDs []int
 		if procID == 0 {
 			expectedReceiverIDs = append(expectedReceiverIDs, common.DummyReceiverID)
@@ -403,7 +403,7 @@ func TestGetInjectableReceivers(t *testing.T) {
 
 	err = mgr.UndeployStream(parser.DeleteStreamDesc{StreamName: "test_stream2"}, 0)
 	require.NoError(t, err)
-	for procID := 0; procID < cfg.ProcessorCount; procID++ {
+	for procID := 0; procID < *cfg.ProcessorCount; procID++ {
 		actualReceiverIDs := mgr.GetInjectableReceivers(procID)
 		if procID == 0 {
 			require.Equal(t, []int{common.DummyReceiverID}, actualReceiverIDs)

@@ -62,12 +62,12 @@ func TestLevelManagerCluster(t *testing.T) {
 		clustStateMgrs = append(clustStateMgrs, clustStateMgr)
 		cfg := &conf.Config{}
 		cfg.ApplyDefaults()
-		cfg.NodeID = i
+		cfg.NodeID = &i
 		cfg.ClusterAddresses = remotingAddresses
 		// There are no processors used for data-processing, however there will be one more than this (i.e. 1) for
 		// the level manager
-		cfg.ProcessorCount = 0
-		cfg.LevelManagerEnabled = true
+		*cfg.ProcessorCount = 0
+		*cfg.LevelManagerEnabled = true
 
 		handler := &testBatchHandler{}
 
@@ -148,7 +148,7 @@ func TestLevelManagerCluster(t *testing.T) {
 	cfg := &conf.Config{}
 	cfg.ClusterAddresses = remotingAddresses
 	cfg.ApplyDefaults()
-	cfg.ProcessorCount = 0
+	*cfg.ProcessorCount = 0
 	mgr := mgrs[rand.Intn(numNodes)]
 	localClient := proc.NewLevelManagerLocalClient(cfg)
 	localClient.SetProcessorManager(mgr)

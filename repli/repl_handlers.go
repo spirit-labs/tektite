@@ -102,7 +102,7 @@ func (r *replicator) sendReplication(processorID int, groupNodes []clustmgr.Grou
 	serverAddresses := make([]string, 0, len(groupNodes))
 
 	for _, groupNode := range groupNodes {
-		if groupNode.NodeID != r.cfg.NodeID {
+		if groupNode.NodeID != *r.cfg.NodeID {
 			serverAddresses = append(serverAddresses, r.cfg.ClusterAddresses[groupNode.NodeID])
 
 			msg := &clustermsgs.ReplicateMessage{
@@ -115,7 +115,7 @@ func (r *replicator) sendReplication(processorID int, groupNodes []clustmgr.Grou
 				SequenceNumber:        uint64(batch.ReplSeq),
 				ClusterVersion:        uint64(clusterVersion),
 				JoinedClusterVersion:  uint64(groupNode.JoinedVersion),
-				SendingNode:           uint32(r.cfg.NodeID),
+				SendingNode:           uint32(*r.cfg.NodeID),
 			}
 			msgs = append(msgs, msg)
 		}
@@ -135,7 +135,7 @@ func (r *replicator) sendCommit(processorID int, groupNodes []clustmgr.GroupNode
 	msgs := make([]remoting.ClusterMessage, 0, len(groupNodes))
 	serverAddresses := make([]string, 0, len(groupNodes))
 	for _, groupNode := range groupNodes {
-		if groupNode.NodeID != r.cfg.NodeID {
+		if groupNode.NodeID != *r.cfg.NodeID {
 			serverAddresses = append(serverAddresses, r.cfg.ClusterAddresses[groupNode.NodeID])
 			msg := &clustermsgs.ReplicateMessage{
 				ReplicationType:      replicationTypeCommit,
@@ -143,7 +143,7 @@ func (r *replicator) sendCommit(processorID int, groupNodes []clustmgr.GroupNode
 				ClusterVersion:       uint64(clusterVersion),
 				JoinedClusterVersion: uint64(groupNode.JoinedVersion),
 				SequenceNumber:       uint64(batchSeq),
-				SendingNode:          uint32(r.cfg.NodeID),
+				SendingNode:          uint32(*r.cfg.NodeID),
 			}
 			msgs = append(msgs, msg)
 		}
@@ -170,7 +170,7 @@ func (r *replicator) sendFlush(processorID int, clusterVersion int, batchSeq int
 	msgs := make([]remoting.ClusterMessage, 0, len(groupNodes))
 	serverAddresses := make([]string, 0, len(groupNodes))
 	for _, groupNode := range groupNodes {
-		if groupNode.NodeID != r.cfg.NodeID {
+		if groupNode.NodeID != *r.cfg.NodeID {
 			serverAddresses = append(serverAddresses, r.cfg.ClusterAddresses[groupNode.NodeID])
 			msg := &clustermsgs.FlushMessage{
 				ProcessorId:          uint64(processorID),
@@ -203,7 +203,7 @@ func (r *replicator) sendSyncBatchToNode(processorID int, nodeID int, clusterVer
 		JoinedClusterVersion:  uint64(joinedClusterVersion),
 		BatchBytes:            batch.GetBatchBytes(),
 		ForwardingProcessorId: int64(batch.ForwardingProcessorID),
-		SendingNode:           uint32(r.cfg.NodeID),
+		SendingNode:           uint32(*r.cfg.NodeID),
 		ReplSeq:               uint64(seq),
 	}
 	r.remotingClient.SendRPCAsync(func(_ remoting.ClusterMessage, err error) {

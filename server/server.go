@@ -48,7 +48,7 @@ import (
 
 func NewServer(config conf.Config) (*Server, error) {
 	var cf kafka.ClientFactory
-	switch config.ClientType {
+	switch *config.ClientType {
 	case conf.KafkaClientTypeConfluent:
 		cf = kafka.NewMessageProviderFactory
 	case conf.KafkaClientTypeLoad:
@@ -70,16 +70,16 @@ func NewServerWithClientFactory(config conf.Config, clientFactory kafka.ClientFa
 
 	var clustStateMgr clustmgr.StateManager
 	if standalone {
-		clustStateMgr = clustmgr.NewLocalStateManager(config.ProcessorCount + 1)
+		clustStateMgr = clustmgr.NewLocalStateManager(*config.ProcessorCount + 1)
 	} else {
-		clustStateMgr = clustmgr.NewClusteredStateManager(config.ClusterManagerKeyPrefix, config.ClusterName, config.NodeID,
-			config.ClusterManagerAddresses, config.ClusterEvictionTimeout, config.ClusterStateUpdateInterval,
-			config.EtcdCallTimeout, config.ProcessorCount+1, config.MaxReplicas)
+		clustStateMgr = clustmgr.NewClusteredStateManager(*config.ClusterManagerKeyPrefix, *config.ClusterName, *config.NodeID,
+			config.ClusterManagerAddresses, *config.ClusterEvictionTimeout, *config.ClusterStateUpdateInterval,
+			*config.EtcdCallTimeout, *config.ProcessorCount+1, *config.MaxReplicas)
 	}
 
 	var levelManagerClientFactory levels.ClientFactory
 	var localLevMgrClientFactory *localLevelManagerClientFactory
-	if config.LevelManagerEnabled {
+	if *config.LevelManagerEnabled {
 		localLevMgrClientFactory = &localLevelManagerClientFactory{cfg: &config}
 		levelManagerClientFactory = localLevMgrClientFactory
 	} else {
@@ -92,12 +92,12 @@ func NewServerWithClientFactory(config conf.Config, clientFactory kafka.ClientFa
 	} else {
 		client := clustStateMgr.(*clustmgr.ClusteredStateManager).GetClient()
 		lockManager = &clusterManagerLockManager{
-			lockTimeout:    config.ClusterManagerLockTimeout,
+			lockTimeout:    *config.ClusterManagerLockTimeout,
 			clustMgrClient: client,
 		}
 	}
 	var objStoreClient objstore.Client
-	switch config.ObjectStoreType {
+	switch *config.ObjectStoreType {
 	case conf.DevObjectStoreType:
 		objStoreClient = dev.NewDevStoreClient(config.DevObjectStoreAddresses[0])
 	case conf.EmbeddedObjectStoreType:
@@ -107,8 +107,8 @@ func NewServerWithClientFactory(config conf.Config, clientFactory kafka.ClientFa
 	default:
 		return nil, errors.NewTektiteErrorf(errors.InvalidConfiguration, "invalid object store type: %s", config.ObjectStoreType)
 	}
-	sequenceManager := sequence.NewSequenceManager(objStoreClient, config.SequencesObjectName, lockManager,
-		config.SequencesRetryDelay)
+	sequenceManager := sequence.NewSequenceManager(objStoreClient, *config.SequencesObjectName, lockManager,
+		*config.SequencesRetryDelay)
 	lifeCycleMgr := lifecycle.NewLifecycleEndpoints(config)
 
 	tableCache, err := tabcache.NewTableCache(objStoreClient, &config)
@@ -124,12 +124,12 @@ func NewServerWithClientFactory(config conf.Config, clientFactory kafka.ClientFa
 	dataStore := store.NewStore(objStoreClient, levMgrClient, tableCache, prefixRetentions, config)
 
 	var compactionService *levels.CompactionWorkerService
-	if config.CompactionWorkersEnabled {
+	if *config.CompactionWorkersEnabled {
 		// each compaction worker has its own level manager client to avoid contention, so we pass in the factory
 		compactionService = levels.NewCompactionWorkerService(&config, levelManagerClientFactory, tableCache, objStoreClient)
 	}
 
-	remotingServer := remoting.NewServer(config.ClusterAddresses[config.NodeID], config.ClusterTlsConfig)
+	remotingServer := remoting.NewServer(config.ClusterAddresses[*config.NodeID], config.ClusterTlsConfig)
 
 	versionManager := vmgr.NewVersionManager(sequenceManager, levMgrClient, &config, config.ClusterAddresses...)
 
@@ -148,7 +148,7 @@ func NewServerWithClientFactory(config conf.Config, clientFactory kafka.ClientFa
 	flushNotifier := &levelManagerFlushNotifier{}
 	vmgrClient := proc.NewVmgrClient(&config)
 	processorManager := proc.NewProcessorManagerWithVmgrClient(clustStateMgr, streamManager, dataStore,
-		&config, repli.NewReplicator, handlerFactory.createBatchHandler, flushNotifier, streamManager, !config.FailureDisabled,
+		&config, repli.NewReplicator, handlerFactory.createBatchHandler, flushNotifier, streamManager, !*config.FailureDisabled,
 		vmgrClient)
 	vmgrClient.SetProcessorManager(processorManager)
 	clustStateMgr.SetClusterStateHandler(processorManager.HandleClusterState)
@@ -156,9 +156,9 @@ func NewServerWithClientFactory(config conf.Config, clientFactory kafka.ClientFa
 
 	streamManager.SetProcessorManager(processorManager)
 
-	queryManager := query.NewManager(processorManager, processorManager, config.NodeID, streamManager, dataStore,
+	queryManager := query.NewManager(processorManager, processorManager, *config.NodeID, streamManager, dataStore,
 		streamManager.StreamMetaIteratorProvider(), query.NewDefaultRemoting(&config), config.ClusterAddresses,
-		config.QueryMaxBatchRows, exprFactory, theParser)
+		*config.QueryMaxBatchRows, exprFactory, theParser)
 
 	levelManagerService := levels.NewLevelManagerService(processorManager, &config, objStoreClient, tableCache,
 		proc.NewLevelManagerCommandIngestor(processorManager), processorManager)
@@ -172,7 +172,7 @@ func NewServerWithClientFactory(config conf.Config, clientFactory kafka.ClientFa
 
 	dmVersionSetter := levels.NewVersionSetter(&config, processorManager, dataStore)
 
-	theMetrics := metrics.NewServer(config, !config.MetricsEnabled)
+	theMetrics := metrics.NewServer(config, !*config.MetricsEnabled)
 
 	commandMgr := command.NewCommandManager(streamManager, queryManager, sequenceManager, lockManager,
 		processorManager, processorManager.VersionManagerClient(), theParser, &config)
@@ -185,14 +185,14 @@ func NewServerWithClientFactory(config conf.Config, clientFactory kafka.ClientFa
 	processorManager.RegisterStateHandler(commandMgr.HandleClusterState)
 
 	var apiServer *api.HTTPAPIServer
-	if config.HttpApiEnabled {
-		apiServer = api.NewHTTPAPIServer(config.HttpApiAddresses[config.NodeID], config.HttpApiPath,
-			queryManager, commandMgr, theParser, moduleManager, config.HttpApiTlsConfig)
+	if *config.HttpApiEnabled {
+		apiServer = api.NewHTTPAPIServer(config.HttpApiAddresses[*config.NodeID], *config.HttpApiPath,
+			queryManager, commandMgr, theParser, moduleManager, *config.HttpApiTlsConfig)
 	}
 
 	var kafkaServer *kafkaserver.Server
 	var kafkaGroupCoordinator *kafkaserver.GroupCoordinator
-	if config.KafkaServerEnabled {
+	if *config.KafkaServerEnabled {
 		metaProvider, err := kafkaserver.NewMetaDataProvider(&config, processorManager, streamManager)
 		if err != nil {
 			return nil, err
@@ -211,7 +211,7 @@ func NewServerWithClientFactory(config conf.Config, clientFactory kafka.ClientFa
 	}
 
 	var adminServer *admin.Server
-	if config.AdminConsoleEnabled {
+	if *config.AdminConsoleEnabled {
 		adminServer, err = admin.NewServer(&config, levMgrClient, streamManager, processorManager)
 		if err != nil {
 			return nil, err
@@ -264,7 +264,7 @@ func NewServerWithClientFactory(config conf.Config, clientFactory kafka.ClientFa
 
 	server := &Server{
 		conf:                config,
-		nodeID:              config.NodeID,
+		nodeID:              *config.NodeID,
 		lifeCycleMgr:        lifeCycleMgr,
 		remotingServer:      remotingServer,
 		services:            services,
@@ -324,11 +324,11 @@ func (s *Server) Start() error {
 		panic("server cannot be restarted")
 	}
 
-	if s.conf.DebugServerEnabled {
-		if s.conf.NodeID >= len(s.conf.DebugServerAddresses) {
+	if *s.conf.DebugServerEnabled {
+		if *s.conf.NodeID >= len(s.conf.DebugServerAddresses) {
 			return errors.NewTektiteErrorf(errors.InvalidConfiguration, "no entry in DebugServerAddresses for node id %d", s.conf.NodeID)
 		}
-		address := s.conf.DebugServerAddresses[s.conf.NodeID]
+		address := s.conf.DebugServerAddresses[*s.conf.NodeID]
 		go func() {
 			log.Debug(http.ListenAndServe(address, nil))
 		}()
@@ -372,12 +372,12 @@ func (s *Server) Start() error {
 }
 
 func (s *Server) maybeEnabledDatadogProfiler() error {
-	ddProfileTypes := s.conf.DDProfilerTypes
+	ddProfileTypes := *s.conf.DDProfilerTypes
 	if ddProfileTypes == "" {
 		return nil
 	}
 
-	ddHost := os.Getenv(s.conf.DDProfilerHostEnvVarName)
+	ddHost := os.Getenv(*s.conf.DDProfilerHostEnvVarName)
 	if ddHost == "" {
 		return errors.NewTektiteErrorf(errors.InvalidConfiguration, "Env var %s for DD profiler host is not set", s.conf.DDProfilerHostEnvVarName)
 	}
@@ -407,9 +407,9 @@ func (s *Server) maybeEnabledDatadogProfiler() error {
 		s.conf.DDProfilerServiceName, s.conf.DDProfilerEnvironmentName, s.conf.DDProfilerVersionName, agentAddress, ddProfileTypes)
 
 	return profiler.Start(
-		profiler.WithService(s.conf.DDProfilerServiceName),
-		profiler.WithEnv(s.conf.DDProfilerEnvironmentName),
-		profiler.WithVersion(s.conf.DDProfilerVersionName),
+		profiler.WithService(*s.conf.DDProfilerServiceName),
+		profiler.WithEnv(*s.conf.DDProfilerEnvironmentName),
+		profiler.WithVersion(*s.conf.DDProfilerVersionName),
 		profiler.WithAgentAddr(agentAddress),
 		profiler.WithProfileTypes(profileTypes...),
 	)
@@ -429,7 +429,7 @@ func (s *Server) stop(shutdown bool) error {
 	if s.stopped {
 		return nil
 	}
-	if s.conf.DDProfilerTypes != "" {
+	if *s.conf.DDProfilerTypes != "" {
 		profiler.Stop()
 	}
 	s.lifeCycleMgr.SetActive(false)
@@ -515,7 +515,7 @@ type batchHandlerFactory struct {
 }
 
 func (bh *batchHandlerFactory) createBatchHandler(processorID int) proc.BatchHandler {
-	if bh.cfg.LevelManagerEnabled && processorID >= bh.cfg.ProcessorCount {
+	if *bh.cfg.LevelManagerEnabled && processorID >= *bh.cfg.ProcessorCount {
 		return bh.levelManagerBatchHandler
 	} else {
 		return bh.streamManager
@@ -574,7 +574,7 @@ type externalLevelManagerClientFactory struct {
 
 func (e *externalLevelManagerClientFactory) CreateLevelManagerClient() levels.Client {
 	return levels.NewExternalClient(e.cfg.ExternalLevelManagerAddresses,
-		e.cfg.ExternalLevelManagerTlsConfig, e.cfg.LevelManagerRetryDelay)
+		e.cfg.ExternalLevelManagerTlsConfig, *e.cfg.LevelManagerRetryDelay)
 }
 
 type wasmFunctionChecker struct {

@@ -43,7 +43,7 @@ func main() {
 	}
 
 	var cpuFile *os.File
-	if cfg.Server.CPUProfileEnabled {
+	if cfg.Server.CPUProfileEnabled != nil && *cfg.Server.CPUProfileEnabled {
 		cpuFile, err = os.Create("cpu-profile.out")
 		if err != nil {
 			logErrorAndExit(err.Error())
@@ -59,7 +59,7 @@ func main() {
 		}()
 	}
 
-	if cfg.Server.MemProfileEnabled {
+	if cfg.Server.MemProfileEnabled != nil && *cfg.Server.MemProfileEnabled {
 		defer func() {
 			memProfileFile, err := os.Create("mem-profile.out")
 			if err != nil {
@@ -156,8 +156,8 @@ func (r *runner) loadConfig(args []string) (*arguments, error) {
 		return nil, errors.WithStack(err)
 	}
 	cfg.Server.ApplyDefaults()
-	cfg.Server.Original = cfgString
-	if cfg.Server.ClientType != conf.KafkaClientTypeConfluent {
+	cfg.Server.Original = &cfgString
+	if cfg.Server.ClientType != nil && *cfg.Server.ClientType != conf.KafkaClientTypeConfluent {
 		panic("only Confluent client type supported on real server")
 	}
 	return &cfg, nil

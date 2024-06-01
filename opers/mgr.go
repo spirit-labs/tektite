@@ -380,7 +380,7 @@ func (pm *streamManager) deployStream(streamDesc parser.CreateStreamDesc, receiv
 		var err error
 		switch op := desc.(type) {
 		case *TestSourceDesc:
-			partitionScheme := NewPartitionScheme(streamDesc.StreamName, op.Partitions, false, pm.cfg.ProcessorCount)
+			partitionScheme := NewPartitionScheme(streamDesc.StreamName, op.Partitions, false, *pm.cfg.ProcessorCount)
 			operSchema := &OperatorSchema{
 				EventSchema:     evbatch.NewEventSchema(op.ColumnNames, op.ColumnTypes),
 				PartitionScheme: partitionScheme,
@@ -611,7 +611,7 @@ func (pm *streamManager) deployBridgeToOperator(streamName string, op *parser.Br
 		prefixRetentions = append(prefixRetentions, *prefRetention)
 	}
 	backfillReceiverID := receiverSliceSeqs.GetNextID()
-	bfo := NewBackfillOperator(sso.OutSchema(), pm.stor, pm.cfg, slabID, pm.cfg.MaxBackfillBatchSize, backfillReceiverID, true)
+	bfo := NewBackfillOperator(sso.OutSchema(), pm.stor, pm.cfg, slabID, *pm.cfg.MaxBackfillBatchSize, backfillReceiverID, true)
 	bt, err := NewBridgeToOperator(op, sso, bfo, pm.messageClientFactory)
 	if err != nil {
 		return nil, nil, nil, err
@@ -635,7 +635,7 @@ func (pm *streamManager) deployKafkaInOperator(streamName string, op *parser.Kaf
 	receiverID := receiverSliceSeqs.GetNextID()
 	offsetsSlabID := slabSliceSeqs.GetNextID()
 	kafkaIn := NewKafkaInOperator(getMappingID(), pm.stor, offsetsSlabID, receiverID,
-		op.Partitions, pm.cfg.KafkaUseServerTimestamp, pm.cfg.ProcessorCount)
+		op.Partitions, *pm.cfg.KafkaUseServerTimestamp, *pm.cfg.ProcessorCount)
 	wmType, wmLateness, wmIdleTimeout, err := defaultWatermarkArgs(op.WatermarkType, op.WatermarkLateness,
 		op.WatermarkIdleTimeout, op)
 	if err != nil {
@@ -654,7 +654,7 @@ func (pm *streamManager) deployKafkaInOperator(streamName string, op *parser.Kaf
 func (pm *streamManager) setupStoreStreamOperator(streamName string, retention time.Duration,
 	schema *OperatorSchema, slabID int, offsetsSlabID int,
 	prefixRetentions []retention.PrefixRetention) (*StoreStreamOperator, []retention.PrefixRetention, *SlabInfo, error) {
-	tso, err := NewStoreStreamOperator(schema, slabID, offsetsSlabID, pm.stor, pm.cfg.NodeID)
+	tso, err := NewStoreStreamOperator(schema, slabID, offsetsSlabID, pm.stor, *pm.cfg.NodeID)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -920,7 +920,7 @@ func (pm *streamManager) deployStoreTableOperator(streamName string, op *parser.
 	prevOperator Operator, slabSliceSeqs *sliceSeq,
 	prefixRetentions []retention.PrefixRetention) (Operator, []retention.PrefixRetention, *SlabInfo, error) {
 	slabID := slabSliceSeqs.GetNextID()
-	to, err := NewStoreTableOperator(prevOperator.OutSchema(), slabID, pm.stor, op.KeyCols, pm.cfg.NodeID, false, op)
+	to, err := NewStoreTableOperator(prevOperator.OutSchema(), slabID, pm.stor, op.KeyCols, *pm.cfg.NodeID, false, op)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -955,7 +955,7 @@ func (pm *streamManager) deployBackfillOperator(operators []Operator,
 	}
 	receiverID := receiverSliceSeqs.GetNextID()
 	backfillOper := NewBackfillOperator(fromSlab.Schema, pm.stor, pm.cfg, fromSlab.SlabID,
-		pm.cfg.MaxBackfillBatchSize, receiverID, false)
+		*pm.cfg.MaxBackfillBatchSize, receiverID, false)
 	return backfillOper, nil
 }
 
@@ -1039,7 +1039,7 @@ func (pm *streamManager) deployJoinOperator(streamName string, op *parser.JoinDe
 		})
 	}
 	jo, err := NewJoinOperator(leftSlabID, rightSlabID, leftOper, rightOper, op.LeftIsTable, op.RightIsTable, leftStream.UserSlab,
-		rightStream.UserSlab, op.JoinElements, within, pm.stor, pm.cfg.NodeID, receiverID, op)
+		rightStream.UserSlab, op.JoinElements, within, pm.stor, *pm.cfg.NodeID, receiverID, op)
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}

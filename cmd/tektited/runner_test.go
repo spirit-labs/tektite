@@ -7,10 +7,12 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 
 	"github.com/spirit-labs/tektite/conf"
+	"github.com/spirit-labs/tektite/types"
 	"github.com/stretchr/testify/require"
 )
 
@@ -18,7 +20,7 @@ func TestParseConfigWithComments(t *testing.T) {
 	hcl, err := os.ReadFile("testdata/config.hcl")
 	require.NoError(t, err)
 	cnfExpected := createConfigWithAllFields()
-	cnfExpected.NodeID = 2
+	cnfExpected.NodeID = types.AddressOf(2)
 	testRunner(t, hcl, cnfExpected, 2)
 }
 
@@ -37,12 +39,14 @@ func testRunner(t *testing.T, b []byte, cnf conf.Config, nodeID int) {
 
 	cfg, err := r.loadConfig(args)
 	require.NoError(t, err)
-	cfg.Server.Original = ""
+	cfg.Server.Original = types.AddressOf("")
 
 	require.NoError(t, r.run(&cfg.Server, false, nil))
 
 	actualConfig := r.getServer().GetConfig()
-	require.Equal(t, cnf, actualConfig)
+	//require.Equal(t, cnf, actualConfig)
+	// TODO: fix this test
+	require.True(t, reflect.DeepEqual(cnf, actualConfig))
 }
 
 func removeDataDir(dataDir string) {
@@ -53,83 +57,83 @@ func removeDataDir(dataDir string) {
 
 func createConfigWithAllFields() conf.Config {
 	return conf.Config{
-		ProcessingEnabled:        true,
-		LevelManagerEnabled:      true,
-		CompactionWorkersEnabled: true,
+		ProcessingEnabled:        types.AddressOf(true),
+		LevelManagerEnabled:      types.AddressOf(true),
+		CompactionWorkersEnabled: types.AddressOf(true),
 
-		ClusterName:                    "the_cluster_name",
-		ProcessorCount:                 96,
-		MaxProcessorBatchesInProgress:  1000,
-		MemtableMaxSizeBytes:           10000000,
-		MemtableMaxReplaceInterval:     37 * time.Second,
-		MemtableFlushQueueMaxSize:      50,
-		StoreWriteBlockedRetryInterval: 777 * time.Millisecond,
-		MinReplicas:                    3,
-		MaxReplicas:                    5,
-		TableFormat:                    common.DataFormatV1,
-		MinSnapshotInterval:            13 * time.Second,
-		IdleProcessorCheckInterval:     23 * time.Second,
-		BatchFlushCheckInterval:        7 * time.Second,
-		ConsumerRetryInterval:          30 * time.Second,
-		MaxBackfillBatchSize:           998,
-		ClientType:                     conf.KafkaClientTypeConfluent,
-		ForwardResendDelay:             876 * time.Millisecond,
+		ClusterName:                    types.AddressOf("the_cluster_name"),
+		ProcessorCount:                 types.AddressOf(96),
+		MaxProcessorBatchesInProgress:  types.AddressOf(1000),
+		MemtableMaxSizeBytes:           (*conf.ParseableInt)(types.AddressOf(10000000)),
+		MemtableMaxReplaceInterval:     types.AddressOf(37 * time.Second),
+		MemtableFlushQueueMaxSize:      types.AddressOf(50),
+		StoreWriteBlockedRetryInterval: types.AddressOf(777 * time.Millisecond),
+		MinReplicas:                    types.AddressOf(3),
+		MaxReplicas:                    types.AddressOf(5),
+		TableFormat:                    types.AddressOf(common.DataFormatV1),
+		MinSnapshotInterval:            types.AddressOf(13 * time.Second),
+		IdleProcessorCheckInterval:     types.AddressOf(23 * time.Second),
+		BatchFlushCheckInterval:        types.AddressOf(7 * time.Second),
+		ConsumerRetryInterval:          types.AddressOf(30 * time.Second),
+		MaxBackfillBatchSize:           types.AddressOf(998),
+		ClientType:                     (*conf.KafkaClientType)(types.AddressOf(conf.KafkaClientTypeConfluent)),
+		ForwardResendDelay:             types.AddressOf(876 * time.Millisecond),
 
-		QueryMaxBatchRows: 999,
+		QueryMaxBatchRows: types.AddressOf(999),
 
-		HttpApiPath: "/wibble",
+		HttpApiPath: types.AddressOf("/wibble"),
 
-		RegistryFormat:                 3,
-		MasterRegistryRecordID:         "avocados",
-		MaxRegistrySegmentTableEntries: 12345,
-		LevelManagerFlushInterval:      10 * time.Second,
-		SegmentCacheMaxSize:            777,
+		RegistryFormat:                 types.AddressOf(common.MetadataFormat(3)),
+		MasterRegistryRecordID:         types.AddressOf("avocados"),
+		MaxRegistrySegmentTableEntries: types.AddressOf(12345),
+		LevelManagerFlushInterval:      types.AddressOf(10 * time.Second),
+		SegmentCacheMaxSize:            types.AddressOf(777),
 
-		ClusterManagerLockTimeout:  7 * time.Minute,
-		ClusterManagerKeyPrefix:    "test_keyprefix",
+		ClusterManagerLockTimeout:  types.AddressOf(7 * time.Minute),
+		ClusterManagerKeyPrefix:    types.AddressOf("test_keyprefix"),
 		ClusterManagerAddresses:    []string{"etcd1", "etcd2"},
-		ClusterEvictionTimeout:     13 * time.Second,
-		ClusterStateUpdateInterval: 1500 * time.Millisecond,
-		EtcdCallTimeout:            7 * time.Second,
+		ClusterEvictionTimeout:     types.AddressOf(13 * time.Second),
+		ClusterStateUpdateInterval: types.AddressOf(1500 * time.Millisecond),
+		EtcdCallTimeout:            types.AddressOf(7 * time.Second),
 
 		ClusterAddresses: []string{"addr1", "addr2", "addr3", "addr4", "addr5"},
 
-		HttpApiEnabled:   true,
+		HttpApiEnabled:   types.AddressOf(true),
 		HttpApiAddresses: []string{"addr11-1", "addr12-1", "addr13-1", "addr14-1", "addr15-1"},
-		HttpApiTlsConfig: conf.TLSConfig{
+		HttpApiTlsConfig: &conf.TLSConfig{
 			Enabled:         true,
 			KeyPath:         "http-key-path",
 			CertPath:        "http-cert-path",
 			ClientCertsPath: "http-client-certs-path",
 			ClientAuth:      "require-and-verify-client-cert",
 		},
-		MetricsBind:    "localhost:9102",
-		MetricsEnabled: false,
+		MetricsBind:    types.AddressOf("localhost:9102"),
+		MetricsEnabled: types.AddressOf(false),
 
-		KafkaServerEnabled:      true,
+		KafkaServerEnabled:      types.AddressOf(true),
 		KafkaServerAddresses:    []string{"kafka1:9301", "kafka2:9301", "kafka3:9301", "kafka4:9301", "kafka5:9301"},
-		KafkaUseServerTimestamp: true,
-		KafkaServerTLSConfig: conf.TLSConfig{
+		KafkaUseServerTimestamp: types.AddressOf(true),
+		KafkaServerTLSConfig: &conf.TLSConfig{
 			Enabled:         true,
 			KeyPath:         "kafka-key-path",
 			CertPath:        "kafka-cert-path",
 			ClientCertsPath: "kafka-client-certs-path",
 			ClientAuth:      "require-and-verify-client-cert",
 		},
-		KafkaInitialJoinDelay:       2 * time.Second,
-		KafkaMinSessionTimeout:      7 * time.Second,
-		KafkaMaxSessionTimeout:      25 * time.Second,
-		KafkaNewMemberJoinTimeout:   4 * time.Second,
-		KafkaFetchCacheMaxSizeBytes: 7654321,
+		KafkaInitialJoinDelay:       types.AddressOf(2 * time.Second),
+		KafkaMinSessionTimeout:      types.AddressOf(7 * time.Second),
+		KafkaMaxSessionTimeout:      types.AddressOf(25 * time.Second),
+		KafkaNewMemberJoinTimeout:   types.AddressOf(4 * time.Second),
+		KafkaFetchCacheMaxSizeBytes: (*conf.ParseableInt)(types.AddressOf(7654321)),
 
-		CommandCompactionInterval: 3 * time.Second,
+		CommandCompactionInterval: types.AddressOf(3 * time.Second),
 
-		DDProfilerTypes:           "HEAP,CPU",
-		DDProfilerServiceName:     "my-service",
-		DDProfilerEnvironmentName: "playing",
-		DDProfilerPort:            1324,
-		DDProfilerVersionName:     "2.3",
-		DDProfilerHostEnvVarName:  "FOO_IP",
+		DDProfilerTypes:           types.AddressOf("HEAP,CPU"),
+		DDProfilerServiceName:     types.AddressOf("my-service"),
+		DDProfilerEnvironmentName: types.AddressOf("playing"),
+		DDProfilerPort:            types.AddressOf(1324),
+		DDProfilerVersionName:     types.AddressOf("2.3"),
+		DDProfilerHostEnvVarName:  types.AddressOf("FOO_IP"),
 
 		ClusterTlsConfig: conf.TLSConfig{
 			Enabled:         true,
@@ -138,33 +142,33 @@ func createConfigWithAllFields() conf.Config {
 			ClientCertsPath: "intra-cluster-client-certs-path",
 			ClientAuth:      "require-and-verify-client-cert",
 		},
-		LevelManagerRetryDelay:             750 * time.Millisecond,
-		L0CompactionTrigger:                12,
-		L0MaxTablesBeforeBlocking:          21,
-		L1CompactionTrigger:                23,
-		LevelMultiplier:                    3,
-		CompactionPollerTimeout:            777 * time.Millisecond,
-		CompactionJobTimeout:               7 * time.Minute,
-		CompactionWorkerCount:              12,
-		SSTableDeleteCheckInterval:         350 * time.Millisecond,
-		SSTableDeleteDelay:                 1 * time.Hour,
-		SSTableRegisterRetryDelay:          35 * time.Second,
-		SSTablePushRetryDelay:              6 * time.Second,
-		PrefixRetentionRemoveCheckInterval: 17 * time.Second,
-		PrefixRetentionRefreshInterval:     13 * time.Second,
-		CompactionMaxSSTableSize:           54321,
+		LevelManagerRetryDelay:             types.AddressOf(750 * time.Millisecond),
+		L0CompactionTrigger:                types.AddressOf(12),
+		L0MaxTablesBeforeBlocking:          types.AddressOf(21),
+		L1CompactionTrigger:                types.AddressOf(23),
+		LevelMultiplier:                    types.AddressOf(3),
+		CompactionPollerTimeout:            types.AddressOf(777 * time.Millisecond),
+		CompactionJobTimeout:               types.AddressOf(7 * time.Minute),
+		CompactionWorkerCount:              types.AddressOf(12),
+		SSTableDeleteCheckInterval:         types.AddressOf(350 * time.Millisecond),
+		SSTableDeleteDelay:                 types.AddressOf(1 * time.Hour),
+		SSTableRegisterRetryDelay:          types.AddressOf(35 * time.Second),
+		SSTablePushRetryDelay:              types.AddressOf(6 * time.Second),
+		PrefixRetentionRemoveCheckInterval: types.AddressOf(17 * time.Second),
+		PrefixRetentionRefreshInterval:     types.AddressOf(13 * time.Second),
+		CompactionMaxSSTableSize:           types.AddressOf(54321),
 
-		TableCacheMaxSizeBytes: 12345678,
+		TableCacheMaxSizeBytes: (*conf.ParseableInt)(types.AddressOf(12345678)),
 
-		SequencesObjectName: "my_sequences",
-		SequencesRetryDelay: 300 * time.Millisecond,
+		SequencesObjectName: types.AddressOf("my_sequences"),
+		SequencesRetryDelay: types.AddressOf(300 * time.Millisecond),
 
 		DevObjectStoreAddresses: []string{"addr23"},
-		ObjectStoreType:         "dev",
+		ObjectStoreType:         types.AddressOf("dev"),
 
-		VersionCompletedBroadcastInterval:  2 * time.Second,
-		VersionManagerStoreFlushedInterval: 23 * time.Second,
+		VersionCompletedBroadcastInterval:  types.AddressOf(2 * time.Second),
+		VersionManagerStoreFlushedInterval: types.AddressOf(23 * time.Second),
 
-		WasmModuleInstances: 23,
+		WasmModuleInstances: types.AddressOf(23),
 	}
 }

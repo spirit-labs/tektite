@@ -107,7 +107,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/config", s.ServeConfig)
 	mux.HandleFunc("/cluster", s.ServeCluster)
 
-	listenAddress := s.cfg.AdminConsoleAddresses[s.cfg.NodeID]
+	listenAddress := s.cfg.AdminConsoleAddresses[*s.cfg.NodeID]
 	s.listener, err = net.Listen("tcp", listenAddress)
 	s.closeWg = sync.WaitGroup{}
 	s.closeWg.Add(1)
@@ -200,7 +200,7 @@ func (s *Server) ServeDatabase(response http.ResponseWriter, _ *http.Request) {
 
 func (s *Server) getDatabaseStats() (*databaseStats, error) {
 	now := time.Now()
-	if now.Sub(s.lastDbStatsRequestTime) < s.cfg.AdminConsoleSampleInterval {
+	if now.Sub(s.lastDbStatsRequestTime) < *s.cfg.AdminConsoleSampleInterval {
 		// We cache the value so as not to overwhelm the level manager with requests
 		return s.dbStats, nil
 	}
@@ -234,7 +234,7 @@ type topicData struct {
 
 func (s *Server) getTopicsData() []topicData {
 	now := time.Now()
-	if now.Sub(s.lastTopicsDataRequestTime) < s.cfg.AdminConsoleSampleInterval {
+	if now.Sub(s.lastTopicsDataRequestTime) < *s.cfg.AdminConsoleSampleInterval {
 		// We cache the value so as not to overwhelm the stream manager with requests
 		return s.topicsData
 	}
@@ -298,7 +298,7 @@ type streamData struct {
 
 func (s *Server) getStreamsData() []streamData {
 	now := time.Now()
-	if now.Sub(s.lastStreamsRequestTime) < s.cfg.AdminConsoleSampleInterval {
+	if now.Sub(s.lastStreamsRequestTime) < *s.cfg.AdminConsoleSampleInterval {
 		return s.streamsData
 	}
 	allStreams := s.streamManager.GetAllStreams()
@@ -404,12 +404,12 @@ type processorInfo struct {
 
 func (s *Server) getClusterData() *clusterData {
 	now := time.Now()
-	if now.Sub(s.lastClusterRequestTime) < s.cfg.AdminConsoleSampleInterval {
+	if now.Sub(s.lastClusterRequestTime) < *s.cfg.AdminConsoleSampleInterval {
 		return s.clusterData
 	}
 	numNodes := len(s.cfg.ClusterAddresses)
-	procCount := s.cfg.ProcessorCount
-	if s.cfg.LevelManagerEnabled {
+	procCount := *s.cfg.ProcessorCount
+	if *s.cfg.LevelManagerEnabled {
 		procCount++
 	}
 	nodes := make([]*nodeData, numNodes)

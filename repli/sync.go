@@ -96,7 +96,7 @@ func (r *replicator) checkSyncsRequired(groupNodes []clustmgr.GroupNode) {
 	}
 
 	for _, groupNode := range groupNodes {
-		if groupNode.NodeID == r.cfg.NodeID {
+		if groupNode.NodeID == *r.cfg.NodeID {
 			// Ignore current node
 			continue
 		}

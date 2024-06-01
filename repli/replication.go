@@ -140,7 +140,7 @@ func (r *replicator) IsValid() bool {
 }
 
 func (r *replicator) markReplicaAsValid() (bool, error) {
-	return r.manager.MarkGroupAsValid(r.cfg.NodeID, r.id, r.joinedClusterVersion)
+	return r.manager.MarkGroupAsValid(*r.cfg.NodeID, r.id, r.joinedClusterVersion)
 }
 
 func (r *replicator) ReplicateBatch(processBatch *proc.ProcessBatch, completionFunc func(err error)) {

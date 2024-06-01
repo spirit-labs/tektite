@@ -52,7 +52,7 @@ func TestEventTimeWaterMark(t *testing.T) {
 	expectedWM := int(etMax.Add(-lag).UnixMilli())
 
 	waitUntilReceiveWaterMark(t, expectedWM, processor.ID(), gatheringOper)
-	for i := 0; i < cfg.ProcessorCount; i++ {
+	for i := 0; i < *cfg.ProcessorCount; i++ {
 		if i == processor.ID() {
 			continue
 		}
@@ -395,7 +395,7 @@ func TestEventTimeWaterMarkUsingKafkaIn(t *testing.T) {
 	expectedWM := int(etMax.Add(-lag).UnixMilli())
 
 	waitUntilReceiveWaterMark(t, expectedWM, processor.ID(), gatheringOper)
-	for i := 0; i < cfg.ProcessorCount; i++ {
+	for i := 0; i < *cfg.ProcessorCount; i++ {
 		if i == processor.ID() {
 			continue
 		}
@@ -421,7 +421,7 @@ func setup(t *testing.T) (opers.StreamManager, proc.Manager, *conf.Config) {
 	require.NoError(t, err)
 	cfg := &conf.Config{}
 	cfg.ApplyDefaults()
-	cfg.ProcessorCount = 10
+	cfg.ProcessorCount = types.AddressOf(10)
 	streamMgr := opers.NewStreamManager(nil, store, &dummyPrefixRetention{},
 		&expr.ExpressionFactory{}, cfg, true)
 
@@ -452,7 +452,7 @@ func setup(t *testing.T) (opers.StreamManager, proc.Manager, *conf.Config) {
 	streamMgr.SetProcessorManager(processorMgr)
 	streamMgr.Loaded()
 
-	deployProcessors(t, processorMgr, cfg.ProcessorCount)
+	deployProcessors(t, processorMgr, *cfg.ProcessorCount)
 
 	return streamMgr, processorMgr, cfg
 }

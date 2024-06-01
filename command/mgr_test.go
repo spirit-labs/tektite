@@ -415,7 +415,7 @@ func setUpManager(signaller Signaller, remoting *testRemoting, st *store2.Store,
 
 	cfg := &conf.Config{}
 	cfg.ApplyDefaults()
-	cfg.NodeID = nodeID
+	*cfg.NodeID = nodeID
 
 	pMgr := opers.NewStreamManager(nil, st, &dummyPrefixRetention{}, &expr.ExpressionFactory{}, cfg, true)
 
@@ -429,7 +429,7 @@ func setUpManager(signaller Signaller, remoting *testRemoting, st *store2.Store,
 
 	parser := parser2.NewParser(nil)
 
-	qMgr := query.NewManager(npp, &tppm.TestClustVersionProvider{ClustVersion: 1234}, cfg.NodeID, pMgr, st, st,
+	qMgr := query.NewManager(npp, &tppm.TestClustVersionProvider{ClustVersion: 1234}, *cfg.NodeID, pMgr, st, st,
 		remoting, addresses, 100, &expr.ExpressionFactory{}, parser)
 	// Set the last completed versions to be less than the write version. Normally this would make the written commands
 	// invisible. However, when reading commands we execute the query with highest version = 0 so we should see them

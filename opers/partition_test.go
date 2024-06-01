@@ -82,7 +82,7 @@ func TestDedup(t *testing.T) {
 	forwardReceiverID := 777
 	cfg := &conf.Config{}
 	cfg.ApplyDefaults()
-	cfg.ProcessorCount = numProcessors
+	cfg.ProcessorCount = &numProcessors
 	po, err := NewPartitionOperator(&OperatorSchema{EventSchema: schema}, keyCols, numPartitions, forwardReceiverID,
 		"test_stream", cfg, &parser.PartitionDesc{})
 	require.NoError(t, err)

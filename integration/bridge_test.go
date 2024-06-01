@@ -293,13 +293,13 @@ func sendMessages(numMessages int, startIndex int, topicName string, producer *k
 func startStandaloneServer(t *testing.T) (*server.Server, *dev.Store) {
 	cfg := conf.Config{}
 	cfg.ApplyDefaults()
-	cfg.ProcessorCount = 16
-	cfg.ProcessingEnabled = true
-	cfg.LevelManagerEnabled = true
-	cfg.CompactionWorkersEnabled = true
+	*cfg.ProcessorCount = 16
+	*cfg.ProcessingEnabled = true
+	*cfg.LevelManagerEnabled = true
+	*cfg.CompactionWorkersEnabled = true
 	remotingPort := testutils.PortProvider.GetPort(t)
 	cfg.ClusterAddresses = []string{fmt.Sprintf("localhost:%d", remotingPort)}
-	cfg.HttpApiEnabled = true
+	*cfg.HttpApiEnabled = true
 	apiPort := testutils.PortProvider.GetPort(t)
 	tlsConf := conf.TLSConfig{
 		Enabled:  true,
@@ -307,13 +307,13 @@ func startStandaloneServer(t *testing.T) (*server.Server, *dev.Store) {
 		CertPath: serverCertPath,
 	}
 	cfg.HttpApiAddresses = []string{fmt.Sprintf("localhost:%d", apiPort)}
-	cfg.HttpApiEnabled = true
-	cfg.HttpApiTlsConfig = tlsConf
-	cfg.KafkaServerEnabled = true
+	*cfg.HttpApiEnabled = true
+	*cfg.HttpApiTlsConfig = tlsConf
+	*cfg.KafkaServerEnabled = true
 	kafkaServerPort := testutils.PortProvider.GetPort(t)
 	cfg.KafkaServerAddresses = []string{fmt.Sprintf("localhost:%d", kafkaServerPort)}
-	cfg.ClientType = conf.KafkaClientTypeConfluent
-	cfg.ObjectStoreType = conf.DevObjectStoreType
+	*cfg.ClientType = conf.KafkaClientTypeConfluent
+	*cfg.ObjectStoreType = conf.DevObjectStoreType
 	objStorePort := testutils.PortProvider.GetPort(t)
 	objStoreAddress := fmt.Sprintf("localhost:%d", objStorePort)
 	cfg.DevObjectStoreAddresses = []string{objStoreAddress}

@@ -11,6 +11,7 @@ import (
 	"github.com/spirit-labs/tektite/server"
 	"github.com/spirit-labs/tektite/tekclient"
 	"github.com/spirit-labs/tektite/testutils"
+	"github.com/spirit-labs/tektite/types"
 	"github.com/stretchr/testify/require"
 	"math/rand"
 	"testing"
@@ -435,23 +436,23 @@ func setupServers(t *testing.T, fk *fake.Kafka) ([]*server.Server, func(t *testi
 	common.SetGRDebug(true)
 	common.SetTimerDebug(true)
 	return startClusterWithConfigSetter(t, 3, fk, func(cfg *conf.Config) {
-		cfg.KafkaServerEnabled = true
+		cfg.KafkaServerEnabled = types.AddressOf(true)
 		var kafkaListenAddresses []string
 		for i := 0; i < 3; i++ {
 			port := testutils.PortProvider.GetPort(t)
 			kafkaListenAddresses = append(kafkaListenAddresses, fmt.Sprintf("localhost:%d", port))
 		}
 		cfg.KafkaServerAddresses = kafkaListenAddresses
-		cfg.MinSnapshotInterval = 1 * time.Second
+		cfg.MinSnapshotInterval = types.AddressOf(1 * time.Second)
 		// Make sure we push frequently to exercise logic on level manager with dead versions
-		cfg.MemtableMaxReplaceInterval = 1 * time.Second
-		cfg.CompactionWorkersEnabled = true
+		cfg.MemtableMaxReplaceInterval = types.AddressOf(1 * time.Second)
+		cfg.CompactionWorkersEnabled = types.AddressOf(true)
 		// We set compaction timeout to a low value - when a node dies, pending jobs it owns will need to be timed out
 		// and before they time out compaction can stall, resulting in L0 reaching max size and shutdown not completing
-		cfg.CompactionJobTimeout = 5 * time.Second
-		cfg.KafkaInitialJoinDelay = 10 * time.Millisecond // to speed tests up
+		cfg.CompactionJobTimeout = types.AddressOf(5 * time.Second)
+		cfg.KafkaInitialJoinDelay = types.AddressOf(10 * time.Millisecond) // to speed tests up
 
-		cfg.LevelManagerRetryDelay = 1 * time.Second
+		cfg.LevelManagerRetryDelay = types.AddressOf(1 * time.Second)
 	})
 }
 

@@ -18,10 +18,10 @@ type Cache struct {
 }
 
 func NewTableCache(cloudStore objstore.Client, cfg *conf.Config) (*Cache, error) {
-	maxItemsEstimate := int(cfg.TableCacheMaxSizeBytes) / int(cfg.MemtableMaxSizeBytes)
+	maxItemsEstimate := int(*cfg.TableCacheMaxSizeBytes) / int(*cfg.MemtableMaxSizeBytes)
 	cache, err := ristretto.NewCache(&ristretto.Config{
 		NumCounters: int64(10 * maxItemsEstimate),
-		MaxCost:     int64(cfg.TableCacheMaxSizeBytes),
+		MaxCost:     int64(*cfg.TableCacheMaxSizeBytes),
 		BufferItems: 64,
 	})
 	if err != nil {

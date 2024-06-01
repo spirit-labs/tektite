@@ -61,22 +61,22 @@ func createConfig(t *testing.T, objStoreAddress string) conf.Config {
 
 	cfg := conf.Config{}
 	cfg.ApplyDefaults()
-	cfg.ClusterManagerKeyPrefix = t.Name()
+	*cfg.ClusterManagerKeyPrefix = t.Name()
 	cfg.ClusterAddresses = remotingAddresses
-	cfg.HttpApiEnabled = true
+	*cfg.HttpApiEnabled = true
 	cfg.HttpApiAddresses = httpServerListenAddresses
-	cfg.HttpApiTlsConfig = tlsConf
-	cfg.ProcessingEnabled = true
-	cfg.LevelManagerEnabled = true
-	cfg.MinSnapshotInterval = 100 * time.Millisecond
-	cfg.MemtableMaxReplaceInterval = 1 * time.Second
+	*cfg.HttpApiTlsConfig = tlsConf
+	*cfg.ProcessingEnabled = true
+	*cfg.LevelManagerEnabled = true
+	*cfg.MinSnapshotInterval = 100 * time.Millisecond
+	*cfg.MemtableMaxReplaceInterval = 1 * time.Second
 
 	// In real life don't want to set this so low otherwise cluster state will be calculated when just one node
 	// is started with all leaders
-	cfg.ClusterStateUpdateInterval = 10 * time.Millisecond
+	*cfg.ClusterStateUpdateInterval = 10 * time.Millisecond
 
 	// Set this low so store retries quickly to get prefix retentions on startup.
-	cfg.LevelManagerRetryDelay = 10 * time.Millisecond
+	*cfg.LevelManagerRetryDelay = 10 * time.Millisecond
 
 	cfg.DevObjectStoreAddresses = []string{objStoreAddress}
 	return cfg
@@ -94,7 +94,7 @@ func startClusterWithConfig(t *testing.T, cfg conf.Config, fk *fake.Kafka) ([]*s
 
 	for i := 0; i < numServers; i++ {
 		cfgCopy := cfg
-		cfgCopy.NodeID = i
+		*cfgCopy.NodeID = i
 		s, err := server.NewServerWithClientFactory(cfgCopy, fake.NewFakeMessageClientFactory(fk))
 		require.NoError(t, err)
 		servers = append(servers, s)

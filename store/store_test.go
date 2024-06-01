@@ -13,6 +13,7 @@ import (
 	"github.com/spirit-labs/tektite/retention"
 	"github.com/spirit-labs/tektite/tabcache"
 	"github.com/spirit-labs/tektite/testutils"
+	"github.com/spirit-labs/tektite/types"
 	"github.com/stretchr/testify/require"
 	"math"
 	"math/rand"
@@ -24,9 +25,9 @@ import (
 func TestGet(t *testing.T) {
 	cfg := conf.Config{}
 	cfg.ApplyDefaults()
-	cfg.MemtableMaxSizeBytes = 5 * 1024 * 1024
-	cfg.MemtableFlushQueueMaxSize = 10
-	cfg.MemtableMaxReplaceInterval = 10 * time.Minute
+	cfg.MemtableMaxSizeBytes = (*conf.ParseableInt)(types.AddressOf(5 * 1024 * 1024))
+	cfg.MemtableFlushQueueMaxSize = types.AddressOf(10)
+	cfg.MemtableMaxReplaceInterval = types.AddressOf(10 * time.Minute)
 
 	store := SetupStoreWithConfig(t, cfg)
 	defer stopStore(t, store)
@@ -72,9 +73,9 @@ func TestNewerEntriesOverrideOlderOnesAfterPush(t *testing.T) {
 	// This effectively checks that sstables are retrieved and added in the correct order
 	cfg := conf.Config{}
 	cfg.ApplyDefaults()
-	cfg.MemtableMaxSizeBytes = 16 * 1024 * 1024
-	cfg.MemtableFlushQueueMaxSize = 10
-	cfg.MemtableMaxReplaceInterval = 10 * time.Minute
+	*cfg.MemtableMaxSizeBytes = 16 * 1024 * 1024
+	*cfg.MemtableFlushQueueMaxSize = 10
+	*cfg.MemtableMaxReplaceInterval = 10 * time.Minute
 
 	store := SetupStoreWithConfig(t, cfg)
 	defer stopStore(t, store)
@@ -369,7 +370,7 @@ func TestIterateThenReplaceThenAddWithSmallerKey(t *testing.T) {
 func TestIterateShuffledKeys(t *testing.T) {
 	cfg := conf.Config{}
 	cfg.ApplyDefaults()
-	cfg.MemtableFlushQueueMaxSize = 1000
+	*cfg.MemtableFlushQueueMaxSize = 1000
 	store := SetupStoreWithConfig(t, cfg)
 	defer stopStore(t, store)
 
@@ -409,7 +410,7 @@ func TestPeriodicMemtableReplace(t *testing.T) {
 	maxReplaceTime := 250 * time.Millisecond
 	cfg := conf.Config{}
 	cfg.ApplyDefaults()
-	cfg.MemtableMaxReplaceInterval = maxReplaceTime
+	*cfg.MemtableMaxReplaceInterval = maxReplaceTime
 
 	store := SetupStoreWithConfig(t, cfg)
 	store.updateLastCompletedVersion(math.MaxInt64)
@@ -450,9 +451,9 @@ func TestMemtableReplaceWhenMaxSizeReached(t *testing.T) {
 
 	cfg := conf.Config{}
 	cfg.ApplyDefaults()
-	cfg.MemtableMaxSizeBytes = 16 * 1024 * 1024
-	cfg.MemtableFlushQueueMaxSize = 10
-	cfg.MemtableMaxReplaceInterval = 10 * time.Minute
+	*cfg.MemtableMaxSizeBytes = 16 * 1024 * 1024
+	*cfg.MemtableFlushQueueMaxSize = 10
+	*cfg.MemtableMaxReplaceInterval = 10 * time.Minute
 
 	store := SetupStoreWithConfig(t, cfg)
 	store.updateLastCompletedVersion(math.MaxInt64)
@@ -489,7 +490,7 @@ func SetupStore(t *testing.T) *Store {
 
 func SetupStoreWithConfig(t testing.TB, conf conf.Config) *Store {
 	t.Helper()
-	conf.L0MaxTablesBeforeBlocking = math.MaxInt
+	*conf.L0MaxTablesBeforeBlocking = math.MaxInt
 	cloudStore := dev.NewInMemStore(100 * time.Millisecond)
 	lmClient := &levels.InMemClient{}
 	bi := &testCommandBatchIngestor{}

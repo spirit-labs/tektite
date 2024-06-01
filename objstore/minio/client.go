@@ -23,7 +23,7 @@ type Client struct {
 
 func (m *Client) Get(key []byte) ([]byte, error) {
 	objName := string(key)
-	obj, err := m.client.GetObject(context.Background(), m.cfg.MinioBucketName, objName, minio.GetObjectOptions{})
+	obj, err := m.client.GetObject(context.Background(), *m.cfg.MinioBucketName, objName, minio.GetObjectOptions{})
 	if err != nil {
 		return nil, maybeConvertError(err)
 	}
@@ -46,20 +46,20 @@ func (m *Client) Get(key []byte) ([]byte, error) {
 func (m *Client) Put(key []byte, value []byte) error {
 	buff := bytes.NewBuffer(value)
 	objName := string(key)
-	_, err := m.client.PutObject(context.Background(), m.cfg.MinioBucketName, objName, buff, int64(len(value)),
+	_, err := m.client.PutObject(context.Background(), *m.cfg.MinioBucketName, objName, buff, int64(len(value)),
 		minio.PutObjectOptions{})
 	return maybeConvertError(err)
 }
 
 func (m *Client) Delete(key []byte) error {
 	objName := string(key)
-	return maybeConvertError(m.client.RemoveObject(context.Background(), m.cfg.MinioBucketName, objName, minio.RemoveObjectOptions{}))
+	return maybeConvertError(m.client.RemoveObject(context.Background(), *m.cfg.MinioBucketName, objName, minio.RemoveObjectOptions{}))
 }
 
 func (m *Client) Start() error {
-	client, err := minio.New(m.cfg.MinioEndpoint, &minio.Options{
-		Creds:  credentials.NewStaticV4(m.cfg.MinioAccessKey, m.cfg.MinioSecretKey, ""),
-		Secure: m.cfg.MinioSecure,
+	client, err := minio.New(*m.cfg.MinioEndpoint, &minio.Options{
+		Creds:  credentials.NewStaticV4(*m.cfg.MinioAccessKey, *m.cfg.MinioSecretKey, ""),
+		Secure: *m.cfg.MinioSecure,
 	})
 	if err != nil {
 		return err

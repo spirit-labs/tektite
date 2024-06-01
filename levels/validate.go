@@ -49,7 +49,7 @@ func (lm *LevelManager) validateSegment(segEntry segmentEntry, level int, valida
 	if len(seg.tableEntries) == 0 {
 		return errors.Errorf("inconsistency. level %d. segment %v has zero table entries", level, segEntry.segmentID)
 	}
-	if len(seg.tableEntries) > lm.conf.MaxRegistrySegmentTableEntries {
+	if len(seg.tableEntries) > *lm.conf.MaxRegistrySegmentTableEntries {
 		return errors.Errorf("inconsistency. level %d. segment %v has > %d table entries", level, segEntry.segmentID, lm.conf.MaxRegistrySegmentTableEntries)
 	}
 	var smallestKey, largestKey []byte

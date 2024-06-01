@@ -100,7 +100,7 @@ func TestPeriodicBroadcast(t *testing.T) {
 	cfg := &conf.Config{}
 	cfg.ApplyDefaults()
 
-	cfg.VersionCompletedBroadcastInterval = 10 * time.Millisecond
+	*cfg.VersionCompletedBroadcastInterval = 10 * time.Millisecond
 	vmgr, remotingServer, vHandler := setup(t, cfg)
 	defer func() {
 		stopVmgr(t, vmgr)
@@ -144,7 +144,7 @@ func TestResumeCurrentVersionAtLastSequence(t *testing.T) {
 	cfg := &conf.Config{}
 	cfg.ApplyDefaults()
 
-	cfg.VersionCompletedBroadcastInterval = 10 * time.Millisecond
+	*cfg.VersionCompletedBroadcastInterval = 10 * time.Millisecond
 	vmgr, remotingServer, _ := setupWithSeqMgr(t, seqMgr, cfg)
 	defer func() {
 		stopVmgr(t, vmgr)
@@ -159,7 +159,7 @@ func TestDoomInProgressVersions(t *testing.T) {
 	cfg := &conf.Config{}
 	cfg.ApplyDefaults()
 
-	cfg.VersionCompletedBroadcastInterval = 10 * time.Millisecond
+	*cfg.VersionCompletedBroadcastInterval = 10 * time.Millisecond
 	vmgr, remotingServer, vHandler := setup(t, cfg)
 	defer func() {
 		stopVmgr(t, vmgr)
@@ -253,7 +253,7 @@ func TestDoomInProgressDoomAgainLowerVersion(t *testing.T) {
 	cfg := &conf.Config{}
 	cfg.ApplyDefaults()
 
-	cfg.VersionCompletedBroadcastInterval = 10 * time.Millisecond
+	*cfg.VersionCompletedBroadcastInterval = 10 * time.Millisecond
 	vmgr, remotingServer, vHandler := setup(t, cfg)
 	defer func() {
 		stopVmgr(t, vmgr)
@@ -345,7 +345,7 @@ func TestDoomInProgressDoomAgainHigherVersion(t *testing.T) {
 	cfg := &conf.Config{}
 	cfg.ApplyDefaults()
 
-	cfg.VersionCompletedBroadcastInterval = 10 * time.Millisecond
+	*cfg.VersionCompletedBroadcastInterval = 10 * time.Millisecond
 	vmgr, remotingServer, vHandler := setup(t, cfg)
 	defer func() {
 		stopVmgr(t, vmgr)
@@ -1021,7 +1021,7 @@ func TestVersionFlushedAllSameVersion(t *testing.T) {
 	cfg := &conf.Config{}
 	cfg.ApplyDefaults()
 
-	cfg.VersionManagerStoreFlushedInterval = 10 * time.Millisecond
+	*cfg.VersionManagerStoreFlushedInterval = 10 * time.Millisecond
 	seqMgr := sequence.NewInMemSequenceManager()
 	vmgr, remotingServer, _, lmgrClient := setupWithSeqMgrWithActivate(t, seqMgr, cfg, true)
 	defer func() {
@@ -1062,7 +1062,7 @@ func TestVersionFlushedTakeMinVersion(t *testing.T) {
 	cfg := &conf.Config{}
 	cfg.ApplyDefaults()
 
-	cfg.VersionManagerStoreFlushedInterval = 10 * time.Millisecond
+	*cfg.VersionManagerStoreFlushedInterval = 10 * time.Millisecond
 	seqMgr := sequence.NewInMemSequenceManager()
 	vmgr, remotingServer, _, lmgrClient := setupWithSeqMgrWithActivate(t, seqMgr, cfg, true)
 	defer func() {
@@ -1155,7 +1155,7 @@ func TestVersionFlushedAllProcessorsCallIn(t *testing.T) {
 	cfg := &conf.Config{}
 	cfg.ApplyDefaults()
 
-	cfg.VersionManagerStoreFlushedInterval = 10 * time.Millisecond
+	*cfg.VersionManagerStoreFlushedInterval = 10 * time.Millisecond
 	seqMgr := sequence.NewInMemSequenceManager()
 	vmgr, remotingServer, _, lmgrClient := setupWithSeqMgrWithActivate(t, seqMgr, cfg, true)
 	defer func() {

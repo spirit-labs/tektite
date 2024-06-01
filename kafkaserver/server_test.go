@@ -9,6 +9,7 @@ import (
 	"github.com/spirit-labs/tektite/proc"
 	store2 "github.com/spirit-labs/tektite/store"
 	"github.com/spirit-labs/tektite/testutils"
+	"github.com/spirit-labs/tektite/types"
 	"github.com/stretchr/testify/require"
 	"sync"
 	"testing"
@@ -93,7 +94,7 @@ func createServer(t *testing.T, topic string, serverPort int) (*Server, *testPro
 
 	cfg := &conf.Config{}
 	cfg.ApplyDefaults()
-	cfg.KafkaServerEnabled = true
+	cfg.KafkaServerEnabled = types.AddressOf(true)
 	cfg.KafkaServerAddresses = []string{fmt.Sprintf("localhost:%d", serverPort)}
 
 	st := store2.TestStore()

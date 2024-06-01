@@ -17,6 +17,7 @@ import (
 	"github.com/spirit-labs/tektite/shutdown"
 	"github.com/spirit-labs/tektite/tekclient"
 	"github.com/spirit-labs/tektite/testutils"
+	"github.com/spirit-labs/tektite/types"
 	"math"
 	"math/rand"
 	"os"
@@ -133,38 +134,38 @@ func (w *scriptTestSuite) setupTektiteCluster() {
 
 	cfg := conf.Config{}
 	cfg.ApplyDefaults()
-	cfg.ClusterManagerKeyPrefix = w.testName
+	cfg.ClusterManagerKeyPrefix = types.AddressOf(w.testName)
 	cfg.ClusterAddresses = remotingAddresses
-	cfg.HttpApiEnabled = true
+	cfg.HttpApiEnabled = types.AddressOf(true)
 	cfg.HttpApiAddresses = httpServerListenAddresses
-	cfg.HttpApiTlsConfig = serverTLSConfig
+	cfg.HttpApiTlsConfig = &serverTLSConfig
 	cfg.KafkaServerAddresses = kafkaListenAddresses
-	cfg.KafkaServerEnabled = true
-	cfg.ProcessingEnabled = true
-	cfg.LevelManagerEnabled = true
+	cfg.KafkaServerEnabled = types.AddressOf(true)
+	cfg.ProcessingEnabled = types.AddressOf(true)
+	cfg.LevelManagerEnabled = types.AddressOf(true)
 	// We set snapshots to complete fast, so we minimise delay waiting for new version after
 	// loading data
-	cfg.MinSnapshotInterval = 10 * time.Millisecond
+	cfg.MinSnapshotInterval = types.AddressOf(10 * time.Millisecond)
 	// We set initial join delay to a short value so we don't have long delays in consumer tests
-	cfg.KafkaInitialJoinDelay = 10 * time.Millisecond
-	cfg.MaxBackfillBatchSize = 3 // To exercise multiple batches loaded in back-fill
-	cfg.CompactionWorkersEnabled = true
-	cfg.CompactionWorkerCount = 4
-	cfg.CommandCompactionInterval = 5 * time.Second
+	cfg.KafkaInitialJoinDelay = types.AddressOf(10 * time.Millisecond)
+	cfg.MaxBackfillBatchSize = types.AddressOf(3) // To exercise multiple batches loaded in back-fill
+	cfg.CompactionWorkersEnabled = types.AddressOf(true)
+	cfg.CompactionWorkerCount = types.AddressOf(4)
+	cfg.CommandCompactionInterval = types.AddressOf(5 * time.Second)
 	// In real life don't want to set this so low otherwise cluster state will be calculated when just one node
 	// is started with all leaders
-	cfg.ClusterStateUpdateInterval = 10 * time.Millisecond
+	cfg.ClusterStateUpdateInterval = types.AddressOf(10 * time.Millisecond)
 
 	// Set this low so store retries quickly to get prefix retentions on startup.
-	cfg.LevelManagerRetryDelay = 10 * time.Millisecond
+	cfg.LevelManagerRetryDelay = types.AddressOf(10 * time.Millisecond)
 
-	cfg.ObjectStoreType = w.objectStoreType
+	cfg.ObjectStoreType = &w.objectStoreType
 	if w.objectStoreType == conf.MinioObjectStoreType {
-		cfg.ObjectStoreType = conf.MinioObjectStoreType
-		cfg.MinioEndpoint = "127.0.0.1:9000"
-		cfg.MinioAccessKey = "tYTKoueu7NyentYPe3OF"
-		cfg.MinioSecretKey = "DxMe9mGt5OEeUNvqv3euXMcOx7mmLui6g9q4CMjB"
-		cfg.MinioBucketName = "tektite-dev"
+		cfg.ObjectStoreType = types.AddressOf(conf.MinioObjectStoreType)
+		cfg.MinioEndpoint = types.AddressOf("127.0.0.1:9000")
+		cfg.MinioAccessKey = types.AddressOf("tYTKoueu7NyentYPe3OF")
+		cfg.MinioSecretKey = types.AddressOf("DxMe9mGt5OEeUNvqv3euXMcOx7mmLui6g9q4CMjB")
+		cfg.MinioBucketName = types.AddressOf("tektite-dev")
 	} else if w.objectStoreType == conf.DevObjectStoreType {
 		cfg.DevObjectStoreAddresses = []string{w.devObjStoreAddress}
 	}
@@ -172,7 +173,7 @@ func (w *scriptTestSuite) setupTektiteCluster() {
 	var serverConfs []conf.Config
 	for i := 0; i < w.numNodes; i++ {
 		cfgCopy := cfg
-		cfgCopy.NodeID = i
+		cfgCopy.NodeID = &i
 		serverConfs = append(serverConfs, cfgCopy)
 	}
 	w.serverConfs = serverConfs
@@ -692,7 +693,7 @@ func (st *scriptTest) produceMessages(require *require.Assertions, msgs []*kafka
 	s := st.chooseServer()
 	producer, err := kafkago.NewProducer(&kafkago.ConfigMap{
 		"partitioner":       "murmur2_random", // This matches the default hash algorithm we use, and same as Java client
-		"bootstrap.servers": s.GetConfig().KafkaServerAddresses[s.GetConfig().NodeID],
+		"bootstrap.servers": s.GetConfig().KafkaServerAddresses[*s.GetConfig().NodeID],
 		"acks":              "all"})
 	require.NoError(err)
 	defer producer.Close()
@@ -740,7 +741,7 @@ func (st *scriptTest) executeConsumeData(require *require.Assertions, command st
 
 	s := st.chooseServer()
 	cm := &kafkago.ConfigMap{
-		"bootstrap.servers":  s.GetConfig().KafkaServerAddresses[s.GetConfig().NodeID],
+		"bootstrap.servers":  s.GetConfig().KafkaServerAddresses[*s.GetConfig().NodeID],
 		"group.id":           groupID,
 		"auto.offset.reset":  earliestOrLatest,
 		"enable.auto.commit": false,
@@ -948,7 +949,7 @@ func (st *scriptTest) createCli(require *require.Assertions) *cli.Cli {
 	// We connect to a random Server
 	s := st.chooseServer()
 	id := s.GetConfig().NodeID
-	address := s.GetConfig().HttpApiAddresses[id]
+	address := s.GetConfig().HttpApiAddresses[*id]
 	tlsConf := tekclient.TLSConfig{
 		TrustedCertsPath: caSignedServerCertPath,
 	}
@@ -956,7 +957,7 @@ func (st *scriptTest) createCli(require *require.Assertions) *cli.Cli {
 	client.SetPageSize(clientPageSize)
 	err := client.Start()
 	require.NoError(err)
-	st.clientNodeID = id
+	st.clientNodeID = *id
 	return client
 }
 

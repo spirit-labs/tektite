@@ -109,7 +109,7 @@ func (m *manager) Start() error {
 	commandsSchema := evbatch.NewEventSchema(CommandsColumnNames, CommandsColumnTypes)
 	m.commandsOpSchema = &opers.OperatorSchema{
 		EventSchema:     commandsSchema,
-		PartitionScheme: opers.NewPartitionScheme("_default_", 1, false, m.cfg.ProcessorCount),
+		PartitionScheme: opers.NewPartitionScheme("_default_", 1, false, *m.cfg.ProcessorCount),
 	}
 	if err := m.streamManager.RegisterSystemSlab(CommandsSlabName, common.CommandsReceiverID, common.CommandsDeleteReceiverID,
 		common.CommandsSlabID, m.commandsOpSchema, []string{"id"}, true); err != nil {
@@ -142,7 +142,7 @@ func (m *manager) Start() error {
 }
 
 func (m *manager) scheduleCheckCompaction(first bool) {
-	m.compactionTimer = common.ScheduleTimer(m.cfg.CommandCompactionInterval, first, func() {
+	m.compactionTimer = common.ScheduleTimer(*m.cfg.CommandCompactionInterval, first, func() {
 		m.lock.Lock()
 		defer m.lock.Unlock()
 		if err := m.maybeCompact(); err != nil {
@@ -559,7 +559,7 @@ func (m *manager) HandleClusterState(cs clustmgr.ClusterState) error {
 	gs := cs.GroupStates[0] // Use const
 	isCompactor := false
 	for _, gn := range gs {
-		if gn.Leader && gn.NodeID == m.cfg.NodeID {
+		if gn.Leader && gn.NodeID == *m.cfg.NodeID {
 			isCompactor = true
 			break
 		}

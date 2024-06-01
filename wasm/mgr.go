@@ -150,7 +150,7 @@ func (m *ModuleManager) compileAndCreateRegisteredModule(metadata ModuleMetadata
 		return nil, errors.NewTektiteErrorf(errors.WasmError, "failed to compile wasm module (possibly corrupt): %v", err)
 	}
 	// Create the instances
-	moduleInstances := make([]*modWrapper, m.cfg.WasmModuleInstances)
+	moduleInstances := make([]*modWrapper, *m.cfg.WasmModuleInstances)
 	for i := range moduleInstances {
 		instance, err := m.runtime.InstantiateModule(context.Background(), mod, wazero.NewModuleConfig().WithName(""))
 		if err != nil {

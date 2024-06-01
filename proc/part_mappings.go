@@ -63,7 +63,7 @@ func (m *ProcessorManager) nodePartitions0(mappingID string, partitionCount int)
 func (m *ProcessorManager) calculateNodePartitions(mappingID string, partitionCount int) (map[int][]int, error) {
 	nodePartitions := make(map[int][]int)
 	for partitionID := 0; partitionID < partitionCount; partitionID++ {
-		processorID := CalcProcessorForPartition(mappingID, partitionID, m.cfg.ProcessorCount)
+		processorID := CalcProcessorForPartition(mappingID, partitionID, *m.cfg.ProcessorCount)
 		leaderNode, err := m.GetLeaderNode(processorID)
 		if err != nil {
 			return nil, err
@@ -119,7 +119,7 @@ func (m *ProcessorManager) nodeForPartition0(partitionID int, mappingID string, 
 func (m *ProcessorManager) calculatePartitionNodes(mappingID string, partitionCount int) (map[int]int, error) {
 	partitionNodes := make(map[int]int, partitionCount)
 	for partitionID := 0; partitionID < partitionCount; partitionID++ {
-		processorID := CalcProcessorForPartition(mappingID, partitionID, m.cfg.ProcessorCount)
+		processorID := CalcProcessorForPartition(mappingID, partitionID, *m.cfg.ProcessorCount)
 		leaderNode, err := m.GetLeaderNode(processorID)
 		if err != nil {
 			return nil, err

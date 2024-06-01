@@ -16,7 +16,7 @@ type RemotingSignaller struct {
 func NewSignaller(mgr Manager, remotingServer remoting.Server, cfg *conf.Config) *RemotingSignaller {
 	var addresses []string
 	for i, address := range cfg.ClusterAddresses {
-		if i != cfg.NodeID {
+		if i != *cfg.NodeID {
 			addresses = append(addresses, address)
 		}
 	}

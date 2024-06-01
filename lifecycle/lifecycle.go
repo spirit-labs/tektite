@@ -34,18 +34,18 @@ func (e *Endpoints) SetActive(active bool) {
 }
 
 func (e *Endpoints) Start() error {
-	if !e.conf.LifeCycleEndpointEnabled {
+	if !*e.conf.LifeCycleEndpointEnabled {
 		return nil
 	}
 
 	sm := http.NewServeMux()
-	sm.Handle(e.conf.StartupEndpointPath, &handler{state: &e.started})
-	sm.Handle(e.conf.ReadyEndpointPath, &handler{state: &e.ready})
-	sm.Handle(e.conf.LiveEndpointPath, &handler{state: &e.live})
+	sm.Handle(*e.conf.StartupEndpointPath, &handler{state: &e.started})
+	sm.Handle(*e.conf.ReadyEndpointPath, &handler{state: &e.ready})
+	sm.Handle(*e.conf.LiveEndpointPath, &handler{state: &e.live})
 
-	e.server = &http.Server{Addr: e.conf.LifeCycleAddress, Handler: sm}
+	e.server = &http.Server{Addr: *e.conf.LifeCycleAddress, Handler: sm}
 
-	ln, err := net.Listen("tcp", e.conf.LifeCycleAddress)
+	ln, err := net.Listen("tcp", *e.conf.LifeCycleAddress)
 	if err != nil {
 		return err
 	}
@@ -60,7 +60,7 @@ func (e *Endpoints) Start() error {
 }
 
 func (e *Endpoints) Stop() error {
-	if !e.conf.LifeCycleEndpointEnabled {
+	if !*e.conf.LifeCycleEndpointEnabled {
 		return nil
 	}
 	return e.server.Close()

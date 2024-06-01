@@ -111,7 +111,7 @@ func (l *LevelManagerService) isLeader(cs *clustmgr.ClusterState) bool {
 		return false
 	}
 	// The last group is a special one, only use for level-manager
-	groupState := cs.GroupStates[l.cfg.ProcessorCount]
+	groupState := cs.GroupStates[*l.cfg.ProcessorCount]
 	leaderNode := -1
 	for _, groupNode := range groupState {
 		if groupNode.Leader {
@@ -119,7 +119,7 @@ func (l *LevelManagerService) isLeader(cs *clustmgr.ClusterState) bool {
 			break
 		}
 	}
-	return leaderNode == l.cfg.NodeID
+	return leaderNode == *l.cfg.NodeID
 }
 
 func (l *LevelManagerService) GetMapper() (*LevelManager, error) {

@@ -8,6 +8,7 @@ import (
 	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/tekclient"
 	"github.com/spirit-labs/tektite/testutils"
+	"github.com/spirit-labs/tektite/types"
 	"github.com/stretchr/testify/require"
 	"os"
 	"os/exec"
@@ -38,7 +39,7 @@ func testProducerEndpoint(t *testing.T, ct clientType) {
 		TrustedCertsPath: serverCertPath,
 	}
 	servers, tearDown := startClusterWithConfigSetter(t, 3, nil, func(cfg *conf.Config) {
-		cfg.KafkaServerEnabled = true
+		cfg.KafkaServerEnabled = types.AddressOf(true)
 		var kafkaListenAddresses []string
 		for i := 0; i < 3; i++ {
 			kafkaListenAddresses = append(kafkaListenAddresses, fmt.Sprintf("localhost:%d", testutils.PortProvider.GetPort(t)))

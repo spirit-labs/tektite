@@ -96,7 +96,7 @@ func (p *processor) handleForwardCompletion(err error, entry *enqueuedForward) {
 	if p.forwardResendTimer != nil {
 		panic("forward resend timer should be nil")
 	}
-	p.forwardResendTimer = common.ScheduleTimer(p.cfg.ForwardResendDelay, true, func() {
+	p.forwardResendTimer = common.ScheduleTimer(*p.cfg.ForwardResendDelay, true, func() {
 		ok := p.SubmitAction(func() error {
 			if p.IsStopped() {
 				return nil

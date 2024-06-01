@@ -26,11 +26,12 @@ func TestCompactionIncrementingData(t *testing.T) {
 	l0CompactionTrigger := 4
 	l1CompactionTrigger := 4
 	levelMultiplier := 10
+	l0MaxTablesBeforeBlocking := 2 * l0CompactionTrigger
 	lm, tearDown := setup(t, func(cfg *conf.Config) {
-		cfg.L0CompactionTrigger = l0CompactionTrigger
-		cfg.L1CompactionTrigger = l1CompactionTrigger
-		cfg.L0MaxTablesBeforeBlocking = 2 * l0CompactionTrigger
-		cfg.LevelMultiplier = levelMultiplier
+		cfg.L0CompactionTrigger = &l0CompactionTrigger
+		cfg.L1CompactionTrigger = &l1CompactionTrigger
+		cfg.L0MaxTablesBeforeBlocking = &l0MaxTablesBeforeBlocking
+		cfg.LevelMultiplier = &levelMultiplier
 	})
 	defer tearDown(t)
 
@@ -89,12 +90,13 @@ func TestCompactionIncrementingData(t *testing.T) {
 func TestCompactionOverwritingData(t *testing.T) {
 	l0CompactionTrigger := 4
 	l1CompactionTrigger := 4
+	l0MaxTablesBeforeBlocking := 2 * l0CompactionTrigger
 	levelMultiplier := 10
 	lm, tearDown := setup(t, func(cfg *conf.Config) {
-		cfg.L0CompactionTrigger = l0CompactionTrigger
-		cfg.L1CompactionTrigger = l1CompactionTrigger
-		cfg.L0MaxTablesBeforeBlocking = 2 * l0CompactionTrigger
-		cfg.LevelMultiplier = levelMultiplier
+		cfg.L0CompactionTrigger = &l0CompactionTrigger
+		cfg.L1CompactionTrigger = &l1CompactionTrigger
+		cfg.L0MaxTablesBeforeBlocking = &l0MaxTablesBeforeBlocking
+		cfg.LevelMultiplier = &levelMultiplier
 	})
 	defer tearDown(t)
 
@@ -211,12 +213,13 @@ func TestCompactionOverwritingData(t *testing.T) {
 func TestCompactionDeleteData(t *testing.T) {
 	l0CompactionTrigger := 4
 	l1CompactionTrigger := 4
+	l0MaxTablesBeforeBlocking := 2 * l0CompactionTrigger
 	levelMultiplier := 10
 	lm, tearDown := setup(t, func(cfg *conf.Config) {
-		cfg.L0CompactionTrigger = l0CompactionTrigger
-		cfg.L1CompactionTrigger = l1CompactionTrigger
-		cfg.L0MaxTablesBeforeBlocking = 2 * l0CompactionTrigger
-		cfg.LevelMultiplier = levelMultiplier
+		cfg.L0CompactionTrigger = &l0CompactionTrigger
+		cfg.L1CompactionTrigger = &l1CompactionTrigger
+		cfg.L0MaxTablesBeforeBlocking = &l0MaxTablesBeforeBlocking
+		cfg.LevelMultiplier = &levelMultiplier
 	})
 	defer tearDown(t)
 
@@ -319,12 +322,13 @@ func TestCompactionDeleteData(t *testing.T) {
 func TestRandomUpdateDeleteData(t *testing.T) {
 	l0CompactionTrigger := 4
 	l1CompactionTrigger := 4
+	l0MaxTablesBeforeBlocking := 2 * l0CompactionTrigger
 	levelMultiplier := 10
 	lm, tearDown := setup(t, func(cfg *conf.Config) {
-		cfg.L0CompactionTrigger = l0CompactionTrigger
-		cfg.L1CompactionTrigger = l1CompactionTrigger
-		cfg.L0MaxTablesBeforeBlocking = 2 * l0CompactionTrigger
-		cfg.LevelMultiplier = levelMultiplier
+		cfg.L0CompactionTrigger = &l0CompactionTrigger
+		cfg.L1CompactionTrigger = &l1CompactionTrigger
+		cfg.L0MaxTablesBeforeBlocking = &l0MaxTablesBeforeBlocking
+		cfg.LevelMultiplier = &levelMultiplier
 	})
 	defer tearDown(t)
 
@@ -479,12 +483,13 @@ func getNumTablesToFill(numLevels int, l0Trigger int, l1Trigger int, multiplier 
 func TestCompactionExpiredPrefix(t *testing.T) {
 	l0CompactionTrigger := 4
 	l1CompactionTrigger := 4
+	l0MaxTablesBeforeBlocking := 2 * l0CompactionTrigger
 	levelMultiplier := 10
 	lm, tearDown := setup(t, func(cfg *conf.Config) {
-		cfg.L0CompactionTrigger = l0CompactionTrigger
-		cfg.L1CompactionTrigger = l1CompactionTrigger
-		cfg.L0MaxTablesBeforeBlocking = 2 * l0CompactionTrigger
-		cfg.LevelMultiplier = levelMultiplier
+		cfg.L0CompactionTrigger = &l0CompactionTrigger
+		cfg.L1CompactionTrigger = &l1CompactionTrigger
+		cfg.L0MaxTablesBeforeBlocking = &l0MaxTablesBeforeBlocking
+		cfg.LevelMultiplier = &levelMultiplier
 	})
 	defer tearDown(t)
 
@@ -573,12 +578,13 @@ func TestCompactionExpiredPrefix(t *testing.T) {
 func TestCompactionDeadVersions(t *testing.T) {
 	l0CompactionTrigger := 4
 	l1CompactionTrigger := 4
+	l0MaxTablesBeforeBlocking := 2 * l0CompactionTrigger
 	levelMultiplier := 10
 	lm, tearDown := setup(t, func(cfg *conf.Config) {
-		cfg.L0CompactionTrigger = l0CompactionTrigger
-		cfg.L1CompactionTrigger = l1CompactionTrigger
-		cfg.L0MaxTablesBeforeBlocking = 2 * l0CompactionTrigger
-		cfg.LevelMultiplier = levelMultiplier
+		cfg.L0CompactionTrigger = &l0CompactionTrigger
+		cfg.L1CompactionTrigger = &l1CompactionTrigger
+		cfg.L0MaxTablesBeforeBlocking = &l0MaxTablesBeforeBlocking
+		cfg.LevelMultiplier = &levelMultiplier
 	})
 	defer tearDown(t)
 
@@ -676,9 +682,12 @@ func setup(t *testing.T, cfgFunc func(cfg *conf.Config)) (*LevelManager, func(t 
 
 	cfg := &conf.Config{}
 	cfg.ApplyDefaults()
-	cfg.CompactionWorkerCount = 4
+
+	compactionWorkerCount := 4
+	cfg.CompactionWorkerCount = &compactionWorkerCount
 	// we set this small to get about 10 entries per table so we can fill up levels
-	cfg.CompactionMaxSSTableSize = 550
+	compactionMaxSSTableSize := 550
+	cfg.CompactionMaxSSTableSize = &compactionMaxSSTableSize
 
 	lmClientFactory := &inMemClientFactory{lm: lm}
 	tableCache, err := tabcache.NewTableCache(lm.GetObjectStore(), cfg)

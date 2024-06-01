@@ -86,15 +86,15 @@ type VersionCompleteHandler func(version int, requiredCompletions int, commandID
 func NewProcessor(id int, cfg *conf.Config, store *store.Store, batchForwarder BatchForwarder,
 	batchHandler BatchHandler, receiverInfoProvider ReceiverInfoProvider) Processor {
 	// We choose cache max size to 25% of the available space in a newly created memtable
-	cacheMaxSize := int64(0.25 * float64(int64(cfg.MemtableMaxSizeBytes)-mem.MemtableSizeOverhead))
-	levelManagerProcessor := cfg.LevelManagerEnabled && id == cfg.ProcessorCount
+	cacheMaxSize := int64(0.25 * float64(int64(*cfg.MemtableMaxSizeBytes)-mem.MemtableSizeOverhead))
+	levelManagerProcessor := *cfg.LevelManagerEnabled && id == *cfg.ProcessorCount
 	proc := &processor{
 		id:                        id,
 		cfg:                       cfg,
 		batchForwarder:            batchForwarder,
 		batchHandler:              batchHandler,
 		receiverInfoProvider:      receiverInfoProvider,
-		actions:                   make(chan func() error, cfg.MaxProcessorBatchesInProgress),
+		actions:                   make(chan func() error, *cfg.MaxProcessorBatchesInProgress),
 		closeCh:                   make(chan struct{}, 1),
 		store:                     store,
 		completedReceiverVersions: map[int]int{},
@@ -104,8 +104,8 @@ func NewProcessor(id int, cfg *conf.Config, store *store.Store, batchForwarder B
 		currentVersion:            -1,
 		levelManagerProcessor:     levelManagerProcessor,
 	}
-	procCount := cfg.ProcessorCount
-	if cfg.LevelManagerEnabled {
+	procCount := *cfg.ProcessorCount
+	if *cfg.LevelManagerEnabled {
 		procCount++
 	}
 	proc.forwardSequences = make([]int, procCount)

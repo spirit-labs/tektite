@@ -88,7 +88,7 @@ func (l *LevelManagerLocalClient) ApplyChanges(registrationBatch levels.Registra
 	bytes := make([]byte, 0, 256)
 	bytes = append(bytes, levels.ApplyChangesCommand)
 	bytes = registrationBatch.Serialize(bytes)
-	return ingestCommandBatchSync(bytes, l.processorManager, l.cfg.ProcessorCount)
+	return ingestCommandBatchSync(bytes, l.processorManager, *l.cfg.ProcessorCount)
 }
 
 func (l *LevelManagerLocalClient) RegisterDeadVersionRange(versionRange levels.VersionRange, clusterName string, clusterVersion int) error {
@@ -97,12 +97,12 @@ func (l *LevelManagerLocalClient) RegisterDeadVersionRange(versionRange levels.V
 	bytes = versionRange.Serialize(bytes)
 	bytes = encoding.AppendStringToBufferLE(bytes, clusterName)
 	bytes = encoding.AppendUint64ToBufferLE(bytes, uint64(clusterVersion))
-	return ingestCommandBatchSync(bytes, l.processorManager, l.cfg.ProcessorCount)
+	return ingestCommandBatchSync(bytes, l.processorManager, *l.cfg.ProcessorCount)
 }
 
 func (l *LevelManagerLocalClient) RegisterPrefixRetentions(prefixRetentions []retention.PrefixRetention) error {
 	bytes := levels.EncodeRegisterPrefixRetentionsCommand(prefixRetentions)
-	return ingestCommandBatchSync(bytes, l.processorManager, l.cfg.ProcessorCount)
+	return ingestCommandBatchSync(bytes, l.processorManager, *l.cfg.ProcessorCount)
 }
 
 func (l *LevelManagerLocalClient) PollForJob() (*levels.CompactionJob, error) {
@@ -127,7 +127,7 @@ func (l *LevelManagerLocalClient) StoreLastFlushedVersion(version int64) error {
 	bytes := make([]byte, 0, 256)
 	bytes = append(bytes, levels.StoreLastFlushedVersionCommand)
 	bytes = binary.LittleEndian.AppendUint64(bytes, uint64(version))
-	return ingestCommandBatchSync(bytes, l.processorManager, l.cfg.ProcessorCount)
+	return ingestCommandBatchSync(bytes, l.processorManager, *l.cfg.ProcessorCount)
 }
 
 func (l *LevelManagerLocalClient) LoadLastFlushedVersion() (int64, error) {
@@ -176,7 +176,7 @@ func ingestCommandBatch(bytes []byte, forwarder BatchForwarder, processorID int,
 
 func NewLevelManagerCommandIngestor(mgr Manager) func([]byte, func(error)) {
 	m := mgr.(*ProcessorManager)
-	processorID := m.cfg.ProcessorCount // last one is the level-manager processor
+	processorID := *m.cfg.ProcessorCount // last one is the level-manager processor
 	return func(bytes []byte, completionFunc func(error)) {
 		ingestCommandBatch(bytes, m, processorID, completionFunc)
 	}
@@ -211,7 +211,7 @@ func (l *LevelManagerLocalClient) sendLevelManagerRequestWithRetry(request remot
 }
 
 func (l *LevelManagerLocalClient) sendLevelManagerRequest(request remoting.ClusterMessage) (remoting.ClusterMessage, error) {
-	processorID := l.cfg.ProcessorCount // last processor is level-manager one
+	processorID := *l.cfg.ProcessorCount // last processor is level-manager one
 	leader, err := l.processorManager.GetLeaderNode(processorID)
 	if err != nil {
 		return nil, err

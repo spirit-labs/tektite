@@ -42,7 +42,7 @@ func (v *VersionSetter) Stop() error {
 
 // HandleClusterState MUST be called before processors get made leaders
 func (v *VersionSetter) handleClusterState(cs clustmgr.ClusterState) error {
-	if !v.cfg.ProcessingEnabled {
+	if !*v.cfg.ProcessingEnabled {
 		// If we're on a LevelManager only cluster, we DO NOT want to set cluster version on the LevelManager from within
 		// this cluster. The setting of the cluster version must be done from the processor manager cluster.
 		return nil
@@ -57,7 +57,7 @@ func (v *VersionSetter) handleClusterState(cs clustmgr.ClusterState) error {
 	// store, as another node could have taken leadership of processors.
 	inCluster := false
 	for _, gn := range cs.GroupStates[0] {
-		if gn.NodeID == v.cfg.NodeID {
+		if gn.NodeID == *v.cfg.NodeID {
 			inCluster = true
 			break
 		}

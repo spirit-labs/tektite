@@ -3,6 +3,7 @@ package lifecycle
 import (
 	"fmt"
 	"github.com/spirit-labs/tektite/conf"
+	"github.com/spirit-labs/tektite/types"
 	"github.com/stretchr/testify/require"
 	"net/http"
 	"testing"
@@ -36,11 +37,11 @@ func testHandler(t *testing.T, active bool, path string) {
 	t.Helper()
 	cnf := conf.Config{}
 	cnf.ApplyDefaults()
-	cnf.LifeCycleEndpointEnabled = true
-	cnf.LifeCycleAddress = "localhost:8913"
-	cnf.StartupEndpointPath = "/started"
-	cnf.LiveEndpointPath = "/liveness"
-	cnf.ReadyEndpointPath = "/readiness"
+	cnf.LifeCycleEndpointEnabled = types.AddressOf(true)
+	cnf.LifeCycleAddress = types.AddressOf("localhost:8913")
+	cnf.StartupEndpointPath = types.AddressOf("/started")
+	cnf.LiveEndpointPath = types.AddressOf("/liveness")
+	cnf.ReadyEndpointPath = types.AddressOf("/readiness")
 
 	hndlr := NewLifecycleEndpoints(cnf)
 	err := hndlr.Start()

@@ -326,7 +326,7 @@ func TestForwardingMultipleReceiversAndProcessors(t *testing.T) {
 
 	cfg := &conf.Config{}
 	cfg.ApplyDefaults()
-	cfg.ProcessorCount = numProcessors
+	cfg.ProcessorCount = &numProcessors
 	st := store.TestStore()
 	err := st.Start()
 	require.NoError(t, err)
@@ -526,7 +526,7 @@ func TestBarrierNewerVersionOverridesVersionBeingCompleted(t *testing.T) {
 
 	cfg := &conf.Config{}
 	cfg.ApplyDefaults()
-	cfg.ProcessorCount = numProcessors
+	cfg.ProcessorCount = &numProcessors
 	st := store.TestStore()
 	err := st.Start()
 	require.NoError(t, err)
@@ -825,7 +825,7 @@ func TestBarriersWithForwarding(t *testing.T) {
 
 	cfg := &conf.Config{}
 	cfg.ApplyDefaults()
-	cfg.ProcessorCount = numProcessors
+	cfg.ProcessorCount = &numProcessors
 	st := store.TestStore()
 	err := st.Start()
 	require.NoError(t, err)
@@ -974,7 +974,9 @@ func TestForwardAfterUnavailability(t *testing.T) {
 	}()
 	cfg := &conf.Config{}
 	cfg.ApplyDefaults()
-	cfg.ProcessorCount = 2
+
+	processorCount := 2
+	cfg.ProcessorCount = &processorCount
 
 	vHandler := newVcHandler()
 

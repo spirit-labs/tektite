@@ -1,12 +1,13 @@
 package vmgr
 
 import (
+	"sync/atomic"
+	"time"
+
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/errors"
 	"github.com/spirit-labs/tektite/levels"
 	log "github.com/spirit-labs/tektite/logger"
-	"sync/atomic"
-	"time"
 )
 
 type failureInfo struct {
@@ -137,7 +138,7 @@ func (v *VersionManager) failureVersionsCompleted(deadVersionRange levels.Versio
 	// any data with those versions.
 	// This section must be outside lock as it can block retrying
 	for {
-		err := v.levelMgrClient.RegisterDeadVersionRange(deadVersionRange, v.cfg.ClusterName, failureClusterVersion)
+		err := v.levelMgrClient.RegisterDeadVersionRange(deadVersionRange, *v.cfg.ClusterName, failureClusterVersion)
 		if err == nil {
 			break
 		}

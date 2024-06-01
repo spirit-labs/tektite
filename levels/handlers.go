@@ -230,7 +230,7 @@ func EncodeRegisterPrefixRetentionsCommand(prefixRetentions []retention.PrefixRe
 }
 
 func createNotLeaderError(lms *LevelManagerService) error {
-	leaderNode, err := lms.leaderNodeProvider.GetLeaderNode(lms.cfg.ProcessorCount)
+	leaderNode, err := lms.leaderNodeProvider.GetLeaderNode(*lms.cfg.ProcessorCount)
 	if err != nil {
 		return err
 	}

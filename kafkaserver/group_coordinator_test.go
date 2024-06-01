@@ -1521,9 +1521,9 @@ func TestJoinTimeoutMembersRemovedIncludingLeaderAndJoinCompletes(t *testing.T) 
 func TestJoinTimeoutNoMembersRejoinTransitionsToEmpty(t *testing.T) {
 	newMemberJoinTimeout := 500 * time.Millisecond
 	gcs := createCoordinatorsWithCfgSetter(t, 3, func(config *conf.Config) {
-		config.KafkaInitialJoinDelay = 100 * time.Millisecond
-		config.KafkaMinSessionTimeout = 1 * time.Millisecond
-		config.KafkaNewMemberJoinTimeout = newMemberJoinTimeout
+		config.KafkaInitialJoinDelay = types.AddressOf(100 * time.Millisecond)
+		config.KafkaMinSessionTimeout = types.AddressOf(1 * time.Millisecond)
+		config.KafkaNewMemberJoinTimeout = types.AddressOf(newMemberJoinTimeout)
 	})
 	defer stopCoordinators(t, gcs)
 
@@ -1598,8 +1598,8 @@ func addMemberWithSessionTimeout(gc *GroupCoordinator, groupID string, sessionTi
 
 func TestSessionTimeoutWhenActive(t *testing.T) {
 	gcs := createCoordinatorsWithCfgSetter(t, 3, func(config *conf.Config) {
-		config.KafkaInitialJoinDelay = 100 * time.Millisecond
-		config.KafkaMinSessionTimeout = 1 * time.Millisecond
+		config.KafkaInitialJoinDelay = types.AddressOf(100 * time.Millisecond)
+		config.KafkaMinSessionTimeout = types.AddressOf(1 * time.Millisecond)
 	})
 	defer stopCoordinators(t, gcs)
 
@@ -1698,7 +1698,7 @@ func (t *testConsumerInfoProvider) OffsetByTimestamp(types.Timestamp, int) (int6
 
 func createCoordinators(t *testing.T, initialJoinDelay time.Duration, numNodes int) []*GroupCoordinator {
 	return createCoordinatorsWithCfgSetter(t, numNodes, func(config *conf.Config) {
-		config.KafkaInitialJoinDelay = initialJoinDelay
+		config.KafkaInitialJoinDelay = types.AddressOf(initialJoinDelay)
 	})
 }
 
@@ -1723,7 +1723,7 @@ func createCoordinatorsWithCfgSetter(t *testing.T, numNodes int, cfgSetter func(
 	for i := 0; i < numNodes; i++ {
 		cfg := &conf.Config{}
 		cfg.ApplyDefaults()
-		cfg.NodeID = i
+		cfg.NodeID = &i
 		if cfgSetter != nil {
 			cfgSetter(cfg)
 		}

@@ -39,7 +39,7 @@ func NewMetaDataProvider(cfg *conf.Config, procMgr proc.Manager, streamMgr opers
 		}
 	}
 	provider := &metaDataProvider{
-		nodeID:      cfg.NodeID,
+		nodeID:      *cfg.NodeID,
 		brokerInfos: brokerInfos,
 		topicInfos:  map[string]*TopicInfo{},
 		procMgr:     procMgr,

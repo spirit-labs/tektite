@@ -172,7 +172,7 @@ func (d *PrefixRetentionsService) versionFlushed(flushedVersion int64) {
 }
 
 func (d *PrefixRetentionsService) scheduleLoadPrefixRetentionsTimer(first bool) {
-	d.loadTimer = common.ScheduleTimer(d.cfg.PrefixRetentionRefreshInterval, first, func() {
+	d.loadTimer = common.ScheduleTimer(*d.cfg.PrefixRetentionRefreshInterval, first, func() {
 		d.lock.Lock()
 		defer d.lock.Unlock()
 		if !d.started {
@@ -196,7 +196,7 @@ func (d *PrefixRetentionsService) loadPrefixRetentionsWithRetry() error {
 		if errors.As(err, &terr) {
 			if terr.Code == errors.Unavailable || terr.Code == errors.LevelManagerNotLeaderNode {
 				log.Debugf("failed to load prefix retentions, will retry %v", err)
-				time.Sleep(d.cfg.LevelManagerRetryDelay)
+				time.Sleep(*d.cfg.LevelManagerRetryDelay)
 				continue
 			}
 		}

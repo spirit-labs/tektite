@@ -742,7 +742,7 @@ func setupLevelManager(t *testing.T) (*LevelManager, func(t *testing.T)) {
 
 func setupLevelManagerWithMaxEntries(t *testing.T, maxSegmentTableEntries int) (*LevelManager, func(t *testing.T)) {
 	return setupLevelManagerWithConfigSetter(t, false, func(cfg *conf.Config) {
-		cfg.MaxRegistrySegmentTableEntries = maxSegmentTableEntries
+		cfg.MaxRegistrySegmentTableEntries = &maxSegmentTableEntries
 	})
 }
 
@@ -902,8 +902,10 @@ func TestDataRestoredOnRestartWithFlush(t *testing.T) {
 
 func TestFlushManyAdds(t *testing.T) {
 	levelManager, tearDown := setupLevelManagerWithConfigSetter(t, false, func(cfg *conf.Config) {
-		cfg.MaxRegistrySegmentTableEntries = 100
-		cfg.LevelManagerFlushInterval = -1 // disable flush
+		maxRegistrySegmentTableEntries := 100
+		flushInterval := time.Duration(-1) // disable flush
+		cfg.MaxRegistrySegmentTableEntries = &maxRegistrySegmentTableEntries
+		cfg.LevelManagerFlushInterval = &flushInterval
 	})
 	defer tearDown(t)
 	numAdds := 1000
@@ -954,8 +956,10 @@ func TestFlushManyAdds(t *testing.T) {
 func TestFlushManyAddsAndSomeDeletes(t *testing.T) {
 
 	levelManager, tearDown := setupLevelManagerWithConfigSetter(t, false, func(cfg *conf.Config) {
-		cfg.MaxRegistrySegmentTableEntries = 100
-		cfg.LevelManagerFlushInterval = -1 // disable flush
+		maxRegistrySegmentTableEntries := 100
+		flushInterval := time.Duration(-1) // disable flush
+		cfg.MaxRegistrySegmentTableEntries = &maxRegistrySegmentTableEntries
+		cfg.LevelManagerFlushInterval = &flushInterval
 	})
 	defer tearDown(t)
 	numAdds := 1000
@@ -1026,8 +1030,10 @@ func TestFlushManyAddsAndSomeDeletes(t *testing.T) {
 func TestFlushManyDeletes(t *testing.T) {
 	// First add a bunch
 	levelManager, tearDown := setupLevelManagerWithConfigSetter(t, false, func(cfg *conf.Config) {
-		cfg.MaxRegistrySegmentTableEntries = 100
-		cfg.LevelManagerFlushInterval = -1 // disable flush
+		maxRegistrySegmentTableEntries := 100
+		flushInterval := time.Duration(-1) // disable flush
+		cfg.MaxRegistrySegmentTableEntries = &maxRegistrySegmentTableEntries
+		cfg.LevelManagerFlushInterval = &flushInterval
 	})
 	defer tearDown(t)
 	numAdds := 1000
@@ -1196,9 +1202,11 @@ func TestRegisterAndGetPrefixRetentions(t *testing.T) {
 func TestPrefixRetentionsAreRemovedWhenNoData(t *testing.T) {
 	prefixRetentionRemoveCheckPeriod := 100 * time.Millisecond
 	lm, tearDown := setupLevelManagerWithConfigSetter(t, true, func(cfg *conf.Config) {
-		cfg.L0CompactionTrigger = 1
-		cfg.LevelMultiplier = 1
-		cfg.PrefixRetentionRemoveCheckInterval = prefixRetentionRemoveCheckPeriod
+		compactionTrigger := 1
+		levelMultiplier := 1
+		cfg.L0CompactionTrigger = &compactionTrigger
+		cfg.LevelMultiplier = &levelMultiplier
+		cfg.PrefixRetentionRemoveCheckInterval = &prefixRetentionRemoveCheckPeriod
 	})
 	defer tearDown(t)
 
@@ -1414,7 +1422,8 @@ func callRegisterL0Tables(lm *LevelManager, regBatch RegistrationBatch) error {
 func TestFlushRetriedWhenObjStoreUnavailable(t *testing.T) {
 	cfg := conf.Config{}
 	cfg.ApplyDefaults()
-	cfg.LevelManagerFlushInterval = 1 * time.Second
+	flushInterval := 1 * time.Second
+	cfg.LevelManagerFlushInterval = &flushInterval
 	cloudStore := &dev.InMemStore{}
 	bi := testCommandBatchIngestor{}
 	tabCache, err := tabcache.NewTableCache(cloudStore, &cfg)
@@ -1445,7 +1454,9 @@ func TestFlushRetriedWhenObjStoreUnavailable(t *testing.T) {
 	require.Equal(t, initialSize, cloudStore.Size())
 
 	// Wait until a flush occurs
-	time.Sleep(2 * cfg.LevelManagerFlushInterval)
+	flushInterval = 2 * *cfg.LevelManagerFlushInterval
+	cfg.LevelManagerFlushInterval = &flushInterval
+	time.Sleep(flushInterval)
 
 	// Should not have flushed
 	require.Equal(t, initialSize, cloudStore.Size())
@@ -1518,7 +1529,8 @@ func TestGetTableIDsInRangeReturnsDeadVersions(t *testing.T) {
 
 func TestDeadVersionsRemovedOnStartup(t *testing.T) {
 	lm, tearDown := setupLevelManagerWithConfigSetter(t, true, func(cfg *conf.Config) {
-		cfg.L0CompactionTrigger = 10
+		l0CompactionTrigger := 10
+		cfg.L0CompactionTrigger = &l0CompactionTrigger
 	})
 	defer tearDown(t)
 

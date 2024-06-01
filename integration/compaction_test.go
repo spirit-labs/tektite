@@ -7,6 +7,7 @@ import (
 	"github.com/spirit-labs/tektite/conf"
 	"github.com/spirit-labs/tektite/tekclient"
 	"github.com/spirit-labs/tektite/testutils"
+	"github.com/spirit-labs/tektite/types"
 	"github.com/stretchr/testify/require"
 	"math/rand"
 	"testing"
@@ -20,20 +21,20 @@ func TestCompaction(t *testing.T) {
 		TrustedCertsPath: serverCertPath,
 	}
 	servers, tearDown := startClusterWithConfigSetter(t, 3, nil, func(cfg *conf.Config) {
-		cfg.KafkaServerEnabled = true
+		cfg.KafkaServerEnabled = types.AddressOf(true)
 		var kafkaListenAddresses []string
 		for i := 0; i < 3; i++ {
 			kafkaListenAddresses = append(kafkaListenAddresses, fmt.Sprintf("localhost:%d", testutils.PortProvider.GetPort(t)))
 		}
 		cfg.KafkaServerAddresses = kafkaListenAddresses
-		cfg.MemtableMaxSizeBytes = 100 * 1024
-		cfg.MemtableMaxReplaceInterval = 5 * time.Second
-		cfg.CompactionWorkersEnabled = true
-		cfg.SSTableDeleteCheckInterval = 250 * time.Millisecond
-		cfg.SSTableDeleteDelay = 1 * time.Second
-		cfg.CompactionMaxSSTableSize = 100 * 1024
-		cfg.CompactionPollerTimeout = 1 * time.Second
-		cfg.SSTableRegisterRetryDelay = 500 * time.Millisecond
+		cfg.MemtableMaxSizeBytes = (*conf.ParseableInt)(types.AddressOf(100 * 1024))
+		cfg.MemtableMaxReplaceInterval = types.AddressOf(5 * time.Second)
+		cfg.CompactionWorkersEnabled = types.AddressOf(true)
+		cfg.SSTableDeleteCheckInterval = types.AddressOf(250 * time.Millisecond)
+		cfg.SSTableDeleteDelay = types.AddressOf(1 * time.Second)
+		cfg.CompactionMaxSSTableSize = types.AddressOf(100 * 1024)
+		cfg.CompactionPollerTimeout = types.AddressOf(1 * time.Second)
+		cfg.SSTableRegisterRetryDelay = types.AddressOf(500 * time.Millisecond)
 	})
 	defer tearDown(t)
 	client, err := tekclient.NewClient(servers[0].GetConfig().HttpApiAddresses[0], clientTLSConfig)

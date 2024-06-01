@@ -47,7 +47,7 @@ func (c *CompactionWorkerService) Start() error {
 	if c.started {
 		return nil
 	}
-	for i := 0; i < c.cfg.CompactionWorkerCount; i++ {
+	for i := 0; i < *c.cfg.CompactionWorkerCount; i++ {
 		worker := &compactionWorker{
 			cws:    c,
 			client: c.levelMgrClientFactory.CreateLevelManagerClient(),
@@ -192,7 +192,7 @@ func (c *compactionWorker) processJob(job *CompactionJob) ([]RegistrationEntry, 
 	}
 	mergeStart := time.Now()
 	infos, err := mergeSSTables(common.DataFormatV1, tablesToMerge, job.preserveTombstones,
-		c.cws.cfg.CompactionMaxSSTableSize, job.lastFlushedVersion, job.id)
+		*c.cws.cfg.CompactionMaxSSTableSize, job.lastFlushedVersion, job.id)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -220,7 +220,7 @@ func (c *compactionWorker) processJob(job *CompactionJob) ([]RegistrationEntry, 
 				return nil, nil, err
 			}
 			log.Warnf("failed to push compacted table, will retry: %v", err)
-			time.Sleep(c.cws.cfg.SSTablePushRetryDelay)
+			time.Sleep(*c.cws.cfg.SSTablePushRetryDelay)
 		}
 	}
 	var tableEntries []TableEntry

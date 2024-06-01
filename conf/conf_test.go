@@ -13,85 +13,85 @@ type configPair struct {
 
 func invalidNodeIDConf() Config {
 	cnf := validConf()
-	cnf.NodeID = -1
+	*cnf.NodeID = -1
 	return cnf
 }
 
 func invalidClusterNameConf() Config {
 	cnf := validConf()
-	cnf.ClusterName = ""
+	*cnf.ClusterName = ""
 	return cnf
 }
 
 func invalidProcessorCountNoLevelManagerConf() Config {
 	cnf := validConf()
-	cnf.LevelManagerEnabled = false
-	cnf.ProcessingEnabled = true
-	cnf.ProcessorCount = 0
+	*cnf.LevelManagerEnabled = false
+	*cnf.ProcessingEnabled = true
+	*cnf.ProcessorCount = 0
 	return cnf
 }
 
 func invalidProcessorCountLevelManagerConf() Config {
 	cnf := validConf()
-	cnf.LevelManagerEnabled = true
-	cnf.ProcessingEnabled = false
-	cnf.ProcessorCount = -1
+	*cnf.LevelManagerEnabled = true
+	*cnf.ProcessingEnabled = false
+	*cnf.ProcessorCount = -1
 	return cnf
 }
 
 func invalidMaxProcessorQueueSizeConf() Config {
 	cnf := validConf()
-	cnf.MaxProcessorBatchesInProgress = 0
+	*cnf.MaxProcessorBatchesInProgress = 0
 	return cnf
 }
 
 func invalidMemtableMaxSizeBytesConf() Config {
 	cnf := validConf()
-	cnf.MemtableMaxSizeBytes = 0
+	*cnf.MemtableMaxSizeBytes = 0
 	return cnf
 }
 
 func invalidMemtableMaxReplaceTimeConf() Config {
 	cnf := validConf()
-	cnf.MemtableMaxReplaceInterval = 0
+	*cnf.MemtableMaxReplaceInterval = 0
 	return cnf
 }
 
 func invalidMemtableFlushQueueMaxSizeConf() Config {
 	cnf := validConf()
-	cnf.MemtableFlushQueueMaxSize = 0
+	*cnf.MemtableFlushQueueMaxSize = 0
 	return cnf
 }
 
 func invalidMinReplicasConf() Config {
 	cnf := validConf()
-	cnf.MinReplicas = 0
+	*cnf.MinReplicas = 0
 	return cnf
 }
 
 func invalidMaxReplicasConf() Config {
 	cnf := validConf()
-	cnf.MinReplicas = 1
-	cnf.MaxReplicas = 0
+	*cnf.MinReplicas = 1
+	*cnf.MaxReplicas = 0
 	return cnf
 }
 
 func invalidMaxLessThanMinReplicasConf() Config {
 	cnf := validConf()
-	cnf.MinReplicas = 3
-	cnf.MaxReplicas = 2
+	*cnf.MinReplicas = 3
+	*cnf.MaxReplicas = 2
 	return cnf
 }
 
 func invalidTableFormatConf() Config {
 	cnf := validConf()
-	cnf.TableFormat = 0
+	*cnf.TableFormat = 0
 	return cnf
 }
 
 func invalidHTTPAPIServerListenAddress() Config {
 	cnf := validConf()
-	cnf.HttpApiEnabled = true
+	*cnf.HttpApiEnabled = true
 	cnf.HttpApiAddresses = nil
 	return cnf
 }
@@ -147,65 +147,65 @@ const (
 
 func invalidLifecycleListenAddress() Config {
 	cnf := validConf()
-	cnf.LifeCycleEndpointEnabled = true
-	cnf.LifeCycleAddress = ""
-	cnf.StartupEndpointPath = startupEndpointPath
-	cnf.LiveEndpointPath = liveEndpointPath
-	cnf.ReadyEndpointPath = readyEndpointPath
+	*cnf.LifeCycleEndpointEnabled = true
+	*cnf.LifeCycleAddress = ""
+	*cnf.StartupEndpointPath = startupEndpointPath
+	*cnf.LiveEndpointPath = liveEndpointPath
+	*cnf.ReadyEndpointPath = readyEndpointPath
 	return cnf
 }
 
 func invalidStartupEndpointPath() Config {
 	cnf := validConf()
-	cnf.LifeCycleEndpointEnabled = true
-	cnf.LifeCycleAddress = lifeCycleListenAddress
-	cnf.StartupEndpointPath = ""
-	cnf.LiveEndpointPath = liveEndpointPath
-	cnf.ReadyEndpointPath = readyEndpointPath
+	*cnf.LifeCycleEndpointEnabled = true
+	*cnf.LifeCycleAddress = lifeCycleListenAddress
+	*cnf.StartupEndpointPath = ""
+	*cnf.LiveEndpointPath = liveEndpointPath
+	*cnf.ReadyEndpointPath = readyEndpointPath
 	return cnf
 }
 
 func invalidLiveEndpointPath() Config {
 	cnf := validConf()
-	cnf.LifeCycleEndpointEnabled = true
-	cnf.LifeCycleAddress = lifeCycleListenAddress
-	cnf.StartupEndpointPath = startupEndpointPath
-	cnf.LiveEndpointPath = ""
-	cnf.ReadyEndpointPath = readyEndpointPath
+	*cnf.LifeCycleEndpointEnabled = true
+	*cnf.LifeCycleAddress = lifeCycleListenAddress
+	*cnf.StartupEndpointPath = startupEndpointPath
+	*cnf.LiveEndpointPath = ""
+	*cnf.ReadyEndpointPath = readyEndpointPath
 	return cnf
 }
 
 func invalidReadyEndpointPath() Config {
 	cnf := validConf()
-	cnf.LifeCycleEndpointEnabled = true
-	cnf.LifeCycleAddress = lifeCycleListenAddress
-	cnf.StartupEndpointPath = startupEndpointPath
-	cnf.LiveEndpointPath = liveEndpointPath
-	cnf.ReadyEndpointPath = ""
+	*cnf.LifeCycleEndpointEnabled = true
+	*cnf.LifeCycleAddress = lifeCycleListenAddress
+	*cnf.StartupEndpointPath = startupEndpointPath
+	*cnf.LiveEndpointPath = liveEndpointPath
+	*cnf.ReadyEndpointPath = ""
 	return cnf
 }
 
 func invalidSegmentCacheMaxSize() Config {
 	cnf := validConf()
-	cnf.SegmentCacheMaxSize = -1
+	*cnf.SegmentCacheMaxSize = -1
 	return cnf
 }
 
 func invalidLevelManagerFlushInterval() Config {
 	cnf := validConf()
-	cnf.LevelManagerFlushInterval = 0
+	*cnf.LevelManagerFlushInterval = 0
 	return cnf
 }
 
 func nodeIDOutOfRangeConf() Config {
 	cnf := validConf()
-	cnf.NodeID = len(cnf.ClusterAddresses)
+	*cnf.NodeID = len(cnf.ClusterAddresses)
 	return cnf
 }
 
 func invalidLockTimeoutConf() Config {
 	cnf := validConf()
-	cnf.ClusterManagerLockTimeout = 0
+	*cnf.ClusterManagerLockTimeout = 0
 	return cnf
 }
 
@@ -259,13 +259,17 @@ func TestValidate(t *testing.T) {
 }
 
 func validConf() Config {
+	nodeId := 0
+	clusterName := "test_cluster"
+	httpApiEnabled := true
+
 	conf := Config{
-		NodeID:           0,
-		ClusterName:      "test_cluster",
+		NodeID:           &nodeId,
+		ClusterName:      &clusterName,
 		ClusterAddresses: []string{"addr4", "addr5", "addr6"},
-		HttpApiEnabled:   true,
+		HttpApiEnabled:   &httpApiEnabled,
 		HttpApiAddresses: []string{"addr10", "addr11", "addr12"},
-		HttpApiTlsConfig: TLSConfig{
+		HttpApiTlsConfig: &TLSConfig{
 			Enabled:         true,
 			KeyPath:         "http_key_path",
 			CertPath:        "http_cert_path",

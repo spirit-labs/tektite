@@ -203,7 +203,7 @@ func (m *ProcessorManager) Start() error {
 	m.scheduleIdleCheck()
 	m.scheduleSyncCheck()
 	m.scheduleBatchFlushCheck(true)
-	if m.cfg.LevelManagerEnabled {
+	if *m.cfg.LevelManagerEnabled {
 		m.scheduleLevelManagerFlushCheck(true)
 	}
 	m.failure.start()
@@ -253,7 +253,7 @@ func (m *ProcessorManager) checkSyncProcessors() {
 // EnsureReplicatorsReady ensures that all replicators have completed initialising and syncing and are available
 // to replicate.
 func (m *ProcessorManager) EnsureReplicatorsReady() error {
-	for i := 0; i < m.cfg.ProcessorCount; i++ {
+	for i := 0; i < *m.cfg.ProcessorCount; i++ {
 		start := time.Now()
 		for {
 			batch := NewProcessBatch(i, nil, common.DummyReceiverID, 0, -1)
@@ -289,14 +289,14 @@ func (m *ProcessorManager) scheduleBatchFlushCheck(first bool) {
 	if m.batchFlushCheckTimer != nil {
 		panic("batch flush check timer already scheduled")
 	}
-	m.batchFlushCheckTimer = common.ScheduleTimer(m.cfg.BatchFlushCheckInterval, first, m.checkFlushBatches)
+	m.batchFlushCheckTimer = common.ScheduleTimer(*m.cfg.BatchFlushCheckInterval, first, m.checkFlushBatches)
 }
 
 func (m *ProcessorManager) scheduleLevelManagerFlushCheck(first bool) {
 	if m.levelManagerFlushCheckTimer != nil {
 		panic("level mgr batch flush check timer already scheduled")
 	}
-	m.levelManagerFlushCheckTimer = common.ScheduleTimer(m.cfg.BatchFlushCheckInterval, first, m.checkFlushLevelManagerBatches)
+	m.levelManagerFlushCheckTimer = common.ScheduleTimer(*m.cfg.BatchFlushCheckInterval, first, m.checkFlushLevelManagerBatches)
 }
 
 func (m *ProcessorManager) Stop() error {
@@ -371,7 +371,7 @@ func (m *ProcessorManager) stop(halt bool) error {
 		processor.Stop()
 		return true
 	})
-	log.Debugf("stopped processor manager is now stopped on node %d", m.cfg.NodeID)
+	log.Debugf("stopped processor manager is now stopped on node %d", *m.cfg.NodeID)
 	return err
 }
 
@@ -448,7 +448,7 @@ func (m *ProcessorManager) getInitialVersions() {
 			log.Errorf("failed to get current version from vmgr %v", err)
 			return
 		}
-		log.Debugf("node %d proc mgr got initial versions as current:%d completed:%d flushed:%d", m.cfg.NodeID, currentVersion,
+		log.Debugf("node %d proc mgr got initial versions as current:%d completed:%d flushed:%d", *m.cfg.NodeID, currentVersion,
 			lastCompleted, lastFlushed)
 		m.setVersions(currentVersion, lastCompleted, lastFlushed)
 		if err := m.ingestNotifier.StartIngest(lastFlushed); err != nil {
@@ -517,12 +517,12 @@ func (m *ProcessorManager) maybeSetVersionsForProcessors(doNotDelay bool) {
 		return
 	}
 	durSinceLastInject := int64(common.NanoTime()) - m.lastBarrierInjectionTime
-	if doNotDelay || (m.lastBarrierInjectionTime == -1 || durSinceLastInject >= int64(m.cfg.MinSnapshotInterval)) {
+	if doNotDelay || (m.lastBarrierInjectionTime == -1 || durSinceLastInject >= int64(*m.cfg.MinSnapshotInterval)) {
 		// It's been enough time since last injection so inject now, or we're skipping versions
 		m.setVersionForProcessors()
 	} else {
 		// Inject after delay
-		delay := int64(m.cfg.MinSnapshotInterval) - durSinceLastInject
+		delay := int64(*m.cfg.MinSnapshotInterval) - durSinceLastInject
 		m.barrierInjectTimer = common.ScheduleTimer(time.Duration(delay), false, func() {
 			m.lock.Lock()
 			defer m.lock.Unlock()
@@ -618,7 +618,7 @@ func (m *ProcessorManager) setVersionForProcessor(processor Processor) {
 func (m *ProcessorManager) AfterReceiverChange() {
 	m.lock.Lock()
 	defer m.lock.Unlock()
-	log.Debugf("node %d AfterReceiverChange called", m.cfg.NodeID)
+	log.Debugf("node %d AfterReceiverChange called", *m.cfg.NodeID)
 	// We invalidate any cached receiver info here and in processors
 	m.injectableReceiverIDs = map[int][]int{}
 	// Invalidate the partition mappings
@@ -680,9 +680,9 @@ func (m *ProcessorManager) callClusterStateHandlers(cs clustmgr.ClusterState) er
 func (m *ProcessorManager) HandleClusterState(cs clustmgr.ClusterState) error {
 	m.lock.Lock()
 	defer m.lock.Unlock()
-	log.Debugf("node %d received cluster state %v", m.cfg.NodeID, cs)
+	log.Debugf("node %d received cluster state %v", *m.cfg.NodeID, cs)
 	if m.isStopped() {
-		log.Debugf("node %d is stopped", m.cfg.NodeID)
+		log.Debugf("node %d is stopped", *m.cfg.NodeID)
 
 		// We must ensure that no cluster states occur after processor manager is stopped - this can cause
 		// cluster version to be updated on the store which could allow memtables to be pushed to store
@@ -690,7 +690,7 @@ func (m *ProcessorManager) HandleClusterState(cs clustmgr.ClusterState) error {
 		return nil
 	}
 	if m.frozen {
-		log.Debugf("node %d is frozen", m.cfg.NodeID)
+		log.Debugf("node %d is frozen", *m.cfg.NodeID)
 
 		// The cluster is about to be shutdown - we do not want processors failing over when we finally shut them down
 		return nil
@@ -717,7 +717,7 @@ func (m *ProcessorManager) HandleClusterState(cs clustmgr.ClusterState) error {
 		found := false
 		if ok {
 			for _, groupNode := range groupState {
-				if groupNode.NodeID == m.cfg.NodeID {
+				if groupNode.NodeID == *m.cfg.NodeID {
 					found = true
 					break
 				}
@@ -749,13 +749,13 @@ func (m *ProcessorManager) HandleClusterState(cs clustmgr.ClusterState) error {
 	// before that
 	inCluster := false
 	for _, gn := range cs.GroupStates[0] {
-		if gn.NodeID == m.cfg.NodeID {
+		if gn.NodeID == *m.cfg.NodeID {
 			inCluster = true
 			break
 		}
 	}
 	if !inCluster {
-		log.Debugf("node %d not in cluster", m.cfg.NodeID)
+		log.Debugf("node %d not in cluster", *m.cfg.NodeID)
 		return nil
 	}
 
@@ -766,7 +766,7 @@ func (m *ProcessorManager) HandleClusterState(cs clustmgr.ClusterState) error {
 			return err
 		}
 	} else {
-		log.Debugf("node %d not calling maybeRunFailure as has lastclusterstate %t failure enabled %t", m.cfg.NodeID,
+		log.Debugf("node %d not calling maybeRunFailure as has lastclusterstate %t failure enabled %t", *m.cfg.NodeID,
 			m.lastClusterState != nil, m.failureEnabled)
 	}
 
@@ -775,7 +775,7 @@ func (m *ProcessorManager) HandleClusterState(cs clustmgr.ClusterState) error {
 }
 
 func (m *ProcessorManager) processGroupState(processorID int, gs []clustmgr.GroupNode, clusterVersion int) error {
-	sufficientReplicas := len(gs) >= m.cfg.MinReplicas
+	sufficientReplicas := len(gs) >= *m.cfg.MinReplicas
 
 	if !sufficientReplicas {
 		log.Debugf("insufficient replicas (need %d) for group %v ", m.cfg.MinReplicas, gs)
@@ -790,14 +790,14 @@ func (m *ProcessorManager) processGroupState(processorID int, gs []clustmgr.Grou
 		GroupNodes:     gsCopy,
 	})
 	for _, groupNode := range gsCopy {
-		if m.cfg.NodeID == groupNode.NodeID {
+		if *m.cfg.NodeID == groupNode.NodeID {
 			var proc Processor
 			o, ok := m.processors.Load(processorID)
 			if !ok {
 				// create the processor
 				batchHandler := m.batchHandlerFactory(processorID)
 				proc = NewProcessor(processorID, m.cfg, m.store, m, batchHandler, m.receiverInfoProvider)
-				log.Debugf("node %d created new processor %d", m.cfg.NodeID, processorID)
+				log.Debugf("node %d created new processor %d", *m.cfg.NodeID, processorID)
 				proc.SetVersionCompleteHandler(func(version int, requiredCompletions int, commandID int, doom bool, cf func(error)) {
 					m.vMgrClient.VersionComplete(version, requiredCompletions, commandID, doom, cf)
 				})
@@ -844,7 +844,7 @@ func (m *ProcessorManager) processGroupState(processorID int, gs []clustmgr.Grou
 					}
 					m.processorsIdle = false
 					log.Debugf("node %d proc mgr calling processor listeners for processor %d",
-						m.cfg.NodeID, proc.ID())
+						*m.cfg.NodeID, proc.ID())
 				}
 				if !ok || !currLeader {
 					// if newly created or processor newly promoted to leader, call the processor listeners
@@ -988,10 +988,10 @@ func (m *ProcessorManager) storeFlushed(version int) {
 	// that this has occurred. When all processor managers report in with the same completed version for all processors
 	// then flushed version will be set to the specified value and broadcast.
 
-	if err := m.vMgrClient.VersionFlushed(m.cfg.NodeID, version, m.liveProcessorCount(), int(cv)); err != nil {
+	if err := m.vMgrClient.VersionFlushed(*m.cfg.NodeID, version, m.liveProcessorCount(), int(cv)); err != nil {
 		log.Errorf("failed to call VersionFlushed %v", err)
 	}
-	log.Debugf("node %d called version flushed:%d", m.cfg.NodeID, version)
+	log.Debugf("node %d called version flushed:%d", *m.cfg.NodeID, version)
 	m.prevFlushedVersion = version
 }
 
@@ -1026,7 +1026,7 @@ func (m *ProcessorManager) checkFlushBatches() {
 	m.batchFlushCheckTimer = nil
 
 	if m.lastMarkedVersion != -1 {
-		panic(fmt.Sprintf("node %d foo schedule check batches called but version already marked", m.cfg.NodeID))
+		panic(fmt.Sprintf("node %d foo schedule check batches called but version already marked", *m.cfg.NodeID))
 	}
 
 	if m.currWriteVersion == -1 || m.replBatchFlushDisabled {
@@ -1124,7 +1124,7 @@ func (m *ProcessorManager) PrepareForShutdown() {
 }
 
 func (m *ProcessorManager) AcquiesceLevelManagerProcessor() error {
-	if m.cfg.LevelManagerEnabled {
+	if *m.cfg.LevelManagerEnabled {
 		p, ok := m.processors.Load(m.cfg.ProcessorCount)
 		if !ok {
 			return errors.New("cannot find level manager processor")
@@ -1158,12 +1158,12 @@ func (m *ProcessorManager) WaitForProcessingToComplete() {
 	m.wfpCalled = true
 
 	m.shutdownVersion = m.currWriteVersion + 2
-	log.Debugf("%p node %d waiting for at least version %d to be complete", m, m.cfg.NodeID, m.shutdownVersion)
+	log.Debugf("%p node %d waiting for at least version %d to be complete", m, *m.cfg.NodeID, m.shutdownVersion)
 	m.shutdownVersionChannel = make(chan struct{}, 1)
 	shutdownVer := m.shutdownVersion
 	m.lock.Unlock()
 	<-m.shutdownVersionChannel
-	log.Debugf("%p node %d waited for version %d to be complete", m, m.cfg.NodeID, shutdownVer)
+	log.Debugf("%p node %d waited for version %d to be complete", m, *m.cfg.NodeID, shutdownVer)
 	m.lock.Lock()
 	defer m.lock.Unlock()
 }
@@ -1195,7 +1195,7 @@ func (m *ProcessorManager) disableReplBatchFlush(disabled bool) {
 }
 
 func (m *ProcessorManager) isLevelManagerProcessor(processorID int) bool {
-	return m.cfg.LevelManagerEnabled && processorID == m.cfg.ProcessorCount
+	return *m.cfg.LevelManagerEnabled && processorID == *m.cfg.ProcessorCount
 }
 
 type noopReplicator struct {

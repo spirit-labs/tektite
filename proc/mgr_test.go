@@ -7,6 +7,7 @@ import (
 	"github.com/spirit-labs/tektite/remoting"
 	"github.com/spirit-labs/tektite/store"
 	"github.com/spirit-labs/tektite/testutils"
+	"github.com/spirit-labs/tektite/types"
 	"github.com/stretchr/testify/require"
 	"sync"
 	"sync/atomic"
@@ -27,7 +28,7 @@ func TestManagerHandleClusterState(t *testing.T) {
 	}()
 	cfg := &conf.Config{}
 	cfg.ApplyDefaults()
-	cfg.NodeID = 1
+	cfg.NodeID = types.AddressOf(1)
 
 	mgr := NewProcessorManager(stateMgr, &testReceiverInfoProvider{}, st, cfg, nil,
 		createTestBatchHandler, nil, &testIngestNotifier{}).(*ProcessorManager)
@@ -162,8 +163,10 @@ func TestPartitionMappings(t *testing.T) {
 	}()
 	cfg := &conf.Config{}
 	cfg.ApplyDefaults()
-	cfg.NodeID = 1
-	cfg.ProcessorCount = 3
+	nodeId := 1
+	processorCount := 3
+	cfg.NodeID = &nodeId
+	cfg.ProcessorCount = &processorCount
 
 	mgr := NewProcessorManager(stateMgr, &testReceiverInfoProvider{}, st, cfg, nil,
 		createTestBatchHandler, nil, &testIngestNotifier{}).(*ProcessorManager)
@@ -302,7 +305,7 @@ func TestGetLeaderNodeForProcessor(t *testing.T) {
 	}()
 	cfg := &conf.Config{}
 	cfg.ApplyDefaults()
-	cfg.NodeID = 1
+	cfg.NodeID = types.AddressOf(1)
 
 	mgr := NewProcessorManager(stateMgr, &testReceiverInfoProvider{}, st, cfg, nil, createTestBatchHandler,
 		nil, &testIngestNotifier{}).(*ProcessorManager)
@@ -351,7 +354,7 @@ func TestStateHandlers(t *testing.T) {
 	}()
 	cfg := &conf.Config{}
 	cfg.ApplyDefaults()
-	cfg.NodeID = 1
+	cfg.NodeID = types.AddressOf(1)
 
 	mgr := NewProcessorManager(stateMgr, &testReceiverInfoProvider{}, st, cfg, nil,
 		createTestBatchHandler, nil, &testIngestNotifier{}).(*ProcessorManager)
@@ -401,8 +404,8 @@ func TestVersionInjection(t *testing.T) {
 	}()
 	cfg := &conf.Config{}
 	cfg.ApplyDefaults()
-	cfg.NodeID = 1
-	cfg.MinSnapshotInterval = 1 * time.Millisecond
+	cfg.NodeID = types.AddressOf(1)
+	cfg.MinSnapshotInterval = types.AddressOf(1 * time.Millisecond)
 
 	vmgrClient := &testVmgrClient{currentVersion: 100, vHandler: newVcHandler()}
 
@@ -523,9 +526,9 @@ func testVersionDelay(t *testing.T, increaseCompletedVersion bool) {
 	}()
 	cfg := &conf.Config{}
 	cfg.ApplyDefaults()
-	cfg.NodeID = 1
+	cfg.NodeID = types.AddressOf(1)
 	minSnapshotInterval := 100 * time.Millisecond
-	cfg.MinSnapshotInterval = minSnapshotInterval
+	cfg.MinSnapshotInterval = &minSnapshotInterval
 
 	vmgrClient := &testVmgrClient{currentVersion: 100, vHandler: newVcHandler()}
 
@@ -698,7 +701,7 @@ func TestInjectableReceivers(t *testing.T) {
 	}()
 	cfg := &conf.Config{}
 	cfg.ApplyDefaults()
-	cfg.NodeID = 1
+	cfg.NodeID = types.AddressOf(1)
 
 	vmgrClient := &testVmgrClient{currentVersion: 100, vHandler: newVcHandler()}
 
@@ -794,7 +797,7 @@ func TestBarrierForwarding(t *testing.T) {
 	}()
 	cfg := &conf.Config{}
 	cfg.ApplyDefaults()
-	cfg.NodeID = 1
+	cfg.NodeID = types.AddressOf(1)
 
 	cfg.ClusterAddresses = []string{"localhost:7887", "localhost:7888"}
 	serverAddress := cfg.ClusterAddresses[1]

@@ -66,7 +66,7 @@ func NewStore(cloudStoreClient objstore.Client, levelManagerClient levels.Client
 		levelManagerClient:      levelManagerClient,
 		tableCache:              tableCache,
 		prefixRetentionsService: prefixRetentionService,
-		mtMaxReplaceTime:        uint64(conf.MemtableMaxReplaceInterval),
+		mtMaxReplaceTime:        uint64(*conf.MemtableMaxReplaceInterval),
 		lastCompletedVersion:    -2, // -2 as -1 is a valid value
 		lastLocalFlushedVersion: -1,
 	}
@@ -127,7 +127,7 @@ func (s *Store) maybeBlockWrite() error {
 		if !s.started.Get() {
 			return errors.New("store is not started")
 		}
-		time.Sleep(s.conf.StoreWriteBlockedRetryInterval)
+		time.Sleep(*s.conf.StoreWriteBlockedRetryInterval)
 	}
 	return nil
 }
@@ -181,8 +181,8 @@ func (s *Store) SetClusterVersion(version int) {
 }
 
 func (s *Store) createNewMemtable() {
-	arena := arenaskl.NewArena(uint32(s.conf.MemtableMaxSizeBytes))
-	s.memTable = mem.NewMemtable(arena, s.conf.NodeID, int(s.conf.MemtableMaxSizeBytes))
+	arena := arenaskl.NewArena(uint32(*s.conf.MemtableMaxSizeBytes))
+	s.memTable = mem.NewMemtable(arena, *s.conf.NodeID, int(*s.conf.MemtableMaxSizeBytes))
 }
 
 func (s *Store) getClusterVersion() int {
@@ -264,7 +264,7 @@ func (s *Store) replaceMemtable0(memtable *mem.Memtable, allowFlushEmpty bool, t
 			memtable:             memtable,
 			lastCompletedVersion: lcv,
 		})
-		if len(s.mtQueue) == s.conf.MemtableFlushQueueMaxSize {
+		if len(s.mtQueue) == *s.conf.MemtableFlushQueueMaxSize {
 			s.queueFull.Store(true)
 		}
 		//s.mtQueueChan <- struct{}{} // will block if queue is full
@@ -341,7 +341,7 @@ func (s *Store) maybeReplaceMemtable() error {
 func (s *Store) scheduleMtReplace() {
 	s.mtReplaceTimerLock.Lock()
 	defer s.mtReplaceTimerLock.Unlock()
-	s.mtReplaceTimer = common.ScheduleTimer(s.conf.MemtableMaxReplaceInterval, false, func() {
+	s.mtReplaceTimer = common.ScheduleTimer(*s.conf.MemtableMaxReplaceInterval, false, func() {
 		if err := s.maybeReplaceMemtable(); err != nil {
 			log.Errorf("failed to replace memtable %+v", err)
 		}

@@ -100,7 +100,7 @@ const objStoreRetryInterval = 500 * time.Millisecond
 func NewLevelManager(conf *conf.Config, cloudStore objstore.Client, tabCache *tabcache.Cache,
 	commandBatchIngestor commandBatchIngestor, enableCompaction bool, validateOnEachStateChange bool, enableDedup bool) *LevelManager {
 	lm := &LevelManager{
-		format:                    conf.RegistryFormat,
+		format:                    *conf.RegistryFormat,
 		objStore:                  cloudStore,
 		tabCache:                  tabCache,
 		commandBatchIngestor:      commandBatchIngestor,
@@ -108,7 +108,7 @@ func NewLevelManager(conf *conf.Config, cloudStore objstore.Client, tabCache *ta
 		segmentsToAdd:             map[string]*segment{},
 		segmentsToDelete:          map[string]struct{}{},
 		clusterVersions:           map[string]int{},
-		segmentCache:              newSegmentCache(conf.SegmentCacheMaxSize),
+		segmentCache:              newSegmentCache(*conf.SegmentCacheMaxSize),
 		enableCompaction:          enableCompaction,
 		validateOnEachStateChange: validateOnEachStateChange,
 		pollers:                   &pollerQueue{},
@@ -123,18 +123,18 @@ func NewLevelManager(conf *conf.Config, cloudStore objstore.Client, tabCache *ta
 
 func (lm *LevelManager) levelMaxTablesTrigger(level int) int {
 	if level == 0 {
-		return lm.conf.L0CompactionTrigger
+		return *lm.conf.L0CompactionTrigger
 	}
-	mt := lm.conf.L1CompactionTrigger
+	mt := *lm.conf.L1CompactionTrigger
 	for i := 1; i < level; i++ {
-		mt *= lm.conf.LevelMultiplier
+		mt *= *lm.conf.LevelMultiplier
 	}
 	return mt
 }
 
 func (lm *LevelManager) initialiseMasterRecord() (*masterRecord, error) {
 	for {
-		buff, err := lm.objStore.Get([]byte(lm.conf.MasterRegistryRecordID))
+		buff, err := lm.objStore.Get([]byte(*lm.conf.MasterRegistryRecordID))
 		if err != nil {
 			if common.IsUnavailableError(err) {
 				log.Warnf("object store is unavailable - will retry - %v", err)
@@ -150,7 +150,7 @@ func (lm *LevelManager) initialiseMasterRecord() (*masterRecord, error) {
 			log.Debugf("level manager initialised with last flushed version: %d %v", mr.lastFlushedVersion, mr)
 		} else {
 			mr = &masterRecord{
-				format:               lm.conf.RegistryFormat,
+				format:               *lm.conf.RegistryFormat,
 				levelTableCounts:     map[int]int{},
 				prefixRetentions:     map[string]uint64{},
 				lastFlushedVersion:   -1,
@@ -158,7 +158,7 @@ func (lm *LevelManager) initialiseMasterRecord() (*masterRecord, error) {
 				stats:                &Stats{LevelStats: map[int]*LevelStats{}},
 			}
 			buff := mr.serialize(nil)
-			if err := lm.objStore.Put([]byte(lm.conf.MasterRegistryRecordID), buff); err != nil {
+			if err := lm.objStore.Put([]byte(*lm.conf.MasterRegistryRecordID), buff); err != nil {
 				if common.IsUnavailableError(err) {
 					log.Warnf("object store is unavailable - will retry - %v", err)
 					time.Sleep(objStoreRetryInterval)
@@ -196,9 +196,9 @@ func (lm *LevelManager) Start(block bool) error {
 		lm.lock.Lock()
 		defer lm.lock.Unlock()
 		lm.masterRecord = mr
-		if lm.conf.LevelManagerFlushInterval != -1 {
+		if *lm.conf.LevelManagerFlushInterval != -1 {
 			// -1 disables periodic flushing (used in tests)
-			lm.scheduleFlushNoLock(lm.conf.LevelManagerFlushInterval, true)
+			lm.scheduleFlushNoLock(*lm.conf.LevelManagerFlushInterval, true)
 		}
 		lm.scheduleTableDeleteTimer(true)
 		lm.schedulePrefixRetentionRemoveTimer(true)
@@ -279,7 +279,7 @@ func (lm *LevelManager) reset() {
 	lm.segmentsToAdd = map[string]*segment{}
 	lm.segmentsToDelete = map[string]struct{}{}
 	lm.clusterVersions = map[string]int{}
-	lm.segmentCache = newSegmentCache(lm.conf.SegmentCacheMaxSize)
+	lm.segmentCache = newSegmentCache(*lm.conf.SegmentCacheMaxSize)
 	lm.masterRecord = nil
 }
 
@@ -413,7 +413,7 @@ func (lm *LevelManager) sendApplyChangesReliably(regBatch RegistrationBatch, com
 }
 
 func (lm *LevelManager) getL0FreeSpace() int {
-	return lm.conf.L0MaxTablesBeforeBlocking - lm.masterRecord.levelTableCounts[0] - lm.inflightAdds
+	return *lm.conf.L0MaxTablesBeforeBlocking - lm.masterRecord.levelTableCounts[0] - lm.inflightAdds
 }
 
 func (lm *LevelManager) ApplyChangesNoCheck(registrationBatch RegistrationBatch) error {
@@ -1043,7 +1043,7 @@ func (lm *LevelManager) applyRegistrations(registrations []RegistrationEntry) er
 				// Create the new segment(s)
 				var newSegs []segment
 				lnte := len(newTableEntries)
-				if lnte > lm.conf.MaxRegistrySegmentTableEntries {
+				if lnte > *lm.conf.MaxRegistrySegmentTableEntries {
 					// Too many entries
 					// If there is a next segment, and it's not full we will merge it into that one otherwise
 					// we will create a new segment
@@ -1054,7 +1054,7 @@ func (lm *LevelManager) applyRegistrations(registrations []RegistrationEntry) er
 						if err != nil {
 							return err
 						}
-						if len(nextSeg.tableEntries) < lm.conf.MaxRegistrySegmentTableEntries {
+						if len(nextSeg.tableEntries) < *lm.conf.MaxRegistrySegmentTableEntries {
 							te1 := newTableEntries[:lnte-1]
 							te2 := make([]*TableEntry, 0, len(nextSeg.tableEntries)+1)
 							te2 = append(te2, newTableEntries[lnte-1])
@@ -1225,18 +1225,18 @@ func (lm *LevelManager) scheduleFlushNoLock(delay time.Duration, first bool) {
 			log.Errorf("LevelManager failed to Flush %+v", err)
 			return
 		}
-		lm.scheduleFlush(lm.conf.LevelManagerFlushInterval, false)
+		lm.scheduleFlush(*lm.conf.LevelManagerFlushInterval, false)
 	})
 }
 
 func (lm *LevelManager) scheduleTableDeleteTimer(first bool) {
-	lm.tableDeleteTimer = common.ScheduleTimer(lm.conf.SSTableDeleteCheckInterval, first, func() {
+	lm.tableDeleteTimer = common.ScheduleTimer(*lm.conf.SSTableDeleteCheckInterval, first, func() {
 		lm.maybeDeleteTables()
 	})
 }
 
 func (lm *LevelManager) schedulePrefixRetentionRemoveTimer(first bool) {
-	lm.prefixRetentionRemoveTimer = common.ScheduleTimer(lm.conf.PrefixRetentionRemoveCheckInterval, first, func() {
+	lm.prefixRetentionRemoveTimer = common.ScheduleTimer(*lm.conf.PrefixRetentionRemoveCheckInterval, first, func() {
 		err, ok := lm.maybeRemovePrefixRetentions()
 		if err != nil {
 			log.Warnf("failed to remove prefixRetentions: %v", err)
@@ -1305,7 +1305,7 @@ func (lm *LevelManager) maybeDeleteTables() {
 	now := common.NanoTime()
 	for i, entry := range lm.tablesToDelete {
 		age := time.Duration(now - entry.addedTime)
-		if age < lm.conf.SSTableDeleteDelay {
+		if age < *lm.conf.SSTableDeleteDelay {
 			break
 		}
 		log.Debugf("deleted sstable %v", entry.tableID)
@@ -1427,7 +1427,7 @@ func (lm *LevelManager) pushSegmentsAndMasterRecord(masterRecordToFlush *masterR
 	buff := make([]byte, 0, lm.masterRecordBufferSizeEstimate)
 	buff = masterRecordToFlush.serialize(buff)
 	lm.updateMasterRecordBufferSizeEstimate(len(buff))
-	err := lm.objStore.Put([]byte(lm.conf.MasterRegistryRecordID), buff)
+	err := lm.objStore.Put([]byte(*lm.conf.MasterRegistryRecordID), buff)
 	if err != nil {
 		return 0, 0, err
 	}

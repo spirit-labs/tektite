@@ -51,7 +51,7 @@ func NewServer(config conf.Config, dummy bool) *Server {
 	return &Server{
 		config: config,
 		httpServer: &http.Server{
-			Addr:    config.MetricsBind,
+			Addr:    *config.MetricsBind,
 			Handler: mux,
 		},
 	}

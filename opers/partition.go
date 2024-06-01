@@ -17,7 +17,7 @@ const constKeyColName = "const"
 func NewPartitionOperator(inSchema *OperatorSchema, keyCols []string, partitions int, forwardReceiverID int,
 	mappingID string, cfg *conf.Config, desc *parser.PartitionDesc) (*PartitionOperator, error) {
 
-	partitionScheme := NewPartitionScheme(mappingID, partitions, false, cfg.ProcessorCount)
+	partitionScheme := NewPartitionScheme(mappingID, partitions, false, *cfg.ProcessorCount)
 
 	var outEventSchema *evbatch.EventSchema
 	removeOffset := HasOffsetColumn(inSchema.EventSchema)
@@ -44,8 +44,8 @@ func NewPartitionOperator(inSchema *OperatorSchema, keyCols []string, partitions
 		forwardReceiverID: forwardReceiverID,
 		removeOffset:      removeOffset,
 	}
-	procCount := cfg.ProcessorCount
-	if cfg.LevelManagerEnabled {
+	procCount := *cfg.ProcessorCount
+	if *cfg.LevelManagerEnabled {
 		procCount++
 	}
 	expectedSequences := make([]map[int]int, procCount)

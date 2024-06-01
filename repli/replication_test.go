@@ -717,9 +717,9 @@ func setupClusterWithNumNodes(t *testing.T, numNodes int) ([]proc.Manager, []*te
 
 		cfg := &conf.Config{}
 		cfg.ApplyDefaults()
-		cfg.NodeID = i
+		cfg.NodeID = &i
 		cfg.ClusterAddresses = remotingAddresses
-		cfg.BatchFlushCheckInterval = 1 * time.Hour // Effectively turn off periodic flushing in the tests
+		cfg.BatchFlushCheckInterval = types.AddressOf(1 * time.Hour) // Effectively turn off periodic flushing in the tests
 
 		remotingServer := remoting.NewServer(remotingAddresses[i], conf.TLSConfig{})
 		err = remotingServer.Start()

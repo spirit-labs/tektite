@@ -63,8 +63,8 @@ func (s *Store) buildSSTable(entry *flushQueueEntry) error {
 	if !valid {
 		return err
 	}
-	ssTable, smallestKey, largestKey, minVersion, maxVersion, err := sst2.BuildSSTable(s.conf.TableFormat,
-		int(s.conf.MemtableMaxSizeBytes), 8*1024, iter)
+	ssTable, smallestKey, largestKey, minVersion, maxVersion, err := sst2.BuildSSTable(*s.conf.TableFormat,
+		int(*s.conf.MemtableMaxSizeBytes), 8*1024, iter)
 	if err != nil {
 		return err
 	}
@@ -152,7 +152,7 @@ func (s *Store) maybeFlushSSTables() error {
 					if common.IsUnavailableError(err) {
 						// Transient availability error - retry
 						log.Warnf("cloud store is unavailable, will retry: %v", err)
-						time.Sleep(s.conf.SSTablePushRetryDelay)
+						time.Sleep(*s.conf.SSTablePushRetryDelay)
 						continue
 					}
 					return err
@@ -176,7 +176,7 @@ func (s *Store) maybeFlushSSTables() error {
 				log.Debugf("node %d calling RegisterL0Tables", s.conf.NodeID)
 				start := time.Now()
 				if err := s.levelManagerClient.RegisterL0Tables(levels.RegistrationBatch{
-					ClusterName:    s.conf.ClusterName,
+					ClusterName:    *s.conf.ClusterName,
 					ClusterVersion: clusterVersion,
 					Registrations: []levels.RegistrationEntry{{
 						Level:        0,
@@ -201,7 +201,7 @@ func (s *Store) maybeFlushSSTables() error {
 							}
 							// Transient availability error - retry
 							log.Warnf("store failed to register new ss-table with level manager, will retry: %v", err)
-							time.Sleep(s.conf.SSTableRegisterRetryDelay)
+							time.Sleep(*s.conf.SSTableRegisterRetryDelay)
 							continue
 						}
 					}
@@ -239,7 +239,7 @@ func (s *Store) maybeFlushSSTables() error {
 	if lep > 0 {
 		s.mtFlushQueueLock.Lock()
 		s.mtQueue = s.mtQueue[lep:]
-		if len(s.mtQueue) < s.conf.MemtableFlushQueueMaxSize {
+		if len(s.mtQueue) < *s.conf.MemtableFlushQueueMaxSize {
 			s.queueFull.Store(false)
 		}
 		s.mtFlushQueueLock.Unlock()

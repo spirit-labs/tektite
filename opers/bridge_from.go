@@ -56,7 +56,7 @@ func NewBridgeFromOperator(receiverID int, pollTimeout time.Duration, maxMessage
 	ingestEnabled *atomic.Bool, lastFlushedVersion *int64) (*BridgeFromOperator, error) {
 	schema := &OperatorSchema{
 		EventSchema:     KafkaSchema,
-		PartitionScheme: NewPartitionScheme(mappingID, partitions, true, cfg.ProcessorCount),
+		PartitionScheme: NewPartitionScheme(mappingID, partitions, true, *cfg.ProcessorCount),
 	}
 	var msgClient kafka.MessageClient
 	if clientFactory != nil {
@@ -334,7 +334,7 @@ func (bf *BridgeFromOperator) processorStopped(processor proc.Processor) {
 }
 
 func (bf *BridgeFromOperator) scheduleConsumerCheckTimer(first bool) {
-	bf.consumerTimer = common.ScheduleTimer(bf.cfg.ConsumerRetryInterval, first, bf.checkConsumers)
+	bf.consumerTimer = common.ScheduleTimer(*bf.cfg.ConsumerRetryInterval, first, bf.checkConsumers)
 }
 
 func (bf *BridgeFromOperator) checkConsumers() {

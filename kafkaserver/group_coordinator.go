@@ -55,7 +55,7 @@ func NewGroupCoordinator(cfg *conf.Config, provider processorProvider, streamMgr
 	metaProvider MetadataProvider, store *store2.Store, forwarder batchForwarder) (*GroupCoordinator, error) {
 	schema := &opers.OperatorSchema{
 		EventSchema:     ConsumerOffsetsSchema,
-		PartitionScheme: opers.NewPartitionScheme(ConsumerOffsetsSlabName, ConsumerOffsetsPartitionCount, false, cfg.ProcessorCount),
+		PartitionScheme: opers.NewPartitionScheme(ConsumerOffsetsSlabName, ConsumerOffsetsPartitionCount, false, *cfg.ProcessorCount),
 	}
 	keyCols := []string{"group_id", "topic_id", "partition_id"}
 	if err := streamMgr.RegisterSystemSlab(ConsumerOffsetsSlabName, common.KafkaOffsetsReceiverID, -1,
@@ -103,7 +103,7 @@ func (gc *GroupCoordinator) calcConsumerOffsetsPartition(groupID string) int {
 
 func (gc *GroupCoordinator) checkLeader(groupID string) bool {
 	leaderNode := gc.FindCoordinator(groupID)
-	return leaderNode == gc.cfg.NodeID
+	return leaderNode == *gc.cfg.NodeID
 }
 
 func (gc *GroupCoordinator) sendJoinError(complFunc JoinCompletion, errorCode int) {
@@ -140,7 +140,7 @@ func (gc *GroupCoordinator) JoinGroup(apiVersion int16, groupID string, clientID
 		gc.sendJoinError(complFunc, ErrorCodeNotCoordinator)
 		return
 	}
-	if sessionTimeout < gc.cfg.KafkaMinSessionTimeout || sessionTimeout > gc.cfg.KafkaMaxSessionTimeout {
+	if sessionTimeout < *gc.cfg.KafkaMinSessionTimeout || sessionTimeout > *gc.cfg.KafkaMaxSessionTimeout {
 		gc.sendJoinError(complFunc, ErrorCodeInvalidSessionTimeout)
 		return
 	}
@@ -502,7 +502,7 @@ func (g *group) Join(apiVersion int16, clientID string, memberID string, protoco
 }
 
 func (g *group) scheduleInitialJoinDelay(remaining time.Duration) {
-	g.gc.setTimer(g.id, g.gc.cfg.KafkaInitialJoinDelay, func() {
+	g.gc.setTimer(g.id, *g.gc.cfg.KafkaInitialJoinDelay, func() {
 		g.initialJoinTimerExpired(remaining)
 	})
 }
@@ -517,7 +517,7 @@ func (g *group) initialJoinTimerExpired(remaining time.Duration) {
 		// A new member has been added
 		g.newMemberAdded = false // we only count additional members added during join - not the first onw
 		// Extend the timer in another chunk of initial-join-delay up to a max total delay of rebalance-timeout
-		remaining -= g.gc.cfg.KafkaInitialJoinDelay
+		remaining -= *g.gc.cfg.KafkaInitialJoinDelay
 		if remaining > 0 {
 			g.scheduleInitialJoinDelay(remaining)
 			return
@@ -635,7 +635,7 @@ func (g *group) addMember(memberID string, protocols []ProtocolInfo, sessionTime
 	// join is successful the timer is again cancelled and rescheduled with session_timeout again.
 	// The code only allows new members to be timed out during join, so this behaviour has the effect of increasing
 	// the timeout for new members in the join phase.
-	g.gc.rescheduleTimer(memberID, g.gc.cfg.KafkaNewMemberJoinTimeout, func() {
+	g.gc.rescheduleTimer(memberID, *g.gc.cfg.KafkaNewMemberJoinTimeout, func() {
 		g.sessionTimeoutExpired(memberID)
 	})
 }

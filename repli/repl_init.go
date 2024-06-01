@@ -48,7 +48,7 @@ func (r *replicator) InitialiseLeader(forceReprocess bool) error {
 		time.Sleep(minLastCommittedRetryDelay)
 	}
 
-	isLevelMgr := r.cfg.LevelManagerEnabled && r.processor.ID() == r.cfg.ProcessorCount
+	isLevelMgr := *r.cfg.LevelManagerEnabled && r.processor.ID() == *r.cfg.ProcessorCount
 	if isLevelMgr {
 		log.Debugf("level manager processor has %d batches to replay", len(r.replicatedBatches))
 	}
@@ -141,7 +141,7 @@ func (r *replicator) MaybeReprocessQueue(lastFlushedVersion int) error {
 }
 
 func (r *replicator) isLevelManagerProcessor() bool {
-	return r.cfg.LevelManagerEnabled && r.id == r.cfg.ProcessorCount
+	return *r.cfg.LevelManagerEnabled && r.id == *r.cfg.ProcessorCount
 }
 
 func (r *replicator) reprocessQueue(lastProcessedSequence int) error {
@@ -198,7 +198,7 @@ func (r *replicator) findAndSetMinLastCommittedSequence() error {
 	var replicas []validReplica
 	for _, gn := range groupState.GroupNodes {
 		if gn.Valid && !gn.Leader {
-			if gn.NodeID == r.cfg.NodeID {
+			if gn.NodeID == *r.cfg.NodeID {
 				// Another node has become leader before this one has finished initialising as leader
 				return errors.Errorf("failed to promote replica as leader ont node %d - it is not leader any more", r.cfg.NodeID)
 			}
