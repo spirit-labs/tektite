@@ -7,6 +7,7 @@ import (
 	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/parser"
 	"github.com/spirit-labs/tektite/proc"
+	"github.com/timandy/routine"
 	"sync"
 	"time"
 )
@@ -125,6 +126,7 @@ func (b *BridgeToOperator) HandleStreamBatch(batch *evbatch.Batch, execCtx Strea
 }
 
 func (b *BridgeToOperator) enterStoreMode(execCtx StreamExecContext, batch *evbatch.Batch) error {
+	execCtx.Processor().CheckInProcessorLoop()
 	processor := execCtx.Processor()
 	processorID := processor.ID()
 	log.Debugf("bridge to entering store mode for processor %d", processorID)
@@ -196,6 +198,7 @@ func (b *BridgeToOperator) exitStoreMode(processor proc.Processor, partIDs []int
 
 func (b *BridgeToOperator) HandleBarrier(execCtx StreamExecContext) error {
 	// We store offsets on receipt of barrier
+	execCtx.Processor().CheckInProcessorLoop()
 	b.flushLastCommitted(execCtx)
 	return b.BaseOperator.HandleBarrier(execCtx)
 }
@@ -205,6 +208,7 @@ func (b *BridgeToOperator) flushLastCommitted(execCtx StreamExecContext) {
 	for _, partitionID := range partitionIDs {
 		offsetToCommit := b.offsetsToCommit[partitionID]
 		if offsetToCommit != -1 {
+			log.Infof("storeCommittedOffSetForPartition processor %d partition %d goid:%d", execCtx.Processor().ID(), partitionID, routine.Goid())
 			b.backFillOperator.storeCommittedOffSetForPartition(partitionID, offsetToCommit, execCtx)
 			b.offsetsToCommit[partitionID] = -1
 		}

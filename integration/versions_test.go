@@ -11,7 +11,6 @@ import (
 	"github.com/spirit-labs/tektite/mem"
 	"github.com/spirit-labs/tektite/proc"
 	"github.com/spirit-labs/tektite/remoting"
-	"github.com/spirit-labs/tektite/retention"
 	"github.com/spirit-labs/tektite/sequence"
 	"github.com/spirit-labs/tektite/store"
 	"github.com/spirit-labs/tektite/testutils"
@@ -484,12 +483,8 @@ func (t *testLevelMgrClient) GetStats() (levels.Stats, error) {
 	return levels.Stats{}, nil
 }
 
-func (t *testLevelMgrClient) GetTableIDsForRange([]byte, []byte) (levels.OverlappingTableIDs, uint64, []levels.VersionRange, error) {
-	return nil, 0, nil, nil
-}
-
-func (t *testLevelMgrClient) GetPrefixRetentions() ([]retention.PrefixRetention, error) {
-	return nil, nil
+func (t *testLevelMgrClient) GetTableIDsForRange([]byte, []byte) (levels.OverlappingTableIDs, []levels.VersionRange, error) {
+	return nil, nil, nil
 }
 
 func (t *testLevelMgrClient) RegisterL0Tables(levels.RegistrationBatch) error {
@@ -497,10 +492,6 @@ func (t *testLevelMgrClient) RegisterL0Tables(levels.RegistrationBatch) error {
 }
 
 func (t *testLevelMgrClient) ApplyChanges(levels.RegistrationBatch) error {
-	return nil
-}
-
-func (t *testLevelMgrClient) RegisterPrefixRetentions([]retention.PrefixRetention) error {
 	return nil
 }
 
@@ -523,6 +514,18 @@ func (t *testLevelMgrClient) LoadLastFlushedVersion() (int64, error) {
 	t.lock.Lock()
 	defer t.lock.Unlock()
 	return t.lastFlushedVersion, nil
+}
+
+func (t *testLevelMgrClient) RegisterSlabRetention(slabID int, retention time.Duration) error {
+	return nil
+}
+
+func (t *testLevelMgrClient) UnregisterSlabRetention(slabID int) error {
+	return nil
+}
+
+func (t *testLevelMgrClient) GetSlabRetention(slabID int) (time.Duration, error) {
+	return 0, nil
 }
 
 func (t *testLevelMgrClient) Start() error {

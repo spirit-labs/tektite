@@ -8,6 +8,7 @@ import (
 	"github.com/spirit-labs/tektite/conf"
 	"github.com/spirit-labs/tektite/encoding"
 	"github.com/spirit-labs/tektite/mem"
+	"github.com/spirit-labs/tektite/proc"
 	"github.com/stretchr/testify/require"
 	"strings"
 	"testing"
@@ -327,7 +328,7 @@ func TestFetchFromStore(t *testing.T) {
 	partitionFetcher := fetcher.GetPartitionFetcher(topicInfo, 0)
 
 	numRows := 100
-	insertRowsInStore(t, st, slabID, 0, numRows, 0, 0)
+	insertRowsInStore(t, st, topicInfo.ConsumerInfoProvider.PartitionMapping(), slabID, 0, numRows, 0, 0)
 
 	batch1 := createBatch(10)
 	partitionFetcher.AddBatch(1000, 1099, batch1)
@@ -357,7 +358,7 @@ func TestFetchFromStoreMaxBytes(t *testing.T) {
 	partitionFetcher := fetcher.GetPartitionFetcher(topicInfo, 0)
 
 	numRows := 100
-	insertRowsInStore(t, st, slabID, 0, numRows, 0, 0)
+	insertRowsInStore(t, st, topicInfo.ConsumerInfoProvider.PartitionMapping(), slabID, 0, numRows, 0, 0)
 
 	batch1 := createBatch(10)
 	partitionFetcher.AddBatch(1000, 1099, batch1)
@@ -381,7 +382,7 @@ func TestFetchFromStoreOneRecordReturnedEvenIfExceedsMaxBytes(t *testing.T) {
 
 	partitionFetcher := fetcher.GetPartitionFetcher(topicInfo, 0)
 
-	insertRowsInStore(t, st, slabID, 0, 10, 0, 2000)
+	insertRowsInStore(t, st, topicInfo.ConsumerInfoProvider.PartitionMapping(), slabID, 0, 10, 0, 2000)
 
 	batch1 := createBatch(10)
 	partitionFetcher.AddBatch(1000, 1099, batch1)
@@ -459,12 +460,13 @@ func TestFetchEvictBatches(t *testing.T) {
 	require.Equal(t, batch5, cached[0].recordBatch)
 }
 
-func insertRowsInStore(t *testing.T, st *store2.Store, slabID int, partitionID int, numRows int, startOffset int,
+func insertRowsInStore(t *testing.T, st *store2.Store, mappingID string, slabID int, partitionID int, numRows int, startOffset int,
 	paddingBytes int) {
 	offset := startOffset
 	mb := mem.NewBatch()
 	for i := 0; i < numRows; i++ {
-		key := encoding.EncodeEntryPrefix(uint64(slabID), uint64(partitionID), 48)
+		partitionHash := proc.CalcPartitionHash(mappingID, uint64(partitionID))
+		key := encoding.EncodeEntryPrefix(partitionHash, uint64(slabID), 41)
 		key = append(key, 1) // not null
 		key = encoding.KeyEncodeInt(key, int64(offset))
 		key = encoding.EncodeVersion(key, 0)
@@ -535,7 +537,7 @@ func newTopicInfo(topicName string, partitions int, slabID int) *TopicInfo {
 	return &TopicInfo{
 		Name:                 topicName,
 		ConsumeEnabled:       true,
-		ConsumerInfoProvider: &testConsumerInfoProvider{slabID: slabID},
+		ConsumerInfoProvider: &testConsumerInfoProvider{slabID: slabID, mappingID: topicName},
 		Partitions:           pis,
 		CanCache:             true,
 	}

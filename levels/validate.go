@@ -86,8 +86,6 @@ func (lm *LevelManager) validateSegment(segEntry segmentEntry, level int, valida
 		if level == lm.getLastLevel() {
 			// On the last level, there should be zero deletes
 			if te.DeleteRatio != 0 {
-				lm.dumpLevelInfo()
-				lm.dump()
 				return errors.Errorf("last level %d table %s has delete ratio %f", level, string(te.SSTableID),
 					te.DeleteRatio)
 			}

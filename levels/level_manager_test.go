@@ -8,12 +8,10 @@ import (
 	"github.com/spirit-labs/tektite/encoding"
 	"github.com/spirit-labs/tektite/errors"
 	"github.com/spirit-labs/tektite/objstore/dev"
-	"github.com/spirit-labs/tektite/retention"
 	"github.com/spirit-labs/tektite/sst"
 	"github.com/spirit-labs/tektite/tabcache"
 	"github.com/stretchr/testify/require"
 	"math/rand"
-	"reflect"
 	"testing"
 	"time"
 )
@@ -257,7 +255,7 @@ func TestAddAndGetAll_MultipleSegments(t *testing.T) {
 	require.Equal(t, 10, len(mr.levelSegmentEntries[1].segmentEntries))
 
 	// Now get them all, spanning multiple segments
-	oids, _, _, err := levelManager.GetTableIDsForRange(nil, nil)
+	oids, _, err := levelManager.GetTableIDsForRange(nil, nil)
 	require.NoError(t, err)
 	require.Equal(t, 1, len(oids))
 	ids := oids[0]
@@ -282,7 +280,7 @@ func TestAddAndGetMost_MultipleSegments(t *testing.T) {
 	require.Equal(t, 10, len(mr.levelSegmentEntries[1].segmentEntries))
 
 	// Now get most of them, spanning multiple segments
-	oids, _, _, err := levelManager.GetTableIDsForRange(createKey(2), createKey(2*(numEntries-2)))
+	oids, _, err := levelManager.GetTableIDsForRange(createKey(2), createKey(2*(numEntries-2)))
 	require.NoError(t, err)
 	require.Equal(t, 1, len(oids))
 	ids := oids[0]
@@ -509,7 +507,7 @@ func TestAddAndRemoveSameBatch(t *testing.T) {
 	err = levelManager.ApplyChangesNoCheck(regBatch)
 	require.NoError(t, err)
 
-	oTabIDs, _, _, err := levelManager.GetTableIDsForRange(createKey(3), createKey(1000))
+	oTabIDs, _, err := levelManager.GetTableIDsForRange(createKey(3), createKey(1000))
 	require.NoError(t, err)
 	require.Equal(t, 1, len(oTabIDs))
 	noTabIDs := oTabIDs[0]
@@ -539,7 +537,7 @@ func testNilRangeStartAndEnd(t *testing.T, rangeStart []byte, rangeEnd []byte) {
 
 	addTables(t, levelManager, 1, 3, 5, 6, 7, 8, 12)
 
-	oTabIDs, _, _, err := levelManager.GetTableIDsForRange(rangeStart, rangeEnd)
+	oTabIDs, _, err := levelManager.GetTableIDsForRange(rangeStart, rangeEnd)
 	require.NoError(t, err)
 	require.Equal(t, 1, len(oTabIDs))
 	noTabIDs := oTabIDs[0]
@@ -593,7 +591,7 @@ func testAddRemoveNonOverlapping(t *testing.T, ordered bool, level int, rangeGap
 			require.NoError(t, err)
 			// Get the table ids to make sure they were added ok
 			for i := 0; i < len(regBatch.Registrations); i++ {
-				oIDs, _, _, err := levelManager.GetTableIDsForRange(regBatch.Registrations[i].KeyStart,
+				oIDs, _, err := levelManager.GetTableIDsForRange(regBatch.Registrations[i].KeyStart,
 					common.IncrementBytesBigEndian(regBatch.Registrations[i].KeyEnd))
 				require.NoError(t, err)
 				require.Equal(t, 1, len(oIDs))
@@ -634,7 +632,7 @@ func testAddRemoveNonOverlapping(t *testing.T, ordered bool, level int, rangeGap
 			require.NoError(t, err)
 			// Get the table ids to make sure they were removed ok
 			for i := 0; i < len(regBatch.DeRegistrations); i++ {
-				oIDs, _, _, err := levelManager.GetTableIDsForRange(regBatch.DeRegistrations[i].KeyStart,
+				oIDs, _, err := levelManager.GetTableIDsForRange(regBatch.DeRegistrations[i].KeyStart,
 					common.IncrementBytesBigEndian(regBatch.DeRegistrations[i].KeyEnd))
 				require.NoError(t, err)
 				require.Equal(t, 0, len(oIDs))
@@ -730,7 +728,7 @@ func getInRange(t *testing.T, levelManager *LevelManager, ks int, ke int) Overla
 	t.Helper()
 	keyStart := createKey(ks)
 	keyEnd := createKey(ke)
-	overlapTabIDs, _, _, err := levelManager.GetTableIDsForRange(keyStart, keyEnd)
+	overlapTabIDs, _, err := levelManager.GetTableIDsForRange(keyStart, keyEnd)
 	require.NoError(t, err)
 	return overlapTabIDs
 }
@@ -778,7 +776,12 @@ func setupLevelManagerWithDedup(t *testing.T, enableCompaction bool, validate bo
 }
 
 func createKey(i int) []byte {
-	return encoding.EncodeVersion([]byte(fmt.Sprintf("prefix/key-%010d", i)), 0)
+	// First 24 bytes is the [partition_hash, slab_id] - we just add a constant prefix
+	prefix := make([]byte, 0, 24)
+	prefix = append(prefix, []byte("xxxxxxxxxxxxxxxx")...) // partition hash
+	prefix = encoding.AppendUint64ToBufferBE(prefix, 1234) // slab id
+	prefix = append(prefix, []byte(fmt.Sprintf("key-%010d", i))...)
+	return encoding.EncodeVersion(prefix, 0)
 }
 
 func removeTables(t *testing.T, levelManager *LevelManager, level int, tabIDs []sst.SSTableID, pairs ...int) {
@@ -847,7 +850,7 @@ func TestDataResetOnRestartWithoutFlush(t *testing.T) {
 	levelManager, tearDown := setupLevelManager(t)
 	defer tearDown(t)
 	tabIDs := addTables(t, levelManager, 1, 3, 5, 6, 7, 8, 12)
-	oids, _, _, err := levelManager.GetTableIDsForRange(nil, nil)
+	oids, _, err := levelManager.GetTableIDsForRange(nil, nil)
 	require.NoError(t, err)
 	require.Equal(t, 1, len(oids))
 	ids := oids[0]
@@ -862,7 +865,7 @@ func TestDataResetOnRestartWithoutFlush(t *testing.T) {
 	err = levelManager.Activate()
 	require.NoError(t, err)
 
-	oids, _, _, err = levelManager.GetTableIDsForRange(nil, nil)
+	oids, _, err = levelManager.GetTableIDsForRange(nil, nil)
 	require.NoError(t, err)
 	require.Nil(t, oids)
 }
@@ -871,7 +874,7 @@ func TestDataRestoredOnRestartWithFlush(t *testing.T) {
 	levelManager, tearDown := setupLevelManager(t)
 	defer tearDown(t)
 	tabIDs := addTables(t, levelManager, 1, 3, 5, 6, 7, 8, 12)
-	oids, _, _, err := levelManager.GetTableIDsForRange(nil, nil)
+	oids, _, err := levelManager.GetTableIDsForRange(nil, nil)
 	require.NoError(t, err)
 	require.Equal(t, 1, len(oids))
 	ids := oids[0]
@@ -893,7 +896,7 @@ func TestDataRestoredOnRestartWithFlush(t *testing.T) {
 	ver2 := levelManager.getMasterRecord().version
 	require.Equal(t, ver, ver2)
 
-	oids, _, _, err = levelManager.GetTableIDsForRange(nil, nil)
+	oids, _, err = levelManager.GetTableIDsForRange(nil, nil)
 	require.NoError(t, err)
 	require.Equal(t, 1, len(oids))
 	ids = oids[0]
@@ -915,7 +918,7 @@ func TestFlushManyAdds(t *testing.T) {
 		allTabIDs = append(allTabIDs, tabIDs...)
 	}
 
-	oids, _, _, err := levelManager.GetTableIDsForRange(nil, nil)
+	oids, _, err := levelManager.GetTableIDsForRange(nil, nil)
 	require.NoError(t, err)
 	require.Equal(t, 1, len(oids))
 	ids := oids[0]
@@ -941,7 +944,7 @@ func TestFlushManyAdds(t *testing.T) {
 	err = levelManager.Activate()
 	require.NoError(t, err)
 
-	oids, _, _, err = levelManager.GetTableIDsForRange(nil, nil)
+	oids, _, err = levelManager.GetTableIDsForRange(nil, nil)
 	require.NoError(t, err)
 	require.Equal(t, 1, len(oids))
 	ids = oids[0]
@@ -1013,7 +1016,7 @@ func TestFlushManyAddsAndSomeDeletes(t *testing.T) {
 	err = levelManager.Activate()
 	require.NoError(t, err)
 
-	oids, _, _, err := levelManager.GetTableIDsForRange(nil, nil)
+	oids, _, err := levelManager.GetTableIDsForRange(nil, nil)
 	require.NoError(t, err)
 	require.Equal(t, 1, len(oids))
 	ids := oids[0]
@@ -1087,7 +1090,7 @@ func TestFlushManyDeletes(t *testing.T) {
 	err = levelManager.Activate()
 	require.NoError(t, err)
 
-	oids, _, _, err := levelManager.GetTableIDsForRange(nil, nil)
+	oids, _, err := levelManager.GetTableIDsForRange(nil, nil)
 	require.NoError(t, err)
 	require.Equal(t, 1, len(oids))
 	ids := oids[0]
@@ -1115,7 +1118,7 @@ func TestMultipleFlushes(t *testing.T) {
 		ver := mr.version
 		require.Equal(t, i+1, int(ver))
 
-		oids, _, _, err := levelManager.GetTableIDsForRange(nil, nil)
+		oids, _, err := levelManager.GetTableIDsForRange(nil, nil)
 		require.NoError(t, err)
 		require.Equal(t, 1, len(oids))
 		ids := oids[0]
@@ -1137,7 +1140,7 @@ func TestMultipleFlushes(t *testing.T) {
 		ver = mr.version
 		require.Equal(t, i+1, int(ver))
 
-		oids, _, _, err = levelManager.GetTableIDsForRange(nil, nil)
+		oids, _, err = levelManager.GetTableIDsForRange(nil, nil)
 		require.NoError(t, err)
 		require.Equal(t, 1, len(oids))
 		ids = oids[0]
@@ -1145,34 +1148,31 @@ func TestMultipleFlushes(t *testing.T) {
 	}
 }
 
-func TestRegisterAndGetPrefixRetentions(t *testing.T) {
+func TestRegisterAndGetSlabRetentions(t *testing.T) {
 	levelManager, tearDown := setupLevelManagerWithMaxEntries(t, 100)
 	defer tearDown(t)
 
-	allPrefixRetentions := map[string]uint64{}
-	var ret uint64
+	allRetentions := map[int]time.Duration{}
 	for i := 0; i < 10; i++ {
-		var prefixes []retention.PrefixRetention
-		for j := 0; j < 10; j++ {
-			prefix := fmt.Sprintf("prefix-%d-%d", i, j)
-			prefixes = append(prefixes, retention.PrefixRetention{Prefix: []byte(prefix), Retention: ret})
-			allPrefixRetentions[prefix] = ret
-			ret++
-		}
-		err := levelManager.RegisterPrefixRetentions(prefixes, false, 0)
+		retention := time.Duration(i) * time.Minute
+		err := levelManager.RegisterSlabRetention(i, retention, false, 0)
 		require.NoError(t, err)
+		allRetentions[i] = retention
 	}
 
-	prefRets, err := levelManager.GetPrefixRetentions()
+	for slabID, retention := range allRetentions {
+		ret, err := levelManager.GetSlabRetention(slabID)
+		require.NoError(t, err)
+		require.Equal(t, retention, ret)
+	}
+
+	err := levelManager.UnregisterSlabRetention(1, false, 0)
 	require.NoError(t, err)
-	require.NotNil(t, prefRets)
-	require.Equal(t, len(allPrefixRetentions), len(prefRets))
-	for _, prefix := range prefRets {
-		_, ok := allPrefixRetentions[string(prefix.Prefix)]
-		require.True(t, ok)
-	}
+	ret, err := levelManager.GetSlabRetention(1)
+	require.NoError(t, err)
+	require.Equal(t, time.Duration(0), ret)
 
-	// Now flush and restart - prefixRetentions should still be there
+	// Now flush and restart - slab retentions should still be there
 	_, _, err = levelManager.Flush(false)
 	require.NoError(t, err)
 
@@ -1182,77 +1182,13 @@ func TestRegisterAndGetPrefixRetentions(t *testing.T) {
 	err = levelManager.Activate()
 	require.NoError(t, err)
 
-	prefRets, err = levelManager.GetPrefixRetentions()
-	require.NoError(t, err)
-	require.NotNil(t, prefRets)
-	require.Equal(t, len(allPrefixRetentions), len(prefRets))
-	for _, prefRet := range prefRets {
-		ret, ok := allPrefixRetentions[string(prefRet.Prefix)]
-		require.True(t, ok)
-		require.Equal(t, ret, prefRet.Retention)
-	}
-}
-
-func TestPrefixRetentionsAreRemovedWhenNoData(t *testing.T) {
-	prefixRetentionRemoveCheckPeriod := 100 * time.Millisecond
-	lm, tearDown := setupLevelManagerWithConfigSetter(t, true, func(cfg *conf.Config) {
-		cfg.L0CompactionTrigger = 1
-		cfg.LevelMultiplier = 1
-		cfg.PrefixRetentionRemoveCheckInterval = prefixRetentionRemoveCheckPeriod
-	})
-	defer tearDown(t)
-
-	delPrefix1 := []byte("prefix1")
-	delPrefix2 := []byte("prefix2")
-	delPrefix3 := []byte("prefix3")
-	delPrefix4 := []byte("prefix4")
-
-	// add data in LSM for prefixRetentions 1 and 3 but not the other two
-
-	sst1_1 := TableEntry{
-		SSTableID:  []byte("sst1_1"),
-		RangeStart: append(delPrefix1, []byte("key00010")...),
-		RangeEnd:   append(delPrefix1, []byte("key00020")...),
-	}
-	sst1_2 := TableEntry{
-		SSTableID:  []byte("sst1_2"),
-		RangeStart: append(delPrefix3, []byte("key00010")...),
-		RangeEnd:   append(delPrefix3, []byte("key00020")...),
-	}
-	populateLevel(t, lm, 1, sst1_1, sst1_2)
-
-	// Set up 4 prefixRetentions
-
-	delPrefixes := []retention.PrefixRetention{{Prefix: delPrefix1}, {Prefix: delPrefix2}, {Prefix: delPrefix3}, {Prefix: delPrefix4}}
-	delPrefixesMap := map[string]struct{}{
-		string(delPrefix1): {},
-		string(delPrefix2): {},
-		string(delPrefix3): {},
-		string(delPrefix4): {},
-	}
-
-	err := lm.RegisterPrefixRetentions(delPrefixes, false, 0)
-	require.NoError(t, err)
-
-	prefixes, err := lm.GetPrefixRetentions()
-	require.NoError(t, err)
-	require.Equal(t, len(delPrefixesMap), len(prefixes))
-	for _, prefix := range prefixes {
-		_, ok := delPrefixesMap[string(prefix.Prefix)]
-		require.True(t, ok)
-	}
-
-	time.Sleep(2 * prefixRetentionRemoveCheckPeriod)
-
-	delete(delPrefixesMap, string(delPrefix2))
-	delete(delPrefixesMap, string(delPrefix4))
-
-	prefixes, err = lm.GetPrefixRetentions()
-	require.NoError(t, err)
-	require.Equal(t, len(delPrefixesMap), len(prefixes))
-	for _, prefix := range prefixes {
-		_, ok := delPrefixesMap[string(prefix.Prefix)]
-		require.True(t, ok)
+	for slabID, retention := range allRetentions {
+		if slabID == 1 {
+			continue
+		}
+		ret, err := levelManager.GetSlabRetention(slabID)
+		require.NoError(t, err)
+		require.Equal(t, retention, ret)
 	}
 }
 
@@ -1511,7 +1447,7 @@ func TestGetTableIDsInRangeReturnsDeadVersions(t *testing.T) {
 	err = levelManager.RegisterDeadVersionRange(rng3, "cluster2", 0, false, 2)
 	require.NoError(t, err)
 
-	_, _, deadVersions, err := levelManager.GetTableIDsForRange(nil, nil)
+	_, deadVersions, err := levelManager.GetTableIDsForRange(nil, nil)
 	require.NoError(t, err)
 	require.Equal(t, []VersionRange{rng1, rng2, rng3}, deadVersions)
 }
@@ -1687,20 +1623,16 @@ func TestDedupRegisterDeadVersionRange(t *testing.T) {
 	require.Equal(t, []VersionRange{deadRange1, deadRange2}, deadRanges)
 }
 
-func TestDedupRegisterPrefixRetentions(t *testing.T) {
+func TestDedupRegisterSlabRetention(t *testing.T) {
 	lm, tearDown := setupLevelManagerWithDedup(t, false, false, true, func(cfg *conf.Config) {
 	})
 	defer tearDown(t)
 
-	prefs1 := []retention.PrefixRetention{{
-		Prefix:    []byte("pref1"),
-		Retention: 123,
-	}}
-	err := lm.RegisterPrefixRetentions(prefs1, false, 5)
+	err := lm.RegisterSlabRetention(10, 5*time.Hour, false, 5)
 	require.NoError(t, err)
-	res, err := lm.GetPrefixRetentions()
+	ret, err := lm.GetSlabRetention(10)
 	require.NoError(t, err)
-	require.Equal(t, prefs1, res)
+	require.Equal(t, 5*time.Hour, ret)
 
 	_, _, err = lm.Flush(false)
 	require.NoError(t, err)
@@ -1709,26 +1641,56 @@ func TestDedupRegisterPrefixRetentions(t *testing.T) {
 	err = lm.Start(true)
 	require.NoError(t, err)
 
-	err = lm.RegisterPrefixRetentions(prefs1, true, 5)
+	err = lm.RegisterSlabRetention(10, 10*time.Hour, true, 5)
 	require.NoError(t, err)
 
 	err = lm.Activate()
 	require.NoError(t, err)
 
-	res, err = lm.GetPrefixRetentions()
+	ret, err = lm.GetSlabRetention(10)
 	require.NoError(t, err)
-	require.Equal(t, prefs1, res)
+	require.Equal(t, 5*time.Hour, ret)
 
-	prefs2 := []retention.PrefixRetention{{
-		Prefix:    []byte("pref2"),
-		Retention: 345,
-	}}
-	err = lm.RegisterPrefixRetentions(prefs2, false, 6)
+	err = lm.RegisterSlabRetention(10, 6*time.Hour, false, 6)
+	require.NoError(t, err)
+	ret, err = lm.GetSlabRetention(10)
+	require.NoError(t, err)
+	require.Equal(t, 6*time.Hour, ret)
+}
+
+func TestDedupUnregisterSlabRetentions(t *testing.T) {
+	lm, tearDown := setupLevelManagerWithDedup(t, false, false, true, func(cfg *conf.Config) {
+	})
+	defer tearDown(t)
+
+	err := lm.RegisterSlabRetention(10, 5*time.Hour, false, 5)
+	require.NoError(t, err)
+	ret, err := lm.GetSlabRetention(10)
+	require.NoError(t, err)
+	require.Equal(t, 5*time.Hour, ret)
+
+	err = lm.UnregisterSlabRetention(10, false, 6)
+	require.NoError(t, err)
+	ret, err = lm.GetSlabRetention(10)
+	require.NoError(t, err)
+	require.Equal(t, time.Duration(0), ret)
+
+	_, _, err = lm.Flush(false)
 	require.NoError(t, err)
 
-	res, err = lm.GetPrefixRetentions()
+	lm.reset()
+	err = lm.Start(true)
 	require.NoError(t, err)
-	requirePrefsInAnyOrder(t, append(prefs1, prefs2...), res)
+
+	err = lm.UnregisterSlabRetention(10, true, 6)
+	require.NoError(t, err)
+
+	err = lm.Activate()
+	require.NoError(t, err)
+
+	ret, err = lm.GetSlabRetention(10)
+	require.NoError(t, err)
+	require.Equal(t, time.Duration(0), ret)
 }
 
 func TestDedupStoreLastFlushedVersion(t *testing.T) {
@@ -1798,20 +1760,6 @@ func TestLastProcessedReplSeqResetOnShutdown(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, -1, lm.GetLastProcessedReplSeq())
-}
-
-func requirePrefsInAnyOrder(t *testing.T, expected []retention.PrefixRetention, actual []retention.PrefixRetention) {
-	require.Equal(t, len(expected), len(actual))
-	for _, e := range expected {
-		found := false
-		for _, a := range actual {
-			if reflect.DeepEqual(e, a) {
-				found = true
-				break
-			}
-		}
-		require.True(t, found)
-	}
 }
 
 func createBatch(i int) RegistrationBatch {

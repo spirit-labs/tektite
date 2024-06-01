@@ -11,6 +11,7 @@ import (
 	"github.com/spirit-labs/tektite/mem"
 	"github.com/spirit-labs/tektite/opers"
 	"github.com/spirit-labs/tektite/parser"
+	"github.com/spirit-labs/tektite/proc"
 	"github.com/spirit-labs/tektite/protos/clustermsgs"
 	"github.com/spirit-labs/tektite/remoting"
 	"github.com/spirit-labs/tektite/store"
@@ -116,7 +117,7 @@ func TestQMGetAll(t *testing.T) {
 	slInfoProvider, slabID := createStreamInfoProvider("test_slab1", defaultSlabID, schema, defaultNumPartitions, keyCols)
 	ctx := setupQueryManagers(defaultNumManagers, defaultNumPartitions, defaultMaxBatchRows, slInfoProvider)
 	defer ctx.tearDown(t)
-	writeDataToSlab(t, slabID, schema, keyCols, defaultNumPartitions, data, ctx.st)
+	writeDataToSlab(t, "test_slab1", slabID, schema, keyCols, defaultNumPartitions, data, ctx.st)
 	tsl := `prepare test_query1 := (scan all from test_slab1)`
 	prepareQuery(t, tsl, ctx)
 	mgr := ctx.qms[rand.Intn(len(ctx.qms))].qm
@@ -281,7 +282,7 @@ func testQMGetRange(t *testing.T, expectedStart int, expectedEnd int, rangeStr s
 	slInfoProvider, slabID := createStreamInfoProvider("test_slab1", defaultSlabID, schema, defaultNumPartitions, keyCols)
 	ctx := setupQueryManagers(defaultNumManagers, defaultNumPartitions, defaultMaxBatchRows, slInfoProvider)
 	defer ctx.tearDown(t)
-	writeDataToSlab(t, slabID, schema, keyCols, defaultNumPartitions, data, ctx.st)
+	writeDataToSlab(t, "test_slab1", slabID, schema, keyCols, defaultNumPartitions, data, ctx.st)
 	tsl := fmt.Sprintf(`prepare test_query1 := (scan %s from test_slab1)`, rangeStr)
 	prepareQuery(t, tsl, ctx)
 	mgr := ctx.qms[rand.Intn(len(ctx.qms))].qm
@@ -647,7 +648,7 @@ func TestQueryVersionsSnapshotIsolation(t *testing.T) {
 	slInfoProvider, slabID := createStreamInfoProvider("test_slab1", defaultSlabID, schema, defaultNumPartitions, keyCols)
 	ctx := setupQueryManagers(defaultNumManagers, defaultNumPartitions, defaultMaxBatchRows, slInfoProvider)
 	defer ctx.tearDown(t)
-	writeDataToSlab(t, slabID, schema, keyCols, defaultNumPartitions, data, ctx.st)
+	writeDataToSlab(t, "test_slab1", slabID, schema, keyCols, defaultNumPartitions, data, ctx.st)
 	tsl := `prepare test_query1 := (get $x:int from test_slab1)`
 	prepareQuery(t, tsl, ctx)
 
@@ -676,7 +677,7 @@ func TestQueryVersionsSnapshotIsolation(t *testing.T) {
 		{int64(3), "boo3"},
 		{int64(4), "boo4"},
 	}
-	writeDataToSlabWithVersion(t, slabID, schema, keyCols, defaultNumPartitions, data2, ctx.st, 13)
+	writeDataToSlabWithVersion(t, "test_slab1", slabID, schema, keyCols, defaultNumPartitions, data2, ctx.st, 13)
 	executeQueryFromMgr(t, "test_query1", schema, keyCols, expectedKeyVals, argVals, data, 1, mgr)
 
 	// Now increase versions to 13
@@ -746,7 +747,7 @@ func setupForQueryFailureTestsWithClusterVersionProvider(t *testing.T, clustVers
 
 	ctx := setupQueryManagersWithClusterVersionProvider(defaultNumManagers, defaultNumPartitions, defaultMaxBatchRows,
 		slInfoProvider, clustVersionProvider)
-	writeDataToSlab(t, slabID, schema, keyCols, defaultNumPartitions, data, ctx.st)
+	writeDataToSlab(t, "test_slab1", slabID, schema, keyCols, defaultNumPartitions, data, ctx.st)
 
 	tsl := `prepare test_query1 := (get $x:int from test_slab1)`
 	prepareQuery(t, tsl, ctx)
@@ -790,7 +791,7 @@ func TestManyRowsExerciseBatchSizeConcurrentQueries(t *testing.T) {
 	slInfoProvider, slabID := createStreamInfoProvider("test_slab1", defaultSlabID, schema, defaultNumPartitions, keyCols)
 	ctx := setupQueryManagers(defaultNumManagers, defaultNumPartitions, defaultMaxBatchRows, slInfoProvider)
 	defer ctx.tearDown(t)
-	writeDataToSlab(t, slabID, schema, keyCols, defaultNumPartitions, data, ctx.st)
+	writeDataToSlab(t, "test_slab1", slabID, schema, keyCols, defaultNumPartitions, data, ctx.st)
 
 	numQueries := 10
 	for i := 0; i < numQueries; i++ {
@@ -868,7 +869,7 @@ func TestQMSort(t *testing.T) {
 	slInfoProvider, slabID := createStreamInfoProvider("test_slab1", defaultSlabID, schema, defaultNumPartitions, keyCols)
 	ctx := setupQueryManagers(defaultNumManagers, defaultNumPartitions, defaultMaxBatchRows, slInfoProvider)
 	defer ctx.tearDown(t)
-	writeDataToSlab(t, slabID, schema, keyCols, defaultNumPartitions, data, ctx.st)
+	writeDataToSlab(t, "test_slab1", slabID, schema, keyCols, defaultNumPartitions, data, ctx.st)
 	tsl := `prepare test_query1 := (scan all from test_slab1)->(sort by f3)`
 	prepareQuery(t, tsl, ctx)
 	mgr := ctx.qms[rand.Intn(len(ctx.qms))].qm
@@ -928,7 +929,7 @@ func testQMLookupWithNumParts(t *testing.T, data [][]any, columnTypes []types.Co
 	slInfoProvider, slabID := createStreamInfoProvider("test_slab1", defaultSlabID, schema, defaultNumPartitions, keyCols)
 	ctx := setupQueryManagers(defaultNumManagers, defaultNumPartitions, defaultMaxBatchRows, slInfoProvider)
 	defer ctx.tearDown(t)
-	writeDataToSlab(t, slabID, schema, keyCols, defaultNumPartitions, data, ctx.st)
+	writeDataToSlab(t, "test_slab1", slabID, schema, keyCols, defaultNumPartitions, data, ctx.st)
 	tsl := fmt.Sprintf(`prepare test_query1 := (get %s from test_slab1)`, strings.Join(keyExprs, ","))
 	prepareQuery(t, tsl, ctx)
 	executeQuery(t, ctx, "test_query1", schema, keyCols, expectedKeyVals, argVals, data, expectedNumParts)
@@ -998,7 +999,7 @@ func testDirectQuery(t *testing.T, tsl string, data [][]any, expected [][]any, c
 	slInfoProvider, slabID := createStreamInfoProvider("test_slab1", defaultSlabID, schema, defaultNumPartitions, keyCols)
 	ctx := setupQueryManagers(defaultNumManagers, defaultNumPartitions, defaultMaxBatchRows, slInfoProvider)
 	defer ctx.tearDown(t)
-	writeDataToSlab(t, slabID, schema, keyCols, defaultNumPartitions, data, ctx.st)
+	writeDataToSlab(t, "test_slab1", slabID, schema, keyCols, defaultNumPartitions, data, ctx.st)
 
 	mgr := ctx.qms[rand.Intn(len(ctx.qms))].qm
 
@@ -1277,12 +1278,12 @@ func (t *testRemoting) SendQueryResponse(msg *clustermsgs.QueryResponse, serverA
 func (t *testRemoting) Close() {
 }
 
-func writeDataToSlab(t *testing.T, slabID int, schema *evbatch.EventSchema, keyCols []int, numPartitions int, data [][]any,
+func writeDataToSlab(t *testing.T, mappingID string, slabID int, schema *evbatch.EventSchema, keyCols []int, numPartitions int, data [][]any,
 	st *store.Store) {
-	writeDataToSlabWithVersion(t, slabID, schema, keyCols, numPartitions, data, st, 0)
+	writeDataToSlabWithVersion(t, mappingID, slabID, schema, keyCols, numPartitions, data, st, 0)
 }
 
-func writeDataToSlabWithVersion(t *testing.T, slabID int, schema *evbatch.EventSchema, keyCols []int,
+func writeDataToSlabWithVersion(t *testing.T, mappingID string, slabID int, schema *evbatch.EventSchema, keyCols []int,
 	numPartitions int, data [][]any, st *store.Store, version uint64) {
 	mb := mem.NewBatch()
 	for _, row := range data {
@@ -1320,7 +1321,8 @@ func writeDataToSlabWithVersion(t *testing.T, slabID int, schema *evbatch.EventS
 		hash := common.DefaultHash(keyBuff)
 		partID := common.CalcPartition(hash, numPartitions)
 
-		prefix := encoding.EncodeEntryPrefix(uint64(slabID), uint64(partID), 16+len(keyBuff))
+		partitionHash := proc.CalcPartitionHash(mappingID, uint64(partID))
+		prefix := encoding.EncodeEntryPrefix(partitionHash, uint64(slabID), 24+len(keyBuff))
 		keyBuff = append(prefix, keyBuff...)
 
 		var valueBuff []byte

@@ -415,8 +415,8 @@ func (c *client) sendUpdate() {
 		// Filter out the cluster state if the node rev of this node does not match the revision this node was put
 		// as. That would be the case if the cluster state is old from before a cluster crash.
 		csNodeRev, ok := c.currentClusterStateInfo.nodesState[c.nodeID]
+		// this is higher
 		matches := ok && c.thisNodeRev == csNodeRev
-
 		if !matches {
 			log.Warnf("client %d cluster state does not contain this node at correct revision- will  be ignored - csnodes: %v thisnoderev %d",
 				c.nodeID, c.currentClusterStateInfo.nodesState, c.thisNodeRev)

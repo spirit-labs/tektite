@@ -34,7 +34,7 @@ type GroupCoordinator struct {
 	forwarder          batchForwarder
 }
 
-const ConsumerOffsetsSlabName = "sys.consumer_offsets"
+const ConsumerOffsetsMappingID = "sys.consumer_offsets"
 const ConsumerOffsetsPartitionCount = 10
 
 var ConsumerOffsetsColumnNames = []string{"group_id", "topic_id", "partition_id", "k_offset"}
@@ -55,10 +55,10 @@ func NewGroupCoordinator(cfg *conf.Config, provider processorProvider, streamMgr
 	metaProvider MetadataProvider, store *store2.Store, forwarder batchForwarder) (*GroupCoordinator, error) {
 	schema := &opers.OperatorSchema{
 		EventSchema:     ConsumerOffsetsSchema,
-		PartitionScheme: opers.NewPartitionScheme(ConsumerOffsetsSlabName, ConsumerOffsetsPartitionCount, false, cfg.ProcessorCount),
+		PartitionScheme: opers.NewPartitionScheme(ConsumerOffsetsMappingID, ConsumerOffsetsPartitionCount, false, cfg.ProcessorCount),
 	}
 	keyCols := []string{"group_id", "topic_id", "partition_id"}
-	if err := streamMgr.RegisterSystemSlab(ConsumerOffsetsSlabName, common.KafkaOffsetsReceiverID, -1,
+	if err := streamMgr.RegisterSystemSlab(ConsumerOffsetsMappingID, common.KafkaOffsetsReceiverID, -1,
 		common.KafkaOffsetsSlabID, schema, keyCols, true); err != nil {
 		return nil, err
 	}
@@ -90,7 +90,7 @@ func (gc *GroupCoordinator) Stop() error {
 func (gc *GroupCoordinator) FindCoordinator(groupID string) int {
 	partition := gc.calcConsumerOffsetsPartition(groupID)
 	// Then the group coordinator node is the node that hosts the leader of that partition
-	return gc.processorProvider.NodeForPartition(partition, ConsumerOffsetsSlabName,
+	return gc.processorProvider.NodeForPartition(partition, ConsumerOffsetsMappingID,
 		ConsumerOffsetsPartitionCount)
 }
 
@@ -1116,8 +1116,8 @@ func (g *group) loadOffset(topicID int64, partitionID int32) (int64, bool, error
 
 	consumerOffsetsPartitionID := g.gc.calcConsumerOffsetsPartition(g.id)
 
-	iterStart := encoding.EncodeEntryPrefix(common.KafkaOffsetsSlabID,
-		uint64(consumerOffsetsPartitionID), 33)
+	partitionHash := proc.CalcPartitionHash(ConsumerOffsetsMappingID, uint64(consumerOffsetsPartitionID))
+	iterStart := encoding.EncodeEntryPrefix(partitionHash, common.KafkaOffsetsSlabID, 128)
 
 	/*
 		keyCols := []string{"group_id", "topic_id", "partition_id"}

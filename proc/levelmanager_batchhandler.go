@@ -6,7 +6,7 @@ import (
 	"github.com/spirit-labs/tektite/errors"
 	"github.com/spirit-labs/tektite/levels"
 	"github.com/spirit-labs/tektite/mem"
-	"github.com/spirit-labs/tektite/retention"
+	"time"
 )
 
 type levelManagerBatchHandler struct {
@@ -22,10 +22,7 @@ func (m *levelManagerBatchHandler) HandleProcessBatch(_ Processor,
 	if processBatch.Barrier {
 		return true, nil, nil, nil
 	}
-	levelManager, err := m.levelManagerService.GetMapper()
-	if err != nil {
-		return false, nil, nil, err
-	}
+	levelManager := m.levelManagerService.GetLevelManager()
 	if levelManager == nil {
 		return false, nil, nil, errors.New("cannot process levelManager batch, no levelManager on node")
 	}
@@ -39,9 +36,13 @@ func (m *levelManagerBatchHandler) HandleProcessBatch(_ Processor,
 		regBatch := levels.RegistrationBatch{}
 		regBatch.Deserialize(bytes, 1)
 		return true, nil, nil, levelManager.ApplyChanges(regBatch, reprocess, processBatch.ReplSeq)
-	case levels.RegisterPrefixRetentionsCommand:
-		prefixRetentions, _ := retention.DeserializePrefixRetentions(bytes, 1)
-		return true, nil, nil, levelManager.RegisterPrefixRetentions(prefixRetentions, reprocess, processBatch.ReplSeq)
+	case levels.RegisterSlabRetentionCommand:
+		slabID, off := encoding.ReadUint64FromBufferLE(bytes, 1)
+		ret, _ := encoding.ReadUint64FromBufferLE(bytes, off)
+		return true, nil, nil, levelManager.RegisterSlabRetention(int(slabID), time.Duration(ret), reprocess, processBatch.ReplSeq)
+	case levels.UnregisterSlabRetentionCommand:
+		slabID, _ := encoding.ReadUint64FromBufferLE(bytes, 1)
+		return true, nil, nil, levelManager.UnregisterSlabRetention(int(slabID), reprocess, processBatch.ReplSeq)
 	case levels.RegisterDeadVersionRangeCommand:
 		versionRange := levels.VersionRange{}
 		off := versionRange.Deserialize(bytes, 1)

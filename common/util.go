@@ -136,7 +136,7 @@ func CreateKeyPair(certPath string, keyPath string) (tls.Certificate, error) {
 }
 
 func CallWithRetryOnUnavailable[R any](action func() (R, error), stopped func() bool) (R, error) {
-	return CallWithRetryOnUnavailableWithTimeout(action, stopped, 10*time.Millisecond, time.Duration(math.MaxInt64), "")
+	return CallWithRetryOnUnavailableWithTimeout(action, stopped, 10*time.Millisecond, time.Duration(math.MaxInt64), "failed to execute retryable operation")
 }
 
 func CallWithRetryOnUnavailableWithTimeout[R any](action func() (R, error), stopped func() bool, delay time.Duration,

@@ -182,24 +182,24 @@ func TestLoadStoreLastOffset(t *testing.T) {
 		st, procMgr, 1001, cfg, &ingestedMessageCount, "fk", &ingestEnabled, &lastFlushedVersion)
 	require.NoError(t, err)
 
-	off, err := oper.loadLastOffset(12, 1000)
+	off, err := oper.loadLastOffset(9, 1000)
 	require.NoError(t, err)
 	require.Equal(t, int64(-1), off)
 
-	ec := &testExecCtx{partitionID: 12, processor: &testProcessor{id: 23}, version: 500}
+	ec := &testExecCtx{partitionID: 9, processor: &testProcessor{id: 23}, version: 500}
 
-	oper.storeLastOffset(12, 1000, ec)
+	oper.storeLastOffset(9, 1000, ec)
 	batch := mem.NewBatch()
 	batch.AddEntry(ec.entries[0])
 
 	err = st.Write(batch)
 	require.NoError(t, err)
 
-	off, err = oper.loadLastOffset(12, 500)
+	off, err = oper.loadLastOffset(9, 500)
 	require.NoError(t, err)
 	require.Equal(t, int64(1000), off)
 
-	off, err = oper.loadLastOffset(12, 499)
+	off, err = oper.loadLastOffset(9, 499)
 	require.NoError(t, err)
 	require.Equal(t, int64(-1), off)
 }

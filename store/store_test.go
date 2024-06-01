@@ -10,7 +10,6 @@ import (
 	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/mem"
 	"github.com/spirit-labs/tektite/objstore/dev"
-	"github.com/spirit-labs/tektite/retention"
 	"github.com/spirit-labs/tektite/tabcache"
 	"github.com/spirit-labs/tektite/testutils"
 	"github.com/stretchr/testify/require"
@@ -506,10 +505,7 @@ func SetupStoreWithConfig(t testing.TB, conf conf.Config) *Store {
 	require.NoError(t, err)
 	err = tableCache.Start()
 	require.NoError(t, err)
-	prefixRetentionsService := retention.NewPrefixRetentionsService(lmClient, &conf)
-	err = prefixRetentionsService.Start()
-	require.NoError(t, err)
-	store := NewStore(cloudStore, lmClient, tableCache, prefixRetentionsService, conf)
+	store := NewStore(cloudStore, lmClient, tableCache, conf)
 	err = store.Start()
 	require.NoError(t, err)
 	return store

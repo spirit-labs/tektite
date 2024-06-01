@@ -13,7 +13,6 @@ import (
 	"github.com/spirit-labs/tektite/protos/clustermsgs"
 	"github.com/spirit-labs/tektite/query"
 	"github.com/spirit-labs/tektite/remoting"
-	"github.com/spirit-labs/tektite/retention"
 	"github.com/spirit-labs/tektite/sequence"
 	store2 "github.com/spirit-labs/tektite/store"
 	"github.com/spirit-labs/tektite/testutils"
@@ -32,7 +31,7 @@ func TestManagerMultipleCommands(t *testing.T) {
 	require.NoError(t, err)
 	//goland:noinspection GoUnhandledErrorResult
 	defer st.Stop()
-	mgrs, pMgrs, _, _, tr := setupManagers(t, st)
+	mgrs, pMgrs, _, tr := setupManagers(t, st)
 	defer tr.stop()
 
 	mgr := mgrs[0]
@@ -67,7 +66,7 @@ func TestManagersReload(t *testing.T) {
 	require.NoError(t, err)
 	//goland:noinspection GoUnhandledErrorResult
 	defer st.Stop()
-	mgrs, _, _, _, tr1 := setupManagers(t, st)
+	mgrs, _, _, tr1 := setupManagers(t, st)
 	defer tr1.stop()
 
 	mgr := mgrs[0]
@@ -88,7 +87,7 @@ func TestManagersReload(t *testing.T) {
 	}
 
 	// Now recreate managers and stream managers
-	mgrs, pMgrs, _, _, tr2 := setupManagers(t, st)
+	mgrs, pMgrs, _, tr2 := setupManagers(t, st)
 	defer tr2.stop()
 
 	// Commands should all be loaded on start
@@ -110,7 +109,7 @@ func TestManagerStreamManagerErrors(t *testing.T) {
 	require.NoError(t, err)
 	//goland:noinspection GoUnhandledErrorResult
 	defer st.Stop()
-	mgrs, pMgrs, _, _, tr := setupManagers(t, st)
+	mgrs, pMgrs, _, tr := setupManagers(t, st)
 	defer tr.stop()
 
 	mgr := mgrs[0]
@@ -153,7 +152,7 @@ func TestManagerDeployAndUndeployStreams(t *testing.T) {
 	require.NoError(t, err)
 	//goland:noinspection GoUnhandledErrorResult
 	defer st.Stop()
-	mgrs, pMgrs, _, _, tr := setupManagers(t, st)
+	mgrs, pMgrs, _, tr := setupManagers(t, st)
 	defer tr.stop()
 
 	mgr := mgrs[0]
@@ -190,7 +189,7 @@ func TestManagerPrepareQuery(t *testing.T) {
 	require.NoError(t, err)
 	//goland:noinspection GoUnhandledErrorResult
 	defer st.Stop()
-	mgrs, _, qMgrs, _, tr := setupManagers(t, st)
+	mgrs, _, qMgrs, tr := setupManagers(t, st)
 	defer tr.stop()
 
 	mgr := mgrs[0]
@@ -241,7 +240,7 @@ func testManagerPrepareQueryError(t *testing.T, tsl string, expectedErr string) 
 	require.NoError(t, err)
 	//goland:noinspection GoUnhandledErrorResult
 	defer st.Stop()
-	mgrs, _, _, _, tr := setupManagers(t, st)
+	mgrs, _, _, tr := setupManagers(t, st)
 	defer tr.stop()
 
 	mgr := mgrs[0]
@@ -262,7 +261,7 @@ func TestManagerCompaction(t *testing.T) {
 	require.NoError(t, err)
 	//goland:noinspection GoUnhandledErrorResult
 	defer st.Stop()
-	mgrs, pMgrs, _, _, tr := setupManagers(t, st)
+	mgrs, pMgrs, _, tr := setupManagers(t, st)
 	defer tr.stop()
 
 	mgr := mgrs[0]
@@ -326,7 +325,7 @@ func TestManagerCompaction(t *testing.T) {
 	}
 
 	// Now restart
-	mgrs, pMgrs, _, _, tr2 := setupManagers(t, st)
+	mgrs, pMgrs, _, tr2 := setupManagers(t, st)
 	defer tr2.stop()
 
 	// stream should be there
@@ -343,69 +342,8 @@ func TestManagerCompaction(t *testing.T) {
 
 }
 
-func TestManagerCannotCompactWhenDeletedPrefixes(t *testing.T) {
-	st := store2.TestStore()
-	err := st.Start()
-	require.NoError(t, err)
-	//goland:noinspection GoUnhandledErrorResult
-	defer st.Stop()
-	mgrs, pMgrs, _, dps, tr := setupManagers(t, st)
-	defer tr.stop()
-
-	for _, dp := range dps {
-		dp.(*testPrefixRetention).HasPending.Store(true)
-	}
-
-	mgr := mgrs[0]
-	numCommands := 10
-	for i := 0; i < numCommands; i++ {
-		tsl := fmt.Sprintf(`test_stream%d :=
-		(bridge from test_topic	partitions = 16) -> (store stream)`, i)
-		err := mgr.ExecuteCommand(tsl)
-		require.NoError(t, err)
-		if i != numCommands-1 {
-			tsl = fmt.Sprintf(`delete(test_stream%d)`, i)
-			err = mgr.ExecuteCommand(tsl)
-			require.NoError(t, err)
-		}
-	}
-
-	// Wait until commands are processed on all managers
-	for _, mgr := range mgrs {
-		m := mgr
-		testutils.WaitUntil(t, func() (bool, error) {
-			return m.LastProcessedCommandID() == int64(2*numCommands-2), nil
-		})
-	}
-
-	for _, pMgr := range pMgrs {
-		for i := 0; i < numCommands; i++ {
-			pi := pMgr.GetStream(fmt.Sprintf("test_stream%d", i))
-			if i < numCommands-1 {
-				require.Nil(t, pi)
-			} else {
-				require.NotNil(t, pi)
-			}
-		}
-	}
-
-	batch, err := mgr.loadCommands(0)
-	require.NoError(t, err)
-	require.Equal(t, 2*numCommands-1, batch.RowCount)
-
-	mgr.SetClusterCompactor(true)
-	err = mgr.maybeCompact()
-	require.NoError(t, err)
-
-	time.Sleep(250 * time.Millisecond)
-
-	batch, err = mgr.loadCommands(0)
-	require.NoError(t, err)
-	require.Equal(t, 2*numCommands-1, batch.RowCount)
-}
-
 func setUpManager(signaller Signaller, remoting *testRemoting, st *store2.Store,
-	addresses []string, nodeID int) (*manager, opers.StreamManager, query.Manager, PrefixRetention) {
+	addresses []string, nodeID int) (*manager, opers.StreamManager, query.Manager) {
 
 	seqMgr := sequence.NewInMemSequenceManager()
 	lockMgr := lock.NewInMemLockManager()
@@ -417,7 +355,7 @@ func setUpManager(signaller Signaller, remoting *testRemoting, st *store2.Store,
 	cfg.ApplyDefaults()
 	cfg.NodeID = nodeID
 
-	pMgr := opers.NewStreamManager(nil, st, &dummyPrefixRetention{}, &expr.ExpressionFactory{}, cfg, true)
+	pMgr := opers.NewStreamManager(nil, st, &testSlabRetentions{}, &expr.ExpressionFactory{}, cfg, true)
 
 	pm.SetBatchHandler(pMgr)
 	pMgr.SetProcessorManager(pm)
@@ -440,12 +378,9 @@ func setUpManager(signaller Signaller, remoting *testRemoting, st *store2.Store,
 	pm.AddActiveProcessor(0)
 	processor := pm.GetProcessor(0)
 
-	dPrefixes := &testPrefixRetention{}
-
 	mgr := NewCommandManager(pMgr, qMgr, seqMgr, lockMgr, &singleProcessorForwarder{processor: processor}, &dummyVmgrClient{}, parser, cfg)
 	mgr.SetCommandSignaller(signaller)
-	mgr.SetPrefixRetentionService(dPrefixes)
-	return mgr.(*manager), pMgr, qMgr, dPrefixes
+	return mgr.(*manager), pMgr, qMgr
 }
 
 type testPrefixRetention struct {
@@ -464,8 +399,7 @@ func (s *singleProcessorForwarder) ForwardBatch(batch *proc.ProcessBatch, _ bool
 	s.processor.IngestBatch(batch, completionFunc)
 }
 
-func setupManagers(t *testing.T, st *store2.Store) ([]*manager, []opers.StreamManager, []query.Manager,
-	[]PrefixRetention, *testRemoting) {
+func setupManagers(t *testing.T, st *store2.Store) ([]*manager, []opers.StreamManager, []query.Manager, *testRemoting) {
 	signaller := &testCommandSignaller{}
 	rem := newTestRemoting()
 
@@ -478,15 +412,13 @@ func setupManagers(t *testing.T, st *store2.Store) ([]*manager, []opers.StreamMa
 	var mgrs []*manager
 	var pMgrs []opers.StreamManager
 	var qMgrs []query.Manager
-	var dPrefixes []PrefixRetention
 	mgrsMap := map[string]query.Manager{}
 
 	for i := 0; i < numManagers; i++ {
-		mgr, pMgr, qMgr, dPrefix := setUpManager(signaller, rem, st, addresses, i)
+		mgr, pMgr, qMgr := setUpManager(signaller, rem, st, addresses, i)
 		mgrs = append(mgrs, mgr)
 		pMgrs = append(pMgrs, pMgr)
 		qMgrs = append(qMgrs, qMgr)
-		dPrefixes = append(dPrefixes, dPrefix)
 		mgrsMap[addresses[i]] = qMgr
 		if i != 0 {
 			signaller.addManager(mgr)
@@ -501,7 +433,7 @@ func setupManagers(t *testing.T, st *store2.Store) ([]*manager, []opers.StreamMa
 		err := mgr.Start()
 		require.NoError(t, err)
 	}
-	return mgrs, pMgrs, qMgrs, dPrefixes, rem
+	return mgrs, pMgrs, qMgrs, rem
 }
 
 type sendInfo struct {
@@ -642,8 +574,13 @@ func (c dummyVmgrClient) Stop() error {
 	return nil
 }
 
-type dummyPrefixRetention struct {
+type testSlabRetentions struct {
 }
 
-func (d *dummyPrefixRetention) AddPrefixRetention(retention.PrefixRetention) {
+func (t testSlabRetentions) RegisterSlabRetention(slabID int, retention time.Duration) error {
+	return nil
+}
+
+func (t testSlabRetentions) UnregisterSlabRetention(slabID int) error {
+	return nil
 }

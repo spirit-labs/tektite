@@ -18,5 +18,6 @@ const (
 	LevelManagerReceiverID   = 3
 	DummyReceiverID          = 4
 	KafkaOffsetsReceiverID   = 5
+	DeleteSlabReceiverID     = 6
 	UserReceiverIDBase       = 1000
 )

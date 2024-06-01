@@ -566,9 +566,6 @@ type testCommandManager struct {
 	tsl  string
 }
 
-func (t *testCommandManager) SetPrefixRetentionService(command.PrefixRetention) {
-}
-
 func (t *testCommandManager) HandleClusterState(clustmgr.ClusterState) error {
 	return nil
 }

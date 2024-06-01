@@ -18,8 +18,7 @@ type Iterator struct {
 	rangeStart []byte
 	rangeEnd   []byte
 	lastKey    []byte
-	mi         *iteration.MergingIterator
-	iter       iteration.Iterator
+	iter       *iteration.MergingIterator
 }
 
 func (s *Store) NewIterator(keyStart []byte, keyEnd []byte, highestVersion uint64, preserveTombstones bool) (iteration.Iterator, error) {
@@ -65,28 +64,18 @@ func (s *Store) newStoreIterator(rangeStart []byte, rangeEnd []byte, iters []ite
 	if err != nil {
 		return nil, err
 	}
-	matchingPrefixes := s.prefixRetentionsService.GetMatchingPrefixRetentions(rangeStart, rangeEnd, true)
-	var iter iteration.Iterator
-	if len(matchingPrefixes) > 0 {
-		// We pass zero as creation time and now as we only consider zero retention prefixes.
-		// Prefixes with non-zero retention are removed by the iterators on the ssTables.
-		iter = levels.NewRemoveExpiredEntriesIterator(mi, matchingPrefixes, 0, 0)
-	} else {
-		iter = mi
-	}
 	si := &Iterator{
 		s:          s,
 		lock:       lock,
 		rangeStart: rangeStart,
 		rangeEnd:   rangeEnd,
-		mi:         mi,
-		iter:       iter,
+		iter:       mi,
 	}
 	return si, nil
 }
 
 func (s *Store) createSSTableIterators(keyStart []byte, keyEnd []byte) ([]iteration.Iterator, error) {
-	ids, levelManagerNow, deadVersions, err := s.levelManagerClient.GetTableIDsForRange(keyStart, keyEnd)
+	ids, deadVersions, err := s.levelManagerClient.GetTableIDsForRange(keyStart, keyEnd)
 	if err != nil {
 		return nil, err
 	}
@@ -98,8 +87,7 @@ func (s *Store) createSSTableIterators(keyStart []byte, keyEnd []byte) ([]iterat
 	for i, nonOverLapIDs := range ids {
 		if len(nonOverLapIDs) == 1 {
 			log.Debugf("using sstable %v in iterator [%d, 0] for key start %v", nonOverLapIDs[0], i, keyStart)
-			lazy, err := sst2.NewLazySSTableIterator(nonOverLapIDs[0], s.tableCache, keyStart, keyEnd,
-				s.iterFactoryFunc(levelManagerNow))
+			lazy, err := sst2.NewLazySSTableIterator(nonOverLapIDs[0], s.tableCache, keyStart, keyEnd, s.iterFactoryFunc())
 			if err != nil {
 				return nil, err
 			}
@@ -108,8 +96,7 @@ func (s *Store) createSSTableIterators(keyStart []byte, keyEnd []byte) ([]iterat
 			itersInChain := make([]iteration.Iterator, len(nonOverLapIDs))
 			for j, nonOverlapID := range nonOverLapIDs {
 				log.Debugf("using sstable %v in iterator [%d, %d] for key start %v", nonOverlapID, i, j, keyStart)
-				lazy, err := sst2.NewLazySSTableIterator(nonOverlapID, s.tableCache, keyStart, keyEnd,
-					s.iterFactoryFunc(levelManagerNow))
+				lazy, err := sst2.NewLazySSTableIterator(nonOverlapID, s.tableCache, keyStart, keyEnd, s.iterFactoryFunc())
 				if err != nil {
 					return nil, err
 				}
@@ -129,30 +116,13 @@ func (s *Store) createSSTableIterators(keyStart []byte, keyEnd []byte) ([]iterat
 	return iters, nil
 }
 
-func (s *Store) iterFactoryFunc(levelManagerNow uint64) func(sst *sst2.SSTable, keyStart []byte, keyEnd []byte) (iteration.Iterator, error) {
+func (s *Store) iterFactoryFunc() func(sst *sst2.SSTable, keyStart []byte, keyEnd []byte) (iteration.Iterator, error) {
 	return func(sst *sst2.SSTable, keyStart []byte, keyEnd []byte) (iteration.Iterator, error) {
 		sstIter, err := sst.NewIterator(keyStart, keyEnd)
 		if err != nil {
 			return nil, err
 		}
-		prefixes := s.prefixRetentionsService.GetMatchingPrefixRetentions(keyStart, keyEnd, false)
-		if len(prefixes) == 0 {
-			return sstIter, nil
-		}
-		// Note that the "now" that we pass to NewRemoveExpiredEntriesIterator which it uses to determine
-		// whether a prefix is expired for an ssTable is the now from the level manager, it is not
-		// based on local time. This is because we must ensure that if entries are considered expired
-		// by the level manager, and possibly already removed from the LSM, then we MUST also consider
-		// them expired too on the caller side. Consider a situation where expired
-		// entries had been removed from L1 in the LSM but not from level L2 (>L1). If the expired entries
-		// are not also screened out on the caller side then older, overwritten data could become
-		// visible. Screening out on the caller side in this way allows us to delete expired prefixes
-		// from any level of the LSM, and we don't have to wait until entries reach the last level,
-		// this is a big advantage as we can get rid of short-lived expired entries quickly without
-		// them bloating the LSM, and heavily contributing to write amplification.
-		log.Debugf("expired prefixes are %v", prefixes)
-		iter := levels.NewRemoveExpiredEntriesIterator(sstIter, prefixes, sst.CreationTime(), levelManagerNow)
-		return iter, nil
+		return sstIter, nil
 	}
 }
 
@@ -194,7 +164,7 @@ func (s *Iterator) getRange() ([]byte, []byte, []byte) {
 }
 
 func (s *Iterator) addNewMemtableIterator(iter iteration.Iterator) error {
-	return s.mi.PrependIterator(iter)
+	return s.iter.PrependIterator(iter)
 }
 
 func (s *Iterator) Close() {
@@ -249,7 +219,7 @@ func (s *Store) FindKey(key []byte) string {
 				mt.Uuid)
 		}
 	}
-	otids, _, _, err := s.levelManagerClient.GetTableIDsForRange(key, keyEnd)
+	otids, _, err := s.levelManagerClient.GetTableIDsForRange(key, keyEnd)
 	if err != nil {
 		panic(err)
 	}

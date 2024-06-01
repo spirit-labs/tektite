@@ -182,7 +182,7 @@ func TestToStreamAlreadyHasOffset(t *testing.T) {
 
 	verifyRowsInTablePartition(t, []types.ColumnType{types.ColumnTypeInt}, []int{0},
 		[]types.ColumnType{types.ColumnTypeInt, types.ColumnTypeFloat, types.ColumnTypeString}, []int{1, 2, 3},
-		expectedOut, streamInfo.UserSlab.SlabID, 0, store)
+		expectedOut, "test_stream1", streamInfo.UserSlab.SlabID, 0, store)
 }
 
 func TestBackfillSinglePartition(t *testing.T) {
@@ -345,7 +345,7 @@ func TestTableSingleColKey(t *testing.T) {
 
 	verifyRowsInTablePartition(t, []types.ColumnType{types.ColumnTypeInt}, []int{1},
 		[]types.ColumnType{types.ColumnTypeInt, types.ColumnTypeFloat, types.ColumnTypeString}, []int{0, 2, 3},
-		expectedOut, streamInfo.UserSlab.SlabID, 0, store)
+		expectedOut, "test_stream1", streamInfo.UserSlab.SlabID, 0, store)
 
 	dataIn = [][]any{
 		{int64(0), int64(10), float64(1.1), "foo1"},
@@ -361,7 +361,7 @@ func TestTableSingleColKey(t *testing.T) {
 
 	verifyRowsInTablePartition(t, []types.ColumnType{types.ColumnTypeInt}, []int{1},
 		[]types.ColumnType{types.ColumnTypeInt, types.ColumnTypeFloat, types.ColumnTypeString}, []int{0, 2, 3},
-		expectedOut, streamInfo.UserSlab.SlabID, 0, store)
+		expectedOut, "test_stream1", streamInfo.UserSlab.SlabID, 0, store)
 }
 
 func TestTableMultipleColKey(t *testing.T) {
@@ -396,7 +396,7 @@ func TestTableMultipleColKey(t *testing.T) {
 
 	verifyRowsInTablePartition(t, []types.ColumnType{types.ColumnTypeInt, types.ColumnTypeString}, []int{1, 3},
 		[]types.ColumnType{types.ColumnTypeInt, types.ColumnTypeFloat}, []int{0, 2},
-		expectedOut, streamInfo.UserSlab.SlabID, 0, store)
+		expectedOut, "test_stream1", streamInfo.UserSlab.SlabID, 0, store)
 
 	dataIn = [][]any{
 		{int64(0), int64(10), float64(1.1), "foo1"},
@@ -411,7 +411,7 @@ func TestTableMultipleColKey(t *testing.T) {
 	}
 	verifyRowsInTablePartition(t, []types.ColumnType{types.ColumnTypeInt, types.ColumnTypeString}, []int{1, 3},
 		[]types.ColumnType{types.ColumnTypeInt, types.ColumnTypeFloat}, []int{0, 2},
-		expectedOut, streamInfo.UserSlab.SlabID, 0, store)
+		expectedOut, "test_stream1", streamInfo.UserSlab.SlabID, 0, store)
 }
 
 func TestAggregate(t *testing.T) {
@@ -448,7 +448,7 @@ func TestAggregate(t *testing.T) {
 
 	verifyRowsInTablePartition(t, []types.ColumnType{types.ColumnTypeInt}, []int{1},
 		[]types.ColumnType{types.ColumnTypeTimestamp, types.ColumnTypeFloat, types.ColumnTypeInt}, []int{0, 2, 3},
-		expectedOut, streamInfo.UserSlab.SlabID, 0, store)
+		expectedOut, "test_stream1", streamInfo.UserSlab.SlabID, 0, store)
 
 	dataIn = [][]any{
 		{types.NewTimestamp(1000), int64(5), int64(10), float64(3.3), "foo6"},
@@ -466,7 +466,7 @@ func TestAggregate(t *testing.T) {
 
 	verifyRowsInTablePartition(t, []types.ColumnType{types.ColumnTypeInt}, []int{1},
 		[]types.ColumnType{types.ColumnTypeTimestamp, types.ColumnTypeFloat, types.ColumnTypeInt}, []int{0, 2, 3},
-		expectedOut, streamInfo.UserSlab.SlabID, 0, store)
+		expectedOut, "test_stream1", streamInfo.UserSlab.SlabID, 0, store)
 }
 
 func TestDeployStreamAlreadyExists(t *testing.T) {
@@ -630,7 +630,7 @@ func createManagerWithFakeFafka(fk *fake.Kafka) (*streamManager, *tppm.TestProce
 	cfg := &conf.Config{}
 	cfg.ApplyDefaults()
 
-	plm := NewStreamManager(fake.NewFakeMessageClientFactory(fk), store, &dummyPrefixRetention{}, &expr.ExpressionFactory{}, cfg, false)
+	plm := NewStreamManager(fake.NewFakeMessageClientFactory(fk), store, &dummySlabRetentions{}, &expr.ExpressionFactory{}, cfg, false)
 	plm.SetProcessorManager(pm)
 	plm.Loaded()
 	return plm.(*streamManager), pm, store
@@ -718,10 +718,10 @@ func verifyReceivedData(t *testing.T, streamNameOut string, partitionID int, exp
 }
 
 func verifyRowsInTablePartition(t *testing.T, keyColumnTypes []types.ColumnType, outKeyColIndexes []int,
-	rowColumnTypes []types.ColumnType, outRowColIndexes []int, data [][]any, slabID int, partitionID int, store *store2.Store) {
+	rowColumnTypes []types.ColumnType, outRowColIndexes []int, data [][]any, mappingID string, slabID int, partitionID int, store *store2.Store) {
 	ok, err := testutils.WaitUntilWithError(func() (bool, error) {
 		actualOut := loadRowsFromPartition(t, keyColumnTypes, outKeyColIndexes, rowColumnTypes, outRowColIndexes,
-			slabID, partitionID, store)
+			mappingID, slabID, partitionID, store)
 		return reflect.DeepEqual(data, actualOut), nil
 	}, 5*time.Second, 5*time.Millisecond)
 	require.NoError(t, err)
@@ -729,10 +729,11 @@ func verifyRowsInTablePartition(t *testing.T, keyColumnTypes []types.ColumnType,
 }
 
 func loadRowsFromPartition(t *testing.T, keyColumnTypes []types.ColumnType, outKeyColIndexes []int,
-	rowColumnTypes []types.ColumnType, outRowColIndexes []int, slabID int,
+	rowColumnTypes []types.ColumnType, outRowColIndexes []int, mappingID string, slabID int,
 	partitionID int, store *store2.Store) [][]any {
-	keyStart := encoding.EncodeEntryPrefix(uint64(slabID), uint64(partitionID), 16)
-	keyEnd := encoding.EncodeEntryPrefix(uint64(slabID), uint64(partitionID+1), 16)
+	partitionHash := proc.CalcPartitionHash(mappingID, uint64(partitionID))
+	keyStart := encoding.EncodeEntryPrefix(partitionHash, uint64(slabID), 24)
+	keyEnd := encoding.EncodeEntryPrefix(partitionHash, uint64(slabID)+1, 24)
 	iter, err := store.NewIterator(keyStart, keyEnd, math.MaxInt64, false)
 	require.NoError(t, err)
 	defer iter.Close()
@@ -746,7 +747,7 @@ func loadRowsFromPartition(t *testing.T, keyColumnTypes []types.ColumnType, outK
 		}
 		curr := iter.Current()
 		row := make([]any, numCols)
-		keySlice, _, err := encoding.DecodeKeyToSlice(curr.Key, 16, keyColumnTypes)
+		keySlice, _, err := encoding.DecodeKeyToSlice(curr.Key, 24, keyColumnTypes)
 		require.NoError(t, err)
 		rowSlice, _ := encoding.DecodeRowToSlice(curr.Value, 0, rowColumnTypes)
 		for i, keyCol := range outKeyColIndexes {

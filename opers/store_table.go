@@ -4,6 +4,7 @@ import (
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/encoding"
 	"github.com/spirit-labs/tektite/evbatch"
+	"github.com/spirit-labs/tektite/proc"
 	"sync"
 )
 
@@ -22,6 +23,7 @@ type StoreTableOperator struct {
 	hasKey     bool
 	slabID     uint64
 	hasOffset  bool
+	hashCache  *partitionHashCache
 }
 
 func NewStoreTableOperator(schema *OperatorSchema, slabID int, store store, keyCols []string, nodeID int, noCache bool,
@@ -86,6 +88,7 @@ func NewStoreTableOperator(schema *OperatorSchema, slabID int, store store, keyC
 		hasKey:     len(keyCols) > 0,
 		slabID:     uint64(slabID),
 		hasOffset:  hasOffset,
+		hashCache:  newPartitionHashCache(schema.MappingID, schema.Partitions),
 	}, nil
 }
 
@@ -109,11 +112,11 @@ func (s *StoreTableOperator) HandleStreamBatch(batch *evbatch.Batch, execCtx Str
 
 func (s *StoreTableOperator) storeBatchInTable(batch *evbatch.Batch, execCtx StreamExecContext) {
 	if s.hasKey {
-		prefix := createTableKeyPrefix(s.slabID, uint64(execCtx.PartitionID()), 32)
+		prefix := s.createTableKeyPrefix(s.slabID, execCtx.PartitionID(), 64)
 		storeBatchInTable(batch, s.inKeyCols, s.rowCols, prefix, execCtx, s.nodeID, s.noCache)
 	} else {
 		// No key cols, so we store the row with a constant key - we just use the table/partition here
-		key := createTableKeyPrefix(s.slabID, uint64(execCtx.PartitionID()), 24)
+		key := s.createTableKeyPrefix(s.slabID, execCtx.PartitionID(), 32)
 		key = encoding.EncodeVersion(key, uint64(execCtx.WriteVersion()))
 		// They will all overwrite, so just take the last one
 		row := make([]byte, 0, rowInitialBufferSize)
@@ -125,10 +128,9 @@ func (s *StoreTableOperator) storeBatchInTable(batch *evbatch.Batch, execCtx Str
 	}
 }
 
-func createTableKeyPrefix(slabID uint64, partID uint64, cap int) []byte {
-	bytes := make([]byte, 0, cap)
-	bytes = encoding.AppendUint64ToBufferBE(bytes, slabID)
-	return encoding.AppendUint64ToBufferBE(bytes, partID)
+func (s *StoreTableOperator) createTableKeyPrefix(slabID uint64, partID int, cap int) []byte {
+	partitionHash := s.hashCache.getHash(partID)
+	return encoding.EncodeEntryPrefix(partitionHash, slabID, cap)
 }
 
 func (s *StoreTableOperator) InSchema() *OperatorSchema {
@@ -144,4 +146,9 @@ func (s *StoreTableOperator) Setup(StreamManagerCtx) error {
 }
 
 func (s *StoreTableOperator) Teardown(StreamManagerCtx, *sync.RWMutex) {
+}
+
+func createTableKeyPrefix(mappingID string, slabID uint64, partID uint64, cap int) []byte {
+	partitionHash := proc.CalcPartitionHash(mappingID, partID)
+	return encoding.EncodeEntryPrefix(partitionHash, slabID, cap)
 }

@@ -34,12 +34,13 @@ type BridgeFromOperator struct {
 	cfg                  *conf.Config
 	ingestedMessageCount *uint64
 	ingestPaused         bool
-	offsetPrefix         []byte
+	offsetsSlabID        uint64
 	maxPartitionID       int
 	ingestEnabled        *atomic.Bool
 	lastFlushedVersion   *int64
 	topicName            string
 	watermarkOperator    *WaterMarkOperator
+	hashCache            *partitionHashCache
 }
 
 const (
@@ -52,7 +53,7 @@ var KafkaSchema = evbatch.NewEventSchema([]string{OffsetColName, EventTimeColNam
 
 func NewBridgeFromOperator(receiverID int, pollTimeout time.Duration, maxMessages int, topicName string, partitions int,
 	kafkaProps map[string]string, clientFactory kafka.ClientFactory, testDisableIngest bool, store store,
-	procMgr ProcessorManager, dedupSlabID int, cfg *conf.Config, ingestedMessageCount *uint64, mappingID string,
+	procMgr ProcessorManager, offsetsSlabID int, cfg *conf.Config, ingestedMessageCount *uint64, mappingID string,
 	ingestEnabled *atomic.Bool, lastFlushedVersion *int64) (*BridgeFromOperator, error) {
 	schema := &OperatorSchema{
 		EventSchema:     KafkaSchema,
@@ -70,7 +71,6 @@ func NewBridgeFromOperator(receiverID int, pollTimeout time.Duration, maxMessage
 	for i := 0; i < len(minOffsets); i++ {
 		minOffsets[i] = -1
 	}
-	offsetPrefix := encoding.AppendUint64ToBufferBE(nil, uint64(dedupSlabID))
 	return &BridgeFromOperator{
 		id:                   uuid.New().String(),
 		schema:               schema,
@@ -84,10 +84,11 @@ func NewBridgeFromOperator(receiverID int, pollTimeout time.Duration, maxMessage
 		cfg:                  cfg,
 		ingestedMessageCount: ingestedMessageCount,
 		store:                store,
-		offsetPrefix:         offsetPrefix,
+		offsetsSlabID:        uint64(offsetsSlabID),
 		ingestEnabled:        ingestEnabled,
 		lastFlushedVersion:   lastFlushedVersion,
 		topicName:            topicName,
+		hashCache:            newPartitionHashCache(schema.MappingID, schema.Partitions),
 	}, nil
 }
 
@@ -430,7 +431,8 @@ func (c *consumerHolder) pause() {
 }
 
 func (bf *BridgeFromOperator) loadLastOffset(partitionID int, maxVersion uint64) (int64, error) {
-	key := encoding.AppendUint64ToBufferBE(bf.offsetPrefix, uint64(partitionID))
+	partitionHash := bf.hashCache.getHash(partitionID)
+	key := encoding.EncodeEntryPrefix(partitionHash, bf.offsetsSlabID, 32)
 	v, err := bf.store.GetWithMaxVersion(key, maxVersion)
 	if err != nil {
 		return 0, err
@@ -445,7 +447,8 @@ func (bf *BridgeFromOperator) loadLastOffset(partitionID int, maxVersion uint64)
 }
 
 func (bf *BridgeFromOperator) storeLastOffset(partitionID int, offset int, execCtx StreamExecContext) {
-	key := encoding.AppendUint64ToBufferBE(bf.offsetPrefix, uint64(partitionID))
+	partitionHash := bf.hashCache.getHash(partitionID)
+	key := encoding.EncodeEntryPrefix(partitionHash, bf.offsetsSlabID, 32)
 	key = encoding.EncodeVersion(key, uint64(execCtx.WriteVersion()))
 	value := make([]byte, 8)
 	binary.LittleEndian.PutUint64(value, uint64(offset))

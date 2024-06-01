@@ -9,7 +9,6 @@ import (
 	"github.com/spirit-labs/tektite/encoding"
 	"github.com/spirit-labs/tektite/iteration"
 	"github.com/spirit-labs/tektite/objstore"
-	"github.com/spirit-labs/tektite/retention"
 	"github.com/spirit-labs/tektite/sst"
 	"github.com/spirit-labs/tektite/tabcache"
 	"github.com/spirit-labs/tektite/testutils"
@@ -46,11 +45,14 @@ func TestCompactionIncrementingData(t *testing.T) {
 	numTables := getNumTablesToFill(numLevels, l0CompactionTrigger, l1CompactionTrigger, levelMultiplier)
 	numTables-- // subtract one as we don't want l0 to be completely full and thus trigger a compaction at the end
 
+	prefix := []byte("xxxxxxxxxxxxxxxx") // partition hash
+	prefix = append(prefix, []byte("prefix1_")...)
+
 	for tableCount < numTables {
 		tableName := fmt.Sprintf("sst-%05d", tableCount)
 		rangeEnd := rangeStart + numEntriesPerTable - 1
-		smallestKey, largestKey := buildAndRegisterTableWithKeyRange(t, tableName, rangeStart, rangeEnd,
-			lm.GetObjectStore())
+		smallestKey, largestKey := buildAndRegisterTableWithKeyRangeWithPrefix(t, tableName, rangeStart, rangeEnd,
+			lm.GetObjectStore(), prefix)
 		addTable(t, lm, tableName, smallestKey, largestKey)
 		rangeStart += numEntriesPerTable
 		tableCount++
@@ -64,6 +66,8 @@ func TestCompactionIncrementingData(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, ok)
 
+	require.GreaterOrEqual(t, lm.getLastLevel(), numLevels-1)
+
 	// Now we verify the data - generate a merging iterator over all the data in the lsm
 	mi := createIterator(t, lm, nil, nil)
 	for i := 0; i < numTables*numEntriesPerTable; i++ {
@@ -71,9 +75,10 @@ func TestCompactionIncrementingData(t *testing.T) {
 		require.NoError(t, err)
 		require.True(t, valid)
 		curr := mi.Current()
-		expectedKey := fmt.Sprintf("key%06d", i)
+		pref := common.CopyByteSlice(prefix)
+		expectedKey := append(pref, []byte(fmt.Sprintf("key%06d", i))...)
 		expectedVal := fmt.Sprintf("val%06d", i)
-		require.Equal(t, expectedKey, string(curr.Key[:len(curr.Key)-8])) // trim version
+		require.Equal(t, expectedKey, curr.Key[:len(curr.Key)-8]) // trim version
 		require.Equal(t, expectedVal, string(curr.Value))
 		err = mi.Next()
 		require.NoError(t, err)
@@ -112,6 +117,9 @@ func TestCompactionOverwritingData(t *testing.T) {
 	source := rand.NewSource(time.Now().UnixNano())
 	random := rand.New(source)
 
+	prefix := []byte("xxxxxxxxxxxxxxxx") // partition hash
+	prefix = append(prefix, []byte("prefix1_")...)
+
 	for i := 0; i < numTables; i++ {
 		si := &iteration.StaticIterator{}
 		randKeys := make([]int, numEntriesPerTable)
@@ -132,7 +140,8 @@ func TestCompactionOverwritingData(t *testing.T) {
 		sort.Ints(randKeys)
 
 		for _, k := range randKeys {
-			key := fmt.Sprintf("key%06d", k)
+			prefixCopy := common.CopyByteSlice(prefix)
+			key := append(prefixCopy, []byte(fmt.Sprintf("key%06d", k))...)
 			v := random.Intn(numKeys)
 			val := fmt.Sprintf("val%06d", v)
 			ver, ok := versionsMap[k]
@@ -188,10 +197,11 @@ func TestCompactionOverwritingData(t *testing.T) {
 		require.True(t, ok)
 		expectedVersion--
 
-		expectedKey := fmt.Sprintf("key%06d", k)
+		prefixCopy := common.CopyByteSlice(prefix)
+		expectedKey := append(prefixCopy, []byte(fmt.Sprintf("key%06d", k))...)
 		expectedVal := fmt.Sprintf("val%06d", v)
 
-		require.Equal(t, expectedKey, string(curr.Key[:len(curr.Key)-8])) // trim version
+		require.Equal(t, expectedKey, curr.Key[:len(curr.Key)-8]) // trim version
 		require.Equal(t, expectedVal, string(curr.Value))
 
 		ver := math.MaxUint64 - binary.BigEndian.Uint64(curr.Key[len(curr.Key)-8:])
@@ -208,8 +218,7 @@ func TestCompactionOverwritingData(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestCompactionDeleteData(t *testing.T) {
-	t.Skip("skipping as flaky test")
+func TestCompactionTombstones(t *testing.T) {
 
 	l0CompactionTrigger := 4
 	l1CompactionTrigger := 4
@@ -233,11 +242,14 @@ func TestCompactionDeleteData(t *testing.T) {
 	numTables := getNumTablesToFill(numLevels, l0CompactionTrigger, l1CompactionTrigger, levelMultiplier)
 	numTables-- // subtract one as we don't want l0 to be completely full and thus trigger a compaction at the end
 
+	prefix := []byte("xxxxxxxxxxxxxxxx") // partition hash
+	prefix = append(prefix, []byte("prefix1_")...)
+
 	for tableCount < numTables {
 		tableName := uuid.New().String()
 		rangeEnd := rangeStart + numEntriesPerTable - 1
-		smallestKey, largestKey := buildAndRegisterTableWithKeyRange(t, tableName, rangeStart, rangeEnd,
-			lm.GetObjectStore())
+		smallestKey, largestKey := buildAndRegisterTableWithKeyRangeWithPrefix(t, tableName, rangeStart, rangeEnd,
+			lm.GetObjectStore(), prefix)
 		addTable(t, lm, tableName, smallestKey, largestKey)
 		rangeStart += numEntriesPerTable
 		tableCount++
@@ -250,14 +262,20 @@ func TestCompactionDeleteData(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, ok)
 
-	// Now we will write deletes for this data
+	lm.dumpLevelInfo()
+
+	require.GreaterOrEqual(t, lm.getLastLevel(), numLevels-1)
+
+	totSize := lm.GetStats().TotBytes
+
+	// Now we will write tombstones for all this data
 	rangeStart = 0
 	tableCount = 0
 	for tableCount < numTables {
 		tableName := uuid.New().String()
 		rangeEnd := rangeStart + numEntriesPerTable - 1
-		smallestKey, largestKey := buildAndRegisterTombstoneTableWithKeyRange(t, tableName, rangeStart, rangeEnd,
-			lm.GetObjectStore())
+		smallestKey, largestKey := buildAndRegisterTombstoneTableWithKeyRangeAndPrefix(t, tableName, rangeStart, rangeEnd,
+			lm.GetObjectStore(), prefix)
 		addTable(t, lm, tableName, smallestKey, largestKey)
 		rangeStart += numEntriesPerTable
 		tableCount++
@@ -278,15 +296,16 @@ func TestCompactionDeleteData(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, valid)
 
-	// now we add more data, this should push all the deletes out
+	// now we add more data, this should push all the expired entries out, as we prioritise compaction of older
+	// tables
 	rangeStart = endRangeStart
 	tableCount = 0
 	// we add some extra tables here to make sure all deletes are pushed out
 	for tableCount < numTables {
 		tableName := uuid.New().String()
 		rangeEnd := rangeStart + numEntriesPerTable - 1
-		smallestKey, largestKey := buildAndRegisterTableWithKeyRange(t, tableName, rangeStart, rangeEnd,
-			lm.GetObjectStore())
+		smallestKey, largestKey := buildAndRegisterTableWithKeyRangeWithPrefix(t, tableName, rangeStart, rangeEnd,
+			lm.GetObjectStore(), prefix)
 		addTable(t, lm, tableName, smallestKey, largestKey)
 		rangeStart += numEntriesPerTable
 		tableCount++
@@ -300,26 +319,16 @@ func TestCompactionDeleteData(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, ok)
 
-	// Now, should be no deletes
-	for i := 0; i <= lm.getLastLevel(); i++ {
-		iter, err := lm.LevelIterator(i)
-		require.NoError(t, err)
-		for {
-			te, err := iter.Next()
-			require.NoError(t, err)
-			if te == nil {
-				break
-			}
-			require.Equal(t, float64(0), te.DeleteRatio)
-		}
-	}
+	size := lm.GetStats().TotBytes
+
+	// Not always exactly equal as can have some deletes in last level
+	require.Less(t, size, int(float64(totSize)*1.05))
 
 	err = lm.Validate(true)
 	require.NoError(t, err)
 }
 
 func TestRandomUpdateDeleteData(t *testing.T) {
-	t.Skip("skipping as flaky test")
 
 	l0CompactionTrigger := 4
 	l1CompactionTrigger := 4
@@ -352,6 +361,9 @@ func TestRandomUpdateDeleteData(t *testing.T) {
 	source := rand.NewSource(time.Now().UnixNano())
 	random := rand.New(source)
 
+	prefix := []byte("xxxxxxxxxxxxxxxx") // partition hash
+	prefix = append(prefix, []byte("prefix1_")...)
+
 	for i := 0; i < numTables; i++ {
 		si := &iteration.StaticIterator{}
 		randKeys := make([]int, numEntriesPerTable)
@@ -381,7 +393,8 @@ func TestRandomUpdateDeleteData(t *testing.T) {
 		}
 
 		for _, k := range randKeys {
-			key := fmt.Sprintf("key%06d", k)
+			prefixCopy := common.CopyByteSlice(prefix)
+			key := append(prefixCopy, []byte(fmt.Sprintf("key%06d", k))...)
 
 			entry := &keys[k]
 
@@ -448,10 +461,11 @@ func TestRandomUpdateDeleteData(t *testing.T) {
 		ver := math.MaxUint64 - binary.BigEndian.Uint64(curr.Key[len(curr.Key)-8:])
 
 		expectedVersion := entry.ver - 1
-		expectedKey := fmt.Sprintf("key%06d", k)
+		prefixCopy := common.CopyByteSlice(prefix)
+		expectedKey := append(prefixCopy, []byte(fmt.Sprintf("key%06d", k))...)
 		expectedVal := fmt.Sprintf("val%06d", entry.val)
 
-		require.Equal(t, expectedKey, string(curr.Key[:len(curr.Key)-8])) // trim version
+		require.Equal(t, expectedKey, curr.Key[:len(curr.Key)-8]) // trim version
 		require.Equal(t, expectedVal, string(curr.Value))
 
 		require.Equal(t, expectedVersion, int(ver))
@@ -496,6 +510,13 @@ func TestCompactionExpiredPrefix(t *testing.T) {
 	err := lm.StoreLastFlushedVersion(math.MaxInt64, false, 0)
 	require.NoError(t, err)
 
+	retention := 2 * time.Second
+	prefix1 := []byte("xxxxxxxxxxxxxxxx") // partition hash
+	prefix1 = append(prefix1, []byte("prefix1_")...)
+	expiredSlabID := int(binary.BigEndian.Uint64(prefix1[16:]))
+	err = lm.RegisterSlabRetention(expiredSlabID, retention, false, 0)
+	require.NoError(t, err)
+
 	rangeStart := 0
 	numEntriesPerTable := 10
 	tableCount := 0
@@ -508,7 +529,7 @@ func TestCompactionExpiredPrefix(t *testing.T) {
 		tableName := uuid.New().String()
 		rangeEnd := rangeStart + numEntriesPerTable - 1
 		smallestKey, largestKey := buildAndRegisterTableWithKeyRangeWithPrefix(t, tableName, rangeStart, rangeEnd,
-			lm.GetObjectStore(), "prefix1")
+			lm.GetObjectStore(), prefix1)
 		addTable(t, lm, tableName, smallestKey, largestKey)
 		rangeStart += numEntriesPerTable
 		tableCount++
@@ -522,24 +543,21 @@ func TestCompactionExpiredPrefix(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, ok)
 
-	retentionMs := 10
-	err = lm.RegisterPrefixRetentions([]retention.PrefixRetention{{
-		Prefix:    []byte("prefix1"),
-		Retention: uint64(retentionMs),
-	}}, false, 0)
-	require.NoError(t, err)
-
 	// Wait for retention to expire
-	time.Sleep(time.Duration(retentionMs) * time.Millisecond)
+	time.Sleep(retention)
 
 	// Add more keys - different prefix - this should cause the expired prefixes to be compacted out
+
+	prefix2 := []byte("xxxxxxxxxxxxxxxx") // partition hash
+	prefix2 = append(prefix2, []byte("prefix2_")...)
+
 	rangeStart = 0
 	tableCount = 0
 	for tableCount < numTables {
 		tableName := uuid.New().String()
 		rangeEnd := rangeStart + numEntriesPerTable - 1
 		smallestKey, largestKey := buildAndRegisterTableWithKeyRangeWithPrefix(t, tableName, rangeStart, rangeEnd,
-			lm.GetObjectStore(), "prefix2")
+			lm.GetObjectStore(), prefix2)
 		addTable(t, lm, tableName, smallestKey, largestKey)
 		rangeStart += numEntriesPerTable
 		tableCount++
@@ -559,6 +577,7 @@ func TestCompactionExpiredPrefix(t *testing.T) {
 	// prefix1 and prefix2 tables so a merge won't occur, thus leaving prefix1 in last level. This is OK - it will
 	// get removed once that level becomes full, and it gets pushed to next level.
 
+	endRange := common.IncrementBytesBigEndian(prefix1)
 	for i := 0; i < lm.getLastLevel(); i++ {
 		iter, err := lm.LevelIterator(i)
 		require.NoError(t, err)
@@ -568,7 +587,7 @@ func TestCompactionExpiredPrefix(t *testing.T) {
 			if te == nil {
 				break
 			}
-			overlap := hasOverlap([]byte("prefix1"), []byte("prefix2"), te.RangeStart, te.RangeEnd)
+			overlap := hasOverlap(prefix1, endRange, te.RangeStart, te.RangeEnd)
 			require.False(t, overlap)
 		}
 	}
@@ -599,9 +618,12 @@ func TestCompactionDeadVersions(t *testing.T) {
 
 	// First add a table with version 1000
 
+	prefix := []byte("xxxxxxxxxxxxxxxx") // partition hash
+	prefix = append(prefix, []byte("prefix1_")...)
+
 	tableName := uuid.New().String()
 	smallestKey, largestKey := buildAndRegisterTableWithKeyRangeAndVersion(t, tableName, 0, 9,
-		lm.GetObjectStore(), false, "", 1000)
+		lm.GetObjectStore(), false, prefix, 1000)
 	addTableWithMinMaxVersion(t, lm, tableName, smallestKey, largestKey, 1000, 1000)
 	rangeStart := 10
 
@@ -610,7 +632,7 @@ func TestCompactionDeadVersions(t *testing.T) {
 		tableName := uuid.New().String()
 		rangeEnd := rangeStart + numEntriesPerTable - 1
 		smallestKey, largestKey = buildAndRegisterTableWithKeyRangeAndVersion(t, tableName, rangeStart, rangeEnd,
-			lm.GetObjectStore(), false, "", 1500)
+			lm.GetObjectStore(), false, prefix, 1500)
 		addTableWithMinMaxVersion(t, lm, tableName, smallestKey, largestKey, 1500, 1500)
 		rangeStart += numEntriesPerTable
 		tableCount++
@@ -620,7 +642,7 @@ func TestCompactionDeadVersions(t *testing.T) {
 	tableName = uuid.New().String()
 	lastRangeStart := rangeStart
 	smallestKey, largestKey = buildAndRegisterTableWithKeyRangeAndVersion(t, tableName, rangeStart, rangeStart+numEntriesPerTable-1,
-		lm.GetObjectStore(), false, "", 2000)
+		lm.GetObjectStore(), false, prefix, 2000)
 	addTableWithMinMaxVersion(t, lm, tableName, smallestKey, largestKey, 2000, 2000)
 
 	// wait for compaction jobs to complete
@@ -663,8 +685,9 @@ func TestCompactionDeadVersions(t *testing.T) {
 		key := iter.Current().Key
 		keyNoversion := key[:len(key)-8]
 
-		expectedKey := fmt.Sprintf("key%06d", i)
-		require.Equal(t, expectedKey, string(keyNoversion))
+		prefixCopy := common.CopyByteSlice(prefix)
+		expectedKey := append(prefixCopy, []byte(fmt.Sprintf("key%06d", i))...)
+		require.Equal(t, expectedKey, keyNoversion)
 
 		err = iter.Next()
 		require.NoError(t, err)
@@ -689,7 +712,7 @@ func setup(t *testing.T, cfgFunc func(cfg *conf.Config)) (*LevelManager, func(t 
 	require.NoError(t, err)
 	err = tableCache.Start()
 	require.NoError(t, err)
-	cws := NewCompactionWorkerService(cfg, lmClientFactory, tableCache, lm.GetObjectStore())
+	cws := NewCompactionWorkerService(cfg, lmClientFactory, tableCache, lm.GetObjectStore(), true)
 	err = cws.Start()
 	require.NoError(t, err)
 	tearDown2 := func(t *testing.T) {
@@ -709,7 +732,7 @@ func (i *inMemClientFactory) CreateLevelManagerClient() Client {
 }
 
 func createIterator(t *testing.T, lm *LevelManager, keyStart []byte, keyEnd []byte) *iteration.MergingIterator {
-	otids, _, _, err := lm.GetTableIDsForRange(keyStart, keyEnd)
+	otids, _, err := lm.GetTableIDsForRange(keyStart, keyEnd)
 	require.NoError(t, err)
 	var chainIters []iteration.Iterator
 	for _, notids := range otids {
@@ -734,24 +757,25 @@ func createIterator(t *testing.T, lm *LevelManager, keyStart []byte, keyEnd []by
 
 func buildAndRegisterTableWithKeyRange(t *testing.T, name string, rangeStart int, rangeEnd int,
 	cloudStore objstore.Client) ([]byte, []byte) {
-	return buildAndRegisterTableWithKeyRangeAndVersion(t, name, rangeStart, rangeEnd, cloudStore, false, "", 0)
+	return buildAndRegisterTableWithKeyRangeAndVersion(t, name, rangeStart, rangeEnd, cloudStore, false, nil, 0)
 }
 
 func buildAndRegisterTableWithKeyRangeWithPrefix(t *testing.T, name string, rangeStart int, rangeEnd int,
-	cloudStore objstore.Client, keyPrefix string) ([]byte, []byte) {
+	cloudStore objstore.Client, keyPrefix []byte) ([]byte, []byte) {
 	return buildAndRegisterTableWithKeyRangeAndVersion(t, name, rangeStart, rangeEnd, cloudStore, false, keyPrefix, 0)
 }
 
-func buildAndRegisterTombstoneTableWithKeyRange(t *testing.T, name string, rangeStart int, rangeEnd int,
-	cloudStore objstore.Client) ([]byte, []byte) {
-	return buildAndRegisterTableWithKeyRangeAndVersion(t, name, rangeStart, rangeEnd, cloudStore, true, "", 0)
+func buildAndRegisterTombstoneTableWithKeyRangeAndPrefix(t *testing.T, name string, rangeStart int, rangeEnd int,
+	cloudStore objstore.Client, keyPrefix []byte) ([]byte, []byte) {
+	return buildAndRegisterTableWithKeyRangeAndVersion(t, name, rangeStart, rangeEnd, cloudStore, true, keyPrefix, 0)
 }
 
 func buildAndRegisterTableWithKeyRangeAndVersion(t *testing.T, name string, rangeStart int, rangeEnd int,
-	cloudStore objstore.Client, tombstones bool, keyPrefix string, version int) ([]byte, []byte) {
+	cloudStore objstore.Client, tombstones bool, keyPrefix []byte, version int) ([]byte, []byte) {
 	si := &iteration.StaticIterator{}
 	for i := rangeStart; i <= rangeEnd; i++ {
-		key := fmt.Sprintf("%skey%06d", keyPrefix, i)
+		key := common.CopyByteSlice(keyPrefix)
+		key = append(key, []byte(fmt.Sprintf("key%06d", i))...)
 		var val []byte
 		if !tombstones {
 			val = []byte(fmt.Sprintf("val%06d", i))
@@ -772,6 +796,7 @@ func addTable(t *testing.T, lm *LevelManager, tableName string, rangeStart []byt
 
 func addTableWithMinMaxVersion(t *testing.T, lm *LevelManager, tableName string, rangeStart []byte, rangeEnd []byte,
 	minVersion int, maxVersion int) {
+	addedTime := uint64(time.Now().UTC().UnixMilli())
 	regBatch := RegistrationBatch{
 		ClusterName: "test_cluster",
 		Registrations: []RegistrationEntry{
@@ -782,12 +807,17 @@ func addTableWithMinMaxVersion(t *testing.T, lm *LevelManager, tableName string,
 				KeyEnd:     rangeEnd,
 				MinVersion: uint64(minVersion),
 				MaxVersion: uint64(maxVersion),
+				AddedTime:  addedTime,
 			},
 		},
 	}
 	validateRegBatch(regBatch, lm.GetObjectStore())
 	for {
-		err := lm.ApplyChanges(regBatch, false, 0)
+		ch := make(chan error, 1)
+		lm.RegisterL0Tables(regBatch, func(err error) {
+			ch <- err
+		})
+		err := <-ch
 		if err == nil {
 			break
 		}

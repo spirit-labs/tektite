@@ -4,21 +4,20 @@ import (
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/encoding"
 	"github.com/spirit-labs/tektite/evbatch"
+	"github.com/spirit-labs/tektite/proc"
 	"github.com/spirit-labs/tektite/types"
 	"sync"
 )
 
 type RowDeleteOperator struct {
-	schema    *OperatorSchema
-	keyCols   []int
-	rowCols   []int
-	keyPrefix []byte
-	store     store
+	schema  *OperatorSchema
+	slabID  uint64
+	keyCols []int
+	rowCols []int
+	store   store
 }
 
 func NewRowDeleteOperator(schema *OperatorSchema, slabID int, store store, keyCols []int) (*RowDeleteOperator, error) {
-	keyPrefix := encoding.AppendUint64ToBufferBE(nil, uint64(slabID))
-
 	// We create a schema with just the key cols
 	var columnNames []string
 	var columnTypes []types.ColumnType
@@ -29,14 +28,12 @@ func NewRowDeleteOperator(schema *OperatorSchema, slabID int, store store, keyCo
 	keySchema := evbatch.NewEventSchema(columnNames, columnTypes)
 	return &RowDeleteOperator{
 		schema: &OperatorSchema{
-			EventSchema: keySchema,
-			PartitionScheme: PartitionScheme{
-				Partitions: 1,
-			},
+			EventSchema:     keySchema,
+			PartitionScheme: schema.PartitionScheme,
 		},
-		keyPrefix: keyPrefix,
-		store:     store,
-		keyCols:   keyCols,
+		slabID:  uint64(slabID),
+		store:   store,
+		keyCols: keyCols,
 	}, nil
 }
 
@@ -45,10 +42,13 @@ func (rd *RowDeleteOperator) HandleQueryBatch(*evbatch.Batch, QueryExecContext) 
 }
 
 func (rd *RowDeleteOperator) HandleStreamBatch(batch *evbatch.Batch, execCtx StreamExecContext) (*evbatch.Batch, error) {
-	keyPrefix := encoding.AppendUint64ToBufferBE(rd.keyPrefix, uint64(execCtx.PartitionID()))
+	partitionHash := proc.CalcPartitionHash(rd.schema.MappingID, uint64(execCtx.PartitionID()))
+	prefix := encoding.EncodeEntryPrefix(partitionHash, rd.slabID, 24)
 	for i := 0; i < batch.RowCount; i++ {
 		// Note: The incoming batch will only have the key cols
-		keyBuff := evbatch.EncodeKeyCols(batch, i, rd.keyCols, keyPrefix)
+		keyBuff := make([]byte, 24, 64)
+		copy(keyBuff, prefix)
+		keyBuff = evbatch.EncodeKeyCols(batch, i, rd.keyCols, keyBuff)
 		keyBuff = encoding.EncodeVersion(keyBuff, uint64(execCtx.WriteVersion()))
 		execCtx.StoreEntry(common.KV{
 			Key: keyBuff,

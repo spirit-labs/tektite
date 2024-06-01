@@ -129,7 +129,7 @@ func dumpSST(id SSTableID, sst *SSTable) {
 	if err != nil {
 		panic(err)
 	}
-	log.Infof("==============Dumping sstable: %v", id)
+	log.Debugf("==============Dumping sstable: %v", id)
 	for {
 		valid, err := sstIter.IsValid()
 		if err != nil {
@@ -138,14 +138,14 @@ func dumpSST(id SSTableID, sst *SSTable) {
 		if !valid {
 			break
 		}
-		log.Infof("key: %v (%s) value: %v (%s)", sstIter.Current().Key, string(sstIter.Current().Key),
+		log.Debugf("key: %v (%s) value: %v (%s)", sstIter.Current().Key, string(sstIter.Current().Key),
 			sstIter.Current().Value, string(sstIter.Current().Value))
 		err = sstIter.Next()
 		if err != nil {
 			panic(err)
 		}
 	}
-	log.Infof("==============End Dumping sstable: %v", id)
+	log.Debugf("==============End Dumping sstable: %v", id)
 }
 
 func (l *LazySSTableIterator) getIter() (iteration.Iterator, error) {

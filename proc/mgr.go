@@ -96,6 +96,7 @@ type ProcessorManager struct {
 	failureEnabled              bool
 	levelMgrInitialisedCallback func() error
 	wfpCalled                   bool
+	processorDataKeys           map[int][]byte
 }
 
 type BatchForwarder interface {
@@ -162,6 +163,10 @@ func NewProcessorManagerWithFailure(clustStateMgr clustStateManager, receiverInf
 func NewProcessorManagerWithVmgrClient(clustStateMgr clustStateManager, receiverInfoProvider ReceiverInfoProvider,
 	store *store2.Store, cfg *conf.Config, replicatorFactory ReplicatorFactory, batchHandlerFactory BatchHandlerFactory,
 	levelManagerFlushNotifier FlushNotifier, ingestNotififer IngestNotifier, failureEnabled bool, vmgrClient vmgr.Client) *ProcessorManager {
+	processorDataKeys := map[int][]byte{}
+	if cfg.ProcessingEnabled && cfg.ProcessorCount > 0 {
+		processorDataKeys = generateProcessorDataKeys(cfg.ProcessorCount)
+	}
 	pm := &ProcessorManager{
 		cfg:                        cfg,
 		clustStateMgr:              clustStateMgr,
@@ -175,6 +180,7 @@ func NewProcessorManagerWithVmgrClient(clustStateMgr clustStateManager, receiver
 		processorListeners:         map[string]ProcessorListener{},
 		failureEnabled:             failureEnabled,
 		vMgrClient:                 vmgrClient,
+		processorDataKeys:          processorDataKeys,
 		clusterVersion:             -1,
 		currWriteVersion:           -1,
 		lastCompletedVersion:       -1,
@@ -796,7 +802,8 @@ func (m *ProcessorManager) processGroupState(processorID int, gs []clustmgr.Grou
 			if !ok {
 				// create the processor
 				batchHandler := m.batchHandlerFactory(processorID)
-				proc = NewProcessor(processorID, m.cfg, m.store, m, batchHandler, m.receiverInfoProvider)
+				dataKey := m.processorDataKeys[processorID]
+				proc = NewProcessor(processorID, m.cfg, m.store, m, batchHandler, m.receiverInfoProvider, dataKey)
 				log.Debugf("node %d created new processor %d", m.cfg.NodeID, processorID)
 				proc.SetVersionCompleteHandler(func(version int, requiredCompletions int, commandID int, doom bool, cf func(error)) {
 					m.vMgrClient.VersionComplete(version, requiredCompletions, commandID, doom, cf)

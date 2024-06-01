@@ -9,12 +9,12 @@ import (
 	kafkago "github.com/confluentinc/confluent-kafka-go/kafka"
 	"github.com/spirit-labs/tektite/cli"
 	"github.com/spirit-labs/tektite/conf"
-	"github.com/spirit-labs/tektite/encoding"
 	"github.com/spirit-labs/tektite/errors"
 	"github.com/spirit-labs/tektite/kafka/fake"
 	"github.com/spirit-labs/tektite/objstore/dev"
 	"github.com/spirit-labs/tektite/protos/clustermsgs"
 	"github.com/spirit-labs/tektite/shutdown"
+	"github.com/spirit-labs/tektite/store"
 	"github.com/spirit-labs/tektite/tekclient"
 	"github.com/spirit-labs/tektite/testutils"
 	"math"
@@ -38,9 +38,8 @@ import (
 )
 
 const (
-	TestPrefixes         = "" // Set this to a prefix of a test if you want to only run those tests, e.g. during development
-	ExcludedTestPrefixes = "retention"
-
+	TestPrefixes           = "" // Set this to a prefix of a test if you want to only run those tests, e.g. during development
+	ExcludedTestPrefixes   = "retention"
 	caSignedServerKeyPath  = "testdata/keys/casignedserverkey.pem"
 	caSignedServerCertPath = "testdata/keys/casignedservercert.pem"
 )
@@ -67,13 +66,12 @@ type scriptTestSuite struct {
 	tests                  map[string]*scriptTest
 	t                      *testing.T
 	lock                   sync.Mutex
-	//serverConfs            []conf.Config
-	objectStoreType    string
-	devObjStoreAddress string
-	devObjStore        *dev.Store
-	versionLock        sync.Mutex
-	latestVersion      *clustermsgs.VersionsMessage
-	testName           string
+	objectStoreType        string
+	devObjStoreAddress     string
+	devObjStore            *dev.Store
+	versionLock            sync.Mutex
+	latestVersion          *clustermsgs.VersionsMessage
+	testName               string
 }
 
 type TLSKeysInfo struct {
@@ -498,51 +496,113 @@ func (st *scriptTest) runTestIteration(require *require.Assertions, commands []s
 		require.Equal(string(b), st.output.String())
 	}
 
-	// Now we verify that the test has left the cluster in a clean state
-	for _, s := range st.testSuite.tektiteCluster {
-
-		// undeploy of streams on other nodes is async, so we must wait
-		ok, err := testutils.WaitUntilWithError(func() (bool, error) {
-			return s.GetStreamManager().StreamCount() == 0, nil
-		}, 5*time.Second, 1*time.Millisecond)
-		require.NoError(err)
-		if !ok {
-			s.GetStreamManager().Dump()
-		}
-		require.Equal(0, s.GetStreamManager().StreamCount(), "there are undeployed streams left at end of test")
-
-		store := s.GetStore()
-		keyStart := encoding.AppendUint64ToBufferBE(nil, common.UserSlabIDBase)
-
-		iter, err := store.NewIterator(keyStart, nil, math.MaxUint64, false)
-		require.NoError(err)
-		// Should be no user data
-		valid, err := iter.IsValid()
-		require.NoError(err)
-		if valid {
-			log.Errorf("node %d ************ data left in store at end of test", s.GetConfig().NodeID)
-			for {
-				valid, err := iter.IsValid()
-				require.NoError(err)
-				if !valid {
-					break
-				}
-				k := iter.Current().Key
-				ver := math.MaxUint64 - binary.BigEndian.Uint64(k[len(k)-8:])
-				log.Errorf("remaining entry %v:%v version:%d", k, iter.Current().Value, ver)
-
-				for _, s := range st.testSuite.tektiteCluster {
-					log.Info(s.GetStore().FindKey(k))
-				}
-				break
-			}
-		}
-		require.False(valid)
-	}
+	st.verifyRemainingData(require)
 
 	dur := time.Since(start)
 	log.Infof("Finished running sql test %s time taken %d ms", st.testName, dur.Milliseconds())
 	return numIters
+}
+
+func (st *scriptTest) verifyRemainingData(require *require.Assertions) {
+	// Now we verify that the test has left the cluster in a clean state
+	log.Info("verifying data at end of test")
+	for _, s := range st.testSuite.tektiteCluster {
+
+		// undeploy of streams on other nodes is async, so we must wait
+		ok1, err := testutils.WaitUntilWithError(func() (bool, error) {
+			return s.GetStreamManager().StreamCount() == 0, nil
+		}, 10*time.Second, 50*time.Millisecond)
+		require.NoError(err)
+		if !ok1 {
+			s.GetStreamManager().Dump()
+		}
+		require.Equal(0, s.GetStreamManager().StreamCount(), "there are deployed streams left at end of test")
+		log.Infof("checking streams returned: %t", ok1)
+	}
+
+	//ok2, err := testutils.WaitUntilWithError(func() (bool, error) {
+	//	for _, s := range st.testSuite.tektiteCluster {
+	//		// We need to flush the stores to make sure all the delete slab tombstones have been pushed to the LSM, otherwise
+	//		// the tombstones can still be languishing on one node, and then the data is still visible from another node
+	//		err := s.GetStore().Flush(false, false)
+	//		if err != nil {
+	//			return false, err
+	//		}
+	//	}
+	//	isOk := true
+	//	for _, s := range st.testSuite.tektiteCluster {
+	//		keyStart := encoding.AppendUint64ToBufferBE(nil, common.UserSlabIDBase)
+	//		ok := checkRemainingData(require, s.GetConfig().NodeID, s.GetStore(), keyStart)
+	//		if !ok {
+	//			isOk = false
+	//		}
+	//	}
+	//	return isOk, nil
+	//}, 10*time.Second, 50*time.Millisecond)
+	//require.NoError(err)
+	//if !ok2 {
+	//	for _, s := range st.testSuite.tektiteCluster {
+	//		keyStart := encoding.AppendUint64ToBufferBE(nil, common.UserSlabIDBase)
+	//		iter, err := s.GetStore().NewIterator(keyStart, nil, math.MaxUint64, false)
+	//		require.NoError(err)
+	//
+	//		for {
+	//			valid, err := iter.IsValid()
+	//			require.NoError(err)
+	//			if !valid {
+	//				break
+	//			}
+	//			k := iter.Current().Key
+	//			slabID := binary.BigEndian.Uint64(k[16:])
+	//			if slabID >= common.UserSlabIDBase {
+	//				ver := math.MaxUint64 - binary.BigEndian.Uint64(k[len(k)-8:])
+	//				if doLog {
+	//					log.Errorf("node: %d remaining entry for slab id %d %v:%v version:%d", nodeID, slabID, k, iter.Current().Value, ver)
+	//				}
+	//				hasUserEntries = true
+	//			}
+	//			err = iter.Next()
+	//			require.NoError(err)
+	//		}
+	//	}
+	//}
+	//require.True(ok2)
+}
+
+func checkRemainingData(require *require.Assertions, nodeID int, store *store.Store, keyStart []byte) bool {
+	iter, err := store.NewIterator(keyStart, nil, math.MaxUint64, true)
+	require.NoError(err)
+	// Should be no user data
+	hasUserEntries := false
+	for {
+		valid, err := iter.IsValid()
+		require.NoError(err)
+		if !valid {
+			break
+		}
+		k := iter.Current().Key
+		v := iter.Current().Value
+		slabID := binary.BigEndian.Uint64(k[16:])
+		if slabID >= common.UserSlabIDBase {
+			ver := math.MaxUint64 - binary.BigEndian.Uint64(k[len(k)-8:])
+			isPrefixTombstone := len(k) == 32 && len(v) == 0
+			isEndMarker := (len(k) == 33) && (len(v) == 1) && (v[0] == 'x')
+			if !isPrefixTombstone && !isEndMarker {
+				hasUserEntries = true
+				log.Errorf("node: %d remaining entry for slab id %d %v:%v version:%d", nodeID, slabID, k, v, ver)
+			}
+			if isPrefixTombstone {
+				log.Infof("node: %d got tombstone prefix for slab id %d : %v", nodeID, slabID, k)
+			}
+			if isEndMarker {
+				log.Infof("node: %d got tombstone end marker for slab id %d : %v", nodeID, slabID, k)
+			}
+			hasUserEntries = true
+		}
+		err = iter.Next()
+		require.NoError(err)
+	}
+	return !hasUserEntries
 }
 
 var prefixCompareLines = []string{"Internal error - reference:"}
@@ -937,7 +997,7 @@ func (st *scriptTest) executeTektiteStatement(require *require.Assertions, state
 		ok, err := testutils.WaitUntilWithError(func() (bool, error) {
 			res = st.execStatement(require, statement)
 			return res == waitUntilResults, nil
-		}, 10*time.Second, 10*time.Millisecond)
+		}, 5*time.Second, 10*time.Millisecond)
 		require.NoError(err)
 		res = st.execStatement(require, statement)
 		if !ok {

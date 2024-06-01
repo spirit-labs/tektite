@@ -10,7 +10,6 @@ import (
 	"github.com/spirit-labs/tektite/errors"
 	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/objstore"
-	"github.com/spirit-labs/tektite/retention"
 	"github.com/spirit-labs/tektite/sst"
 	"github.com/spirit-labs/tektite/tabcache"
 	"strings"
@@ -60,8 +59,6 @@ type LevelManager struct {
 	tablesToDelete                 []deleteTableEntry
 	tableDeleteTimer               *common.TimerHandle
 	enableCompaction               bool
-	prefixRetentionRemoveTimer     *common.TimerHandle
-	prefixRetentionRemoveLock      sync.Mutex // to prevent race on stop()
 	validateOnEachStateChange      bool
 	inflightAdds                   int
 	pendingAddsQueue               []pendingL0Add
@@ -152,7 +149,7 @@ func (lm *LevelManager) initialiseMasterRecord() (*masterRecord, error) {
 			mr = &masterRecord{
 				format:               lm.conf.RegistryFormat,
 				levelTableCounts:     map[int]int{},
-				prefixRetentions:     map[string]uint64{},
+				slabRetentions:       map[uint64]uint64{},
 				lastFlushedVersion:   -1,
 				lastProcessedReplSeq: -1,
 				stats:                &Stats{LevelStats: map[int]*LevelStats{}},
@@ -201,7 +198,6 @@ func (lm *LevelManager) Start(block bool) error {
 			lm.scheduleFlushNoLock(lm.conf.LevelManagerFlushInterval, true)
 		}
 		lm.scheduleTableDeleteTimer(true)
-		lm.schedulePrefixRetentionRemoveTimer(true)
 		lm.state = stateLoaded
 		if len(lm.masterRecord.deadVersionRanges) > 0 {
 			if err := lm.maybeScheduleRemoveDeadVersionEntries(); err != nil {
@@ -234,8 +230,6 @@ func (lm *LevelManager) Stop() error {
 	}()
 	log.Debugf("level manager stopping on node %d", lm.conf.NodeID)
 
-	lm.prefixRetentionRemoveLock.Lock()
-	defer lm.prefixRetentionRemoveLock.Unlock()
 	lm.lock.Lock()
 	defer lm.lock.Unlock()
 	if lm.flushTimer != nil {
@@ -245,10 +239,6 @@ func (lm *LevelManager) Stop() error {
 	if lm.tableDeleteTimer != nil {
 		lm.tableDeleteTimer.Stop()
 		timers = append(timers, lm.tableDeleteTimer)
-	}
-	if lm.prefixRetentionRemoveTimer != nil {
-		lm.prefixRetentionRemoveTimer.Stop()
-		timers = append(timers, lm.prefixRetentionRemoveTimer)
 	}
 	for _, inProg := range lm.inProgress {
 		if inProg.timer != nil {
@@ -324,18 +314,17 @@ func (lm *LevelManager) getOverlappingTables(keyStart []byte, keyEnd []byte, lev
 	return tables, nil
 }
 
-func (lm *LevelManager) GetTableIDsForRange(keyStart []byte, keyEnd []byte) (OverlappingTableIDs, uint64,
-	[]VersionRange, error) {
+func (lm *LevelManager) GetTableIDsForRange(keyStart []byte, keyEnd []byte) (OverlappingTableIDs, []VersionRange, error) {
 	lm.lock.RLock()
 	defer lm.lock.RUnlock()
 	if lm.state != stateActive {
-		return nil, 0, nil, errors.NewTektiteErrorf(errors.Unavailable, "levelManager not active")
+		return nil, nil, errors.NewTektiteErrorf(errors.Unavailable, "levelManager not active")
 	}
 	var overlapping OverlappingTableIDs
 	for level, entries := range lm.masterRecord.levelSegmentEntries {
 		tables, err := lm.getOverlappingTables(keyStart, keyEnd, level, entries.segmentEntries)
 		if err != nil {
-			return nil, 0, nil, err
+			return nil, nil, err
 		}
 		if level == 0 {
 			// Level 0 is overlapping
@@ -351,11 +340,10 @@ func (lm *LevelManager) GetTableIDsForRange(keyStart []byte, keyEnd []byte) (Ove
 			overlapping = append(overlapping, ssTableIDs)
 		}
 	}
-	// We return the level manager time too. This is used when filtering out expired prefixes on the caller side.
 	// And we return any dead version ranges, so the data for those versions can be filtered out
 	deadRanges := make([]VersionRange, len(lm.masterRecord.deadVersionRanges))
 	copy(deadRanges, lm.masterRecord.deadVersionRanges)
-	return overlapping, uint64(time.Now().UTC().UnixMilli()), deadRanges, nil
+	return overlapping, deadRanges, nil
 }
 
 func (lm *LevelManager) RegisterL0Tables(registrationBatch RegistrationBatch, completionFunc func(error)) {
@@ -893,17 +881,19 @@ func (lm *LevelManager) applyRegistrations(registrations []RegistrationEntry) er
 
 		log.Debugf("LevelManager registering new table %v (%s) from %s to %s in level %d",
 			registration.TableID, string(registration.TableID), string(registration.KeyStart), string(registration.KeyEnd), registration.Level)
+
 		// The new table entry that we're going to add
 		tabEntry := &TableEntry{
-			SSTableID:    registration.TableID,
-			RangeStart:   registration.KeyStart,
-			RangeEnd:     registration.KeyEnd,
-			MinVersion:   registration.MinVersion,
-			MaxVersion:   registration.MaxVersion,
-			DeleteRatio:  registration.DeleteRatio,
-			CreationTime: registration.CreationTime,
-			NumEntries:   registration.NumEntries,
-			Size:         registration.TableSize,
+			SSTableID:        registration.TableID,
+			RangeStart:       registration.KeyStart,
+			RangeEnd:         registration.KeyEnd,
+			MinVersion:       registration.MinVersion,
+			MaxVersion:       registration.MaxVersion,
+			DeleteRatio:      registration.DeleteRatio,
+			AddedTime:        registration.AddedTime,
+			NumEntries:       registration.NumEntries,
+			Size:             registration.TableSize,
+			NumPrefixDeletes: registration.NumPrefixDeletes,
 		}
 		entries := lm.getLevelSegmentEntries(registration.Level)
 		segmentEntries := entries.segmentEntries
@@ -973,6 +963,7 @@ func (lm *LevelManager) applyRegistrations(registrations []RegistrationEntry) er
 				}},
 				maxVersion: maxVersion,
 			}
+
 			lm.setLevelSegmentEntries(0, entries)
 		} else {
 
@@ -1235,66 +1226,6 @@ func (lm *LevelManager) scheduleTableDeleteTimer(first bool) {
 	})
 }
 
-func (lm *LevelManager) schedulePrefixRetentionRemoveTimer(first bool) {
-	lm.prefixRetentionRemoveTimer = common.ScheduleTimer(lm.conf.PrefixRetentionRemoveCheckInterval, first, func() {
-		err, ok := lm.maybeRemovePrefixRetentions()
-		if err != nil {
-			log.Warnf("failed to remove prefixRetentions: %v", err)
-		}
-		if !ok {
-			return
-		}
-		lm.lock.Lock()
-		defer lm.lock.Unlock()
-		lm.schedulePrefixRetentionRemoveTimer(false)
-	})
-}
-
-func (lm *LevelManager) maybeRemovePrefixRetentions() (error, bool) {
-	lm.prefixRetentionRemoveLock.Lock()
-	defer lm.prefixRetentionRemoveLock.Unlock()
-	// Make a copy under lock
-	lm.lock.Lock()
-	if lm.state == stateShutdown || lm.state == stateStopped {
-		lm.lock.Unlock()
-		return nil, false
-	}
-	prefixes := make([][]byte, 0, len(lm.masterRecord.prefixRetentions))
-	for prefix := range lm.masterRecord.prefixRetentions {
-		prefixes = append(prefixes, []byte(prefix))
-	}
-	lm.lock.Unlock()
-
-	// Now we query them outside the lock
-	prefixesToRemove := map[string]struct{}{}
-	for _, prefix := range prefixes {
-		rangeEnd := common.IncrementBytesBigEndian(prefix)
-		otids, _, _, err := lm.GetTableIDsForRange(prefix, rangeEnd)
-		if err != nil {
-			return err, false
-		}
-		if len(otids) == 0 {
-			// No keys with prefix exist in the database, we can remove the prefix
-			prefixesToRemove[common.ByteSliceToStringZeroCopy(prefix)] = struct{}{}
-		}
-	}
-	if len(prefixesToRemove) > 0 {
-		lm.lock.Lock()
-		newPrefixes := make(map[string]uint64, len(lm.masterRecord.prefixRetentions)-len(prefixesToRemove))
-		for prefix, ret := range lm.masterRecord.prefixRetentions {
-			_, remove := prefixesToRemove[prefix]
-			if !remove {
-				newPrefixes[prefix] = ret
-			}
-		}
-		lm.masterRecord.prefixRetentions = newPrefixes
-		lm.masterRecord.version++
-		lm.hasChanges = true
-		lm.lock.Unlock()
-	}
-	return nil, true
-}
-
 func (lm *LevelManager) maybeDeleteTables() {
 	lm.lock.Lock()
 	defer lm.lock.Unlock()
@@ -1444,10 +1375,19 @@ func hasOverlap(keyStart []byte, keyEnd []byte, blockKeyStart []byte, blockKeyEn
 	return !dontOverlap
 }
 
-func (lm *LevelManager) RegisterPrefixRetentions(prefixRetentions []retention.PrefixRetention, reprocess bool, replSeq int) error {
+func (lm *LevelManager) GetSlabRetention(slabID int) (time.Duration, error) {
 	lm.lock.Lock()
 	defer lm.lock.Unlock()
-	log.Debugf("in levelmanager RegisterPrefixRetentions. replseq %d", replSeq)
+	if lm.state != stateActive {
+		return 0, errors.NewTektiteErrorf(errors.Unavailable, "levelManager not active")
+	}
+	ret := time.Duration(lm.masterRecord.slabRetentions[uint64(slabID)])
+	return ret, nil
+}
+
+func (lm *LevelManager) RegisterSlabRetention(slabID int, retention time.Duration, reprocess bool, replSeq int) error {
+	lm.lock.Lock()
+	defer lm.lock.Unlock()
 	if err := lm.checkStateForCommand(reprocess); err != nil {
 		return err
 	}
@@ -1455,28 +1395,26 @@ func (lm *LevelManager) RegisterPrefixRetentions(prefixRetentions []retention.Pr
 		return nil
 	}
 	defer lm.updateReplSeq(replSeq)
-	for _, prefixRetention := range prefixRetentions {
-		lm.masterRecord.prefixRetentions[string(prefixRetention.Prefix)] = prefixRetention.Retention
-	}
+	lm.masterRecord.slabRetentions[uint64(slabID)] = uint64(retention)
 	lm.masterRecord.version++
 	lm.hasChanges = true
 	return nil
 }
 
-func (lm *LevelManager) GetPrefixRetentions() ([]retention.PrefixRetention, error) {
+func (lm *LevelManager) UnregisterSlabRetention(slabID int, reprocess bool, replSeq int) error {
 	lm.lock.Lock()
 	defer lm.lock.Unlock()
-	if lm.state != stateActive {
-		return nil, errors.NewTektiteErrorf(errors.Unavailable, "levelManager not active")
+	if err := lm.checkStateForCommand(reprocess); err != nil {
+		return err
 	}
-	prefixes := make([]retention.PrefixRetention, 0, len(lm.masterRecord.prefixRetentions))
-	for prefix, ret := range lm.masterRecord.prefixRetentions {
-		prefixes = append(prefixes, retention.PrefixRetention{
-			Prefix:    []byte(prefix),
-			Retention: ret,
-		})
+	if !lm.checkDuplicate(replSeq, reprocess) {
+		return nil
 	}
-	return prefixes, nil
+	defer lm.updateReplSeq(replSeq)
+	delete(lm.masterRecord.slabRetentions, uint64(slabID))
+	lm.masterRecord.version++
+	lm.hasChanges = true
+	return nil
 }
 
 func (lm *LevelManager) updateMasterRecordBufferSizeEstimate(buffSize int) {
@@ -1531,9 +1469,6 @@ func (lm *LevelManager) DumpLevelInfo() {
 }
 
 func (lm *LevelManager) dumpLevelInfo() {
-	if !log.DebugEnabled {
-		return
-	}
 	builder := strings.Builder{}
 	for level := range lm.masterRecord.levelSegmentEntries {
 		tableCount := lm.masterRecord.levelTableCounts[level]
@@ -1561,12 +1496,12 @@ func (lm *LevelManager) dump() {
 			}
 			log.Debugf("segment %v has %d table entries", segEntry.segmentID, len(seg.tableEntries))
 			for _, te := range seg.tableEntries {
-				log.Debugf("table entry sstableid %v (%s) range start %s range end %s", te.SSTableID, string(te.SSTableID),
-					string(te.RangeStart), string(te.RangeEnd))
+				log.Debugf("table entry sstableid %v (%s) range start %s range end %s deleteRatio %.2f hasDeletes %t", te.SSTableID, string(te.SSTableID),
+					string(te.RangeStart), string(te.RangeEnd), te.DeleteRatio, te.DeleteRatio > 0)
 			}
 		}
 	}
-	for prefix := range lm.masterRecord.prefixRetentions {
+	for prefix := range lm.masterRecord.slabRetentions {
 		log.Debugf("prefix %v", prefix)
 	}
 }

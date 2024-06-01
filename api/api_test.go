@@ -15,7 +15,6 @@ import (
 	"github.com/spirit-labs/tektite/encoding"
 	"github.com/spirit-labs/tektite/evbatch"
 	"github.com/spirit-labs/tektite/expr"
-	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/parser"
 	"github.com/spirit-labs/tektite/protos/clustermsgs"
 	"github.com/spirit-labs/tektite/remoting"
@@ -243,8 +242,6 @@ func TestWasmRegister(t *testing.T) {
 
 	moduleData := []byte("quwhdquwhdi")
 	encodedData := base64.StdEncoding.EncodeToString(moduleData)
-
-	log.Infof("encoded %v to %v", moduleData, []byte(encodedData))
 
 	registration := &WasmRegistration{
 		MetaData: wasm.ModuleMetadata{
@@ -665,8 +662,6 @@ func startServer(t *testing.T) (*HTTPAPIServer, *testQueryManager, *testCommandM
 	address, err := common.AddressWithPort("localhost")
 	require.NoError(t, err)
 
-	log.Infof("server address is %s", address)
-
 	server := NewHTTPAPIServer(address, "/tektite", queryMgr, commandMgr, parser.NewParser(nil), moduleManager, tlsConf)
 	err = server.Activate()
 	require.NoError(t, err)
@@ -948,9 +943,6 @@ func (t *testQueryManager) GetPreparedQueryParamSchema(string) *evbatch.EventSch
 type testCommandManager struct {
 	lock    sync.Mutex
 	command string
-}
-
-func (t *testCommandManager) SetPrefixRetentionService(command.PrefixRetention) {
 }
 
 func (t *testCommandManager) HandleClusterState(clustmgr.ClusterState) error {
