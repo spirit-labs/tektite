@@ -5,7 +5,7 @@ go 1.21
 toolchain go1.22.3
 
 require (
-	github.com/alecthomas/kong v0.2.17
+	github.com/alecthomas/kong v0.9.0
 	github.com/alecthomas/kong-hcl/v2 v2.0.0-20210826214724-5e9bf8bff126
 	github.com/alecthomas/participle/v2 v2.0.0
 	github.com/confluentinc/confluent-kafka-go v1.9.2
@@ -40,6 +40,7 @@ require (
 	github.com/tidwall/gjson v1.14.4
 	github.com/timandy/routine v1.1.1
 	go.etcd.io/etcd/client/v3 v3.5.9
+	golang.org/x/exp v0.0.0-20231219180239-dc181d75b848
 )
 
 require (
@@ -127,7 +128,6 @@ require (
 	go.opentelemetry.io/otel/trace v1.24.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	golang.org/x/crypto v0.19.0 // indirect
-	golang.org/x/exp v0.0.0-20231219180239-dc181d75b848 // indirect
 	golang.org/x/mod v0.16.0 // indirect
 	golang.org/x/sys v0.17.0 // indirect
 	golang.org/x/time v0.5.0 // indirect
