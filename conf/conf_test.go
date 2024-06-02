@@ -4,6 +4,7 @@ import (
 	"github.com/spirit-labs/tektite/errors"
 	"github.com/stretchr/testify/require"
 	"testing"
+	"time"
 )
 
 type configPair struct {
@@ -39,9 +40,27 @@ func invalidProcessorCountLevelManagerConf() Config {
 	return cnf
 }
 
+func invalidMaxBackfillBatchSize() Config {
+	cnf := validConf()
+	cnf.MaxBackfillBatchSize = 0
+	return cnf
+}
+
 func invalidMaxProcessorQueueSizeConf() Config {
 	cnf := validConf()
 	cnf.MaxProcessorBatchesInProgress = 0
+	return cnf
+}
+
+func invalidMinSnapshotInterval() Config {
+	cnf := validConf()
+	cnf.MinSnapshotInterval = 0
+	return cnf
+}
+
+func invalidIdleProcessorCheckInterval() Config {
+	cnf := validConf()
+	cnf.IdleProcessorCheckInterval = 0
 	return cnf
 }
 
@@ -117,6 +136,13 @@ func httpAPIServerTLSNotEnabled() Config {
 func httpAPIServerNoClientCerts() Config {
 	cnf := validConf()
 	cnf.HttpApiTlsConfig.ClientCertsPath = ""
+	return cnf
+}
+
+func adminConsoleNoAddresses() Config {
+	cnf := validConf()
+	cnf.AdminConsoleEnabled = true
+	cnf.AdminConsoleAddresses = []string{}
 	return cnf
 }
 
@@ -209,6 +235,55 @@ func invalidLockTimeoutConf() Config {
 	return cnf
 }
 
+func invalidClusterManagerKeyPrefix() Config {
+	cnf := validConf()
+	cnf.ClusterManagerKeyPrefix = ""
+	return cnf
+}
+
+func invalidClusterAddresses() Config {
+	cnf := validConf()
+	cnf.ClusterManagerAddresses = []string{}
+	return cnf
+}
+
+func invalidClusterEvictionTimeout() Config {
+	cnf := validConf()
+	cnf.ClusterEvictionTimeout = time.Millisecond
+	return cnf
+}
+
+func invalidClusterStateUpdateInterval() Config {
+	cnf := validConf()
+	cnf.ClusterStateUpdateInterval = time.Microsecond
+	return cnf
+}
+
+func invalidKafkaInitialJoinDelay() Config {
+	cnf := validConf()
+	cnf.KafkaInitialJoinDelay = -1
+	return cnf
+}
+
+func invalidKafkaMinSessionTimeout() Config {
+	cnf := validConf()
+	cnf.KafkaMinSessionTimeout = -1
+	return cnf
+}
+
+func invalidKafkaMaxSessionTimeout() Config {
+	cnf := validConf()
+	cnf.KafkaMaxSessionTimeout = -1
+	return cnf
+}
+
+func kafkaMaxSessionTimeoutLowerThanMinSessionTimeout() Config {
+	cnf := validConf()
+	cnf.KafkaMaxSessionTimeout = 2 * time.Second
+	cnf.KafkaMinSessionTimeout = 3 * time.Second
+	return cnf
+}
+
 var invalidConfigs = []configPair{
 	{"invalid configuration: node-id must be >= 0", invalidNodeIDConf()},
 	{"invalid configuration: node-id must be >= 0 and < length cluster-addresses", nodeIDOutOfRangeConf()},
@@ -216,7 +291,10 @@ var invalidConfigs = []configPair{
 	{"invalid configuration: cluster-name must be specified", invalidClusterNameConf()},
 	{"invalid configuration: processor-count must be > 0", invalidProcessorCountNoLevelManagerConf()},
 	{"invalid configuration: processor-count must be >= 0", invalidProcessorCountLevelManagerConf()},
+	{"invalid configuration: max-backfill-batch-size must be > 0", invalidMaxBackfillBatchSize()},
 	{"invalid configuration: max-processor-batches-in-progress must be > 0", invalidMaxProcessorQueueSizeConf()},
+	{"invalid configuration: min-snapshot-interval must be >= 1 millisecond", invalidMinSnapshotInterval()},
+	{"invalid configuration: idle-processor-check-interval must be >= 1 millisecond", invalidIdleProcessorCheckInterval()},
 	{"invalid configuration: memtable-flush-queue-max-size must be > 0", invalidMemtableFlushQueueMaxSizeConf()},
 	{"invalid configuration: memtable-max-replace-time must be >= 1 ms", invalidMemtableMaxReplaceTimeConf()},
 	{"invalid configuration: memtable-max-size-bytes must be > 0", invalidMemtableMaxSizeBytesConf()},
@@ -236,6 +314,8 @@ var invalidConfigs = []configPair{
 	{"invalid configuration: http-api-tls-enabled must be true if http-api-enabled is true", httpAPIServerTLSNotEnabled()},
 	{"invalid configuration: http-api-tls-client-certs-path must be provided if client auth is enabled", httpAPIServerNoClientCerts()},
 
+	{"invalid configuration: admin-console-addresses must be specified", adminConsoleNoAddresses()},
+
 	{"invalid configuration: cluster-tls-key-path must be specified if cluster-tls-enabled is true", intraClusterTLSKeyPathNotSpecifiedConfig()},
 	{"invalid configuration: cluster-tls-cert-path must be specified if cluster-tls-enabled is true", intraClusterTLSCertPathNotSpecifiedConfig()},
 	{"invalid configuration: cluster-tls-client-certs-path must be specified if cluster-tls-enabled is true", intraClusterTLSCAPathNotSpecifiedConfig()},
@@ -244,6 +324,15 @@ var invalidConfigs = []configPair{
 	{"invalid configuration: segment-cache-max-size must be >= 0", invalidSegmentCacheMaxSize()},
 
 	{"invalid configuration: cluster-manager-lock-timeout must be >= 1ms", invalidLockTimeoutConf()},
+	{"invalid configuration: cluster-manager-key-prefix must be specified", invalidClusterManagerKeyPrefix()},
+	{"invalid configuration: cluster-manager-addresses must be specified", invalidClusterAddresses()},
+	{"invalid configuration: cluster-eviction-timeout must be >= 1s", invalidClusterEvictionTimeout()},
+	{"invalid configuration: cluster-state-update-interval must be >= 1ms", invalidClusterStateUpdateInterval()},
+
+	{"invalid configuration: kafka-initial-join-delay must be >= 0", invalidKafkaInitialJoinDelay()},
+	{"invalid configuration: kafka-min-session-timeout must be >= 0", invalidKafkaMinSessionTimeout()},
+	{"invalid configuration: kafka-max-session-timeout must be >= 0", invalidKafkaMaxSessionTimeout()},
+	{"invalid configuration: kafka-max-session-timeout must be > kafka-min-session-timeout", kafkaMaxSessionTimeoutLowerThanMinSessionTimeout()},
 }
 
 func TestValidate(t *testing.T) {
