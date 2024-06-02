@@ -204,90 +204,109 @@ func TestDecimalComparison(t *testing.T) {
 	}
 }
 
-func TestAddSameScale(t *testing.T) {
-	d1 := Dec(123421, 10, 2)
-	d2 := Dec(211233, 10, 2)
-	dr, err := d1.Add(&d2)
-	require.NoError(t, err)
-	require.Equal(t, Dec(334654, 10, 2), dr)
-}
+func TestDecimalArithmetic(t *testing.T) {
+	type Want struct {
+		Add      Decimal
+		Subtract Decimal
+		Multiply Decimal
+		Divide   Decimal
+	}
+	tests := []struct {
+		name string
+		d1   Decimal
+		d2   Decimal
+		want Want
+	}{
+		{
+			name: "SamePrecScale__(+A),(+B)",
+			d1:   Dec(1234, 8, 2),
+			d2:   Dec(5678, 8, 2),
+			want: Want{
+				Add:      Dec(6912, 8, 2),
+				Subtract: Dec(-4444, 8, 2),
+				Multiply: Dec(7006652, 8, 4),
+				Divide:   Dec(21, 8, 2),
+			},
+		},
+		{
+			name: "DifferentPrecScale__(+A),(+B)",
+			d1:   Dec(123456, 9, 3),
+			d2:   Dec(789, 3, 2),
+			want: Want{
+				Add:      Dec(131346, 9, 3),
+				Subtract: Dec(115566, 9, 3),
+				Multiply: Dec(97406784, 9, 5),
+				Divide:   Dec(15647, 9, 3),
+			},
+		},
+		{
+			name: "SamePrecScale__(-A),(+B)",
+			d1:   Dec(-1234, 8, 2),
+			d2:   Dec(789, 8, 2),
+			want: Want{
+				Add:      Dec(-445, 8, 2),
+				Subtract: Dec(-2023, 8, 2),
+				Multiply: Dec(-973626, 8, 4),
+				Divide:   Dec(-156, 8, 2),
+			},
+		},
+		{
+			name: "DifferentPrecScale__(-A),(+B)",
+			d1:   Dec(-123456, 9, 3),
+			d2:   Dec(789, 3, 2),
+			want: Want{
+				Add:      Dec(-115566, 9, 3),
+				Subtract: Dec(-131346, 9, 3),
+				Multiply: Dec(-97406784, 9, 5),
+				Divide:   Dec(-15647, 9, 3),
+			},
+		},
+		{
+			name: "SamePrecScale__(-A),(-B)",
+			d1:   Dec(-1234, 8, 2),
+			d2:   Dec(-5678, 8, 2),
+			want: Want{
+				Add:      Dec(-6912, 8, 2),
+				Subtract: Dec(4444, 8, 2),
+				Multiply: Dec(7006652, 8, 4),
+				Divide:   Dec(21, 8, 2),
+			},
+		},
+		{
+			name: "DifferentPrecScale__(-A),(-B)",
+			d1:   Dec(-123456, 9, 3),
+			d2:   Dec(-789, 3, 2),
+			want: Want{
+				Add:      Dec(-131346, 9, 3),
+				Subtract: Dec(-115566, 9, 3),
+				Multiply: Dec(97406784, 9, 5),
+				Divide:   Dec(15647, 9, 3),
+			},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(
+			tc.name, func(t *testing.T) {
+				d1 := tc.d1
+				d2 := tc.d2
+				dr, err := d1.Add(&d2)
+				require.NoError(t, err, "%s + %s", d1.String(), d2.String())
+				require.Equal(t, tc.want.Add, dr, "%s + %s == %s", d1.String(), d2.String(), dr.String())
 
-func TestAddDifferentScale(t *testing.T) {
-	d1 := Dec(123421456, 10, 5)
-	d2 := Dec(211233, 10, 2)
-	dr, err := d1.Add(&d2)
-	require.NoError(t, err)
-	require.Equal(t, Dec(334654456, 10, 5), dr)
-}
+				dr, err = d1.Subtract(&d2)
+				require.NoError(t, err, "%s - %s", d1.String(), d2.String())
+				require.Equal(t, tc.want.Subtract, dr, "%s - %s == %s", d1.String(), d2.String(), dr.String())
 
-func TestSubtractSameScale(t *testing.T) {
-	d1 := Dec(123421, 10, 2)
-	d2 := Dec(211233, 10, 2)
-	dr, err := d2.Subtract(&d1)
-	require.NoError(t, err)
-	require.Equal(t, Dec(87812, 10, 2), dr)
-}
+				dr, err = d1.Multiply(&d2)
+				require.NoError(t, err, "%s * %s", d1.String(), d2.String())
+				require.Equal(t, tc.want.Multiply, dr, "%s * %s == %s", d1.String(), d2.String(), dr.String())
 
-func TestSubtractDifferentScale(t *testing.T) {
-	d1 := Dec(123421456, 10, 5)
-	d2 := Dec(211233, 10, 2)
-	dr, err := d2.Subtract(&d1)
-	require.NoError(t, err)
-	require.Equal(t, Dec(87811544, 10, 5), dr)
-}
-
-func TestMultiplySameScale(t *testing.T) {
-	d1 := Dec(123421, 38, 2)
-	d2 := Dec(211233, 38, 2)
-	dr, err := d1.Multiply(&d2)
-	require.NoError(t, err)
-	require.Equal(t, Dec(26070588093, 38, 4), dr)
-}
-
-func TestMultiplyDifferentScale(t *testing.T) {
-	d1 := Dec(123421765, 38, 5)
-	d2 := Dec(211233, 38, 2)
-	dr, err := d1.Multiply(&d2)
-	require.NoError(t, err)
-	require.Equal(t, Dec(26070749686245, 38, 7), dr)
-}
-
-func TestDivide(t *testing.T) {
-	d1 := Dec(333333, 38, 2)
-	d2 := Dec(300, 38, 2)
-	dr, err := d1.Divide(&d2)
-	require.NoError(t, err)
-	require.Equal(t, Dec(111111, 38, 2), dr)
-
-	d1 = Dec(444444, 38, 2)
-	d2 = Dec(200, 38, 2)
-	dr, err = d1.Divide(&d2)
-	require.NoError(t, err)
-	require.Equal(t, Dec(222222, 38, 2), dr)
-
-	d1 = Dec(1111, 38, 2)
-	d2 = Dec(25, 38, 2)
-	dr, err = d1.Divide(&d2)
-	require.NoError(t, err)
-	require.Equal(t, Dec(4444, 38, 2), dr)
-
-	d1 = Dec(333333, 38, 5)
-	d2 = Dec(300, 38, 2)
-	dr, err = d1.Divide(&d2)
-	require.NoError(t, err)
-	require.Equal(t, Dec(111111, 38, 5), dr)
-
-	d1 = Dec(1111, 38, 4)
-	d2 = Dec(25, 38, 2)
-	dr, err = d1.Divide(&d2)
-	require.NoError(t, err)
-	require.Equal(t, Dec(4444, 38, 4), dr)
-
-	d1 = Dec(1111, 38, 4)
-	d2 = Dec(25, 38, 2)
-	dr, err = d1.Divide(&d2)
-	require.NoError(t, err)
-	require.Equal(t, Dec(4444, 38, 4), dr)
+				dr, err = d1.Divide(&d2)
+				require.NoError(t, err, "%s / %s", d1.String(), d2.String())
+				require.Equal(t, tc.want.Divide, dr, "%s / %s == %s", d1.String(), d2.String(), dr.String())
+			},
+		)
+	}
 }
 
 func TestAddDoesNotFitInPrecision(t *testing.T) {
