@@ -21,17 +21,21 @@ type SSTable struct {
 	indexOffset  uint32
 	creationTime uint64
 
-	//  data contains
+	//  data
+	//  Initial 5 bytes contain format and metadataOffset
 	//  ╭──────┬──────────────╮
 	//  │format│metadataOffset│
 	//  ├──────┼──────────────┤
 	//  │1 byte│ 4 bytes      │
 	//  ╰──────┴──────────────╯
+	//  Then we have key-value pairs with length prefix
 	//  ╭─────────┬────────────────┬────────────┬──────────────────╮
 	//  │keyLength│ key            │ valueLength│ value            │
-	//  ├─────────┼────────────────┼────────────┼──────────────────┤ ... repeat KV pairs
+	//  ├─────────┼────────────────┼────────────┼──────────────────┤ ... repeat key-value pairs
 	//  │4 bytes  │ keyLength bytes│ 4 bytes    │ valueLength bytes│
 	//  ╰─────────┴────────────────┴────────────┴──────────────────╯
+	//  Then we have 'index' which maps each key to its offset in the above key-value pairs
+	//  SSTable.indexOffset refers to this point where 'index' begins
 	//  ╭───────────────────────────────────────────┬──────────╮
 	//  │key + (padding if keyLength < maxKeyLength)│ keyOffset│
 	//  ├───────────────────────────────────────────┼──────────┤ ... repeat Key and offset pairs
