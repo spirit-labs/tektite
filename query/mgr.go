@@ -13,7 +13,7 @@ import (
 	"github.com/spirit-labs/tektite/opers"
 	"github.com/spirit-labs/tektite/parser"
 	"github.com/spirit-labs/tektite/proc"
-	"github.com/spirit-labs/tektite/protos/v1/clustermsgs"
+	"github.com/spirit-labs/tektite/protos/clustermsgs"
 	"github.com/spirit-labs/tektite/remoting"
 	"github.com/spirit-labs/tektite/types"
 	"sync"

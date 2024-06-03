@@ -3,7 +3,7 @@ package levels
 import (
 	"encoding/binary"
 	"github.com/spirit-labs/tektite/errors"
-	"github.com/spirit-labs/tektite/protos/v1/clustermsgs"
+	"github.com/spirit-labs/tektite/protos/clustermsgs"
 	"github.com/spirit-labs/tektite/remoting"
 	"github.com/spirit-labs/tektite/retention"
 )

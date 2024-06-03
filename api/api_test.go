@@ -16,7 +16,7 @@ import (
 	"github.com/spirit-labs/tektite/expr"
 	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/parser"
-	"github.com/spirit-labs/tektite/protos/v1/clustermsgs"
+	"github.com/spirit-labs/tektite/protos/clustermsgs"
 	"github.com/spirit-labs/tektite/remoting"
 	"github.com/spirit-labs/tektite/testutils"
 	"github.com/spirit-labs/tektite/types"

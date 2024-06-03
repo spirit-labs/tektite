@@ -4,7 +4,7 @@ import (
 	"errors"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/conf"
-	"github.com/spirit-labs/tektite/protos/v1/clustermsgs"
+	"github.com/spirit-labs/tektite/protos/clustermsgs"
 	"github.com/spirit-labs/tektite/remoting"
 	"github.com/spirit-labs/tektite/vmgr"
 	"sync/atomic"
