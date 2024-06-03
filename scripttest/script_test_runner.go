@@ -13,7 +13,7 @@ import (
 	"github.com/spirit-labs/tektite/errors"
 	"github.com/spirit-labs/tektite/kafka/fake"
 	"github.com/spirit-labs/tektite/objstore/dev"
-	"github.com/spirit-labs/tektite/protos/v1/clustermsgs"
+	"github.com/spirit-labs/tektite/protos/clustermsgs"
 	"github.com/spirit-labs/tektite/shutdown"
 	"github.com/spirit-labs/tektite/tekclient"
 	"github.com/spirit-labs/tektite/testutils"
