@@ -20,8 +20,37 @@ type SSTable struct {
 	numDeletes   uint32
 	indexOffset  uint32
 	creationTime uint64
-	data         []byte
+
+	//  data
+	//  Initial 5 bytes contain format and metadataOffset
+	//  ╭──────┬──────────────╮
+	//  │format│metadataOffset│
+	//  ├──────┼──────────────┤
+	//  │1 byte│ 4 bytes      │
+	//  ╰──────┴──────────────╯
+	//  Then we have key-value pairs with length prefix
+	//  ╭─────────┬────────────────┬────────────┬──────────────────╮
+	//  │keyLength│ key            │ valueLength│ value            │
+	//  ├─────────┼────────────────┼────────────┼──────────────────┤ ... repeat key-value pairs
+	//  │4 bytes  │ keyLength bytes│ 4 bytes    │ valueLength bytes│
+	//  ╰─────────┴────────────────┴────────────┴──────────────────╯
+	//  Then we have 'index' which maps each key to its offset in the above key-value pairs
+	//  SSTable.indexOffset refers to this point where 'index' begins
+	//  ╭───────────────────────────────────────────┬──────────╮
+	//  │key + (padding if keyLength < maxKeyLength)│ keyOffset│
+	//  ├───────────────────────────────────────────┼──────────┤ ... repeat Key and offset pairs
+	//  │maxKeyLength bytes                         │ 4 bytes  │
+	//  ╰───────────────────────────────────────────┴──────────╯
+	data []byte
 }
+
+// metadata contains
+// ╭────────────┬───────────┬───────────┬────────────┬─────────────╮
+// │maxKeyLength│ numEntries│ numDeletes│ indexOffset│ creationTime│
+// ├────────────┼───────────┼───────────┼────────────┼─────────────┤
+// │4 bytes     │ 4 bytes   │ 4 bytes   │ 4 bytes    │ 8 bytes     │
+// ╰────────────┴───────────┴───────────┴────────────┴─────────────╯
+const metadataSize = 24
 
 func BuildSSTable(format common.DataFormat, buffSizeEstimate int, entriesEstimate int,
 	iter iteration.Iterator) (*SSTable, []byte, []byte, uint64, uint64, error) {
@@ -152,12 +181,12 @@ func (s *SSTable) Deserialize(buff []byte, offset int) int {
 	s.numDeletes, offset = encoding.ReadUint32FromBufferLE(buff, offset)
 	s.indexOffset, offset = encoding.ReadUint32FromBufferLE(buff, offset)
 	s.creationTime, offset = encoding.ReadUint64FromBufferLE(buff, offset)
-	s.data = buff[:len(buff)-24]
+	s.data = buff[:len(buff)-metadataSize]
 	return offset
 }
 
 func (s *SSTable) SizeBytes() int {
-	return len(s.data) + 24
+	return len(s.data) + metadataSize
 }
 
 func (s *SSTable) NumEntries() int {
