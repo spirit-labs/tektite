@@ -3,7 +3,7 @@ package command
 import (
 	"github.com/spirit-labs/tektite/conf"
 	log "github.com/spirit-labs/tektite/logger"
-	"github.com/spirit-labs/tektite/protos/v1/clustermsgs"
+	"github.com/spirit-labs/tektite/protos/clustermsgs"
 	"github.com/spirit-labs/tektite/remoting"
 )
 

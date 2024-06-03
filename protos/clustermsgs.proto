@@ -1,8 +1,6 @@
 syntax = "proto3";
 
-package spiritlabs.tektite.clustermsgs.v1;
-
-option go_package = "github.com/spirit-labs/tektite/protos/v1/clustermsgs";
+option go_package = "clustermsgs/";
 
 // Processor manager messages
 
