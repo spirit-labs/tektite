@@ -22,9 +22,15 @@ const (
 	serverCertPath = "testdata/servercert.pem"
 )
 
+var etcdAddress string
+
 func TestMain(m *testing.M) {
-	testutils.RequireEtcd()
-	defer testutils.ReleaseEtcd()
+	etcd, err := testutils.CreateEtcdContainer()
+	if err != nil {
+		panic(err)
+	}
+	etcdAddress = etcd.Address()
+	defer etcd.Stop()
 	m.Run()
 }
 
@@ -68,6 +74,7 @@ func startClusterWithConfigSetter(t *testing.T, numServers int, fk *fake.Kafka, 
 	cfg.LevelManagerEnabled = true
 	cfg.MinSnapshotInterval = 100 * time.Millisecond
 	cfg.CompactionWorkersEnabled = true
+	cfg.ClusterManagerAddresses = []string{etcdAddress}
 
 	// In real life don't want to set this so low otherwise cluster state will be calculated when just one node
 	// is started with all leaders

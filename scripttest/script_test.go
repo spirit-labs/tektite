@@ -11,7 +11,7 @@ func TestScriptStandalone(t *testing.T) {
 	if testing.Short() {
 		t.Skip("-short: skipped")
 	}
-	testScript(t, 1, 1, false, tlsKeysInfo)
+	testScript(t, 1, 1, false, tlsKeysInfo, etcdAddress)
 }
 
 func TestScriptThreeNodes(t *testing.T) {
@@ -19,7 +19,7 @@ func TestScriptThreeNodes(t *testing.T) {
 	if testing.Short() {
 		t.Skip("-short: skipped")
 	}
-	testScript(t, 3, 3, false, tlsKeysInfo)
+	testScript(t, 3, 3, false, tlsKeysInfo, etcdAddress)
 }
 
 //	func TestScriptFiveNodes(t *testing.T) {

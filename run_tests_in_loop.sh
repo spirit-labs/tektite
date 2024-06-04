@@ -1,8 +1,5 @@
 #!/bin/bash
 
-rm testutils/*.txt; rm testutils/*.lock
-pkill etcd
-
 iteration=0
 
 date > test-results.log
