@@ -438,8 +438,9 @@ func setupServers(t *testing.T, fk *fake.Kafka) ([]*server.Server, func(t *testi
 		cfg.KafkaServerEnabled = true
 		var kafkaListenAddresses []string
 		for i := 0; i < 3; i++ {
-			port := testutils.PortProvider.GetPort(t)
-			kafkaListenAddresses = append(kafkaListenAddresses, fmt.Sprintf("localhost:%d", port))
+			address, err := common.AddressWithPort("localhost")
+			require.NoError(t, err)
+			kafkaListenAddresses = append(kafkaListenAddresses, address)
 		}
 		cfg.KafkaServerAddresses = kafkaListenAddresses
 		cfg.MinSnapshotInterval = 1 * time.Second

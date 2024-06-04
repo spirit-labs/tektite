@@ -34,10 +34,10 @@ func startCluster(t *testing.T, numServers int, fk *fake.Kafka) ([]*server.Serve
 
 func startClusterWithConfigSetter(t *testing.T, numServers int, fk *fake.Kafka, configSetter func(cfg *conf.Config)) ([]*server.Server, func(t *testing.T)) {
 	common.RequireDebugServer(t)
-	objStorePort := testutils.PortProvider.GetPort(t)
-	objStoreAddress := fmt.Sprintf("localhost:%d", objStorePort)
+	objStoreAddress, err := common.AddressWithPort("localhost")
+	require.NoError(t, err)
 	objStore := dev.NewDevStore(objStoreAddress)
-	err := objStore.Start()
+	err = objStore.Start()
 	require.NoError(t, err)
 
 	tlsConf := conf.TLSConfig{
@@ -50,10 +50,12 @@ func startClusterWithConfigSetter(t *testing.T, numServers int, fk *fake.Kafka, 
 	var remotingAddresses []string
 	var httpServerListenAddresses []string
 	for i := 0; i < numServers; i++ {
-		remotingPort := testutils.PortProvider.GetPort(t)
-		remotingAddresses = append(remotingAddresses, fmt.Sprintf("127.0.0.1:%d", remotingPort))
-		httpPort := testutils.PortProvider.GetPort(t)
-		httpServerListenAddresses = append(httpServerListenAddresses, fmt.Sprintf("127.0.0.1:%d", httpPort))
+		remotingAddress, err := common.AddressWithPort("localhost")
+		require.NoError(t, err)
+		remotingAddresses = append(remotingAddresses, remotingAddress)
+		apiAddress, err := common.AddressWithPort("localhost")
+		require.NoError(t, err)
+		httpServerListenAddresses = append(httpServerListenAddresses, apiAddress)
 	}
 
 	cfg := conf.Config{}

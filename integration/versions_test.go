@@ -1,8 +1,8 @@
 package integration
 
 import (
-	"fmt"
 	"github.com/spirit-labs/tektite/clustmgr"
+	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/conf"
 	"github.com/spirit-labs/tektite/evbatch"
 	"github.com/spirit-labs/tektite/levels"
@@ -43,9 +43,14 @@ func TestSnapshotVersions(t *testing.T) {
 
 	seqMgr := sequence.NewInMemSequenceManager()
 
-	remotingAddresses := []string{fmt.Sprintf("localhost:%d", testutils.PortProvider.GetPort(t)),
-		fmt.Sprintf("localhost:%d", testutils.PortProvider.GetPort(t)),
-		fmt.Sprintf("localhost:%d", testutils.PortProvider.GetPort(t))}
+	remotingAddress1, err := common.AddressWithPort("localhost")
+	require.NoError(t, err)
+	remotingAddress2, err := common.AddressWithPort("localhost")
+	require.NoError(t, err)
+	remotingAddress3, err := common.AddressWithPort("localhost")
+	require.NoError(t, err)
+
+	remotingAddresses := []string{remotingAddress1, remotingAddress2, remotingAddress3}
 
 	schema := evbatch.NewEventSchema([]string{"id"}, []types.ColumnType{types.ColumnTypeInt})
 	numProcessors := 12

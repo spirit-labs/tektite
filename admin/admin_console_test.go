@@ -3,6 +3,7 @@ package admin
 import (
 	"fmt"
 	"github.com/spirit-labs/tektite/clustmgr"
+	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/conf"
 	"github.com/spirit-labs/tektite/levels"
 	"github.com/spirit-labs/tektite/mem"
@@ -11,7 +12,6 @@ import (
 	"github.com/spirit-labs/tektite/proc"
 	"github.com/spirit-labs/tektite/remoting"
 	"github.com/spirit-labs/tektite/retention"
-	"github.com/spirit-labs/tektite/testutils"
 	"github.com/spirit-labs/tektite/vmgr"
 	"github.com/stretchr/testify/require"
 	"io"
@@ -23,6 +23,10 @@ const (
 	serverKeyPath  = "testdata/serverkey.pem"
 	serverCertPath = "testdata/servercert.pem"
 )
+
+func init() {
+	common.EnableTestPorts()
+}
 
 func TestGetDatabaseStats(t *testing.T) {
 	var stats levels.Stats
@@ -673,8 +677,8 @@ func testAdminConsole(t *testing.T, path string, stats levels.Stats, kafkaEndpoi
 		cfg.ApplyDefaults()
 	}
 
-	port := testutils.PortProvider.GetPort(t)
-	address := fmt.Sprintf("localhost:%d", port)
+	address, err := common.AddressWithPort("localhost")
+	require.NoError(t, err)
 	cfg.AdminConsoleEnabled = true
 	cfg.AdminConsoleAddresses = []string{address}
 

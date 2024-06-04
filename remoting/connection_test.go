@@ -2,6 +2,7 @@ package remoting
 
 import (
 	"fmt"
+	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/conf"
 	"github.com/spirit-labs/tektite/errors"
 	log "github.com/spirit-labs/tektite/logger"
@@ -20,6 +21,10 @@ const (
 	serverCertPath = "testdata/servercert.pem"
 	serverKeyPath  = "testdata/serverkey.pem"
 )
+
+func init() {
+	common.EnableTestPorts()
+}
 
 func TestSendRequest(t *testing.T) {
 	list := &echoListener{}
@@ -257,9 +262,12 @@ func startServerWithHandler(t *testing.T, handler BlockingClusterMessageHandler,
 
 func startServerWithHandlerAndAddresss(t *testing.T, handler BlockingClusterMessageHandler, tlsConf conf.TLSConfig) *server {
 	t.Helper()
-	address := fmt.Sprintf("localhost:%d", testutils.PortProvider.GetPort(t))
+
+	address, err := common.AddressWithPort("localhost")
+	require.NoError(t, err)
+
 	server := newServer(address, tlsConf)
-	err := server.Start()
+	err = server.Start()
 	require.NoError(t, err)
 	server.RegisterBlockingMessageHandler(ClusterMessageRemotingTestMessage, handler)
 	return server

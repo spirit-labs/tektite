@@ -1,7 +1,6 @@
 package integration
 
 import (
-	"fmt"
 	"github.com/spirit-labs/tektite/clustmgr"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/conf"
@@ -48,7 +47,9 @@ func TestLevelManagerCluster(t *testing.T) {
 	numNodes := 3
 	remotingAddresses := make([]string, numNodes)
 	for i := 0; i < numNodes; i++ {
-		remotingAddresses[i] = fmt.Sprintf("localhost:%d", 7830+i)
+		address, err := common.AddressWithPort("localhost")
+		require.NoError(t, err)
+		remotingAddresses[i] = address
 	}
 
 	var mgrs []proc.Manager

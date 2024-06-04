@@ -108,7 +108,10 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/cluster", s.ServeCluster)
 
 	listenAddress := s.cfg.AdminConsoleAddresses[s.cfg.NodeID]
-	s.listener, err = net.Listen("tcp", listenAddress)
+	s.listener, err = common.Listen("tcp", listenAddress)
+	if err != nil {
+		return err
+	}
 	s.closeWg = sync.WaitGroup{}
 	s.closeWg.Add(1)
 	common.Go(func() {

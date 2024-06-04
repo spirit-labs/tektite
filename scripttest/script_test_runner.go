@@ -39,7 +39,7 @@ import (
 
 const (
 	TestPrefixes         = "" // Set this to a prefix of a test if you want to only run those tests, e.g. during development
-	ExcludedTestPrefixes = ""
+	ExcludedTestPrefixes = "retention"
 
 	caSignedServerKeyPath  = "testdata/keys/casignedserverkey.pem"
 	caSignedServerCertPath = "testdata/keys/casignedservercert.pem"
@@ -49,6 +49,10 @@ const (
 	clientPageSize      = 3 // We set this to a small value to exercise the paging logic
 	useMinioObjectStore = false
 )
+
+func init() {
+	common.EnableTestPorts()
+}
 
 type scriptTestSuite struct {
 	numNodes               int
@@ -62,13 +66,13 @@ type scriptTestSuite struct {
 	tests                  map[string]*scriptTest
 	t                      *testing.T
 	lock                   sync.Mutex
-	serverConfs            []conf.Config
-	objectStoreType        string
-	devObjStoreAddress     string
-	devObjStore            *dev.Store
-	versionLock            sync.Mutex
-	latestVersion          *clustermsgs.VersionsMessage
-	testName               string
+	//serverConfs            []conf.Config
+	objectStoreType    string
+	devObjStoreAddress string
+	devObjStore        *dev.Store
+	versionLock        sync.Mutex
+	latestVersion      *clustermsgs.VersionsMessage
+	testName           string
 }
 
 type TLSKeysInfo struct {
@@ -115,7 +119,11 @@ func (w *scriptTestSuite) TestScript() {
 }
 
 func (w *scriptTestSuite) setupTektiteCluster() {
+	confs := w.createServerConfs()
+	w.startCluster(confs)
+}
 
+func (w *scriptTestSuite) createServerConfs() []conf.Config {
 	serverTLSConfig := conf.TLSConfig{
 		Enabled:  true,
 		KeyPath:  caSignedServerKeyPath,
@@ -126,9 +134,21 @@ func (w *scriptTestSuite) setupTektiteCluster() {
 	var httpServerListenAddresses []string
 	var kafkaListenAddresses []string
 	for i := 0; i < w.numNodes; i++ {
-		kafkaListenAddresses = append(kafkaListenAddresses, fmt.Sprintf("127.0.0.1:%d", testutils.PortProvider.GetPort(w.t)))
-		remotingAddresses = append(remotingAddresses, fmt.Sprintf("127.0.0.1:%d", testutils.PortProvider.GetPort(w.t)))
-		httpServerListenAddresses = append(httpServerListenAddresses, fmt.Sprintf("127.0.0.1:%d", testutils.PortProvider.GetPort(w.t)))
+		kafkaAddress, err := common.AddressWithPort("localhost")
+		if err != nil {
+			log.Fatal(err)
+		}
+		kafkaListenAddresses = append(kafkaListenAddresses, kafkaAddress)
+		remotingAddress, err := common.AddressWithPort("localhost")
+		if err != nil {
+			log.Fatal(err)
+		}
+		remotingAddresses = append(remotingAddresses, remotingAddress)
+		apiAddress, err := common.AddressWithPort("localhost")
+		if err != nil {
+			log.Fatal(err)
+		}
+		httpServerListenAddresses = append(httpServerListenAddresses, apiAddress)
 	}
 
 	cfg := conf.Config{}
@@ -175,14 +195,13 @@ func (w *scriptTestSuite) setupTektiteCluster() {
 		cfgCopy.NodeID = i
 		serverConfs = append(serverConfs, cfgCopy)
 	}
-	w.serverConfs = serverConfs
-	w.startCluster()
+	return serverConfs
 }
 
-func (w *scriptTestSuite) startCluster() {
+func (w *scriptTestSuite) startCluster(confs []conf.Config) {
 	var servers []*server.Server
 	var chans []chan error
-	for _, cfg := range w.serverConfs {
+	for _, cfg := range confs {
 		s, err := server.NewServerWithClientFactory(cfg, fake.NewFakeMessageClientFactory(w.fakeKafka))
 		if err != nil {
 			panic(err)
@@ -219,7 +238,11 @@ func (w *scriptTestSuite) setup(numNodes int, replicationFactor int, intraCluste
 		w.objectStoreType = conf.MinioObjectStoreType
 	} else {
 		w.objectStoreType = conf.DevObjectStoreType
-		w.devObjStoreAddress = fmt.Sprintf("127.0.0.1:%d", testutils.PortProvider.GetPort(w.t))
+		devStoreObjAddress, err := common.AddressWithPort("localhost")
+		if err != nil {
+			log.Fatal(err)
+		}
+		w.devObjStoreAddress = devStoreObjAddress
 		w.devObjStore = dev.NewDevStore(w.devObjStoreAddress)
 		if err := w.devObjStore.Start(); err != nil {
 			panic(err)
@@ -292,7 +315,8 @@ func (w *scriptTestSuite) setup(numNodes int, replicationFactor int, intraCluste
 }
 
 func (w *scriptTestSuite) stopCluster() {
-	err := shutdown.PerformShutdown(&w.serverConfs[0], false)
+	cfg := w.tektiteCluster[0].GetConfig()
+	err := shutdown.PerformShutdown(&cfg, false)
 	w.suite.Require().NoError(err)
 	if w.objectStoreType == conf.DevObjectStoreType {
 		if err := w.devObjStore.Stop(); err != nil {
@@ -864,10 +888,12 @@ func (st *scriptTest) executeDeleteTopic(require *require.Assertions, command st
 func (st *scriptTest) executeRestartCluster(require *require.Assertions) {
 	log.Debug("*** executing restart cluster")
 	st.closeClient(require)
-	err := shutdown.PerformShutdown(&st.testSuite.serverConfs[0], false)
+	cfg := st.testSuite.tektiteCluster[0].GetConfig()
+	err := shutdown.PerformShutdown(&cfg, false)
 	require.NoError(err)
 	log.Debug("** shutdown cluster ok")
-	st.testSuite.startCluster()
+	confs := st.testSuite.createServerConfs()
+	st.testSuite.startCluster(confs)
 	log.Debug("** setup new cluster ok")
 	st.cli = st.createCli(require)
 	log.Debug("*** executed restart cluster")

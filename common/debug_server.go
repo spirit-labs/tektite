@@ -1,18 +1,17 @@
 package common
 
 import (
-	"fmt"
 	log "github.com/spirit-labs/tektite/logger"
-	"github.com/spirit-labs/tektite/testutils"
+	"github.com/stretchr/testify/require"
 	"net/http"
 	_ "net/http/pprof"
 	"testing"
 )
 
 func RequireDebugServer(t *testing.T) {
-	debugPort := testutils.PortProvider.GetPort(t)
-	address := fmt.Sprintf("localhost:%d", debugPort)
-
+	EnableTestPorts()
+	address, err := AddressWithPort("localhost")
+	require.NoError(t, err)
 	go func() {
 		// Start a profiling server
 		log.Debug(http.ListenAndServe(address, nil))

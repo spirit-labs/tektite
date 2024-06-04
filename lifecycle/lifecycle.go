@@ -5,7 +5,6 @@ import (
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/conf"
 	log "github.com/spirit-labs/tektite/logger"
-	"net"
 	"net/http"
 )
 
@@ -45,7 +44,7 @@ func (e *Endpoints) Start() error {
 
 	e.server = &http.Server{Addr: e.conf.LifeCycleAddress, Handler: sm}
 
-	ln, err := net.Listen("tcp", e.conf.LifeCycleAddress)
+	ln, err := common.Listen("tcp", e.conf.LifeCycleAddress)
 	if err != nil {
 		return err
 	}

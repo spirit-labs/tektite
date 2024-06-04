@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -21,6 +22,8 @@ import (
 )
 
 var (
+	_, b, _, _           = runtime.Caller(0)
+	thisDir              = filepath.Dir(b)
 	etcdLockPath         = filepath.Join(thisDir, "tektite_etcd_service.lock")
 	etcdRefCountFilePath = filepath.Join(thisDir, "tektite_etcd_refcount.txt")
 	etcdPidFilePath      = filepath.Join(thisDir, "tektite_etcd_pid.txt")

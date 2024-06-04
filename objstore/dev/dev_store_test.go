@@ -1,19 +1,23 @@
 package dev
 
 import (
-	"fmt"
+	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/errors"
-	"github.com/spirit-labs/tektite/testutils"
 	"github.com/stretchr/testify/require"
 	"testing"
 )
 
+func init() {
+	common.EnableTestPorts()
+}
+
 func TestDevStore(t *testing.T) {
 
-	address := fmt.Sprintf("localhost:%d", testutils.PortProvider.GetPort(t))
+	address, err := common.AddressWithPort("localhost")
+	require.NoError(t, err)
 
 	devStore := NewDevStore(address)
-	err := devStore.Start()
+	err = devStore.Start()
 	require.NoError(t, err)
 
 	devClient := NewDevStoreClient(address)
@@ -65,14 +69,21 @@ func TestDevStore(t *testing.T) {
 
 func TestDevStoreUnavailable(t *testing.T) {
 
-	address := fmt.Sprintf("localhost:%d", testutils.PortProvider.GetPort(t))
+	address, err := common.AddressWithPort("localhost")
+	require.NoError(t, err)
+
+	devStore := NewDevStore(address)
+	err = devStore.Start()
+	require.NoError(t, err)
+	err = devStore.Stop()
+	require.NoError(t, err)
 
 	devClient := NewDevStoreClient(address)
 
 	//goland:noinspection GoUnhandledErrorResult
 	defer devClient.Stop()
 
-	_, err := devClient.Get([]byte("key1"))
+	_, err = devClient.Get([]byte("key1"))
 	require.Error(t, err)
 	var perr errors.TektiteError
 	if errors.As(err, &perr) {

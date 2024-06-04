@@ -4,6 +4,7 @@ import (
 	crand "crypto/rand"
 	"fmt"
 	kafkago "github.com/confluentinc/confluent-kafka-go/kafka"
+	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/conf"
 	"github.com/spirit-labs/tektite/tekclient"
 	"github.com/spirit-labs/tektite/testutils"
@@ -12,6 +13,10 @@ import (
 	"testing"
 	"time"
 )
+
+func init() {
+	common.EnableTestPorts()
+}
 
 func TestCompaction(t *testing.T) {
 	t.Parallel()
@@ -23,7 +28,9 @@ func TestCompaction(t *testing.T) {
 		cfg.KafkaServerEnabled = true
 		var kafkaListenAddresses []string
 		for i := 0; i < 3; i++ {
-			kafkaListenAddresses = append(kafkaListenAddresses, fmt.Sprintf("localhost:%d", testutils.PortProvider.GetPort(t)))
+			address, err := common.AddressWithPort("localhost")
+			require.NoError(t, err)
+			kafkaListenAddresses = append(kafkaListenAddresses, address)
 		}
 		cfg.KafkaServerAddresses = kafkaListenAddresses
 		cfg.MemtableMaxSizeBytes = 100 * 1024

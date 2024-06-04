@@ -10,6 +10,7 @@ import (
 	"github.com/apache/arrow/go/v11/arrow/decimal128"
 	"github.com/spirit-labs/tektite/clustmgr"
 	"github.com/spirit-labs/tektite/command"
+	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/conf"
 	"github.com/spirit-labs/tektite/encoding"
 	"github.com/spirit-labs/tektite/evbatch"
@@ -18,7 +19,6 @@ import (
 	"github.com/spirit-labs/tektite/parser"
 	"github.com/spirit-labs/tektite/protos/clustermsgs"
 	"github.com/spirit-labs/tektite/remoting"
-	"github.com/spirit-labs/tektite/testutils"
 	"github.com/spirit-labs/tektite/types"
 	"github.com/spirit-labs/tektite/wasm"
 	"github.com/stretchr/testify/require"
@@ -35,6 +35,10 @@ const (
 	serverKeyPath  = "testdata/serverkey.pem"
 	serverCertPath = "testdata/servercert.pem"
 )
+
+func init() {
+	common.EnableTestPorts()
+}
 
 func TestExecuteCreateStream(t *testing.T) {
 	stmt := `test_stream :=
@@ -657,9 +661,14 @@ func startServer(t *testing.T) (*HTTPAPIServer, *testQueryManager, *testCommandM
 	queryMgr := &testQueryManager{}
 	commandMgr := &testCommandManager{}
 	moduleManager := &testWasmModuleManager{}
-	address := fmt.Sprintf("localhost:%d", testutils.PortProvider.GetPort(t))
+
+	address, err := common.AddressWithPort("localhost")
+	require.NoError(t, err)
+
+	log.Infof("server address is %s", address)
+
 	server := NewHTTPAPIServer(address, "/tektite", queryMgr, commandMgr, parser.NewParser(nil), moduleManager, tlsConf)
-	err := server.Activate()
+	err = server.Activate()
 	require.NoError(t, err)
 	return server, queryMgr, commandMgr, moduleManager
 }
