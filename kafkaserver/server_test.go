@@ -3,25 +3,30 @@ package kafkaserver
 import (
 	"fmt"
 	"github.com/confluentinc/confluent-kafka-go/kafka"
+	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/conf"
 	"github.com/spirit-labs/tektite/evbatch"
 	"github.com/spirit-labs/tektite/opers"
 	"github.com/spirit-labs/tektite/proc"
 	store2 "github.com/spirit-labs/tektite/store"
-	"github.com/spirit-labs/tektite/testutils"
 	"github.com/stretchr/testify/require"
+	"strconv"
+	"strings"
 	"sync"
 	"testing"
 )
 
+func init() {
+	common.EnableTestPorts()
+}
+
 func TestProduce(t *testing.T) {
 	topic := "my_topic"
 
-	serverPort := testutils.PortProvider.GetPort(t)
+	serverAddress, err := common.AddressWithPort("localhost")
+	require.NoError(t, err)
 
-	serverAddress := fmt.Sprintf("localhost:%d", serverPort)
-
-	server, processor := createServer(t, topic, serverPort)
+	server, processor := createServer(t, topic, serverAddress)
 
 	defer func() {
 		err := server.Stop()
@@ -58,14 +63,19 @@ func sendMessages(t *testing.T, topic string, serverAddress string, numMessages 
 	}
 }
 
-func createServer(t *testing.T, topic string, serverPort int) (*Server, *testProcessor) {
+func createServer(t *testing.T, topic string, serverAddress string) (*Server, *testProcessor) {
+
+	colonIndex := strings.Index(serverAddress, ":")
+	host := serverAddress[:colonIndex]
+	port, err := strconv.Atoi(serverAddress[colonIndex+1:])
+	require.NoError(t, err)
 
 	meta := &testMetadataProvider{}
 	meta.brokerInfos = []BrokerInfo{
 		{
 			NodeID: 0,
-			Host:   "localhost",
-			Port:   serverPort,
+			Host:   host,
+			Port:   port,
 		},
 	}
 	meta.topicInfos = map[string]*TopicInfo{
@@ -94,7 +104,7 @@ func createServer(t *testing.T, topic string, serverPort int) (*Server, *testPro
 	cfg := &conf.Config{}
 	cfg.ApplyDefaults()
 	cfg.KafkaServerEnabled = true
-	cfg.KafkaServerAddresses = []string{fmt.Sprintf("localhost:%d", serverPort)}
+	cfg.KafkaServerAddresses = []string{serverAddress}
 
 	st := store2.TestStore()
 

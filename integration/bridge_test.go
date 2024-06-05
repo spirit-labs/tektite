@@ -5,19 +5,23 @@ import (
 	"fmt"
 	kafkago "github.com/confluentinc/confluent-kafka-go/kafka"
 	"github.com/docker/docker/client"
+	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/conf"
 	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/objstore/dev"
 	"github.com/spirit-labs/tektite/server"
 	"github.com/spirit-labs/tektite/shutdown"
 	"github.com/spirit-labs/tektite/tekclient"
-	"github.com/spirit-labs/tektite/testutils"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/kafka"
 	"testing"
 	"time"
 )
+
+func init() {
+	common.EnableTestPorts()
+}
 
 func TestBridgeKafkaInitiallyUnavailable(t *testing.T) {
 	if testing.Short() {
@@ -35,7 +39,7 @@ func TestBridgeKafkaInitiallyUnavailable(t *testing.T) {
 	clientTLSConfig := tekclient.TLSConfig{
 		TrustedCertsPath: serverCertPath,
 	}
-	s, objStore := startStandaloneServer(t)
+	s, objStore := startStandaloneServerWithObjStore(t)
 	defer func() {
 		err := s.Stop()
 		require.NoError(t, err)
@@ -100,7 +104,7 @@ func TestBridgeSimulateNetworkFailure(t *testing.T) {
 	clientTLSConfig := tekclient.TLSConfig{
 		TrustedCertsPath: serverCertPath,
 	}
-	s, objStore := startStandaloneServer(t)
+	s, objStore := startStandaloneServerWithObjStore(t)
 	defer func() {
 		err := s.Stop()
 		require.NoError(t, err)
@@ -188,7 +192,7 @@ func TestRestartBridgeMessagesStored(t *testing.T) {
 	clientTLSConfig := tekclient.TLSConfig{
 		TrustedCertsPath: serverCertPath,
 	}
-	s, objStore := startStandaloneServer(t)
+	s, objStore := startStandaloneServerWithObjStore(t)
 	defer func() {
 		err := s.Stop()
 		require.NoError(t, err)
@@ -241,11 +245,8 @@ egest_stream := local_topic -> (bridge to remote_topic props = ("bootstrap.serve
 	log.Debug("restarting server")
 
 	// restart
-	s, err = server.NewServer(cfg)
-	require.NoError(t, err)
-	err = s.Start()
-	require.NoError(t, err)
 
+	s = startStandaloneServer(t, cfg.DevObjectStoreAddresses[0])
 	log.Debug("restarted server")
 
 	// unpause container
@@ -290,44 +291,49 @@ func sendMessages(numMessages int, startIndex int, topicName string, producer *k
 	return msgs, nil
 }
 
-func startStandaloneServer(t *testing.T) (*server.Server, *dev.Store) {
+func startStandaloneServerWithObjStore(t *testing.T) (*server.Server, *dev.Store) {
+	objStoreAddress, err := common.AddressWithPort("localhost")
+	require.NoError(t, err)
+	objStore := dev.NewDevStore(objStoreAddress)
+	err = objStore.Start()
+	require.NoError(t, err)
+	s := startStandaloneServer(t, objStoreAddress)
+	return s, objStore
+}
+
+func startStandaloneServer(t *testing.T, objStoreAddress string) *server.Server {
 	cfg := conf.Config{}
 	cfg.ApplyDefaults()
 	cfg.ProcessorCount = 16
 	cfg.ProcessingEnabled = true
 	cfg.LevelManagerEnabled = true
 	cfg.CompactionWorkersEnabled = true
-	remotingPort := testutils.PortProvider.GetPort(t)
-	cfg.ClusterAddresses = []string{fmt.Sprintf("localhost:%d", remotingPort)}
+	remotingAddress, err := common.AddressWithPort("localhost")
+	require.NoError(t, err)
+	cfg.ClusterAddresses = []string{remotingAddress}
 	cfg.HttpApiEnabled = true
-	apiPort := testutils.PortProvider.GetPort(t)
+	apiAddress, err := common.AddressWithPort("localhost")
+	require.NoError(t, err)
 	tlsConf := conf.TLSConfig{
 		Enabled:  true,
 		KeyPath:  serverKeyPath,
 		CertPath: serverCertPath,
 	}
-	cfg.HttpApiAddresses = []string{fmt.Sprintf("localhost:%d", apiPort)}
+	cfg.HttpApiAddresses = []string{apiAddress}
 	cfg.HttpApiEnabled = true
 	cfg.HttpApiTlsConfig = tlsConf
 	cfg.KafkaServerEnabled = true
-	kafkaServerPort := testutils.PortProvider.GetPort(t)
-	cfg.KafkaServerAddresses = []string{fmt.Sprintf("localhost:%d", kafkaServerPort)}
+	kafkaAddress, err := common.AddressWithPort("localhost")
+	require.NoError(t, err)
+	cfg.KafkaServerAddresses = []string{kafkaAddress}
 	cfg.ClientType = conf.KafkaClientTypeConfluent
 	cfg.ObjectStoreType = conf.DevObjectStoreType
-	objStorePort := testutils.PortProvider.GetPort(t)
-	objStoreAddress := fmt.Sprintf("localhost:%d", objStorePort)
 	cfg.DevObjectStoreAddresses = []string{objStoreAddress}
-	objStore := dev.NewDevStore(objStoreAddress)
 	s, err := server.NewServer(cfg)
 	require.NoError(t, err)
-
-	err = objStore.Start()
-	require.NoError(t, err)
-
 	err = s.Start()
 	require.NoError(t, err)
-
-	return s, objStore
+	return s
 }
 
 type kafkaHolder struct {

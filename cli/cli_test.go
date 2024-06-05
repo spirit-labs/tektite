@@ -6,13 +6,13 @@ import (
 	"github.com/spirit-labs/tektite/api"
 	"github.com/spirit-labs/tektite/clustmgr"
 	"github.com/spirit-labs/tektite/command"
+	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/conf"
 	"github.com/spirit-labs/tektite/evbatch"
 	"github.com/spirit-labs/tektite/parser"
 	"github.com/spirit-labs/tektite/protos/clustermsgs"
 	"github.com/spirit-labs/tektite/remoting"
 	"github.com/spirit-labs/tektite/tekclient"
-	"github.com/spirit-labs/tektite/testutils"
 	"github.com/spirit-labs/tektite/types"
 	"github.com/spirit-labs/tektite/wasm"
 	"github.com/stretchr/testify/require"
@@ -39,6 +39,10 @@ const (
 	selfSignedClientKeyPath2  = "testdata/selfsignedclientkey2.pem"
 	selfSignedClientCertPath2 = "testdata/selfsignedclientcert2.pem"
 )
+
+func init() {
+	common.EnableTestPorts()
+}
 
 func TestHTTPWithTlsNoClientAuth(t *testing.T) {
 	clientTLSConfig := tekclient.TLSConfig{
@@ -151,7 +155,8 @@ func startServer(t *testing.T, serverAddress string, tlsConf conf.TLSConfig) (*a
 
 func testCliFailure(t *testing.T, clientTLSConfig tekclient.TLSConfig, serverTLSConfig conf.TLSConfig,
 	expectedOut string) {
-	serverAddress := fmt.Sprintf("localhost:%d", testutils.PortProvider.GetPort(t))
+	serverAddress, err := common.AddressWithPort("localhost")
+	require.NoError(t, err)
 	server, _, commandMgr, _ := startServer(t, serverAddress, serverTLSConfig)
 	defer func() {
 		err := server.Stop()
@@ -161,7 +166,7 @@ func testCliFailure(t *testing.T, clientTLSConfig tekclient.TLSConfig, serverTLS
 	cli := NewCli(serverAddress, clientTLSConfig)
 
 	cli.SetExitOnError(false)
-	err := cli.Start()
+	err = cli.Start()
 	require.NoError(t, err)
 	defer func() {
 		err := cli.Stop()
@@ -183,7 +188,8 @@ func testCliFailure(t *testing.T, clientTLSConfig tekclient.TLSConfig, serverTLS
 }
 
 func testCli(t *testing.T, clientTLSConfig tekclient.TLSConfig, serverTLSConfig conf.TLSConfig) {
-	serverAddress := fmt.Sprintf("localhost:%d", testutils.PortProvider.GetPort(t))
+	serverAddress, err := common.AddressWithPort("localhost")
+	require.NoError(t, err)
 	server, queryMgr, commandMgr, moduleManager := startServer(t, serverAddress, serverTLSConfig)
 	defer func() {
 		err := server.Stop()
@@ -193,7 +199,7 @@ func testCli(t *testing.T, clientTLSConfig tekclient.TLSConfig, serverTLSConfig 
 	cli := NewCli(serverAddress, clientTLSConfig)
 
 	cli.SetExitOnError(false)
-	err := cli.Start()
+	err = cli.Start()
 	require.NoError(t, err)
 	defer func() {
 		err := cli.Stop()

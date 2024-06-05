@@ -22,9 +22,15 @@ const (
 	serverCertPath = "testdata/servercert.pem"
 )
 
+var etcdAddress string
+
 func TestMain(m *testing.M) {
-	testutils.RequireEtcd()
-	defer testutils.ReleaseEtcd()
+	etcd, err := testutils.CreateEtcdContainer()
+	if err != nil {
+		panic(err)
+	}
+	etcdAddress = etcd.Address()
+	defer etcd.Stop()
 	m.Run()
 }
 
@@ -34,10 +40,10 @@ func startCluster(t *testing.T, numServers int, fk *fake.Kafka) ([]*server.Serve
 
 func startClusterWithConfigSetter(t *testing.T, numServers int, fk *fake.Kafka, configSetter func(cfg *conf.Config)) ([]*server.Server, func(t *testing.T)) {
 	common.RequireDebugServer(t)
-	objStorePort := testutils.PortProvider.GetPort(t)
-	objStoreAddress := fmt.Sprintf("localhost:%d", objStorePort)
+	objStoreAddress, err := common.AddressWithPort("localhost")
+	require.NoError(t, err)
 	objStore := dev.NewDevStore(objStoreAddress)
-	err := objStore.Start()
+	err = objStore.Start()
 	require.NoError(t, err)
 
 	tlsConf := conf.TLSConfig{
@@ -50,10 +56,12 @@ func startClusterWithConfigSetter(t *testing.T, numServers int, fk *fake.Kafka, 
 	var remotingAddresses []string
 	var httpServerListenAddresses []string
 	for i := 0; i < numServers; i++ {
-		remotingPort := testutils.PortProvider.GetPort(t)
-		remotingAddresses = append(remotingAddresses, fmt.Sprintf("127.0.0.1:%d", remotingPort))
-		httpPort := testutils.PortProvider.GetPort(t)
-		httpServerListenAddresses = append(httpServerListenAddresses, fmt.Sprintf("127.0.0.1:%d", httpPort))
+		remotingAddress, err := common.AddressWithPort("localhost")
+		require.NoError(t, err)
+		remotingAddresses = append(remotingAddresses, remotingAddress)
+		apiAddress, err := common.AddressWithPort("localhost")
+		require.NoError(t, err)
+		httpServerListenAddresses = append(httpServerListenAddresses, apiAddress)
 	}
 
 	cfg := conf.Config{}
@@ -66,6 +74,7 @@ func startClusterWithConfigSetter(t *testing.T, numServers int, fk *fake.Kafka, 
 	cfg.LevelManagerEnabled = true
 	cfg.MinSnapshotInterval = 100 * time.Millisecond
 	cfg.CompactionWorkersEnabled = true
+	cfg.ClusterManagerAddresses = []string{etcdAddress}
 
 	// In real life don't want to set this so low otherwise cluster state will be calculated when just one node
 	// is started with all leaders

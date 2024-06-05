@@ -1,7 +1,6 @@
 package repli
 
 import (
-	"fmt"
 	"github.com/spirit-labs/tektite/clustmgr"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/conf"
@@ -19,6 +18,10 @@ import (
 	"testing"
 	"time"
 )
+
+func init() {
+	common.EnableTestPorts()
+}
 
 func TestReplicationSimple(t *testing.T) {
 
@@ -696,7 +699,9 @@ func setupClusterWithNumNodes(t *testing.T, numNodes int) ([]proc.Manager, []*te
 
 	var remotingAddresses []string
 	for i := 0; i < numNodes; i++ {
-		remotingAddresses = append(remotingAddresses, fmt.Sprintf("localhost:%d", testutils.PortProvider.GetPort(t)))
+		address, err := common.AddressWithPort("localhost")
+		require.NoError(t, err)
+		remotingAddresses = append(remotingAddresses, address)
 	}
 
 	var stores []*store.Store

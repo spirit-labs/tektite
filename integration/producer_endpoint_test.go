@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	kafkago "github.com/confluentinc/confluent-kafka-go/kafka"
+	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/conf"
 	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/tekclient"
@@ -41,7 +42,9 @@ func testProducerEndpoint(t *testing.T, ct clientType) {
 		cfg.KafkaServerEnabled = true
 		var kafkaListenAddresses []string
 		for i := 0; i < 3; i++ {
-			kafkaListenAddresses = append(kafkaListenAddresses, fmt.Sprintf("localhost:%d", testutils.PortProvider.GetPort(t)))
+			address, err := common.AddressWithPort("localhost")
+			require.NoError(t, err)
+			kafkaListenAddresses = append(kafkaListenAddresses, address)
 		}
 		cfg.KafkaServerAddresses = kafkaListenAddresses
 	})

@@ -1,12 +1,11 @@
 package integration
 
 import (
-	"fmt"
 	kafkago "github.com/confluentinc/confluent-kafka-go/kafka"
+	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/conf"
 	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/tekclient"
-	"github.com/spirit-labs/tektite/testutils"
 	"github.com/stretchr/testify/require"
 	"testing"
 	"time"
@@ -33,7 +32,9 @@ func testConsumerEndpoint(t *testing.T, ct clientType) {
 		cfg.KafkaServerEnabled = true
 		var kafkaListenAddresses []string
 		for i := 0; i < 3; i++ {
-			kafkaListenAddresses = append(kafkaListenAddresses, fmt.Sprintf("127.0.0.1:%d", testutils.PortProvider.GetPort(t)))
+			address, err := common.AddressWithPort("localhost")
+			require.NoError(t, err)
+			kafkaListenAddresses = append(kafkaListenAddresses, address)
 		}
 		cfg.KafkaServerAddresses = kafkaListenAddresses
 	})

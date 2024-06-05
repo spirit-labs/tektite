@@ -90,7 +90,7 @@ func (s *HTTPAPIServer) start() error {
 		IdleTimeout: 0,
 		TLSConfig:   tlsConf,
 	}
-	s.listener, err = net.Listen("tcp", s.listenAddress)
+	s.listener, err = common.Listen("tcp", s.listenAddress)
 	if err != nil {
 		return err
 	}

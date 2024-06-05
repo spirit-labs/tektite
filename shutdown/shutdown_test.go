@@ -2,6 +2,7 @@ package shutdown
 
 import (
 	"fmt"
+	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/conf"
 	"github.com/spirit-labs/tektite/kafka"
 	"github.com/spirit-labs/tektite/kafka/fake"
@@ -20,9 +21,16 @@ const (
 	serverCertPath = "testdata/servercert.pem"
 )
 
+var etcdAddress string
+
 func TestMain(m *testing.M) {
-	testutils.RequireEtcd()
-	defer testutils.ReleaseEtcd()
+	common.EnableTestPorts()
+	etcd, err := testutils.CreateEtcdContainer()
+	if err != nil {
+		panic(err)
+	}
+	etcdAddress = etcd.Address()
+	defer etcd.Stop()
 	m.Run()
 }
 
@@ -36,9 +44,10 @@ func startClusterWithObjStore(t *testing.T) ([]*server.Server, *dev.Store, func(
 }
 
 func startObjStore(t *testing.T) (*dev.Store, string) {
-	objStoreAddress := fmt.Sprintf("localhost:%d", testutils.PortProvider.GetPort(t))
+	objStoreAddress, err := common.AddressWithPort("localhost")
+	require.NoError(t, err)
 	objStore := dev.NewDevStore(objStoreAddress)
-	err := objStore.Start()
+	err = objStore.Start()
 	require.NoError(t, err)
 	return objStore, objStoreAddress
 }
@@ -52,19 +61,25 @@ func createConfig(t *testing.T, objStoreAddress string) conf.Config {
 		CertPath: serverCertPath,
 	}
 
-	var remotingAddresses []string
-	var httpServerListenAddresses []string
+	var clusterAddresses []string
+	var apiAddresses []string
 	for i := 0; i < numServers; i++ {
-		remotingAddresses = append(remotingAddresses, fmt.Sprintf("localhost:%d", testutils.PortProvider.GetPort(t)))
-		httpServerListenAddresses = append(httpServerListenAddresses, fmt.Sprintf("localhost:%d", testutils.PortProvider.GetPort(t)))
+		remotingAddress, err := common.AddressWithPort("localhost")
+		require.NoError(t, err)
+		clusterAddresses = append(clusterAddresses, remotingAddress)
+
+		apiAddress, err := common.AddressWithPort("localhost")
+		require.NoError(t, err)
+		apiAddresses = append(apiAddresses, apiAddress)
 	}
 
 	cfg := conf.Config{}
 	cfg.ApplyDefaults()
 	cfg.ClusterManagerKeyPrefix = t.Name()
-	cfg.ClusterAddresses = remotingAddresses
+	cfg.ClusterManagerAddresses = []string{etcdAddress}
+	cfg.ClusterAddresses = clusterAddresses
 	cfg.HttpApiEnabled = true
-	cfg.HttpApiAddresses = httpServerListenAddresses
+	cfg.HttpApiAddresses = apiAddresses
 	cfg.HttpApiTlsConfig = tlsConf
 	cfg.ProcessingEnabled = true
 	cfg.LevelManagerEnabled = true
@@ -202,7 +217,7 @@ func TestShutdownWithData(t *testing.T) {
 	client.Close()
 
 	// Now we restart the cluster
-	servers, tearDown := startClusterWithConfig(t, servers[0].GetConfig(), fk)
+	servers, tearDown := startCluster(t, objStoreAddress, fk)
 	defer tearDown(t)
 
 	client, err = tekclient.NewClient(servers[0].GetConfig().HttpApiAddresses[0], clientTLSConfig)
@@ -219,6 +234,11 @@ func TestShutdownWithData(t *testing.T) {
 	}, 10*time.Second, 100*time.Millisecond)
 	require.True(t, ok)
 	require.NoError(t, err)
+
+	listenAddresses = servers[0].GetConfig().ClusterAddresses
+	cfg = &conf.Config{}
+	cfg.ApplyDefaults()
+	cfg.ClusterAddresses = listenAddresses
 
 	err = PerformShutdown(cfg, false)
 	require.NoError(t, err)

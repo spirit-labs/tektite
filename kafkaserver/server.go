@@ -92,9 +92,12 @@ func (s *Server) createNetworkListener() (net.Listener, error) {
 		if err != nil {
 			return nil, errors.WithStack(err)
 		}
-		list, err = tls.Listen("tcp", listenAddress, tlsConfig)
+		list, err = common.Listen("tcp", listenAddress)
+		if err == nil {
+			list = tls.NewListener(list, tlsConfig)
+		}
 	} else {
-		list, err = net.Listen("tcp", listenAddress)
+		list, err = common.Listen("tcp", listenAddress)
 	}
 	if err != nil {
 		return nil, errors.WithStack(err)

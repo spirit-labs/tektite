@@ -6,12 +6,12 @@ import (
 	"github.com/spirit-labs/tektite/api"
 	"github.com/spirit-labs/tektite/clustmgr"
 	"github.com/spirit-labs/tektite/command"
+	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/conf"
 	"github.com/spirit-labs/tektite/evbatch"
 	"github.com/spirit-labs/tektite/parser"
 	"github.com/spirit-labs/tektite/protos/clustermsgs"
 	"github.com/spirit-labs/tektite/remoting"
-	"github.com/spirit-labs/tektite/testutils"
 	"github.com/spirit-labs/tektite/types"
 	"github.com/spirit-labs/tektite/wasm"
 	"github.com/stretchr/testify/require"
@@ -24,6 +24,10 @@ const (
 	serverKeyPath  = "testdata/serverkey.pem"
 	serverCertPath = "testdata/servercert.pem"
 )
+
+func init() {
+	common.EnableTestPorts()
+}
 
 func TestExecuteCommand(t *testing.T) {
 	tsl := `test_stream := (bridge from test_topic partitions = 23) -> (store stream)`
@@ -407,10 +411,11 @@ func setup(t *testing.T) (*api.HTTPAPIServer, *testQueryManager, *testCommandMan
 		CertPath: serverCertPath,
 	}
 	moduleManager := &testWasmModuleManager{}
-	address := fmt.Sprintf("localhost:%d", testutils.PortProvider.GetPort(t))
+	address, err := common.AddressWithPort("localhost")
+	require.NoError(t, err)
 	server := api.NewHTTPAPIServer(address, "/tektite", queryMgr, commandMgr,
 		parser.NewParser(nil), moduleManager, tlsConf)
-	err := server.Activate()
+	err = server.Activate()
 	require.NoError(t, err)
 	clientTLSConfig := TLSConfig{
 		TrustedCertsPath: serverCertPath,

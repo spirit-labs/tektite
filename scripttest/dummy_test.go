@@ -10,8 +10,14 @@ import (
 // are controlled by build flags
 var tlsKeysInfo *TLSKeysInfo
 
+var etcdAddress string
+
 func TestMain(m *testing.M) {
-	testutils.RequireEtcd()
-	defer testutils.ReleaseEtcd()
+	etcd, err := testutils.CreateEtcdContainer()
+	if err != nil {
+		panic(err)
+	}
+	etcdAddress = etcd.Address()
+	defer etcd.Stop()
 	m.Run()
 }
