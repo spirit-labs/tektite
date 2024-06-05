@@ -21,10 +21,16 @@ const (
 	serverCertPath = "testdata/servercert.pem"
 )
 
+var etcdAddress string
+
 func TestMain(m *testing.M) {
 	common.EnableTestPorts()
-	testutils.RequireEtcd()
-	defer testutils.ReleaseEtcd()
+	etcd, err := testutils.CreateEtcdContainer()
+	if err != nil {
+		panic(err)
+	}
+	etcdAddress = etcd.Address()
+	defer etcd.Stop()
 	m.Run()
 }
 
@@ -70,6 +76,7 @@ func createConfig(t *testing.T, objStoreAddress string) conf.Config {
 	cfg := conf.Config{}
 	cfg.ApplyDefaults()
 	cfg.ClusterManagerKeyPrefix = t.Name()
+	cfg.ClusterManagerAddresses = []string{etcdAddress}
 	cfg.ClusterAddresses = clusterAddresses
 	cfg.HttpApiEnabled = true
 	cfg.HttpApiAddresses = apiAddresses

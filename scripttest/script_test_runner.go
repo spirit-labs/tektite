@@ -60,6 +60,7 @@ type scriptTestSuite struct {
 	useHTTPAPI             bool
 	intraClusterTLSEnabled bool
 	tlsKeysInfo            *TLSKeysInfo
+	etcdAddress            string
 	fakeKafka              *fake.Kafka
 	tektiteCluster         []*server.Server
 	suite                  suite.Suite
@@ -98,14 +99,14 @@ func (w *scriptTestSuite) SetS(suite suite.TestingSuite) {
 }
 
 func testScript(t *testing.T, numNodes int, replicationFactor int,
-	intraClusterTLSEnabled bool, tlsKeysInfo *TLSKeysInfo) {
+	intraClusterTLSEnabled bool, tlsKeysInfo *TLSKeysInfo, etcdAddress string) {
 	t.Helper()
 
 	common.RequireDebugServer(t)
 
 	// we need to give each test a unique etcd prefix so they don't interfere with other tests using etcd in parallel
 	ts := &scriptTestSuite{tests: make(map[string]*scriptTest), t: t, testName: t.Name()}
-	ts.setup(numNodes, replicationFactor, intraClusterTLSEnabled, tlsKeysInfo)
+	ts.setup(numNodes, replicationFactor, intraClusterTLSEnabled, tlsKeysInfo, etcdAddress)
 
 	defer ts.teardown()
 
@@ -174,6 +175,7 @@ func (w *scriptTestSuite) createServerConfs() []conf.Config {
 	// In real life don't want to set this so low otherwise cluster state will be calculated when just one node
 	// is started with all leaders
 	cfg.ClusterStateUpdateInterval = 10 * time.Millisecond
+	cfg.ClusterManagerAddresses = []string{w.etcdAddress}
 
 	// Set this low so store retries quickly to get prefix retentions on startup.
 	cfg.LevelManagerRetryDelay = 10 * time.Millisecond
@@ -227,11 +229,12 @@ func (w *scriptTestSuite) startCluster(confs []conf.Config) {
 }
 
 func (w *scriptTestSuite) setup(numNodes int, replicationFactor int, intraClusterTLSEnabled bool,
-	tlsKeysInfo *TLSKeysInfo) {
+	tlsKeysInfo *TLSKeysInfo, etcdAddress string) {
 	w.numNodes = numNodes
 	w.replicationFactor = replicationFactor
 	w.intraClusterTLSEnabled = intraClusterTLSEnabled
 	w.tlsKeysInfo = tlsKeysInfo
+	w.etcdAddress = etcdAddress
 	w.fakeKafka = &fake.Kafka{}
 
 	if useMinioObjectStore {

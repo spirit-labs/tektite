@@ -12,9 +12,15 @@ import (
 	"time"
 )
 
+var etcdAddress string
+
 func TestMain(m *testing.M) {
-	testutils.RequireEtcd()
-	defer testutils.ReleaseEtcd()
+	etcd, err := testutils.CreateEtcdContainer()
+	if err != nil {
+		panic(err)
+	}
+	etcdAddress = etcd.Address()
+	defer etcd.Stop()
 	m.Run()
 }
 
@@ -26,7 +32,7 @@ func TestMembershipChanges(t *testing.T) {
 	updatePeriod := 1 * time.Second
 	leaseTime := 2 * time.Second
 	cli := clustmgr.NewClient(t.Name(), "test_cluster", nodeID,
-		[]string{"localhost:2379", "localhost:22379", "localhost:32379"}, leaseTime, updatePeriod, 5*time.Second,
+		[]string{etcdAddress}, leaseTime, updatePeriod, 5*time.Second,
 		func(state map[int]int64) {
 			ch <- state
 		}, func(cs clustmgr.ClusterState) {})
@@ -54,7 +60,7 @@ func TestMembershipChanges(t *testing.T) {
 	numExtraNodes := 3
 	for i := 0; i < numExtraNodes; i++ {
 		client := clustmgr.NewClient(t.Name(), "test_cluster", nodeID+i+1,
-			[]string{"localhost:2379", "localhost:22379", "localhost:32379"}, leaseTime, updatePeriod, 5*time.Second,
+			[]string{etcdAddress}, leaseTime, updatePeriod, 5*time.Second,
 			func(state map[int]int64) {}, func(cs clustmgr.ClusterState) {})
 		err := client.Start()
 		require.NoError(t, err)
@@ -114,7 +120,7 @@ func TestMembershipChanges(t *testing.T) {
 
 	// restart one
 	extraClients[1] = clustmgr.NewClient(t.Name(), "test_cluster", nodeID+1+1,
-		[]string{"localhost:2379", "localhost:22379", "localhost:32379"}, leaseTime, updatePeriod, 5*time.Second,
+		[]string{etcdAddress}, leaseTime, updatePeriod, 5*time.Second,
 		func(state map[int]int64) {}, func(cs clustmgr.ClusterState) {})
 	err = extraClients[1].Start()
 	require.NoError(t, err)
@@ -143,7 +149,7 @@ func TestLockGetRelease(t *testing.T) {
 	t.Parallel()
 	cleanUp(t)
 	cli1 := clustmgr.NewClient(t.Name(), "test_cluster", 10,
-		[]string{"localhost:2379", "localhost:22379", "localhost:32379"}, 1*time.Second, 1*time.Second, 5*time.Second,
+		[]string{etcdAddress}, 1*time.Second, 1*time.Second, 5*time.Second,
 		func(state map[int]int64) {}, func(cs clustmgr.ClusterState) {})
 	err := cli1.Start()
 	require.NoError(t, err)
@@ -151,7 +157,7 @@ func TestLockGetRelease(t *testing.T) {
 	defer cli1.Stop(false)
 
 	cli2 := clustmgr.NewClient(t.Name(), "test_cluster", 20,
-		[]string{"localhost:2379", "localhost:22379", "localhost:32379"}, 1*time.Second, 1*time.Second, 5*time.Second,
+		[]string{etcdAddress}, 1*time.Second, 1*time.Second, 5*time.Second,
 		func(state map[int]int64) {}, func(cs clustmgr.ClusterState) {})
 	err = cli2.Start()
 	require.NoError(t, err)
@@ -210,7 +216,7 @@ func TestLockTimeout(t *testing.T) {
 
 	cleanUp(t)
 	cli1 := clustmgr.NewClient(t.Name(), "test_cluster", 10,
-		[]string{"localhost:2379", "localhost:22379", "localhost:32379"}, 1*time.Second, 1*time.Second, 5*time.Second,
+		[]string{etcdAddress}, 1*time.Second, 1*time.Second, 5*time.Second,
 		func(state map[int]int64) {}, func(cs clustmgr.ClusterState) {})
 	err := cli1.Start()
 	require.NoError(t, err)
@@ -246,7 +252,7 @@ func TestSetAndGetClusterState(t *testing.T) {
 
 	cleanUp(t)
 	cli := clustmgr.NewClient(t.Name(), "test_cluster", 10,
-		[]string{"localhost:2379", "localhost:22379", "localhost:32379"}, 1*time.Second, 1*time.Second, 5*time.Second,
+		[]string{etcdAddress}, 1*time.Second, 1*time.Second, 5*time.Second,
 		func(state map[int]int64) {}, func(cs clustmgr.ClusterState) {})
 	err := cli.Start()
 	require.NoError(t, err)
@@ -371,7 +377,7 @@ func TestSetAndReceiveClusterState(t *testing.T) {
 	for i := 0; i < numClients; i++ {
 		ch := make(chan clustmgr.ClusterState, 1)
 		cli := clustmgr.NewClient(t.Name(), "test_cluster", i,
-			[]string{"localhost:2379", "localhost:22379", "localhost:32379"}, 1*time.Second, 1*time.Second, 5*time.Second,
+			[]string{etcdAddress}, 1*time.Second, 1*time.Second, 5*time.Second,
 			func(state map[int]int64) {
 				atomic.AddInt64(&nodeChanges, 1)
 			}, func(cs clustmgr.ClusterState) {
@@ -436,7 +442,7 @@ func TestClusterStateWithOldNodeVersionsNotReceived(t *testing.T) {
 	for i := 0; i < numClients; i++ {
 		ch := make(chan clustmgr.ClusterState, 1)
 		cli := clustmgr.NewClient(t.Name(), "test_cluster", i,
-			[]string{"localhost:2379", "localhost:22379", "localhost:32379"}, 1*time.Second, 1*time.Second, 5*time.Second,
+			[]string{etcdAddress}, 1*time.Second, 1*time.Second, 5*time.Second,
 			func(state map[int]int64) {
 				atomic.AddInt64(&nodeChanges, 1)
 			}, func(cs clustmgr.ClusterState) {
@@ -508,7 +514,7 @@ func TestMarkGroupAsValidJoinedVersion(t *testing.T) {
 
 	cleanUp(t)
 	cli := clustmgr.NewClient(t.Name(), "test_cluster", 10,
-		[]string{"localhost:2379", "localhost:22379", "localhost:32379"}, 1*time.Second, 1*time.Second, 5*time.Second,
+		[]string{etcdAddress}, 1*time.Second, 1*time.Second, 5*time.Second,
 		func(state map[int]int64) {}, func(cs clustmgr.ClusterState) {})
 	err := cli.Start()
 	require.NoError(t, err)
@@ -561,7 +567,7 @@ func TestGetValidGroups(t *testing.T) {
 
 	cleanUp(t)
 	cli := clustmgr.NewClient(t.Name(), "test_cluster", 10,
-		[]string{"localhost:2379", "localhost:22379", "localhost:32379"}, 1*time.Second, 1*time.Second, 5*time.Second,
+		[]string{etcdAddress}, 1*time.Second, 1*time.Second, 5*time.Second,
 		func(state map[int]int64) {}, func(cs clustmgr.ClusterState) {})
 	err := cli.Start()
 	require.NoError(t, err)
@@ -599,7 +605,7 @@ func TestGetValidGroups(t *testing.T) {
 
 func cleanUp(t *testing.T) {
 	cli, err := clientv3.New(clientv3.Config{
-		Endpoints:   []string{"localhost:2379", "localhost:22379", "localhost:32379"},
+		Endpoints:   []string{etcdAddress},
 		DialTimeout: 5 * time.Second,
 	})
 	require.NoError(t, err)
