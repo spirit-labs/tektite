@@ -1,22 +1,51 @@
 name: Continuous Test Run
-
 on:
   schedule:
-    - cron: "0 * * * *"
-
+    - cron: "47,17 * * * *"
 jobs:
   build:
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
+    env:
+      DOCKER_API_VERSION: 1.43
     steps:
       - uses: actions/checkout@v4
-
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
           go-version: '1.22'
-
       - name: Build
         run: go build -v ./...
-
-      - name: Test
-        run: go test -v -race -count=1 -timeout 10m -failfast ./...
+  run-unit-tests:
+    needs: build
+    runs-on: ubuntu-latest
+    env:
+      DOCKER_API_VERSION: 1.43
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y etcd-server default-jre
+      - name: Install gotestsum
+        run: go install gotest.tools/gotestsum@latest
+      - name: Run Unit Tests
+        run: gotestsum -f github-actions -- -race -count=1 -timeout 10m -failfast ./...
+  run-integration-tests:
+    needs: build
+    runs-on: ubuntu-latest
+    env:
+      DOCKER_API_VERSION: 1.43
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y etcd-server default-jre
+      - name: Install gotestsum
+        run: go install gotest.tools/gotestsum@latest
+      - name: Run Integration Tests
+        run: gotestsum -f github-actions -- -race -count=1 -timeout 10m -failfast -tags=integration ./integration/...
