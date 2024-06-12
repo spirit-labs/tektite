@@ -40,6 +40,7 @@ type Manager interface {
 	SetCommandSignaller(signaller Signaller)
 	HandleClusterState(cs clustmgr.ClusterState) error
 	Start() error
+	Activate() error
 	Stop() error
 }
 
@@ -117,8 +118,16 @@ func (m *manager) Start() error {
 	}
 	// Now that we have prepared sys queries the query manager is ready to accept remote queries
 	m.queryManager.Activate()
+	return nil
+}
 
-	// Load commands
+func (m *manager) Activate() error {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+	// Load commands - note we don't do this on Start() as we must ensure the processor manager is started and
+	// all replicators are ready before we can load commands - this is because commands can create batches
+	// (e.g. to delete slabs on an undeploy stream) and saving compacting commands requires a batch to be processed
+	// and this will fail if replicators aren't ready
 	if err := m.loadAndProcessCommands(); err != nil {
 		return err
 	}

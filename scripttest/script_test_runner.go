@@ -12,9 +12,9 @@ import (
 	"github.com/spirit-labs/tektite/errors"
 	"github.com/spirit-labs/tektite/kafka/fake"
 	"github.com/spirit-labs/tektite/objstore/dev"
+	"github.com/spirit-labs/tektite/proc"
 	"github.com/spirit-labs/tektite/protos/clustermsgs"
 	"github.com/spirit-labs/tektite/shutdown"
-	"github.com/spirit-labs/tektite/store"
 	"github.com/spirit-labs/tektite/tekclient"
 	"github.com/spirit-labs/tektite/testutils"
 	"math"
@@ -523,89 +523,61 @@ func (st *scriptTest) verifyRemainingData(require *require.Assertions) {
 		}
 	}
 
-	//ok2, err := testutils.WaitUntilWithError(func() (bool, error) {
-	//	for _, s := range st.testSuite.tektiteCluster {
-	//		// We need to flush the stores to make sure all the delete slab tombstones have been pushed to the LSM, otherwise
-	//		// the tombstones can still be languishing on one node, and then the data is still visible from another node
-	//		err := s.GetStore().Flush(false, false)
-	//		if err != nil {
-	//			return false, err
-	//		}
-	//	}
-	//	isOk := true
-	//	for _, s := range st.testSuite.tektiteCluster {
-	//		keyStart := encoding.AppendUint64ToBufferBE(nil, common.UserSlabIDBase)
-	//		ok := checkRemainingData(require, s.GetConfig().NodeID, s.GetStore(), keyStart)
-	//		if !ok {
-	//			isOk = false
-	//		}
-	//	}
-	//	return isOk, nil
-	//}, 10*time.Second, 50*time.Millisecond)
-	//require.NoError(err)
-	//if !ok2 {
-	//	for _, s := range st.testSuite.tektiteCluster {
-	//		keyStart := encoding.AppendUint64ToBufferBE(nil, common.UserSlabIDBase)
-	//		iter, err := s.GetStore().NewIterator(keyStart, nil, math.MaxUint64, false)
-	//		require.NoError(err)
-	//
-	//		for {
-	//			valid, err := iter.IsValid()
-	//			require.NoError(err)
-	//			if !valid {
-	//				break
-	//			}
-	//			k := iter.Current().Key
-	//			slabID := binary.BigEndian.Uint64(k[16:])
-	//			if slabID >= common.UserSlabIDBase {
-	//				ver := math.MaxUint64 - binary.BigEndian.Uint64(k[len(k)-8:])
-	//				if doLog {
-	//					log.Errorf("node: %d remaining entry for slab id %d %v:%v version:%d", nodeID, slabID, k, iter.Current().Value, ver)
-	//				}
-	//				hasUserEntries = true
-	//			}
-	//			err = iter.Next()
-	//			require.NoError(err)
-	//		}
-	//	}
-	//}
-	//require.True(ok2)
-}
-
-func checkRemainingData(require *require.Assertions, nodeID int, store *store.Store, keyStart []byte) bool {
-	iter, err := store.NewIterator(keyStart, nil, math.MaxUint64, true)
-	require.NoError(err)
-	// Should be no user data
-	hasUserEntries := false
-	for {
-		valid, err := iter.IsValid()
+	// We check there's no remaining user data in the store. Note that tombstones are written on the owning processor
+	// and may not have been pushed to the LSM yet, so we might expect to see user data if we create the iterator on
+	// a node different to the one that owns the processor. This is ok the tombstone will eventally be flushed to the LSM.
+	// So, if we detect data for a user partition we check on the owning node that there is no data.
+	for _, s := range st.testSuite.tektiteCluster {
+		store := s.GetStore()
+		iter, err := store.NewIterator(nil, nil, math.MaxUint64, false)
 		require.NoError(err)
-		if !valid {
-			break
+		for {
+			valid, err := iter.IsValid()
+			require.NoError(err)
+			if !valid {
+				break
+			}
+			k := iter.Current().Key
+			slabID := binary.BigEndian.Uint64(k[16:])
+			if slabID >= common.UserSlabIDBase {
+				log.Infof("found remaining data for slab %d", slabID)
+				// There is user data
+				// Find which processor and node owns this prefix
+				partitionHash := k[:16]
+				processorID := proc.CalcProcessorForHash(partitionHash, s.GetConfig().ProcessorCount)
+				processorNode, err := s.GetProcessorManager().GetLeaderNode(processorID)
+				require.NoError(err)
+				// Then on this node there should be no data for this partition. The only reason we see data on
+				// other nodes is because tombstone hasn't been pushed to level manager yet, but when executed on
+				// the owning node, no data should be seen
+				store2 := st.testSuite.tektiteCluster[processorNode].GetStore()
+				prefix := k[:24]
+				rangeEnd := common.IncrementBytesBigEndian(prefix)
+				// Now wait until valid as deleting streams is async
+				ok, err := testutils.WaitUntilWithError(func() (bool, error) {
+					iter2, err := store2.NewIterator(prefix, rangeEnd, math.MaxUint64, false)
+					if err != nil {
+						return false, err
+					}
+					defer iter2.Close()
+					valid, err := iter2.IsValid()
+					if err != nil {
+						return false, err
+					}
+					if valid {
+						log.Infof("found data for prefix %v on node %d", prefix, processorNode)
+					}
+					// We don't want to see any data
+					return !valid, nil
+				}, 10*time.Second, 25*time.Millisecond)
+				require.True(ok)
+				require.NoError(err)
+			}
+			err = iter.Next()
+			require.NoError(err)
 		}
-		k := iter.Current().Key
-		v := iter.Current().Value
-		slabID := binary.BigEndian.Uint64(k[16:])
-		if slabID >= common.UserSlabIDBase {
-			ver := math.MaxUint64 - binary.BigEndian.Uint64(k[len(k)-8:])
-			isPrefixTombstone := len(k) == 32 && len(v) == 0
-			isEndMarker := (len(k) == 33) && (len(v) == 1) && (v[0] == 'x')
-			if !isPrefixTombstone && !isEndMarker {
-				hasUserEntries = true
-				log.Errorf("%s node: %d remaining entry for slab id %d %v:%v version:%d", nodeID, slabID, k, v, ver)
-			}
-			if isPrefixTombstone {
-				log.Infof("node: %d got tombstone prefix for slab id %d : %v", nodeID, slabID, k)
-			}
-			if isEndMarker {
-				log.Infof("node: %d got tombstone end marker for slab id %d : %v", nodeID, slabID, k)
-			}
-			hasUserEntries = true
-		}
-		err = iter.Next()
-		require.NoError(err)
+		iter.Close()
 	}
-	return !hasUserEntries
 }
 
 var prefixCompareLines = []string{"Internal error - reference:"}

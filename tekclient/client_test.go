@@ -590,6 +590,10 @@ func (t *testCommandManager) Start() error {
 	return nil
 }
 
+func (t *testCommandManager) Activate() error {
+	return nil
+}
+
 func (t *testCommandManager) Stop() error {
 	return nil
 }
