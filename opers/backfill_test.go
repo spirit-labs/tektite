@@ -344,7 +344,7 @@ func writeRowsToPartition(t *testing.T, partID int, numRows int, tableID int, st
 	mb := mem.NewBatch()
 	for j := 0; j < numRows; j++ {
 		partitionHash := proc.CalcPartitionHash("bar", uint64(partID))
-		keyPrefix := encoding.EncodeEntryPrefix(partitionHash, uint64(tableID), 25)
+		keyPrefix := encoding.EncodeEntryPrefix(partitionHash, uint64(tableID), 41)
 		key := append(keyPrefix, 1) // not null byte
 		key = encoding.KeyEncodeInt(key, int64(j))
 		key = encoding.EncodeVersion(key, uint64(version))

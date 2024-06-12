@@ -345,7 +345,7 @@ func (b *BackfillOperator) initialiseIteratorAtOffset(partID int, offset int64, 
 	keyStart := encoding.EncodeEntryPrefix(partitionHash, uint64(b.fromSlabID), 33)
 	keyStart = append(keyStart, 1) // not null
 	keyStart = encoding.KeyEncodeInt(keyStart, offset)
-	keyEnd := encoding.EncodeEntryPrefix(partitionHash, uint64(b.fromSlabID)+1, 32)
+	keyEnd := encoding.EncodeEntryPrefix(partitionHash, uint64(b.fromSlabID)+1, 24)
 	iter, err := b.store.NewIterator(keyStart, keyEnd, math.MaxInt64, false)
 	if err != nil {
 		return err
@@ -359,7 +359,7 @@ func (b *BackfillOperator) initialiseIteratorAtOffset(partID int, offset int64, 
 
 func (b *BackfillOperator) loadCommittedOffsetForPartition(execCtx StreamExecContext) (int64, bool, error) {
 	partitionHash := b.hashCache.getHash(execCtx.PartitionID())
-	key := encoding.EncodeEntryPrefix(partitionHash, common.BackfillOffsetSlabID, 40)
+	key := encoding.EncodeEntryPrefix(partitionHash, common.BackfillOffsetSlabID, 48)
 	key = encoding.AppendUint64ToBufferBE(key, uint64(b.fromSlabID))
 	key = encoding.AppendUint64ToBufferBE(key, uint64(b.receiverID))
 	key = encoding.AppendUint64ToBufferBE(key, uint64(execCtx.PartitionID()))
