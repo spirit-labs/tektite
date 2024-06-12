@@ -372,7 +372,6 @@ func (lm *LevelManager) tableCount(level int) int {
 }
 
 func (lm *LevelManager) chooseTablesToCompact(level int, numTables int) ([]*TableEntry, error) {
-
 	if level == 0 {
 		// We choose all tables
 		entries := lm.getLevelSegmentEntries(0)
@@ -388,7 +387,11 @@ func (lm *LevelManager) chooseTablesToCompact(level int, numTables int) ([]*Tabl
 	if err != nil {
 		return nil, err
 	}
+	return chooseTablesToCompactFromLevel(iter, numTables)
+}
 
+func chooseTablesToCompactFromLevel(iter LevelIterator, numTables int) ([]*TableEntry, error) {
+	// Iterate through once to get min and max added time
 	var minAddedTime uint64 = math.MaxUint64
 	var maxAddedTime uint64
 	for {
@@ -406,11 +409,10 @@ func (lm *LevelManager) chooseTablesToCompact(level int, numTables int) ([]*Tabl
 			maxAddedTime = te.AddedTime
 		}
 	}
-	iter, err = lm.levelIterator(level)
-	if err != nil {
+	// Iterate through again to calculate scores
+	if err := iter.Reset(); err != nil {
 		return nil, err
 	}
-
 	h := scoreHeap{}
 	heap.Init(&h)
 	for {
@@ -435,7 +437,6 @@ func (lm *LevelManager) chooseTablesToCompact(level int, numTables int) ([]*Tabl
 		scoreEntry := heap.Pop(&h).(scoreEntry)
 		entries[i] = scoreEntry.tableEntry
 	}
-
 	return entries, nil
 }
 
@@ -765,6 +766,7 @@ type CompactionStats struct {
 
 type LevelIterator interface {
 	Next() (*TableEntry, error)
+	Reset() error
 }
 
 type tableToCompact struct {
