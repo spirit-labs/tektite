@@ -274,13 +274,14 @@ func (m *ProcessorManager) EnsureReplicatorsReady() error {
 			if !common.IsUnavailableError(err) {
 				return err
 			}
-			time.Sleep(10 * time.Millisecond)
+			time.Sleep(25 * time.Millisecond)
 			dur := time.Now().Sub(start)
 			if dur >= 5*time.Second {
-				log.Warnf("waiting for replicators to be ready, returned err: %v", err)
+				log.Warnf("%s: waiting for replicators to be ready, returned err: %v", m.cfg.LogScope, err)
 			}
 			if dur >= 5*time.Minute {
-				return errors.New("timed out waiting for replicators to be ready")
+				log.Errorf("%s: timed out waiting for replicators to be ready:\n%s", m.cfg.LogScope, common.GetAllStacks())
+				return errors.Errorf("%s: timed out waiting for replicators to be ready", m.cfg.LogScope)
 			}
 		}
 	}
@@ -425,7 +426,7 @@ func (m *ProcessorManager) GetLeaderNode(processorID int) (int, error) {
 	if !ok {
 		// This can occur if cluster not ready - client will retry, and it will resolve
 		return 0, errors.WithStack(errors.NewTektiteErrorf(errors.Unavailable,
-			"no processor available when getting leader node for group %d", processorID))
+			"no processor available when getting leader node for processor %d", processorID))
 	}
 	groupState := o.(clustmgr.GroupState) //nolint:forcetypeassert
 	for _, groupNode := range groupState.GroupNodes {
@@ -686,7 +687,7 @@ func (m *ProcessorManager) callClusterStateHandlers(cs clustmgr.ClusterState) er
 func (m *ProcessorManager) HandleClusterState(cs clustmgr.ClusterState) error {
 	m.lock.Lock()
 	defer m.lock.Unlock()
-	log.Debugf("node %d received cluster state %v", m.cfg.NodeID, cs)
+	log.Infof("%s: node %d received cluster state %v", m.cfg.LogScope, m.cfg.NodeID, cs)
 	if m.isStopped() {
 		log.Debugf("node %d is stopped", m.cfg.NodeID)
 
@@ -804,7 +805,7 @@ func (m *ProcessorManager) processGroupState(processorID int, gs []clustmgr.Grou
 				batchHandler := m.batchHandlerFactory(processorID)
 				dataKey := m.processorDataKeys[processorID]
 				proc = NewProcessor(processorID, m.cfg, m.store, m, batchHandler, m.receiverInfoProvider, dataKey)
-				log.Debugf("node %d created new processor %d", m.cfg.NodeID, processorID)
+				log.Infof("%s: node %d created new processor %d", m.cfg.LogScope, m.cfg.NodeID, processorID)
 				proc.SetVersionCompleteHandler(func(version int, requiredCompletions int, commandID int, doom bool, cf func(error)) {
 					m.vMgrClient.VersionComplete(version, requiredCompletions, commandID, doom, cf)
 				})

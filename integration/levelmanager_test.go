@@ -41,6 +41,7 @@ func TestLevelManagerCluster(t *testing.T) {
 	cloudStore := dev.NewInMemStore(0)
 	tcConf := conf.Config{}
 	tcConf.ApplyDefaults()
+	tcConf.LogScope = t.Name()
 	tabCache, err := tabcache.NewTableCache(cloudStore, &tcConf)
 	require.NoError(t, err)
 	seqMgr := sequence.NewInMemSequenceManager()
@@ -64,6 +65,7 @@ func TestLevelManagerCluster(t *testing.T) {
 		clustStateMgrs = append(clustStateMgrs, clustStateMgr)
 		cfg := &conf.Config{}
 		cfg.ApplyDefaults()
+		cfg.LogScope = t.Name()
 		cfg.NodeID = i
 		cfg.ClusterAddresses = remotingAddresses
 		// There are no processors used for data-processing, however there will be one more than this (i.e. 1) for
@@ -148,6 +150,7 @@ func TestLevelManagerCluster(t *testing.T) {
 
 	// Test local client
 	cfg := &conf.Config{}
+	cfg.LogScope = t.Name()
 	cfg.ClusterAddresses = remotingAddresses
 	cfg.ApplyDefaults()
 	cfg.ProcessorCount = 0

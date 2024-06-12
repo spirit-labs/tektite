@@ -302,10 +302,9 @@ func (f *PartitionFetcher) Fetch(fetchOffset int64, minBytes int, maxBytes int, 
 	}
 	// We will wait.
 	if f.waiter != nil {
-		// protocol error - fetch for same partition has come in while we're already waiting on a fetch
-		log.Error("fetch for partition when fetch already waiting on same partition")
-		complFunc(nil, 0, KafkaProtocolError{ErrorCode: ErrorCodeUnknownServerError})
-		return nil
+		// Already have a waiter - send an error on it
+		f.waiter.complFunc(nil, 0, KafkaProtocolError{ErrorCode: ErrorCodeUnknownServerError})
+		f.waiter = nil
 	}
 	return &Waiter{
 		pf:            f,

@@ -73,7 +73,7 @@ func NewServerWithClientFactory(config conf.Config, clientFactory kafka.ClientFa
 	} else {
 		clustStateMgr = clustmgr.NewClusteredStateManager(config.ClusterManagerKeyPrefix, config.ClusterName, config.NodeID,
 			config.ClusterManagerAddresses, config.ClusterEvictionTimeout, config.ClusterStateUpdateInterval,
-			config.EtcdCallTimeout, config.ProcessorCount+1, config.MaxReplicas)
+			config.EtcdCallTimeout, config.ProcessorCount+1, config.MaxReplicas, config.LogScope)
 	}
 
 	var levelManagerClientFactory levels.ClientFactory
@@ -319,6 +319,8 @@ func (s *Server) Start() error {
 		panic("server cannot be restarted")
 	}
 
+	log.Infof("%s: starting tektite server %d", s.conf.LogScope, s.nodeID)
+
 	if s.conf.DebugServerEnabled {
 		if s.conf.NodeID >= len(s.conf.DebugServerAddresses) {
 			return errors.NewTektiteErrorf(errors.InvalidConfiguration, "no entry in DebugServerAddresses for node id %d", s.conf.NodeID)
@@ -362,7 +364,7 @@ func (s *Server) Start() error {
 
 	s.lifeCycleMgr.SetActive(true)
 
-	log.Infof("tektite server %d started", s.nodeID)
+	log.Infof("%s: tektite server %d started", s.conf.LogScope, s.nodeID)
 	return nil
 }
 
@@ -421,6 +423,8 @@ func (s *Server) Stop() error {
 func (s *Server) stop(shutdown bool) error {
 	s.lock.Lock()
 	defer s.lock.Unlock()
+	log.Infof("%s: stopping tektite server %d", s.conf.LogScope, s.nodeID)
+
 	if s.stopped {
 		return nil
 	}
@@ -453,7 +457,7 @@ func (s *Server) stop(shutdown bool) error {
 	if shutdown {
 		s.shutdownComplete = true
 	}
-	log.Infof("tektite server %d stopped", s.nodeID)
+	log.Infof("%s: tektite server %d stopped", s.conf.LogScope, s.nodeID)
 	return nil
 }
 

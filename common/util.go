@@ -33,10 +33,14 @@ func StringToByteSliceZeroCopy(str string) []byte {
 //
 //goland:noinspection GoUnusedExportedFunction
 func DumpStacks() {
+	fmt.Println(GetAllStacks())
+}
+
+func GetAllStacks() string {
 	buf := make([]byte, 1<<16)
 	l := runtime.Stack(buf, true)
 	s := string(buf[:l])
-	fmt.Println(s)
+	return s
 }
 
 func GetCurrentStack() string {

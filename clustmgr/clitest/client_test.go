@@ -33,9 +33,9 @@ func TestMembershipChanges(t *testing.T) {
 	leaseTime := 2 * time.Second
 	cli := clustmgr.NewClient(t.Name(), "test_cluster", nodeID,
 		[]string{etcdAddress}, leaseTime, updatePeriod, 5*time.Second,
-		func(state map[int]int64) {
+		func(state map[int]int64, maxRevision int64) {
 			ch <- state
-		}, func(cs clustmgr.ClusterState) {})
+		}, func(cs clustmgr.ClusterState) {}, "")
 	err := cli.Start()
 	require.NoError(t, err)
 	defer func() {
@@ -61,7 +61,7 @@ func TestMembershipChanges(t *testing.T) {
 	for i := 0; i < numExtraNodes; i++ {
 		client := clustmgr.NewClient(t.Name(), "test_cluster", nodeID+i+1,
 			[]string{etcdAddress}, leaseTime, updatePeriod, 5*time.Second,
-			func(state map[int]int64) {}, func(cs clustmgr.ClusterState) {})
+			func(state map[int]int64, maxRevision int64) {}, func(cs clustmgr.ClusterState) {}, "")
 		err := client.Start()
 		require.NoError(t, err)
 		extraClients = append(extraClients, client)
@@ -121,7 +121,7 @@ func TestMembershipChanges(t *testing.T) {
 	// restart one
 	extraClients[1] = clustmgr.NewClient(t.Name(), "test_cluster", nodeID+1+1,
 		[]string{etcdAddress}, leaseTime, updatePeriod, 5*time.Second,
-		func(state map[int]int64) {}, func(cs clustmgr.ClusterState) {})
+		func(state map[int]int64, maxRevision int64) {}, func(cs clustmgr.ClusterState) {}, "")
 	err = extraClients[1].Start()
 	require.NoError(t, err)
 	require.NoError(t, err)
@@ -150,7 +150,7 @@ func TestLockGetRelease(t *testing.T) {
 	cleanUp(t)
 	cli1 := clustmgr.NewClient(t.Name(), "test_cluster", 10,
 		[]string{etcdAddress}, 1*time.Second, 1*time.Second, 5*time.Second,
-		func(state map[int]int64) {}, func(cs clustmgr.ClusterState) {})
+		func(state map[int]int64, maxRevision int64) {}, func(cs clustmgr.ClusterState) {}, "")
 	err := cli1.Start()
 	require.NoError(t, err)
 	//goland:noinspection GoUnhandledErrorResult
@@ -158,7 +158,7 @@ func TestLockGetRelease(t *testing.T) {
 
 	cli2 := clustmgr.NewClient(t.Name(), "test_cluster", 20,
 		[]string{etcdAddress}, 1*time.Second, 1*time.Second, 5*time.Second,
-		func(state map[int]int64) {}, func(cs clustmgr.ClusterState) {})
+		func(state map[int]int64, maxRevision int64) {}, func(cs clustmgr.ClusterState) {}, "")
 	err = cli2.Start()
 	require.NoError(t, err)
 	//goland:noinspection GoUnhandledErrorResult
@@ -217,7 +217,7 @@ func TestLockTimeout(t *testing.T) {
 	cleanUp(t)
 	cli1 := clustmgr.NewClient(t.Name(), "test_cluster", 10,
 		[]string{etcdAddress}, 1*time.Second, 1*time.Second, 5*time.Second,
-		func(state map[int]int64) {}, func(cs clustmgr.ClusterState) {})
+		func(state map[int]int64, maxRevision int64) {}, func(cs clustmgr.ClusterState) {}, "")
 	err := cli1.Start()
 	require.NoError(t, err)
 	//goland:noinspection GoUnhandledErrorResult
@@ -253,13 +253,13 @@ func TestSetAndGetClusterState(t *testing.T) {
 	cleanUp(t)
 	cli := clustmgr.NewClient(t.Name(), "test_cluster", 10,
 		[]string{etcdAddress}, 1*time.Second, 1*time.Second, 5*time.Second,
-		func(state map[int]int64) {}, func(cs clustmgr.ClusterState) {})
+		func(state map[int]int64, maxRevision int64) {}, func(cs clustmgr.ClusterState) {}, "")
 	err := cli.Start()
 	require.NoError(t, err)
 	//goland:noinspection GoUnhandledErrorResult
 	defer cli.Stop(false)
 
-	csR, ns, ver, err := cli.GetClusterState()
+	csR, ns, ver, _, err := cli.GetClusterState()
 	require.Nil(t, csR)
 	require.Equal(t, 0, int(ver))
 	require.Equal(t, 0, len(ns))
@@ -278,22 +278,22 @@ func TestSetAndGetClusterState(t *testing.T) {
 		1: 100,
 		2: 100,
 	}
-	ok, err := cli.SetClusterState(cs, nsSet, 47)
+	ok, err := cli.SetClusterState(cs, nsSet, 47, 0)
 	require.NoError(t, err)
 	// Should fail as there's no previous cluster state with that version
 	require.False(t, ok)
 
-	csR, ns, ver, err = cli.GetClusterState()
+	csR, ns, ver, _, err = cli.GetClusterState()
 	require.Nil(t, csR)
 	require.Equal(t, 0, int(ver))
 	require.Equal(t, 0, len(ns))
 
-	ok, err = cli.SetClusterState(cs, nsSet, 0)
+	ok, err = cli.SetClusterState(cs, nsSet, 0, 0)
 	require.NoError(t, err)
 	// Should succeed as version 0 means no previous version
 	require.True(t, ok)
 
-	csR, ns, ver, err = cli.GetClusterState()
+	csR, ns, ver, _, err = cli.GetClusterState()
 	require.NoError(t, err)
 	require.NotNil(t, csR)
 	require.Equal(t, 1, int(ver))
@@ -316,22 +316,22 @@ func TestSetAndGetClusterState(t *testing.T) {
 		},
 	}
 
-	ok, err = cli.SetClusterState(cs2, nsSet2, 0)
+	ok, err = cli.SetClusterState(cs2, nsSet2, 0, 0)
 	require.NoError(t, err)
 	require.False(t, ok)
 
-	csR, ns, ver, err = cli.GetClusterState()
+	csR, ns, ver, _, err = cli.GetClusterState()
 	require.NoError(t, err)
 	require.NotNil(t, csR)
 	require.Equal(t, 1, int(ver))
 	require.Equal(t, cs, csR)
 	require.Equal(t, nsSet, ns)
 
-	ok, err = cli.SetClusterState(cs2, nsSet2, 1)
+	ok, err = cli.SetClusterState(cs2, nsSet2, 1, 0)
 	require.NoError(t, err)
 	require.True(t, ok)
 
-	csR, ns, ver, err = cli.GetClusterState()
+	csR, ns, ver, _, err = cli.GetClusterState()
 	require.NoError(t, err)
 	require.NotNil(t, csR)
 	require.Equal(t, 2, int(ver))
@@ -353,11 +353,11 @@ func TestSetAndGetClusterState(t *testing.T) {
 			{clustmgr.GroupNode{1, true, true, 1}, clustmgr.GroupNode{0, true, true, 1}, clustmgr.GroupNode{2, false, true, 1}},
 		},
 	}
-	ok, err = cli.SetClusterState(cs3, nsSet3, 2)
+	ok, err = cli.SetClusterState(cs3, nsSet3, 2, 0)
 	require.NoError(t, err)
 	require.True(t, ok)
 
-	csR, ns, ver, err = cli.GetClusterState()
+	csR, ns, ver, _, err = cli.GetClusterState()
 	require.NoError(t, err)
 	require.NotNil(t, csR)
 	require.Equal(t, 3, int(ver))
@@ -378,11 +378,11 @@ func TestSetAndReceiveClusterState(t *testing.T) {
 		ch := make(chan clustmgr.ClusterState, 1)
 		cli := clustmgr.NewClient(t.Name(), "test_cluster", i,
 			[]string{etcdAddress}, 1*time.Second, 1*time.Second, 5*time.Second,
-			func(state map[int]int64) {
+			func(state map[int]int64, maxRevision int64) {
 				atomic.AddInt64(&nodeChanges, 1)
 			}, func(cs clustmgr.ClusterState) {
 				ch <- cs
-			})
+			}, "")
 		err := cli.Start()
 		require.NoError(t, err)
 		//goland:noinspection GoDeferInLoop
@@ -407,7 +407,7 @@ func TestSetAndReceiveClusterState(t *testing.T) {
 				{clustmgr.GroupNode{1, true, false, 1}, clustmgr.GroupNode{0, false, false, 1}, clustmgr.GroupNode{2, false, false, 1}},
 			},
 		}
-		ok, err := cli.SetClusterState(&cs, ns, ver)
+		ok, err := cli.SetClusterState(&cs, ns, ver, 0)
 		require.NoError(t, err)
 		require.True(t, ok)
 		for _, ch := range chans {
@@ -430,77 +430,6 @@ func TestSetAndReceiveClusterState(t *testing.T) {
 	require.True(t, ok)
 }
 
-func TestClusterStateWithOldNodeVersionsNotReceived(t *testing.T) {
-	t.Parallel()
-
-	cleanUp(t)
-	numClients := 5
-	var clients []clustmgr.Client
-	var chans []chan clustmgr.ClusterState
-	var nodeChanges int64
-
-	for i := 0; i < numClients; i++ {
-		ch := make(chan clustmgr.ClusterState, 1)
-		cli := clustmgr.NewClient(t.Name(), "test_cluster", i,
-			[]string{etcdAddress}, 1*time.Second, 1*time.Second, 5*time.Second,
-			func(state map[int]int64) {
-				atomic.AddInt64(&nodeChanges, 1)
-			}, func(cs clustmgr.ClusterState) {
-				ch <- cs
-			})
-		err := cli.Start()
-		require.NoError(t, err)
-		//goland:noinspection GoDeferInLoop
-		defer func() {
-			err := cli.Stop(false)
-			require.NoError(t, err)
-		}()
-		clients = append(clients, cli)
-		chans = append(chans, ch)
-	}
-
-	// Create a map where all the revisions are old
-	ns := getClientRevisions(clients)
-	for nodeID, rev := range ns {
-		ns[nodeID] = rev - 1
-	}
-
-	var ver int64
-	for i, cli := range clients {
-
-		cs := clustmgr.ClusterState{
-			Version: 23 + i,
-			GroupStates: [][]clustmgr.GroupNode{
-				{clustmgr.GroupNode{0, false, false, 1}, clustmgr.GroupNode{1, true, false, 1}, clustmgr.GroupNode{2, false, false, 1}},
-				{clustmgr.GroupNode{2, true, false, 1}, clustmgr.GroupNode{1, false, false, 1}, clustmgr.GroupNode{0, false, false, 1}},
-				{clustmgr.GroupNode{2, false, false, 1}, clustmgr.GroupNode{0, false, false, 1}, clustmgr.GroupNode{1, true, false, 1}},
-				{clustmgr.GroupNode{1, true, false, 1}, clustmgr.GroupNode{0, false, false, 1}, clustmgr.GroupNode{2, false, false, 1}},
-			},
-		}
-
-		ok, err := cli.SetClusterState(&cs, ns, ver)
-		require.NoError(t, err)
-		require.True(t, ok)
-		ver++
-
-		ok, err = cli.SetClusterState(&cs, map[int]int64{}, ver)
-		require.NoError(t, err)
-		require.True(t, ok)
-		ver++
-	}
-
-	for _, ch := range chans {
-		select {
-		case <-ch:
-			require.Fail(t, "should not receive update")
-		case <-time.After(250 * time.Millisecond):
-			// OK
-			break
-		}
-	}
-
-}
-
 func getClientRevisions(clients []clustmgr.Client) map[int]int64 {
 	revisions := map[int]int64{}
 	for i, client := range clients {
@@ -515,7 +444,7 @@ func TestMarkGroupAsValidJoinedVersion(t *testing.T) {
 	cleanUp(t)
 	cli := clustmgr.NewClient(t.Name(), "test_cluster", 10,
 		[]string{etcdAddress}, 1*time.Second, 1*time.Second, 5*time.Second,
-		func(state map[int]int64) {}, func(cs clustmgr.ClusterState) {})
+		func(state map[int]int64, maxRevision int64) {}, func(cs clustmgr.ClusterState) {}, "")
 	err := cli.Start()
 	require.NoError(t, err)
 	//goland:noinspection GoUnhandledErrorResult
@@ -568,7 +497,7 @@ func TestGetValidGroups(t *testing.T) {
 	cleanUp(t)
 	cli := clustmgr.NewClient(t.Name(), "test_cluster", 10,
 		[]string{etcdAddress}, 1*time.Second, 1*time.Second, 5*time.Second,
-		func(state map[int]int64) {}, func(cs clustmgr.ClusterState) {})
+		func(state map[int]int64, maxRevision int64) {}, func(cs clustmgr.ClusterState) {}, "")
 	err := cli.Start()
 	require.NoError(t, err)
 	//goland:noinspection GoUnhandledErrorResult

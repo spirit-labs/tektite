@@ -7,7 +7,6 @@ import (
 	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/parser"
 	"github.com/spirit-labs/tektite/proc"
-	"github.com/timandy/routine"
 	"sync"
 	"time"
 )
@@ -208,7 +207,6 @@ func (b *BridgeToOperator) flushLastCommitted(execCtx StreamExecContext) {
 	for _, partitionID := range partitionIDs {
 		offsetToCommit := b.offsetsToCommit[partitionID]
 		if offsetToCommit != -1 {
-			log.Infof("storeCommittedOffSetForPartition processor %d partition %d goid:%d", execCtx.Processor().ID(), partitionID, routine.Goid())
 			b.backFillOperator.storeCommittedOffSetForPartition(partitionID, offsetToCommit, execCtx)
 			b.offsetsToCommit[partitionID] = -1
 		}

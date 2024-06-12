@@ -387,7 +387,7 @@ func startManagers(t *testing.T, prefix string, numNodes int, numGroups int, max
 func startManager(t *testing.T, prefix string, nodeID int, numGroups int, maxReplicas int) (*clustmgr.ClusteredStateManager, chan clustmgr.ClusterState) {
 	mgr := clustmgr.NewClusteredStateManager(prefix, "test_cluster", nodeID,
 		[]string{etcdAddress}, 1*time.Second, 1*time.Second, 5*time.Second,
-		numGroups, maxReplicas)
+		numGroups, maxReplicas, t.Name())
 	ch := make(chan clustmgr.ClusterState, 100)
 	mgr.SetClusterStateHandler(func(state clustmgr.ClusterState) error {
 		ch <- state

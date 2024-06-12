@@ -184,7 +184,7 @@ func TestFailoverReplicationQueuesWithAggregation(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
 	}
-	t.Parallel()
+	//t.Parallel()
 	testFailoverReplicationQueuesWithAggregation(t, false)
 }
 
@@ -411,7 +411,7 @@ func waitForAggRows(t *testing.T, tableName string, numRows int, client tekclien
 				line := fmt.Sprintf("country:%s avg:%f max:%d min:%d", country, avgTemp, maxTemp, minTemp)
 				exp := expected[i]
 				if exp != line {
-					log.Errorf("expected line: %s got: %s", exp, line)
+					log.Errorf("%s: expected line: %s got: %s", exp, line, t.Name())
 					return false
 				}
 			}

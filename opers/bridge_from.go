@@ -382,7 +382,7 @@ func (c *consumerHolder) start() {
 	}
 	msgProvider, err := c.bf.msgClient.NewMessageProvider(c.partitions, c.startOffsets)
 	if err != nil {
-		log.Warnf("failed to create message provider %v", err)
+		log.Warnf("%s: failed to create message provider %v", c.bf.cfg.LogScope, err)
 		return
 	}
 	consumer, err := NewMessageConsumer(&processorBatchReceiver{

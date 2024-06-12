@@ -152,7 +152,7 @@ func (w *scriptTestSuite) createServerConfs() []conf.Config {
 
 	cfg := conf.Config{}
 	cfg.ApplyDefaults()
-	cfg.ClusterManagerKeyPrefix = w.testName
+	cfg.ClusterName = w.testName
 	cfg.ClusterAddresses = remotingAddresses
 	cfg.HttpApiEnabled = true
 	cfg.HttpApiAddresses = httpServerListenAddresses
@@ -188,6 +188,8 @@ func (w *scriptTestSuite) createServerConfs() []conf.Config {
 	} else if w.objectStoreType == conf.DevObjectStoreType {
 		cfg.DevObjectStoreAddresses = []string{w.devObjStoreAddress}
 	}
+
+	cfg.LogScope = w.testName
 
 	var serverConfs []conf.Config
 	for i := 0; i < w.numNodes; i++ {
@@ -359,7 +361,7 @@ func (st *scriptTest) run() {
 	st.testSuite.lock.Lock()
 	defer st.testSuite.lock.Unlock()
 
-	log.Infof("Running sql test %s", st.testName)
+	log.Infof("%s: Running sql test %s", st.testName, st.testName)
 
 	req := st.testSuite.suite.Require()
 
@@ -390,7 +392,7 @@ func (st *scriptTest) run() {
 
 //nolint:gocyclo
 func (st *scriptTest) runTestIteration(require *require.Assertions, commands []string, iter int) int {
-	log.Infof("Running test iteration %d", iter)
+	log.Infof("%s: Running test iteration %d", st.testName, iter)
 	start := time.Now()
 	st.server = st.chooseServer()
 	st.output = &strings.Builder{}
@@ -407,7 +409,7 @@ func (st *scriptTest) runTestIteration(require *require.Assertions, commands []s
 		if command == "" {
 			continue
 		}
-		log.Infof("Executing line: %s", command)
+		log.Infof("%s: Executing line: %s", st.testName, command)
 		if strings.HasPrefix(command, "--load data") {
 			st.executeLoadData(require, command)
 		} else if strings.HasPrefix(command, "--produce data") {
@@ -499,25 +501,26 @@ func (st *scriptTest) runTestIteration(require *require.Assertions, commands []s
 	st.verifyRemainingData(require)
 
 	dur := time.Since(start)
-	log.Infof("Finished running sql test %s time taken %d ms", st.testName, dur.Milliseconds())
+	log.Infof("%s: Finished running sql test %s time taken %d ms", st.testName, st.testName, dur.Milliseconds())
 	return numIters
 }
 
 func (st *scriptTest) verifyRemainingData(require *require.Assertions) {
 	// Now we verify that the test has left the cluster in a clean state
-	log.Info("verifying data at end of test")
+	log.Infof("%s: verifying data at end of test", st.testName)
 	for _, s := range st.testSuite.tektiteCluster {
 
 		// undeploy of streams on other nodes is async, so we must wait
-		ok1, err := testutils.WaitUntilWithError(func() (bool, error) {
+		_, err := testutils.WaitUntilWithError(func() (bool, error) {
 			return s.GetStreamManager().StreamCount() == 0, nil
 		}, 10*time.Second, 50*time.Millisecond)
 		require.NoError(err)
-		if !ok1 {
+		streamCount := s.GetStreamManager().StreamCount()
+		if streamCount != 0 {
+			log.Errorf("stream count for node %d is %d, now dumping streams", s.GetConfig().NodeID, streamCount)
 			s.GetStreamManager().Dump()
+			require.Fail("streams left at end of test")
 		}
-		require.Equal(0, s.GetStreamManager().StreamCount(), "there are deployed streams left at end of test")
-		log.Infof("checking streams returned: %t", ok1)
 	}
 
 	//ok2, err := testutils.WaitUntilWithError(func() (bool, error) {
@@ -589,7 +592,7 @@ func checkRemainingData(require *require.Assertions, nodeID int, store *store.St
 			isEndMarker := (len(k) == 33) && (len(v) == 1) && (v[0] == 'x')
 			if !isPrefixTombstone && !isEndMarker {
 				hasUserEntries = true
-				log.Errorf("node: %d remaining entry for slab id %d %v:%v version:%d", nodeID, slabID, k, v, ver)
+				log.Errorf("%s node: %d remaining entry for slab id %d %v:%v version:%d", nodeID, slabID, k, v, ver)
 			}
 			if isPrefixTombstone {
 				log.Infof("node: %d got tombstone prefix for slab id %d : %v", nodeID, slabID, k)
@@ -991,7 +994,7 @@ func (st *scriptTest) executeTektiteStatement(require *require.Assertions, state
 	var res string
 	if waitUntilResults == "" {
 		res = st.execStatement(require, statement)
-		log.Infof("output:%s", res)
+		log.Infof("%s output:%s", st.testName, res)
 		st.output.WriteString(res)
 	} else {
 		ok, err := testutils.WaitUntilWithError(func() (bool, error) {
@@ -1007,7 +1010,7 @@ func (st *scriptTest) executeTektiteStatement(require *require.Assertions, state
 	}
 	end := time.Now()
 	dur := end.Sub(start)
-	log.Infof("Statement execute time ms %d", dur.Milliseconds())
+	log.Infof("%s: Statement execute time ms %d", st.testName, dur.Milliseconds())
 }
 
 func (st *scriptTest) execStatement(require *require.Assertions, statement string) string {

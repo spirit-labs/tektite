@@ -1203,6 +1203,8 @@ func (sm *streamManager) UndeployStream(deleteStreamDesc parser.DeleteStreamDesc
 	sm.lock.Lock()
 	defer sm.lock.Unlock()
 
+	log.Infof("%s: node: %d undeploying stream %s", sm.cfg.LogScope, sm.cfg.NodeID, deleteStreamDesc.StreamName)
+
 	// First we look up the stream info
 	info, ok := sm.streams[deleteStreamDesc.StreamName]
 	if !ok {
@@ -1335,7 +1337,7 @@ func (sm *streamManager) deleteSlab(slabInfo *SlabInfo) {
 		sm.processorManager.ForwardBatch(batch, false, func(err error) {
 			if err != nil {
 				// This can fail when undeploy is executed again when nodes restart and replay old commands
-				log.Warnf("failed to write tombstones for deleting slab %d %v", slabInfo.SlabID, err)
+				log.Warnf("%s: failed to write tombstones for deleting slab %d %v", sm.cfg.LogScope, slabInfo.SlabID, err)
 			}
 		})
 	}

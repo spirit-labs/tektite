@@ -99,6 +99,7 @@ func TestSnapshotVersions(t *testing.T) {
 		handlers = append(handlers, hndlr)
 		cfg := &conf.Config{}
 		cfg.ApplyDefaults()
+		cfg.LogScope = t.Name()
 		cfg.NodeID = i
 		cfg.ClusterAddresses = remotingAddresses
 		mgr := proc.NewProcessorManager(clustStateMgr, hndlr, st, cfg, nil, func(processorID int) proc.BatchHandler {

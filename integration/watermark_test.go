@@ -422,6 +422,7 @@ func setup(t *testing.T) (opers.StreamManager, proc.Manager, *conf.Config) {
 	require.NoError(t, err)
 	cfg := &conf.Config{}
 	cfg.ApplyDefaults()
+	cfg.LogScope = t.Name()
 	cfg.ProcessorCount = 10
 	streamMgr := opers.NewStreamManager(nil, store, &testSlabRetentions{},
 		&expr.ExpressionFactory{}, cfg, true)
