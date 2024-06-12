@@ -191,7 +191,7 @@ func (sm *ClusteredStateManager) handleActiveNodes(activeNodes map[int]int64, ma
 			return
 		}
 
-		log.Debugf("%s: node %d etcd clustmgr, got existing cs: %v ns: %v", sm.logScope, sm.nodeID, cs, ns)
+		log.Debugf("%s: node %d etcd clustmgr, got existing cs: %v ns: %v cluster version:%d", sm.logScope, sm.nodeID, cs, ns, ver)
 
 		if cs != nil {
 			// Now we must check if the max revision in the incoming cluster state is > than the max revision of
@@ -266,7 +266,7 @@ func (sm *ClusteredStateManager) handleActiveNodes(activeNodes map[int]int64, ma
 			GroupStates: groupStates,
 		}
 		verifyStateBalanced(newState)
-		log.Debugf("%s: node %d created new clusterstate %v version %d", sm.logScope, sm.nodeID, newState, ver)
+		log.Debugf("%s: node %d created new clusterstate %v new version %d", sm.logScope, sm.nodeID, newState, newClusterVer)
 		ok, err = sm.client.SetClusterState(newState, activeNodes, ver, maxRevision)
 		if err != nil {
 			log.Errorf("failed to setClusterState %v", err)

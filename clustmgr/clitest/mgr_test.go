@@ -3,6 +3,7 @@ package clitest
 import (
 	"github.com/spirit-labs/tektite/clustmgr"
 	"github.com/stretchr/testify/require"
+	"reflect"
 	"testing"
 	"time"
 )
@@ -19,7 +20,7 @@ func TestManagerClusterState(t *testing.T) {
 		}
 	}()
 
-	verifyClusterStates(t, chans, clustmgr.ClusterState{
+	verifyLatestClusterState(t, chans, clustmgr.ClusterState{
 		Version: 0,
 		GroupStates: [][]clustmgr.GroupNode{
 			{
@@ -49,7 +50,7 @@ func TestManagerNodeStoppedAndRestarted(t *testing.T) {
 		}
 	}()
 
-	verifyClusterStates(t, chans, clustmgr.ClusterState{
+	verifyLatestClusterState(t, chans, clustmgr.ClusterState{
 		Version: 0,
 		GroupStates: [][]clustmgr.GroupNode{
 			{
@@ -79,7 +80,7 @@ func TestManagerNodeStoppedAndRestarted(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, ok)
 
-	verifyClusterStates(t, chans, clustmgr.ClusterState{
+	verifyLatestClusterState(t, chans, clustmgr.ClusterState{
 		Version: 1,
 		GroupStates: [][]clustmgr.GroupNode{
 			{
@@ -105,7 +106,7 @@ func TestManagerNodeStoppedAndRestarted(t *testing.T) {
 		}
 	}
 
-	verifyClusterStates(t, newChans, clustmgr.ClusterState{
+	verifyLatestClusterState(t, newChans, clustmgr.ClusterState{
 		Version: 2,
 		GroupStates: [][]clustmgr.GroupNode{
 			{
@@ -121,7 +122,7 @@ func TestManagerNodeStoppedAndRestarted(t *testing.T) {
 
 	mgrs[1], chans[1] = startManager(t, t.Name(), 1, 3, 2)
 
-	verifyClusterStates(t, chans, clustmgr.ClusterState{
+	verifyLatestClusterState(t, chans, clustmgr.ClusterState{
 		Version: 3,
 		GroupStates: [][]clustmgr.GroupNode{
 			{
@@ -151,7 +152,7 @@ func TestManagerBounceNodeQuickly(t *testing.T) {
 		}
 	}()
 
-	verifyClusterStates(t, chans, clustmgr.ClusterState{
+	verifyLatestClusterState(t, chans, clustmgr.ClusterState{
 		Version: 0,
 		GroupStates: [][]clustmgr.GroupNode{
 			{
@@ -181,7 +182,7 @@ func TestManagerBounceNodeQuickly(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, ok)
 
-	verifyClusterStates(t, chans, clustmgr.ClusterState{
+	verifyLatestClusterState(t, chans, clustmgr.ClusterState{
 		Version: 1,
 		GroupStates: [][]clustmgr.GroupNode{
 			{
@@ -230,7 +231,7 @@ func TestManagerFailoverToOneNodeThenRestartLeadersPreserved(t *testing.T) {
 	mgrs, chans := startManagers(t, t.Name(), 3, 2, 3)
 	defer stopMgrs(mgrs)
 
-	verifyClusterStates(t, chans, clustmgr.ClusterState{
+	verifyLatestClusterState(t, chans, clustmgr.ClusterState{
 		Version: 0,
 		GroupStates: [][]clustmgr.GroupNode{
 			{
@@ -260,7 +261,7 @@ func TestManagerFailoverToOneNodeThenRestartLeadersPreserved(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, ok)
 
-	verifyClusterStates(t, chans, clustmgr.ClusterState{
+	verifyLatestClusterState(t, chans, clustmgr.ClusterState{
 		Version: 1,
 		GroupStates: [][]clustmgr.GroupNode{
 			{
@@ -364,11 +365,17 @@ func groupStatesEqualNoJoinedVersion(gsExpect [][]clustmgr.GroupNode, gsActual [
 	return true
 }
 
-func verifyClusterStates(t *testing.T, stateChans []chan clustmgr.ClusterState, states ...clustmgr.ClusterState) {
-	for _, expectedState := range states {
-		for _, ch := range stateChans {
-			actState := <-ch
-			require.Equalf(t, expectedState, actState, "expected state:\n%v\nactual state:\n%v", expectedState, actState)
+func verifyLatestClusterState(t *testing.T, stateChans []chan clustmgr.ClusterState, expectedState clustmgr.ClusterState) {
+	for _, ch := range stateChans {
+		lastState := <-ch
+		if reflect.DeepEqual(expectedState, lastState) {
+			select {
+			case <-ch:
+				// should be no more
+				t.Fatal("not last element in channel")
+			default:
+			}
+			return
 		}
 	}
 }
