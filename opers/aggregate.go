@@ -236,6 +236,7 @@ func NewAggregateOperator(inSchema *OperatorSchema, aggDesc *parser.AggregateDes
 		storeResults:                storeResults,
 		includeWindowCols:           includeWindowCols,
 		aggDesc:                     aggDesc,
+		hashCache:                   newPartitionHashCache(inSchema.MappingID, inSchema.Partitions),
 	}, nil
 }
 
@@ -278,6 +279,7 @@ type AggregateOperator struct {
 	storeResults                bool
 	includeWindowCols           bool
 	aggDesc                     *parser.AggregateDesc
+	hashCache                   *partitionHashCache
 }
 
 type windowEntry struct {
@@ -347,7 +349,8 @@ func (a *AggregateOperator) augmentWithWindows(batch *evbatch.Batch, execCtx Str
 				openWindows = addWindow(entry, openWindows)
 				// store the open window - we need to do this, so if we crash and restart, we don't end up with open windows
 				// never being closed
-				key := encoding.EncodeEntryPrefix(a.openWindowsSlabID, uint64(execCtx.PartitionID()), 32)
+				partitionHash := a.hashCache.getHash(partitionID)
+				key := encoding.EncodeEntryPrefix(partitionHash, a.openWindowsSlabID, 40)
 				key = encoding.KeyEncodeTimestamp(key, types.NewTimestamp(int64(ws)))
 				key = encoding.EncodeVersion(key, uint64(execCtx.WriteVersion()))
 				val := make([]byte, 8)
@@ -449,7 +452,8 @@ func addWindow(toAdd windowEntry, windows []windowEntry) []windowEntry {
 }
 
 func (a *AggregateOperator) loadOpenWindows(partitionID int) ([]windowEntry, error) {
-	key := encoding.EncodeEntryPrefix(a.openWindowsSlabID, uint64(partitionID), 16)
+	partitionHash := a.hashCache.getHash(partitionID)
+	key := encoding.EncodeEntryPrefix(partitionHash, a.openWindowsSlabID, 24)
 	iter, err := a.store.NewIterator(key, common.IncrementBytesBigEndian(key), math.MaxUint64, false)
 	if err != nil {
 		return nil, err
@@ -465,7 +469,7 @@ func (a *AggregateOperator) loadOpenWindows(partitionID int) ([]windowEntry, err
 			break
 		}
 		curr := iter.Current()
-		ws, _ := encoding.KeyDecodeTimestamp(curr.Key, 16)
+		ws, _ := encoding.KeyDecodeTimestamp(curr.Key, 24)
 		we, _ := encoding.ReadUint64FromBufferLE(curr.Value, 0)
 		entry := windowEntry{
 			ws: ws.Val,
@@ -549,7 +553,9 @@ func (a *AggregateOperator) closeWindow(entry windowEntry, partitionID int, exec
 	// We load the aggregation for the window and then send it as a batch to the receiver, where it will be picked
 	// up and stored.
 	// Note that `ws` must be the first column for us to be able to load the window efficiently
-	keyStart := encoding.EncodeEntryPrefix(a.aggStateSlabID, uint64(partitionID), 25)
+
+	partitionHash := a.hashCache.getHash(partitionID)
+	keyStart := encoding.EncodeEntryPrefix(partitionHash, a.aggStateSlabID, 25)
 	keyStart = append(keyStart, 1) // not null
 	keyStart = encoding.KeyEncodeTimestamp(keyStart, types.NewTimestamp(entry.ws))
 	keyEnd := common.IncrementBytesBigEndian(keyStart)
@@ -765,7 +771,8 @@ func (a *AggregateOperator) computeAggs(grouped map[string][]any, execCtx Stream
 	numAggs := len(a.aggColTypes)
 	for key, groupedArr := range grouped {
 		rowBytes := make([]byte, 0, 64)
-		storeKey := encoding.EncodeEntryPrefix(a.aggStateSlabID, uint64(execCtx.PartitionID()), 16+len(key))
+		partitionHash := a.hashCache.getHash(execCtx.PartitionID())
+		storeKey := encoding.EncodeEntryPrefix(partitionHash, a.aggStateSlabID, 24+len(key))
 		storeKey = append(storeKey, common.StringToByteSliceZeroCopy(key)...)
 		state, err := a.maybeLoadState(storeKey, execCtx)
 		if err != nil {
@@ -940,14 +947,15 @@ func (a *AggregateOperator) Teardown(mgr StreamManagerCtx, _ *sync.RWMutex) {
 }
 
 func (a *AggregateOperator) ReceiveBatch(batch *evbatch.Batch, execCtx StreamExecContext) (*evbatch.Batch, error) {
+	partitionHash := a.hashCache.getHash(execCtx.PartitionID())
 	if a.storeResults {
 		// store the batch
-		prefix := encoding.EncodeEntryPrefix(a.resultsSlabID, uint64(execCtx.PartitionID()), 16)
+		prefix := encoding.EncodeEntryPrefix(partitionHash, a.resultsSlabID, 64)
 		storeBatchInTable(batch, a.outKeyColIndexes, a.outAggColIndexes, prefix, execCtx, -1, false)
 	}
 	ws := binary.LittleEndian.Uint64(execCtx.EventBatchBytes())
 	// delete the open window from storage
-	key := encoding.EncodeEntryPrefix(a.openWindowsSlabID, uint64(execCtx.PartitionID()), 32)
+	key := encoding.EncodeEntryPrefix(partitionHash, a.openWindowsSlabID, 40)
 	key = encoding.KeyEncodeTimestamp(key, types.NewTimestamp(int64(ws)))
 	key = encoding.EncodeVersion(key, uint64(execCtx.WriteVersion()))
 	execCtx.StoreEntry(common.KV{

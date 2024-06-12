@@ -84,10 +84,11 @@ type Processor interface {
 type VersionCompleteHandler func(version int, requiredCompletions int, commandID int, doom bool, completionFunc func(error))
 
 func NewProcessor(id int, cfg *conf.Config, store *store.Store, batchForwarder BatchForwarder,
-	batchHandler BatchHandler, receiverInfoProvider ReceiverInfoProvider) Processor {
+	batchHandler BatchHandler, receiverInfoProvider ReceiverInfoProvider, dataKey []byte) Processor {
 	// We choose cache max size to 25% of the available space in a newly created memtable
 	cacheMaxSize := int64(0.25 * float64(int64(cfg.MemtableMaxSizeBytes)-mem.MemtableSizeOverhead))
 	levelManagerProcessor := cfg.LevelManagerEnabled && id == cfg.ProcessorCount
+	replSeqKey := encoding.EncodeEntryPrefix(dataKey, common.ReplSeqSlabID, 24)
 	proc := &processor{
 		id:                        id,
 		cfg:                       cfg,
@@ -103,6 +104,7 @@ func NewProcessor(id int, cfg *conf.Config, store *store.Store, batchForwarder B
 		requiredCompletions:       -1,
 		currentVersion:            -1,
 		levelManagerProcessor:     levelManagerProcessor,
+		replSeqKey:                replSeqKey,
 	}
 	procCount := cfg.ProcessorCount
 	if cfg.LevelManagerEnabled {
@@ -143,6 +145,7 @@ type processor struct {
 	lastProcessedVersion      int
 	notIdleNotifier           func()
 	levelManagerProcessor     bool
+	replSeqKey                []byte
 }
 
 type barrierInfo struct {
@@ -591,7 +594,7 @@ func (p *processor) processBatch(batch *ProcessBatch, reprocess bool) error {
 		if localBatch == nil {
 			localBatch = mem.NewBatch()
 		}
-		p.persistReplBatchSeq(batch, localBatch)
+		localBatch = p.persistReplBatchSeq(batch, localBatch)
 	}
 
 	if localBatch != nil {
@@ -741,9 +744,9 @@ func (p *processor) prepareForShutdown() {
 	<-ch
 }
 
-func (p *processor) persistReplBatchSeq(batch *ProcessBatch, memBatch *mem.Batch) {
-	key := encoding.EncodeEntryPrefix(common.ReplSeqSlabID, 0, 40)
-	key = encoding.AppendUint64ToBufferBE(key, uint64(p.id))
+func (p *processor) persistReplBatchSeq(batch *ProcessBatch, memBatch *mem.Batch) *mem.Batch {
+	key := make([]byte, 24, 32)
+	copy(key, p.replSeqKey)
 	key = encoding.EncodeVersion(key, uint64(batch.Version))
 	val := make([]byte, 8)
 	binary.LittleEndian.PutUint64(val, uint64(batch.ReplSeq))
@@ -754,14 +757,13 @@ func (p *processor) persistReplBatchSeq(batch *ProcessBatch, memBatch *mem.Batch
 		Key:   key,
 		Value: val,
 	})
-	log.Debugf("node %d processor %d persisted batch seq %d at version %d", p.cfg.NodeID, p.id, batch.ReplSeq,
-		batch.Version)
+	log.Debugf("node %d processor %d persisted batch seq %d at version %d -key %v", p.cfg.NodeID, p.id, batch.ReplSeq,
+		batch.Version, key)
+	return memBatch
 }
 
 func (p *processor) LoadLastProcessedReplBatchSeq(version int) (int64, error) {
-	key := encoding.EncodeEntryPrefix(common.ReplSeqSlabID, 0, 32)
-	key = encoding.AppendUint64ToBufferBE(key, uint64(p.id))
-	value, err := p.store.GetWithMaxVersion(key, uint64(version))
+	value, err := p.store.GetWithMaxVersion(p.replSeqKey, uint64(version))
 	if err != nil {
 		return 0, err
 	}

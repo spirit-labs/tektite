@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/spirit-labs/tektite/common"
+	"github.com/spirit-labs/tektite/conf"
 	"github.com/spirit-labs/tektite/encoding"
 	"github.com/spirit-labs/tektite/errors"
 	log "github.com/spirit-labs/tektite/logger"
@@ -28,26 +29,45 @@ type Client interface {
 	GetValidGroups() (map[string]int, error)
 	GetLock(lockName string, timeout time.Duration) (bool, error)
 	ReleaseLock(lockName string) error
-	GetClusterState() (*ClusterState, map[int]int64, int64, error)
-	SetClusterState(clusterState *ClusterState, activeNodes map[int]int64, version int64) (bool, error)
+	GetClusterState() (*ClusterState, map[int]int64, int64, int64, error)
+	SetClusterState(clusterState *ClusterState, activeNodes map[int]int64, version int64, maxRevision int64) (bool, error)
 	GetNodeRevision() int64
 	PrepareForShutdown()
+	GetMutex(name string) (*Mutex, error)
+}
+
+type Mutex struct {
+	session *concurrency.Session
+	mut     *concurrency.Mutex
+}
+
+func (m *Mutex) Close() error {
+	if err := m.mut.Unlock(context.Background()); err != nil {
+		return convertEtcdError(err)
+	}
+	return convertEtcdError(m.session.Close())
 }
 
 func NewClient(keyPrefix string, clusterName string, nodeID int, endpoints []string, leaseTime time.Duration,
-	sendUpdatePeriod time.Duration, callTimeout time.Duration, nodeChangeHandler func(nodes map[int]int64), clusterStateHandler func(cs ClusterState)) Client {
-	clusterPrefix := fmt.Sprintf("%s%s/", keyPrefix, clusterName)
-	nodesKey := fmt.Sprintf("%s%s", clusterPrefix, "nodes/")
+	sendUpdatePeriod time.Duration, callTimeout time.Duration, nodeChangeHandler func(nodes map[int]int64, maxRevision int64), clusterStateHandler func(cs ClusterState),
+	logScope string) Client {
+	if clusterName == conf.DefaultClusterName {
+		panic("using default cluster name")
+	}
+	fullPrefix := fmt.Sprintf("%s%s/", keyPrefix, clusterName)
+	nodesKey := fmt.Sprintf("%s%s", fullPrefix, "nodes/")
 	thisNodeKey := fmt.Sprintf("%s%d", nodesKey, nodeID)
-	clusterStateKey := fmt.Sprintf("%s%s", clusterPrefix, "cluster_state")
-	locksKey := fmt.Sprintf("%s%s", clusterPrefix, "locks/")
-	validGroupsKey := fmt.Sprintf("%s%s", clusterPrefix, "valid_groups/")
+	clusterStateKey := fmt.Sprintf("%s%s", fullPrefix, "cluster_state")
+	locksKey := fmt.Sprintf("%s%s", fullPrefix, "locks/")
+	validGroupsKey := fmt.Sprintf("%s%s", fullPrefix, "valid_groups/")
+	mutexesKey := fmt.Sprintf("%s%s", fullPrefix, "mutexes/")
 	c := &client{
 		nodesKey:            nodesKey,
 		thisNodeKey:         thisNodeKey,
 		clusterStateKey:     clusterStateKey,
 		locksKey:            locksKey,
 		validGroupsKey:      validGroupsKey,
+		mutexesKey:          mutexesKey,
 		clusterName:         clusterName,
 		nodeID:              nodeID,
 		endpoints:           endpoints,
@@ -58,6 +78,8 @@ func NewClient(keyPrefix string, clusterName string, nodeID int, endpoints []str
 		clusterStateHandler: clusterStateHandler,
 		activeNodes:         map[int]int64{},
 		notAvailableMsg:     fmt.Sprintf("etcd not available on %v. will retry", endpoints),
+		logScope:            logScope,
+		clusterHead:         fullPrefix,
 	}
 	c.stopWG.Add(5)
 	return c
@@ -70,13 +92,14 @@ type client struct {
 	clusterStateKey            string
 	locksKey                   string
 	validGroupsKey             string
+	mutexesKey                 string
 	endpoints                  []string
 	clusterName                string
 	nodeID                     int
 	leaseTime                  time.Duration
 	callTimeout                time.Duration
 	activeNodes                map[int]int64
-	nodesChangeHandler         func(map[int]int64)
+	nodesChangeHandler         func(map[int]int64, int64)
 	clusterStateHandler        func(cs ClusterState)
 	cli                        *clientv3.Client
 	leaseID                    clientv3.LeaseID
@@ -86,6 +109,7 @@ type client struct {
 	cancelFunc                 context.CancelFunc
 	stopped                    atomic.Bool
 	requiresNodesUpdate        bool
+	maxNodesRevision           int64
 	requiresClusterStateUpdate bool
 	currentClusterStateInfo    clusterStateInfo
 	stopWG                     sync.WaitGroup
@@ -93,6 +117,8 @@ type client struct {
 	locksLock                  sync.Mutex
 	shuttingDown               bool
 	notAvailableMsg            string
+	logScope                   string
+	clusterHead                string
 }
 
 func (c *client) Start() error {
@@ -105,7 +131,7 @@ func (c *client) Start() error {
 		panic("cannot be restarted")
 	}
 
-	log.Debugf("node %d etcd client starting", c.nodeID)
+	log.Debugf("%s: node %d etcd client starting", c.logScope, c.nodeID)
 
 	// The etcd client noisily logs stuff, we suppress this
 	etcdLogger := log.CreateLogger(zap.ErrorLevel, "console")
@@ -149,12 +175,16 @@ func (c *client) Start() error {
 		return err
 	}
 
+	log.Debugf("%s: node %d etcd client adding node key %s", c.logScope, c.nodeID, c.thisNodeKey)
+
 	// Put a key with lease
 	putResp, err := callEtcdWithRetry(c, func() (*clientv3.PutResponse, error) {
 		ctx, cancel := context.WithTimeout(context.Background(), c.callTimeout)
 		defer cancel()
 		return c.cli.Put(ctx, c.thisNodeKey, "", clientv3.WithLease(c.leaseID))
 	})
+
+	log.Debugf("%s: node %d etcd client added node key %s", c.logScope, c.nodeID, c.thisNodeKey)
 
 	c.thisNodeRev = putResp.Header.Revision
 
@@ -171,6 +201,7 @@ func (c *client) Start() error {
 		return err
 	}
 	for _, kv := range getResp.Kvs {
+		log.Debugf("%s: node %d etcd client got initial node state %s", c.logScope, c.nodeID, string(kv.Key))
 		if err := c.handleNodeAdd(string(kv.Key), kv.ModRevision); err != nil {
 			return err
 		}
@@ -295,16 +326,22 @@ func (c *client) nodesWatchLoop(watchCh clientv3.WatchChan) {
 
 func (c *client) validGroupsWatchLoop(watchCh clientv3.WatchChan) {
 	defer c.stopWG.Done()
-	for range watchCh {
-		c.handleValidGroupsWatchLoop()
+	for watchResp := range watchCh {
+		c.handleValidGroupsWatchLoop(watchResp)
 	}
 }
 
-func (c *client) handleValidGroupsWatchLoop() {
+func (c *client) handleValidGroupsWatchLoop(watchResp clientv3.WatchResponse) {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 	if c.isStopped() || c.shuttingDown {
 		return
+	}
+	for _, event := range watchResp.Events {
+		revision := event.Kv.ModRevision
+		if revision > c.maxNodesRevision {
+			c.maxNodesRevision = revision
+		}
 	}
 	c.requiresNodesUpdate = true
 }
@@ -312,16 +349,21 @@ func (c *client) handleValidGroupsWatchLoop() {
 func (c *client) handleNodesWatchEvents(watchResp clientv3.WatchResponse) {
 	c.lock.Lock()
 	defer c.lock.Unlock()
+	log.Debugf("%s: node %d etcd client got node watch event", c.logScope, c.nodeID)
+
 	if c.isStopped() || c.shuttingDown {
+		log.Debugf("%s: node %d etcd client got node watch event but not processing it as stopped? %t shuttingdown %t", c.logScope, c.nodeID, c.isStopped(), c.shuttingDown)
 		return
 	}
 	for _, event := range watchResp.Events {
 		key := string(event.Kv.Key)
 		if event.Type == clientv3.EventTypeDelete {
-			if err := c.handleNodeDelete(key); err != nil {
+			log.Debugf("%s: node %d etcd client handling node delete: %s", c.logScope, c.nodeID, key)
+			if err := c.handleNodeDelete(key, event.Kv.ModRevision); err != nil {
 				log.Errorf("failed to handle delete %v", err)
 			}
 		} else {
+			log.Debugf("%s: node %d etcd client handling node add: %s", c.logScope, c.nodeID, key)
 			if err := c.handleNodeAdd(key, event.Kv.ModRevision); err != nil {
 				log.Errorf("failed to handle add %v", err)
 			}
@@ -329,24 +371,30 @@ func (c *client) handleNodesWatchEvents(watchResp clientv3.WatchResponse) {
 	}
 }
 
-func (c *client) handleNodeAdd(key string, version int64) error {
+func (c *client) handleNodeAdd(key string, revision int64) error {
 	key = strings.TrimPrefix(key, c.nodesKey)
 	nodeID, err := strconv.Atoi(key)
 	if err != nil {
 		return errors.Errorf("invalid key %s", key)
 	}
-	c.activeNodes[nodeID] = version
+	c.activeNodes[nodeID] = revision
+	if revision > c.maxNodesRevision {
+		c.maxNodesRevision = revision
+	}
 	c.requiresNodesUpdate = true
 	return nil
 }
 
-func (c *client) handleNodeDelete(key string) error {
+func (c *client) handleNodeDelete(key string, revision int64) error {
 	key = strings.TrimPrefix(key, c.nodesKey)
 	nodeID, err := strconv.Atoi(key)
 	if err != nil {
 		return errors.Errorf("invalid key %s", key)
 	}
 	delete(c.activeNodes, nodeID)
+	if revision > c.maxNodesRevision {
+		c.maxNodesRevision = revision
+	}
 	c.requiresNodesUpdate = true
 	return nil
 }
@@ -374,8 +422,9 @@ func (c *client) handleClusterStateWatchEvents(watchResp clientv3.WatchResponse)
 }
 
 type clusterStateInfo struct {
-	cs         *ClusterState
-	nodesState map[int]int64
+	cs          *ClusterState
+	nodesState  map[int]int64
+	maxRevision int64
 }
 
 func (c *client) sendUpdateLoop() {
@@ -408,20 +457,10 @@ func (c *client) sendUpdate() {
 			}
 		}
 		if valid {
-			c.nodesChangeHandler(nodeCopy)
+			c.nodesChangeHandler(nodeCopy, c.maxNodesRevision)
 		}
 	}
 	if c.requiresClusterStateUpdate {
-		// Filter out the cluster state if the node rev of this node does not match the revision this node was put
-		// as. That would be the case if the cluster state is old from before a cluster crash.
-		csNodeRev, ok := c.currentClusterStateInfo.nodesState[c.nodeID]
-		matches := ok && c.thisNodeRev == csNodeRev
-
-		if !matches {
-			log.Warnf("client %d cluster state does not contain this node at correct revision- will  be ignored - csnodes: %v thisnoderev %d",
-				c.nodeID, c.currentClusterStateInfo.nodesState, c.thisNodeRev)
-			return
-		}
 		cs := *c.currentClusterStateInfo.cs
 		c.clusterStateHandler(cs)
 	}
@@ -525,6 +564,29 @@ func (c *client) GetValidGroups() (map[string]int, error) {
 	return validGroups, nil
 }
 
+func (c *client) GetEtcdClient() *clientv3.Client {
+	return c.cli
+}
+
+func (c *client) GetClusterHead() string {
+	return c.clusterHead
+}
+
+func (c *client) GetMutex(name string) (*Mutex, error) {
+	session, err := concurrency.NewSession(c.cli)
+	if err != nil {
+		return nil, convertEtcdError(err)
+	}
+	mut := concurrency.NewMutex(session, fmt.Sprintf("%s%s", c.mutexesKey, name))
+	if err := mut.Lock(context.Background()); err != nil {
+		return nil, convertEtcdError(err)
+	}
+	return &Mutex{
+		session: session,
+		mut:     mut,
+	}, nil
+}
+
 func (c *client) GetLock(lockName string, timeout time.Duration) (bool, error) {
 	c.locksLock.Lock()
 	defer c.locksLock.Unlock()
@@ -532,7 +594,7 @@ func (c *client) GetLock(lockName string, timeout time.Duration) (bool, error) {
 		return false, errors.New("cluster client is stopped")
 	}
 	// create a session for distributed locking
-	session, err := concurrency.NewSession(c.cli, concurrency.WithTTL(2))
+	session, err := concurrency.NewSession(c.cli)
 	if err != nil {
 		log.Errorf("client %d failed to create session %v", c.nodeID, err)
 		return false, convertEtcdError(err)
@@ -555,6 +617,12 @@ func (c *client) GetLock(lockName string, timeout time.Duration) (bool, error) {
 		}
 		return false, convertEtcdError(err)
 	}
+
+	defer func() {
+		if err := mutex.Unlock(ctx); err != nil {
+			log.Errorf("failed to unlock mutex %v", err)
+		}
+	}()
 
 	// check if the lock already exists
 	resp, err := c.cli.Get(ctx, lockKey)
@@ -605,18 +673,18 @@ func (c *client) createLockKey(lockName string) string {
 	return fmt.Sprintf("%s%s", c.locksKey, lockName)
 }
 
-func (c *client) GetClusterState() (*ClusterState, map[int]int64, int64, error) {
+func (c *client) GetClusterState() (*ClusterState, map[int]int64, int64, int64, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), c.callTimeout)
 	defer cancel()
 	resp, err := c.cli.Get(ctx, c.clusterStateKey)
 	if err != nil {
-		return nil, nil, 0, convertEtcdError(err)
+		return nil, nil, 0, 0, convertEtcdError(err)
 	}
 	if len(resp.Kvs) == 0 {
-		return nil, nil, 0, nil
+		return nil, nil, 0, 0, nil
 	}
 	info := deserializeClusterState(resp.Kvs[0].Value)
-	return info.cs, info.nodesState, resp.Kvs[0].Version, nil
+	return info.cs, info.nodesState, resp.Kvs[0].Version, info.maxRevision, nil
 }
 
 func deserializeClusterState(bytes []byte) clusterStateInfo {
@@ -632,14 +700,16 @@ func deserializeClusterState(bytes []byte) clusterStateInfo {
 		ver, offset = encoding.ReadUint64FromBufferLE(bytes, offset)
 		nodesState[int(nid)] = int64(ver)
 	}
+	maxRevision, _ := encoding.ReadUint32FromBufferLE(bytes, offset)
 	return clusterStateInfo{
-		cs:         cs,
-		nodesState: nodesState,
+		cs:          cs,
+		nodesState:  nodesState,
+		maxRevision: int64(maxRevision),
 	}
 }
 
-func (c *client) SetClusterState(clusterState *ClusterState, nodesState map[int]int64, version int64) (bool, error) {
-	log.Debugf("client node id %d setting cluster state %v", c.nodeID, clusterState)
+func (c *client) SetClusterState(clusterState *ClusterState, nodesState map[int]int64, version int64, maxRevision int64) (bool, error) {
+	log.Debugf("%s: client node id %d setting cluster state %v", c.logScope, c.nodeID, clusterState)
 	ctx, cancel := context.WithTimeout(context.Background(), c.callTimeout)
 	defer cancel()
 	txn := c.cli.Txn(ctx)
@@ -649,6 +719,7 @@ func (c *client) SetClusterState(clusterState *ClusterState, nodesState map[int]
 		bytes = encoding.AppendUint64ToBufferLE(bytes, uint64(nid))
 		bytes = encoding.AppendUint64ToBufferLE(bytes, uint64(ver))
 	}
+	bytes = encoding.AppendUint64ToBufferLE(bytes, uint64(maxRevision))
 	// Only put the KV if the current version matches the specified version - this protects against network
 	// partitions
 	resp, err := txn.If(clientv3.Compare(clientv3.Version(c.clusterStateKey), "=", version)).

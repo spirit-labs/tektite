@@ -11,7 +11,6 @@ import (
 	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/protos/clustermsgs"
 	"github.com/spirit-labs/tektite/remoting"
-	"github.com/spirit-labs/tektite/retention"
 	"sync/atomic"
 	"time"
 )
@@ -37,14 +36,14 @@ func (l *LevelManagerLocalClient) SetProcessorManager(processorManger Manager) {
 }
 
 func (l *LevelManagerLocalClient) GetTableIDsForRange(keyStart []byte, keyEnd []byte) (levels.OverlappingTableIDs,
-	uint64, []levels.VersionRange, error) {
+	[]levels.VersionRange, error) {
 	req := &clustermsgs.LevelManagerGetTableIDsForRangeMessage{
 		KeyStart: keyStart,
 		KeyEnd:   keyEnd,
 	}
 	r, err := l.sendLevelManagerRequestWithRetry(req)
 	if err != nil {
-		return nil, 0, nil, err
+		return nil, nil, err
 	}
 	resp := r.(*clustermsgs.LevelManagerGetTableIDsForRangeResponse)
 	bytes := resp.Payload
@@ -56,22 +55,7 @@ func (l *LevelManagerLocalClient) GetTableIDsForRange(keyStart []byte, keyEnd []
 			VersionEnd:   rng.VersionEnd,
 		}
 	}
-	return otids, resp.LevelManagerNow, versionRanges, nil
-}
-
-func (l *LevelManagerLocalClient) GetPrefixRetentions() ([]retention.PrefixRetention, error) {
-	if l.processorManager == nil {
-		panic("processor manager not set")
-	}
-	req := &clustermsgs.LevelManagerGetPrefixRetentionsMessage{}
-	r, err := l.sendLevelManagerRequest(req)
-	if err != nil {
-		return nil, err
-	}
-	resp := r.(*clustermsgs.LevelManagerRawResponse)
-	bytes := resp.Payload
-	prefixRetentions, _ := retention.DeserializePrefixRetentions(bytes, 0)
-	return prefixRetentions, nil
+	return otids, versionRanges, nil
 }
 
 func (l *LevelManagerLocalClient) RegisterL0Tables(registrationBatch levels.RegistrationBatch) error {
@@ -97,11 +81,6 @@ func (l *LevelManagerLocalClient) RegisterDeadVersionRange(versionRange levels.V
 	bytes = versionRange.Serialize(bytes)
 	bytes = encoding.AppendStringToBufferLE(bytes, clusterName)
 	bytes = encoding.AppendUint64ToBufferLE(bytes, uint64(clusterVersion))
-	return ingestCommandBatchSync(bytes, l.processorManager, l.cfg.ProcessorCount)
-}
-
-func (l *LevelManagerLocalClient) RegisterPrefixRetentions(prefixRetentions []retention.PrefixRetention) error {
-	bytes := levels.EncodeRegisterPrefixRetentionsCommand(prefixRetentions)
 	return ingestCommandBatchSync(bytes, l.processorManager, l.cfg.ProcessorCount)
 }
 
@@ -156,6 +135,28 @@ func (l *LevelManagerLocalClient) GetStats() (levels.Stats, error) {
 	stats := levels.Stats{}
 	stats.Deserialize(resp.Payload, 0)
 	return stats, nil
+}
+
+func (l *LevelManagerLocalClient) RegisterSlabRetention(slabID int, retention time.Duration) error {
+	req := &clustermsgs.LevelManagerRegisterSlabRetentionMessage{SlabId: int64(slabID), Retention: int64(retention)}
+	_, err := l.sendLevelManagerRequest(req)
+	return err
+}
+
+func (l *LevelManagerLocalClient) UnregisterSlabRetention(slabID int) error {
+	req := &clustermsgs.LevelManagerUnregisterSlabRetentionMessage{SlabId: int64(slabID)}
+	_, err := l.sendLevelManagerRequest(req)
+	return err
+}
+
+func (l *LevelManagerLocalClient) GetSlabRetention(slabID int) (time.Duration, error) {
+	req := &clustermsgs.LevelManagerGetSlabRetentionMessage{SlabId: int64(slabID)}
+	r, err := l.sendLevelManagerRequest(req)
+	if err != nil {
+		return 0, err
+	}
+	resp := r.(*clustermsgs.LevelManagerGetSlabRetentionResponse)
+	return time.Duration(resp.Retention), nil
 }
 
 func ingestCommandBatchSync(bytes []byte, forwarder BatchForwarder, processorID int) error {

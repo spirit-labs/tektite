@@ -2,6 +2,7 @@ package shutdown
 
 import (
 	"fmt"
+	"github.com/google/uuid"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/conf"
 	"github.com/spirit-labs/tektite/kafka"
@@ -34,11 +35,11 @@ func TestMain(m *testing.M) {
 	m.Run()
 }
 
-func startClusterWithObjStore(t *testing.T) ([]*server.Server, *dev.Store, func(t *testing.T)) {
+func startClusterWithObjStore(t *testing.T, clusterName string) ([]*server.Server, *dev.Store, func(t *testing.T)) {
 
 	objStore, objStoreAddress := startObjStore(t)
 
-	servers, tearDown := startCluster(t, objStoreAddress, nil)
+	servers, tearDown := startCluster(t, objStoreAddress, nil, clusterName)
 
 	return servers, objStore, tearDown
 }
@@ -52,7 +53,7 @@ func startObjStore(t *testing.T) (*dev.Store, string) {
 	return objStore, objStoreAddress
 }
 
-func createConfig(t *testing.T, objStoreAddress string) conf.Config {
+func createConfig(t *testing.T, objStoreAddress string, clusterName string) conf.Config {
 	numServers := 3
 
 	tlsConf := conf.TLSConfig{
@@ -75,7 +76,7 @@ func createConfig(t *testing.T, objStoreAddress string) conf.Config {
 
 	cfg := conf.Config{}
 	cfg.ApplyDefaults()
-	cfg.ClusterManagerKeyPrefix = t.Name()
+	cfg.ClusterName = clusterName
 	cfg.ClusterManagerAddresses = []string{etcdAddress}
 	cfg.ClusterAddresses = clusterAddresses
 	cfg.HttpApiEnabled = true
@@ -97,12 +98,12 @@ func createConfig(t *testing.T, objStoreAddress string) conf.Config {
 	return cfg
 }
 
-func startCluster(t *testing.T, objStoreAddress string, fk *fake.Kafka) ([]*server.Server, func(t *testing.T)) {
-	cfg := createConfig(t, objStoreAddress)
-	return startClusterWithConfig(t, cfg, fk)
+func startCluster(t *testing.T, objStoreAddress string, fk *fake.Kafka, clusterName string) ([]*server.Server, func(t *testing.T)) {
+	cfg := createConfig(t, objStoreAddress, clusterName)
+	return startClusterWithConfig(t, cfg, fk, clusterName)
 }
 
-func startClusterWithConfig(t *testing.T, cfg conf.Config, fk *fake.Kafka) ([]*server.Server, func(t *testing.T)) {
+func startClusterWithConfig(t *testing.T, cfg conf.Config, fk *fake.Kafka, clusterName string) ([]*server.Server, func(t *testing.T)) {
 	numServers := 3
 
 	var servers []*server.Server
@@ -144,18 +145,15 @@ func startClusterWithConfig(t *testing.T, cfg conf.Config, fk *fake.Kafka) ([]*s
 }
 
 func TestShutdownNoData(t *testing.T) {
-	servers, objStore, tearDown := startClusterWithObjStore(t)
+	servers, objStore, tearDown := startClusterWithObjStore(t, uuid.NewString())
 	defer func() {
 		tearDown(t)
 		err := objStore.Stop()
 		require.NoError(t, err)
 	}()
 
-	cfg := &conf.Config{}
-	cfg.ApplyDefaults()
-	cfg.ClusterAddresses = servers[0].GetConfig().ClusterAddresses
-
-	err := PerformShutdown(cfg, false)
+	cfg := servers[0].GetConfig()
+	err := PerformShutdown(&cfg, false)
 	require.NoError(t, err)
 }
 
@@ -163,7 +161,8 @@ func TestShutdownWithData(t *testing.T) {
 
 	fk := &fake.Kafka{}
 	objStore, objStoreAddress := startObjStore(t)
-	servers, _ := startCluster(t, objStoreAddress, fk)
+	clusterName := uuid.NewString()
+	servers, _ := startCluster(t, objStoreAddress, fk, clusterName)
 	defer func() {
 		err := objStore.Stop()
 		require.NoError(t, err)
@@ -206,18 +205,15 @@ func TestShutdownWithData(t *testing.T) {
 	require.True(t, ok)
 	require.NoError(t, err)
 
-	listenAddresses := servers[0].GetConfig().ClusterAddresses
-	cfg := &conf.Config{}
-	cfg.ApplyDefaults()
-	cfg.ClusterAddresses = listenAddresses
+	cfg := servers[0].GetConfig()
 
-	err = PerformShutdown(cfg, false)
+	err = PerformShutdown(&cfg, false)
 	require.NoError(t, err)
 
 	client.Close()
 
 	// Now we restart the cluster
-	servers, tearDown := startCluster(t, objStoreAddress, fk)
+	servers, tearDown := startCluster(t, objStoreAddress, fk, clusterName)
 	defer tearDown(t)
 
 	client, err = tekclient.NewClient(servers[0].GetConfig().HttpApiAddresses[0], clientTLSConfig)
@@ -235,11 +231,8 @@ func TestShutdownWithData(t *testing.T) {
 	require.True(t, ok)
 	require.NoError(t, err)
 
-	listenAddresses = servers[0].GetConfig().ClusterAddresses
-	cfg = &conf.Config{}
-	cfg.ApplyDefaults()
-	cfg.ClusterAddresses = listenAddresses
+	cfg = servers[0].GetConfig()
 
-	err = PerformShutdown(cfg, false)
+	err = PerformShutdown(&cfg, false)
 	require.NoError(t, err)
 }

@@ -4,10 +4,12 @@ import (
 	"encoding/binary"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/encoding"
+	"github.com/spirit-labs/tektite/proc"
 )
 
-func loadOffset(slabID int, partitionID int, store store) (int64, error) {
-	key := encoding.EncodeEntryPrefix(common.StreamOffsetSequenceSlabID, 0, 32)
+func loadOffset(slabID int, partitionID int, mappingID string, store store) (int64, error) {
+	partitionHash := proc.CalcPartitionHash(mappingID, uint64(partitionID))
+	key := encoding.EncodeEntryPrefix(partitionHash, common.StreamOffsetSequenceSlabID, 40)
 	key = encoding.AppendUint64ToBufferBE(key, uint64(slabID))
 	key = encoding.AppendUint64ToBufferBE(key, uint64(partitionID))
 	value, err := store.Get(key)
@@ -21,10 +23,11 @@ func loadOffset(slabID int, partitionID int, store store) (int64, error) {
 	return int64(seq), nil
 }
 
-func storeOffset(execCtx StreamExecContext, offset int64, slabID int, version int) {
+func storeOffset(execCtx StreamExecContext, offset int64, slabID int, version int, mappingID string) {
 	// Note the offset is always stored locally to the actual partition it refers to. The zero partition here isn't
 	// used, it's just required by the key format.
-	key := encoding.EncodeEntryPrefix(common.StreamOffsetSequenceSlabID, 0, 33)
+	partitionHash := proc.CalcPartitionHash(mappingID, uint64(execCtx.PartitionID()))
+	key := encoding.EncodeEntryPrefix(partitionHash, common.StreamOffsetSequenceSlabID, 48)
 	key = encoding.AppendUint64ToBufferBE(key, uint64(slabID))
 	key = encoding.AppendUint64ToBufferBE(key, uint64(execCtx.PartitionID()))
 	key = encoding.EncodeVersion(key, uint64(version))

@@ -402,7 +402,8 @@ func sendWaterMarkAndVerifyEntries(t *testing.T, agg *AggregateOperator, waterMa
 	} else {
 		// extract the closed window entries
 		var closedWindowEntries []common.KV
-		closedWindowKey := encoding.EncodeEntryPrefix(agg.openWindowsSlabID, uint64(partitionID), 16)
+		partitionHash := proc.CalcPartitionHash(agg.outSchema.MappingID, uint64(partitionID))
+		closedWindowKey := encoding.EncodeEntryPrefix(partitionHash, agg.openWindowsSlabID, 24)
 		for _, entry := range entries {
 			if len(entry.Key) >= len(closedWindowKey) && bytes.Equal(closedWindowKey, entry.Key[:len(closedWindowKey)]) {
 				closedWindowEntries = append(closedWindowEntries, entry)
@@ -416,7 +417,7 @@ func sendWaterMarkAndVerifyEntries(t *testing.T, agg *AggregateOperator, waterMa
 		}
 		for _, closedWindowEntry := range closedWindowEntries {
 			closedWindowKey := closedWindowEntry.Key
-			windowStartTs, _ := encoding.KeyDecodeTimestamp(closedWindowKey, 16)
+			windowStartTs, _ := encoding.KeyDecodeTimestamp(closedWindowKey, 24)
 			_, ok := closedWindowSet[int(windowStartTs.Val)]
 			require.True(t, ok)
 		}

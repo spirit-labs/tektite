@@ -10,11 +10,11 @@ import (
 	"github.com/spirit-labs/tektite/encoding"
 	"github.com/spirit-labs/tektite/errors"
 	"github.com/spirit-labs/tektite/iteration"
-	"github.com/spirit-labs/tektite/retention"
 	"github.com/spirit-labs/tektite/sst"
 	"github.com/spirit-labs/tektite/testutils"
 	"github.com/stretchr/testify/require"
 	"math"
+	"sync"
 	"testing"
 	"time"
 )
@@ -46,105 +46,6 @@ func TestPollerTimeout(t *testing.T) {
 		isTektiteError := errors.As(err, &perr)
 		require.True(t, isTektiteError)
 		require.Equal(t, errors.CompactionPollTimeout, int(perr.Code))
-	}
-}
-
-func TestJobWithExpiredPrefixes(t *testing.T) {
-	testJobWithExpiredPrefixes(t, 0)
-	testJobWithExpiredPrefixes(t, 1)
-}
-
-func testJobWithExpiredPrefixes(t *testing.T, fromLevel int) {
-	lm, tearDown := setupLevelManagerWithConfigSetter(t, true, func(cfg *conf.Config) {
-		cfg.L0CompactionTrigger = 1
-		cfg.L1CompactionTrigger = 1
-	})
-	defer tearDown(t)
-	// First register the prefixes
-	prefix1 := []byte("prefix1")
-	prefix2 := []byte("prefix2")
-	prefix3 := []byte("prefix3")
-	prefix4 := []byte("prefix4")
-	prefixRetentions := []retention.PrefixRetention{
-		{Prefix: prefix1, Retention: 1},
-		{Prefix: prefix2, Retention: 100000},
-		{Prefix: prefix3, Retention: 1},
-		{Prefix: prefix4, Retention: 100000},
-	}
-	err := lm.RegisterPrefixRetentions(prefixRetentions, false, 0)
-	require.NoError(t, err)
-
-	now := uint64(time.Now().UTC().UnixMilli())
-
-	registrations := []RegistrationEntry{
-		{
-			Level:        fromLevel,
-			TableID:      []byte("sst1"),
-			KeyStart:     []byte("prefix0/somekey321"),
-			KeyEnd:       []byte("prefix9/somekey123"),
-			CreationTime: now,
-		},
-		{
-			Level:        fromLevel,
-			TableID:      []byte("sst2"),
-			KeyStart:     []byte("prefix0/somekey321"),
-			KeyEnd:       []byte("prefix9/somekey123"),
-			CreationTime: now,
-		},
-		{
-			Level:        fromLevel + 1,
-			TableID:      []byte("sst3"),
-			KeyStart:     []byte("prefix0/somekey321"),
-			KeyEnd:       []byte("prefix9/somekey123"),
-			CreationTime: now,
-		},
-	}
-	regBatch := RegistrationBatch{Registrations: registrations}
-	err = lm.ApplyChangesNoCheck(regBatch)
-	require.NoError(t, err)
-
-	// Now wait a little while for the shorter expiration to expire
-	time.Sleep(2 * time.Millisecond)
-
-	expectedPrefixes := map[string]struct{}{
-		string(prefix1): {},
-		string(prefix3): {},
-	}
-
-	err = lm.MaybeScheduleCompaction()
-	require.NoError(t, err)
-	job, err := getJob(lm)
-	require.NoError(t, err)
-	require.NotNil(t, job)
-	require.Equal(t, fromLevel, job.levelFrom)
-	if fromLevel == 0 {
-		require.Equal(t, 3, len(job.tables))
-		require.Equal(t, 1, len(job.tables[0]))
-		require.Equal(t, 1, len(job.tables[1]))
-		require.Equal(t, 1, len(job.tables[2]))
-		tableToCompact1 := job.tables[0][0]
-		checkPrefixExtensions(t, expectedPrefixes, tableToCompact1.expiredPrefixes)
-		tableToCompact2 := job.tables[1][0]
-		checkPrefixExtensions(t, expectedPrefixes, tableToCompact2.expiredPrefixes)
-		tableToCompact3 := job.tables[2][0]
-		checkPrefixExtensions(t, expectedPrefixes, tableToCompact3.expiredPrefixes)
-	} else {
-		require.Equal(t, 2, len(job.tables))
-		require.Equal(t, 1, len(job.tables[0]))
-		require.Equal(t, 1, len(job.tables[1]))
-		tableToCompact1 := job.tables[0][0]
-		checkPrefixExtensions(t, expectedPrefixes, tableToCompact1.expiredPrefixes)
-		tableToCompact2 := job.tables[1][0]
-		checkPrefixExtensions(t, expectedPrefixes, tableToCompact2.expiredPrefixes)
-	}
-}
-
-func checkPrefixExtensions(t *testing.T, expected map[string]struct{}, prefixRetentions []retention.PrefixRetention) {
-	require.Equal(t, len(expected), len(prefixRetentions))
-	for _, pr := range prefixRetentions {
-		require.Equal(t, 0, int(pr.Retention))
-		_, ok := expected[string(pr.Prefix)]
-		require.True(t, ok)
 	}
 }
 
@@ -1069,7 +970,7 @@ func TestMergeInterleaved(t *testing.T) {
 
 	res, err := mergeSSTables(common.DataFormatV1,
 		[][]tableToMerge{{{sst: sst1}, {sst: sst2}}, {{sst: sst3}, {sst: sst4}}}, true,
-		1300, math.MaxInt64, "")
+		1300, math.MaxInt64, "", nil, 0)
 	require.NoError(t, err)
 	require.Equal(t, 4, len(res))
 	for i := 0; i < 4; i++ {
@@ -1113,7 +1014,7 @@ func TestMergeNoOverlap(t *testing.T) {
 
 	res, err := mergeSSTables(common.DataFormatV1,
 		[][]tableToMerge{{{sst: sst1}, {sst: sst2}}, {{sst: sst3}, {sst: sst4}}}, true,
-		1300, math.MaxInt64, "")
+		1300, math.MaxInt64, "", nil, 0)
 	require.NoError(t, err)
 	require.Equal(t, 4, len(res))
 	for i := 0; i < 4; i++ {
@@ -1157,7 +1058,7 @@ func TestOverwriteEntriesWithLaterVersionFirst(t *testing.T) {
 
 	res, err := mergeSSTables(common.DataFormatV1,
 		[][]tableToMerge{{{sst: sst1}, {sst: sst2}}, {{sst: sst3}, {sst: sst4}}}, true,
-		maxTableSize, math.MaxInt64, "")
+		maxTableSize, math.MaxInt64, "", nil, 0)
 	require.NoError(t, err)
 	require.Equal(t, 3, len(res))
 	for i := 0; i < 3; i++ {
@@ -1199,7 +1100,7 @@ func TestOverwriteEntriesWithLaterVersionLast(t *testing.T) {
 	require.NoError(t, err)
 
 	res, err := mergeSSTables(common.DataFormatV1, [][]tableToMerge{{{sst: sst1}, {sst: sst2}}, {{sst: sst3}, {sst: sst4}}},
-		true, maxTableSize, math.MaxInt64, "")
+		true, maxTableSize, math.MaxInt64, "", nil, 0)
 	require.NoError(t, err)
 	require.Equal(t, 3, len(res))
 	for i := 0; i < 3; i++ {
@@ -1238,7 +1139,7 @@ func TestMergePreserveTombstones(t *testing.T) {
 
 	res, err := mergeSSTables(common.DataFormatV1,
 		[][]tableToMerge{{{sst: sst1}, {sst: sst2}}, {{sst: sst3}, {sst: sst4}}}, true, maxTableSize,
-		math.MaxInt64, "")
+		math.MaxInt64, "", nil, 0)
 	require.NoError(t, err)
 	require.Equal(t, 1, len(res))
 	checkKVs(t, res[0].sst, "val", 0, 0, 1, -1, 2, 2, 3, -1)
@@ -1270,7 +1171,7 @@ func TestMergePreserveTombstonesAllEntriesRemoved(t *testing.T) {
 	require.NoError(t, err)
 
 	res, err := mergeSSTables(common.DataFormatV1, [][]tableToMerge{{{sst: sst1}, {sst: sst2}}, {{sst: sst3}, {sst: sst4}}},
-		true, maxTableSize, math.MaxInt64, "")
+		true, maxTableSize, math.MaxInt64, "", nil, 0)
 	require.NoError(t, err)
 	require.Equal(t, 1, len(res))
 
@@ -1304,7 +1205,7 @@ func TestMergePreserveTombstonesNotAllEntriesRemoved(t *testing.T) {
 	require.NoError(t, err)
 
 	res, err := mergeSSTables(common.DataFormatV1, [][]tableToMerge{{{sst: sst1}, {sst: sst2}}, {{sst: sst3}, {sst: sst4}}},
-		true, maxTableSize, math.MaxInt64, "")
+		true, maxTableSize, math.MaxInt64, "", nil, 0)
 	require.NoError(t, err)
 	require.Equal(t, 1, len(res))
 
@@ -1337,7 +1238,7 @@ func TestMergeNotPreserveTombstonesAllEntriesRemoved(t *testing.T) {
 	require.NoError(t, err)
 
 	res, err := mergeSSTables(common.DataFormatV1, [][]tableToMerge{{{sst: sst1}, {sst: sst2}}, {{sst: sst3}, {sst: sst4}}},
-		false, maxTableSize, math.MaxInt64, "")
+		false, maxTableSize, math.MaxInt64, "", nil, 0)
 	require.NoError(t, err)
 	require.Equal(t, 0, len(res))
 }
@@ -1368,72 +1269,11 @@ func TestMergeNotPreserveTombstonesNotAllEntriesRemoved(t *testing.T) {
 	require.NoError(t, err)
 
 	res, err := mergeSSTables(common.DataFormatV1, [][]tableToMerge{{{sst: sst1}, {sst: sst2}}, {{sst: sst3}, {sst: sst4}}},
-		false, maxTableSize, math.MaxInt64, "")
+		false, maxTableSize, math.MaxInt64, "", nil, 0)
 	require.NoError(t, err)
 	require.Equal(t, 1, len(res))
 
 	checkKVs(t, res[0].sst, "val", 1, 1, 3, 3)
-}
-
-func TestMergeAndDeletePrefixes(t *testing.T) {
-	builder1 := newSSTableBuilder()
-	var prefixes []retention.PrefixRetention
-	for i := 0; i < 10; i++ {
-		prefix := fmt.Sprintf("prefix-%05d", i)
-		prefixes = append(prefixes, retention.PrefixRetention{Prefix: []byte(prefix)})
-		for j := 0; j < 10; j += 2 {
-			builder1.addEntry(fmt.Sprintf("%s-key-%05d", prefix, j), fmt.Sprintf("%s-val-%05d", prefix, j))
-		}
-	}
-	builder2 := newSSTableBuilder()
-	for i := 0; i < 10; i++ {
-		prefix := fmt.Sprintf("prefix-%05d", i)
-		for j := 1; j < 10; j += 2 {
-			builder2.addEntry(fmt.Sprintf("%s-key-%05d", prefix, j), fmt.Sprintf("%s-val-%05d", prefix, j))
-		}
-	}
-	sst1, err := builder1.build()
-	require.NoError(t, err)
-	sst2, err := builder2.build()
-	require.NoError(t, err)
-
-	var prefixesToKeep = []retention.PrefixRetention{prefixes[0], prefixes[2], prefixes[3], prefixes[4], prefixes[6], prefixes[8], prefixes[9]}
-	var prefixesToRemove = []retention.PrefixRetention{prefixes[1], prefixes[5], prefixes[7]}
-
-	tableToMerge1 := tableToMerge{
-		prefixRetentions: prefixesToRemove,
-		sst:              sst1,
-	}
-	tableToMerge2 := tableToMerge{
-		prefixRetentions: prefixesToRemove,
-		sst:              sst2,
-	}
-
-	res, err := mergeSSTables(common.DataFormatV1, [][]tableToMerge{{tableToMerge1}, {tableToMerge2}},
-		false, 3500, math.MaxInt64, "")
-	require.NoError(t, err)
-	require.Equal(t, 2, len(res))
-
-	iter1, err := res[0].sst.NewIterator(nil, nil)
-	require.NoError(t, err)
-	iter2, err := res[1].sst.NewIterator(nil, nil)
-	require.NoError(t, err)
-	iter := iteration.NewChainingIterator([]iteration.Iterator{iter1, iter2})
-
-	for _, prefix := range prefixesToKeep {
-		for j := 0; j < 10; j++ {
-			valid, err := iter.IsValid()
-			require.NoError(t, err)
-			require.True(t, valid)
-			curr := iter.Current()
-			require.Equal(t, fmt.Sprintf("%s-key-%05d", prefix.Prefix, j), string(curr.Key[:len(curr.Key)-8]))
-			err = iter.Next()
-			require.NoError(t, err)
-		}
-	}
-	valid, err := iter.IsValid()
-	require.NoError(t, err)
-	require.False(t, valid)
 }
 
 func TestMergeDeadVersions(t *testing.T) {
@@ -1472,7 +1312,7 @@ func TestMergeDeadVersions(t *testing.T) {
 	}
 
 	res, err := mergeSSTables(common.DataFormatV1, [][]tableToMerge{{tableToMerge1}, {tableToMerge2}},
-		false, 3500, math.MaxInt64, "")
+		false, 3500, math.MaxInt64, "", nil, 0)
 	require.NoError(t, err)
 	require.Equal(t, 1, len(res))
 
@@ -1592,86 +1432,7 @@ func TestMaxSizeIteratorDontSplitVersions(t *testing.T) {
 	}
 }
 
-func TestRemoveExpiredEntriesIteratorZeroRetention(t *testing.T) {
-	si := &iteration.StaticIterator{}
-
-	var prefixes []retention.PrefixRetention
-	for i := 0; i < 10; i++ {
-		prefix := fmt.Sprintf("prefix-%05d", i)
-		prefixes = append(prefixes, retention.PrefixRetention{Prefix: []byte(prefix)})
-		for j := 0; j < 100; j++ {
-			si.AddKVAsString(fmt.Sprintf("%s-key-%05d", prefix, j), fmt.Sprintf("%s-val-%05d", prefix, j))
-		}
-	}
-
-	var prefixesToKeep = []retention.PrefixRetention{prefixes[0], prefixes[2], prefixes[3], prefixes[4], prefixes[6], prefixes[8], prefixes[9]}
-	var prefixesToRemove = []retention.PrefixRetention{prefixes[1], prefixes[5], prefixes[7]}
-
-	creationTime := uint64(time.Now().UTC().UnixMilli())
-	now := creationTime
-	rdpi := NewRemoveExpiredEntriesIterator(si, prefixesToRemove, creationTime, now)
-
-	for _, prefix := range prefixesToKeep {
-		for i := 0; i < 100; i++ {
-			valid, err := rdpi.IsValid()
-			require.NoError(t, err)
-			require.True(t, valid)
-			entry := rdpi.Current()
-			require.Equal(t, fmt.Sprintf("%s-key-%05d", prefix.Prefix, i), string(entry.Key))
-			require.Equal(t, fmt.Sprintf("%s-val-%05d", prefix.Prefix, i), string(entry.Value))
-			err = rdpi.Next()
-			require.NoError(t, err)
-		}
-	}
-	valid, err := rdpi.IsValid()
-	require.NoError(t, err)
-	require.False(t, valid)
-}
-
-func TestRemoveExpiredEntriesIteratorNonZeroRetention(t *testing.T) {
-	si := &iteration.StaticIterator{}
-
-	var prefixesShortExpiration []retention.PrefixRetention
-	var prefixesLongExpiration []retention.PrefixRetention
-	for i := 0; i < 10; i++ {
-		prefix := fmt.Sprintf("prefix-%05d", i)
-		if i < 5 {
-			prefixesShortExpiration = append(prefixesShortExpiration,
-				retention.PrefixRetention{Prefix: []byte(prefix), Retention: 1})
-		} else {
-			prefixesLongExpiration = append(prefixesLongExpiration,
-				retention.PrefixRetention{Prefix: []byte(prefix), Retention: 1000000})
-		}
-		for j := 0; j < 100; j++ {
-			si.AddKVAsString(fmt.Sprintf("%s-key-%05d", prefix, j), fmt.Sprintf("%s-val-%05d", prefix, j))
-		}
-	}
-
-	allPrefixes := append(prefixesShortExpiration, prefixesLongExpiration...)
-
-	creationTime := uint64(time.Now().UTC().UnixMilli())
-	now := creationTime + 1
-
-	rdpi := NewRemoveExpiredEntriesIterator(si, allPrefixes, creationTime, now)
-
-	for _, prefix := range prefixesLongExpiration {
-		for i := 0; i < 100; i++ {
-			valid, err := rdpi.IsValid()
-			require.NoError(t, err)
-			require.True(t, valid)
-			entry := rdpi.Current()
-			require.Equal(t, fmt.Sprintf("%s-key-%05d", prefix.Prefix, i), string(entry.Key))
-			require.Equal(t, fmt.Sprintf("%s-val-%05d", prefix.Prefix, i), string(entry.Value))
-			err = rdpi.Next()
-			require.NoError(t, err)
-		}
-	}
-	valid, err := rdpi.IsValid()
-	require.NoError(t, err)
-	require.False(t, valid)
-}
-
-func TestRemovedDeadVersionsIterator(t *testing.T) {
+func TestRemoveDeadVersionsIterator(t *testing.T) {
 	si := &iteration.StaticIterator{}
 	numEntries := 1000
 	for i := 0; i < numEntries; i++ {
@@ -1718,6 +1479,96 @@ func TestRemovedDeadVersionsIterator(t *testing.T) {
 	}
 }
 
+type testSlabRetentions struct {
+	lock       sync.Mutex
+	retentions map[int]time.Duration
+}
+
+func (t *testSlabRetentions) GetSlabRetention(slabID int) (time.Duration, error) {
+	t.lock.Lock()
+	defer t.lock.Unlock()
+	return t.retentions[slabID], nil
+}
+
+func createExpiredEntryKey(slabID int, i int) []byte {
+	key := []byte("xxxxxxxxxxxxxxxx")                          // partition hash
+	key = encoding.AppendUint64ToBufferBE(key, uint64(slabID)) // slab id
+	return append(key, []byte(fmt.Sprintf("key-%04d", i))...)
+}
+
+func createExpiredValue(slabID int, i int) []byte {
+	return []byte(fmt.Sprintf("val-%d-%d", slabID, i))
+}
+
+func TestRemoveExpiredEntriesIterator(t *testing.T) {
+	si := &iteration.StaticIterator{}
+
+	retentions := &testSlabRetentions{retentions: map[int]time.Duration{}}
+
+	numSlabs := 10
+	entriesPerSlab := 10
+	for i := 0; i < numSlabs; i++ {
+		for j := 0; j < entriesPerSlab; j++ {
+			key := createExpiredEntryKey(i, j)
+			value := createExpiredValue(i, j)
+			si.AddKV(key, value)
+		}
+		// even numbered slabs have short retention, odd ones have a long retention
+		if i%2 == 0 {
+			retentions.retentions[i] = 1 * time.Hour
+		} else {
+			retentions.retentions[i] = 5 * time.Hour
+		}
+	}
+
+	// No entries expired
+	creationTime := time.Now().UTC().UnixMilli()
+	now := creationTime + 30*time.Minute.Milliseconds()
+	iter := NewRemoveExpiredEntriesIterator(si, uint64(creationTime), uint64(now), retentions)
+	for i := 0; i < numSlabs; i++ {
+		for j := 0; j < entriesPerSlab; j++ {
+			valid, err := iter.IsValid()
+			require.NoError(t, err)
+			require.True(t, valid)
+			expectedKey := createExpiredEntryKey(i, j)
+			expectedVal := createExpiredValue(i, j)
+			require.Equal(t, expectedKey, iter.Current().Key)
+			require.Equal(t, expectedVal, iter.Current().Value)
+			err = iter.Next()
+			require.NoError(t, err)
+		}
+	}
+
+	// Even slabs expired
+	si.Reset()
+	now = creationTime + 1*time.Hour.Milliseconds()
+	iter = NewRemoveExpiredEntriesIterator(si, uint64(creationTime), uint64(now), retentions)
+	for i := 0; i < numSlabs; i++ {
+		if i%2 == 0 {
+			continue
+		}
+		for j := 0; j < entriesPerSlab; j++ {
+			valid, err := iter.IsValid()
+			require.NoError(t, err)
+			require.True(t, valid)
+			expectedKey := createExpiredEntryKey(i, j)
+			expectedVal := createExpiredValue(i, j)
+			require.Equal(t, expectedKey, iter.Current().Key)
+			require.Equal(t, expectedVal, iter.Current().Value)
+			err = iter.Next()
+			require.NoError(t, err)
+		}
+	}
+
+	// All slabs expired
+	si.Reset()
+	now = creationTime + 5*time.Hour.Milliseconds()
+	iter = NewRemoveExpiredEntriesIterator(si, uint64(creationTime), uint64(now), retentions)
+	valid, err := iter.IsValid()
+	require.NoError(t, err)
+	require.False(t, valid)
+}
+
 func TestSerializeDeserializeCompactionJob(t *testing.T) {
 	job1 := CompactionJob{
 		id:        uuid.New().String(),
@@ -1729,13 +1580,7 @@ func TestSerializeDeserializeCompactionJob(t *testing.T) {
 					RangeStart:  []byte("key0"),
 					RangeEnd:    []byte("key9"),
 					DeleteRatio: 0.43,
-				}, expiredPrefixes: []retention.PrefixRetention{{
-					Prefix:    []byte("prefix1"),
-					Retention: 1234,
-				}, {
-					Prefix:    []byte("prefix2"),
-					Retention: 5678,
-				}},
+				},
 					deadVersionRanges: []VersionRange{
 						{
 							VersionStart: 1234,
@@ -1772,6 +1617,7 @@ func TestSerializeDeserializeCompactionJob(t *testing.T) {
 		isMove:             true,
 		preserveTombstones: true,
 		scheduleTime:       123456,
+		serverTime:         32476374634,
 	}
 
 	buff := job1.Serialize(nil)

@@ -37,15 +37,17 @@ const (
 	ClusterMessageLevelManagerGetTableIDsForRangeMessage
 	ClusterMessageLevelManagerGetTableIDsForRangeResponse
 	ClusterMessageLevelManagerRawResponseMessage
-	ClusterMessageLevelManagerGetPrefixRetentionsMessage
 	ClusterMessageLevelManagerL0AddMessage
 	ClusterMessageLevelManagerApplyChangesMessage
-	ClusterMessageLevelManagerRegisterPrefixRetentionsMessage
 	ClusterMessageLevelManagerLoadLastFlushedVersionMessage
 	ClusterMessageLevelManagerLoadLastFlushedVersionResponse
 	ClusterMessageLevelManagerStoreLastFlushedVersionMessage
 	ClusterMessageLevelManagerGetStatsMessage
 	ClusterMessageLevelManagerGetStatsResponse
+	ClusterMessageLevelManagerRegisterSlabRetentionMessage
+	ClusterMessageLevelManagerUnregisterSlabRetentionMessage
+	ClusterMessageLevelManagerGetSlabRetentionMessage
+	ClusterMessageLevelManagerGetSlabRetentionResponse
 	ClusterMessageCompactionPollMessage
 	ClusterMessageCompactionPollResponse
 	ClusterMessageLocalObjStoreGet
@@ -102,14 +104,18 @@ func TypeForClusterMessage(clusterMessage ClusterMessage) ClusterMessageType {
 		return ClusterMessageLevelManagerGetTableIDsForRangeResponse
 	case *clustermsgs.LevelManagerRawResponse:
 		return ClusterMessageLevelManagerRawResponseMessage
-	case *clustermsgs.LevelManagerGetPrefixRetentionsMessage:
-		return ClusterMessageLevelManagerGetPrefixRetentionsMessage
+	case *clustermsgs.LevelManagerGetSlabRetentionMessage:
+		return ClusterMessageLevelManagerGetSlabRetentionMessage
+	case *clustermsgs.LevelManagerGetSlabRetentionResponse:
+		return ClusterMessageLevelManagerGetSlabRetentionResponse
 	case *clustermsgs.LevelManagerApplyChangesRequest:
 		return ClusterMessageLevelManagerApplyChangesMessage
 	case *clustermsgs.LevelManagerL0AddRequest:
 		return ClusterMessageLevelManagerL0AddMessage
-	case *clustermsgs.LevelManagerRegisterPrefixRetentionsRequest:
-		return ClusterMessageLevelManagerRegisterPrefixRetentionsMessage
+	case *clustermsgs.LevelManagerRegisterSlabRetentionMessage:
+		return ClusterMessageLevelManagerRegisterSlabRetentionMessage
+	case *clustermsgs.LevelManagerUnregisterSlabRetentionMessage:
+		return ClusterMessageLevelManagerUnregisterSlabRetentionMessage
 	case *clustermsgs.LevelManagerLoadLastFlushedVersionMessage:
 		return ClusterMessageLevelManagerLoadLastFlushedVersionMessage
 	case *clustermsgs.LevelManagerLoadLastFlushedVersionResponse:
@@ -241,14 +247,18 @@ func DeserializeClusterMessage(data []byte) (ClusterMessage, error) {
 		msg = &clustermsgs.LevelManagerGetTableIDsForRangeResponse{}
 	case ClusterMessageLevelManagerRawResponseMessage:
 		msg = &clustermsgs.LevelManagerRawResponse{}
-	case ClusterMessageLevelManagerGetPrefixRetentionsMessage:
-		msg = &clustermsgs.LevelManagerGetPrefixRetentionsMessage{}
+	case ClusterMessageLevelManagerGetSlabRetentionMessage:
+		msg = &clustermsgs.LevelManagerGetSlabRetentionMessage{}
+	case ClusterMessageLevelManagerGetSlabRetentionResponse:
+		msg = &clustermsgs.LevelManagerGetSlabRetentionResponse{}
 	case ClusterMessageLevelManagerApplyChangesMessage:
 		msg = &clustermsgs.LevelManagerApplyChangesRequest{}
 	case ClusterMessageLevelManagerL0AddMessage:
 		msg = &clustermsgs.LevelManagerL0AddRequest{}
-	case ClusterMessageLevelManagerRegisterPrefixRetentionsMessage:
-		msg = &clustermsgs.LevelManagerRegisterPrefixRetentionsRequest{}
+	case ClusterMessageLevelManagerRegisterSlabRetentionMessage:
+		msg = &clustermsgs.LevelManagerRegisterSlabRetentionMessage{}
+	case ClusterMessageLevelManagerUnregisterSlabRetentionMessage:
+		msg = &clustermsgs.LevelManagerUnregisterSlabRetentionMessage{}
 	case ClusterMessageLevelManagerLoadLastFlushedVersionMessage:
 		msg = &clustermsgs.LevelManagerLoadLastFlushedVersionMessage{}
 	case ClusterMessageLevelManagerLoadLastFlushedVersionResponse:

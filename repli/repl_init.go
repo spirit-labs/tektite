@@ -113,6 +113,12 @@ func (r *replicator) InitialiseLeader(forceReprocess bool) error {
 	return nil
 }
 
+func (r *replicator) IsInitialised() bool {
+	r.lock.Lock()
+	defer r.lock.Unlock()
+	return r.initialised
+}
+
 func (r *replicator) MaybeReprocessQueue(lastFlushedVersion int) error {
 	if r.isLevelManagerProcessor() {
 		// level manager queue is always reprocessed on InitialiseLeader

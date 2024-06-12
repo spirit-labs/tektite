@@ -91,7 +91,7 @@ func (k *KafkaInOperator) getNextOffset(partitionID int) (int64, error) {
 		return nextOffset, nil
 	}
 	// Load from store
-	return loadOffset(k.offsetsSlabID, partitionID, k.store)
+	return loadOffset(k.offsetsSlabID, partitionID, k.inSchema.MappingID, k.store)
 }
 
 func (k *KafkaInOperator) convertRecordset(bytes []byte, execCtx StreamExecContext) (*evbatch.Batch, int64, error) {
@@ -167,7 +167,7 @@ func (k *KafkaInOperator) convertRecordset(bytes []byte, execCtx StreamExecConte
 	}
 	k.nextOffsets[partitionID] = kOffset
 	k.lastAppendTimes[partitionID] = lastTimestamp
-	storeOffset(execCtx, kOffset, k.offsetsSlabID, execCtx.WriteVersion())
+	storeOffset(execCtx, kOffset, k.offsetsSlabID, execCtx.WriteVersion(), k.inSchema.MappingID)
 	return evbatch.NewBatchFromBuilders(KafkaSchema, colBuilders...), maxTimestamp, nil
 }
 

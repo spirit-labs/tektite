@@ -121,6 +121,9 @@ func (t *TestProcessorManager) BeforeReceiverChange() error {
 func (t *TestProcessorManager) AfterReceiverChange() {
 }
 
+func (t *TestProcessorManager) ForwardBatch(batch *proc.ProcessBatch, replicate bool, completionFunc func(error)) {
+}
+
 type TestProcessor struct {
 	lock       sync.Mutex
 	closed     bool

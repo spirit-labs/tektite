@@ -23,15 +23,16 @@ type StateManager interface {
 }
 
 func NewClusteredStateManager(keyPrefix string, clusterName string, nodeID int, endpoints []string, leaseTime time.Duration,
-	sendUpdatePeriod time.Duration, callTimeout time.Duration, numGroups int, maxReplicas int) *ClusteredStateManager {
+	sendUpdatePeriod time.Duration, callTimeout time.Duration, numGroups int, maxReplicas int, logScope string) *ClusteredStateManager {
 	sm := &ClusteredStateManager{
 		nodeID:             nodeID,
 		numGroups:          numGroups,
 		maxReplicas:        maxReplicas,
-		calcGroupStateChan: make(chan map[int]int64, 100),
+		calcGroupStateChan: make(chan groupStateHolder, 100),
+		logScope:           logScope,
 	}
 	client := NewClient(keyPrefix, clusterName, nodeID, endpoints, leaseTime, sendUpdatePeriod, callTimeout, sm.setNodesState,
-		sm.setClusterState)
+		sm.setClusterState, logScope)
 	sm.client = client
 	return sm
 }
@@ -46,8 +47,14 @@ type ClusteredStateManager struct {
 	numGroups           int
 	maxReplicas         int
 	client              Client
-	calcGroupStateChan  chan map[int]int64
+	calcGroupStateChan  chan groupStateHolder
 	frozen              bool
+	logScope            string
+}
+
+type groupStateHolder struct {
+	activeNodes map[int]int64
+	maxRevision int64
 }
 
 func (sm *ClusteredStateManager) Freeze() {
@@ -120,21 +127,28 @@ func (sm *ClusteredStateManager) setClusterState(clusterState ClusterState) {
 
 func (sm *ClusteredStateManager) calcAndSetSetLoop() {
 	for activeNodes := range sm.calcGroupStateChan {
-		sm.handleActiveNodes(activeNodes)
+		sm.handleActiveNodes(activeNodes.activeNodes, activeNodes.maxRevision)
 	}
 }
 
-func (sm *ClusteredStateManager) setNodesState(activeNodes map[int]int64) {
-	sm.calcGroupStateChan <- activeNodes
+func (sm *ClusteredStateManager) setNodesState(activeNodes map[int]int64, maxRevision int64) {
+	sm.calcGroupStateChan <- groupStateHolder{
+		activeNodes: activeNodes,
+		maxRevision: maxRevision,
+	}
 }
 
-func (sm *ClusteredStateManager) handleActiveNodes(activeNodes map[int]int64) {
+func (sm *ClusteredStateManager) handleActiveNodes(activeNodes map[int]int64, maxRevision int64) {
 	sm.lock.Lock()
 	defer sm.lock.Unlock()
+	log.Debugf("%s: node %d etcd clustmgr handleActiveNodes %v", sm.logScope, sm.nodeID, activeNodes)
+
 	if sm.stopped || sm.frozen {
+		log.Debugf("%s: node %d etcd clustmgr handleActiveNodes not processing stopped %t frozen %t", sm.logScope, sm.nodeID, sm.stopped, sm.frozen)
 		return
 	}
 	if len(activeNodes) == 0 {
+		log.Debugf("%s: node %d etcd clustmgr handleActiveNodes not processing as no active nodes", sm.logScope, sm.nodeID)
 		return
 	}
 	var groupStates [][]GroupNode
@@ -146,19 +160,59 @@ func (sm *ClusteredStateManager) handleActiveNodes(activeNodes map[int]int64) {
 	sort.Ints(nids)
 
 	leaderNode := nids[0] // We just choose the first one in the sorted slice
+	log.Debugf("%s: node %d etcd clustmgr leader node is %d", sm.logScope, sm.nodeID, leaderNode)
+
 	if leaderNode == sm.nodeID {
 		// We are the cluster leader
-		// Get the current state - the new state depends on that
-		cs, ns, ver, err := sm.client.GetClusterState()
+
+		log.Debugf("%s: node %d etcd clustmgr, we are cluster leader creating concurrency session", sm.logScope, sm.nodeID)
+
+		// We need to get the cluster state and update with a mutex held to prevent other nodes concurrently doing this-
+		// this can occur when cluster changes quickly so different nodes become leader and generate cluster state
+		mutex, err := sm.client.GetMutex("cluster_state")
 		if err != nil {
-			log.Errorf("failed to get cluster state %v", err)
+			log.Errorf("client %d failed to create mutex %v", sm.nodeID, err)
 			return
 		}
+		defer func() {
+			if err := mutex.Close(); err != nil {
+				log.Errorf("failed to close mutex %v", err)
+			} else {
+				log.Debugf("%s: node %d etcd clustmgr, closed mutex", sm.logScope, sm.nodeID)
+			}
+		}()
+
+		log.Debugf("%s: node %d etcd clustmgr, we are cluster leader - got mutex", sm.logScope, sm.nodeID)
+
+		// Get the current state - the new state depends on that
+		cs, ns, ver, csMaxRevision, err := sm.client.GetClusterState()
+		if err != nil {
+			log.Errorf("%s: failed to get cluster state %v", sm.logScope, err)
+			return
+		}
+
+		log.Debugf("%s: node %d etcd clustmgr, got existing cs: %v ns: %v", sm.logScope, sm.nodeID, cs, ns)
+
 		if cs != nil {
+			// Now we must check if the max revision in the incoming cluster state is > than the max revision of
+			// nodes in the existing cluster state. If not, it means this node state change has already
+			// been processed by another node and we ignore this update.
+			// This can happen if
+			// 1) this nodes receives cluster state at revision R and thinks it's leader then
+			// 2) another node receives cluster state at revision R + 1 and think it's leader, then creates new cluster state
+			// and sets it
+			// 3) first node gets cluster state, generates new cluster state based on revision R and sets it
+			// Checking the revision in the existing cluster state prevents this.
+
+			if csMaxRevision >= maxRevision {
+				log.Debugf("%s: node: %d ignoring cluster state as already processed by another leader", sm.logScope, sm.nodeID)
+				return
+			}
+
 			// Get the valid groups state
 			validGroups, err := sm.client.GetValidGroups()
 			if err != nil {
-				log.Errorf("failed to get valid groups %v", err)
+				log.Errorf("%s: failed to get valid groups %v", sm.logScope, err)
 				return
 			}
 			// Update whether the replicas are valid or not
@@ -180,13 +234,13 @@ func (sm *ClusteredStateManager) handleActiveNodes(activeNodes map[int]int64) {
 			}
 		}
 
-		// We keep track of whether nodes are added by looking at the version
+		// We keep track of whether nodes are added by looking at the revision
 		// this handles the case where a node is quickly bounced and is in both current and previous
-		// node states, but with a different version
+		// node states, but with a different revision
 		activeNodesWithAdded := make(map[int]bool, len(activeNodes))
-		for nid, ver := range activeNodes {
+		for nid, rev := range activeNodes {
 			prevVer, ok := ns[nid]
-			if !ok || prevVer != ver {
+			if !ok || prevVer != rev {
 				// It's an added node
 				activeNodesWithAdded[nid] = true
 			} else {
@@ -201,7 +255,7 @@ func (sm *ClusteredStateManager) handleActiveNodes(activeNodes map[int]int64) {
 		var ok bool
 		ok, groupStates = calculateGroupStates(cs, activeNodesWithAdded, sm.numGroups, sm.maxReplicas, newClusterVer)
 		if !ok {
-			msg := fmt.Sprintf("no valid nodes from previous cluster state remain. this could be due to a previous cluster crash.")
+			msg := fmt.Sprintf("%s: no valid nodes from previous cluster state remain. this could be due to a previous cluster crash.", sm.logScope)
 			log.Warnf(msg)
 			if panicOnDataLoss {
 				panic(msg)
@@ -212,7 +266,8 @@ func (sm *ClusteredStateManager) handleActiveNodes(activeNodes map[int]int64) {
 			GroupStates: groupStates,
 		}
 		verifyStateBalanced(newState)
-		ok, err = sm.client.SetClusterState(newState, activeNodes, ver)
+		log.Debugf("%s: node %d created new clusterstate %v version %d", sm.logScope, sm.nodeID, newState, ver)
+		ok, err = sm.client.SetClusterState(newState, activeNodes, ver, maxRevision)
 		if err != nil {
 			log.Errorf("failed to setClusterState %v", err)
 			return
@@ -220,7 +275,7 @@ func (sm *ClusteredStateManager) handleActiveNodes(activeNodes map[int]int64) {
 		if !ok {
 			// cluster state wasn't at expected revision so failed to set - could be multiple nodes started with
 			// the same id?
-			log.Warn("failed to set cluster state, version does not match")
+			log.Warn("failed to set cluster state, revision does not match")
 		}
 	}
 }
@@ -403,12 +458,12 @@ func nodesToOrderedSlice(nodes map[int]struct{}) []int {
 func chooseNode(perNodeMap map[int]int, availableNodes map[int]struct{}) int {
 	nodeSlice := nodesToOrderedSlice(availableNodes)
 	// We choose the first node with the lowest count
-	min := math.MaxInt
+	minCount := math.MaxInt
 	var chosen int
 	for _, nid := range nodeSlice {
 		count := perNodeMap[nid]
-		if count < min {
-			min = count
+		if count < minCount {
+			minCount = count
 			chosen = nid
 		}
 	}

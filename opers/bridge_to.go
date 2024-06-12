@@ -125,6 +125,7 @@ func (b *BridgeToOperator) HandleStreamBatch(batch *evbatch.Batch, execCtx Strea
 }
 
 func (b *BridgeToOperator) enterStoreMode(execCtx StreamExecContext, batch *evbatch.Batch) error {
+	execCtx.Processor().CheckInProcessorLoop()
 	processor := execCtx.Processor()
 	processorID := processor.ID()
 	log.Debugf("bridge to entering store mode for processor %d", processorID)
@@ -196,6 +197,7 @@ func (b *BridgeToOperator) exitStoreMode(processor proc.Processor, partIDs []int
 
 func (b *BridgeToOperator) HandleBarrier(execCtx StreamExecContext) error {
 	// We store offsets on receipt of barrier
+	execCtx.Processor().CheckInProcessorLoop()
 	b.flushLastCommitted(execCtx)
 	return b.BaseOperator.HandleBarrier(execCtx)
 }

@@ -4,6 +4,7 @@ import (
 	"github.com/spirit-labs/tektite/encoding"
 	"github.com/spirit-labs/tektite/evbatch"
 	"github.com/spirit-labs/tektite/parser"
+	"github.com/spirit-labs/tektite/proc"
 	store2 "github.com/spirit-labs/tektite/store"
 	"github.com/spirit-labs/tektite/types"
 	"github.com/stretchr/testify/require"
@@ -72,7 +73,7 @@ func createTableOperator(t *testing.T, keyCols []string, columnNamesIn []string,
 	st := store2.TestStore()
 	err := st.Start()
 	require.NoError(t, err)
-	to, err := NewStoreTableOperator(&OperatorSchema{EventSchema: inSchema}, 1001, st, keyCols, -1, true,
+	to, err := NewStoreTableOperator(&OperatorSchema{EventSchema: inSchema, PartitionScheme: PartitionScheme{MappingID: "mapping", Partitions: 10}}, 1001, st, keyCols, -1, true,
 		&parser.StoreTableDesc{})
 	require.NoError(t, err)
 	return to
@@ -113,14 +114,15 @@ func testTableOperator(t *testing.T, to *StoreTableOperator, columnNamesIn []str
 		}
 		var loadedOutData [][]any
 		for _, kv := range ctx.entries {
-			tabID, _ := encoding.ReadUint64FromBufferBE(kv.Key, 0)
-			pid, _ := encoding.ReadUint64FromBufferBE(kv.Key, 8)
+			partitionHash := kv.Key[:16]
+			expectedPartitionHash := proc.CalcPartitionHash(to.OutSchema().MappingID, uint64(partID))
+			require.Equal(t, expectedPartitionHash, partitionHash)
+			slabID, _ := encoding.ReadUint64FromBufferBE(kv.Key, 16)
 			ver, _ := encoding.ReadUint64FromBufferBE(kv.Key, len(kv.Key)-8)
 			ver = math.MaxUint64 - ver
-			require.Equal(t, 1001, int(tabID))
-			require.Equal(t, partID, int(pid))
+			require.Equal(t, 1001, int(slabID))
 			require.Equal(t, version, int(ver))
-			key := kv.Key[16:]
+			key := kv.Key[24:]
 			keySlice, _, err := encoding.DecodeKeyToSlice(key, 0, keyTypes)
 			require.NoError(t, err)
 			rowSlice, _ := encoding.DecodeRowToSlice(kv.Value, 0, rowTypes)

@@ -4,7 +4,6 @@ import (
 	"github.com/spirit-labs/tektite/conf"
 	"github.com/spirit-labs/tektite/levels"
 	"github.com/spirit-labs/tektite/objstore/dev"
-	"github.com/spirit-labs/tektite/retention"
 	"github.com/spirit-labs/tektite/tabcache"
 )
 
@@ -32,11 +31,7 @@ func TestStore() *Store {
 	if err != nil {
 		panic(err)
 	}
-	prefixRetentionsService := retention.NewPrefixRetentionsService(lmClient, &cfg)
-	if err := prefixRetentionsService.Start(); err != nil {
-		panic(err)
-	}
-	store := NewStore(cloudStore, lmClient, tableCache, prefixRetentionsService, cfg)
+	store := NewStore(cloudStore, lmClient, tableCache, cfg)
 	return store
 }
 

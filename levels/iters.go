@@ -6,8 +6,8 @@ import (
 	"github.com/spirit-labs/tektite/common"
 	iteration2 "github.com/spirit-labs/tektite/iteration"
 	log "github.com/spirit-labs/tektite/logger"
-	"github.com/spirit-labs/tektite/retention"
 	"math"
+	"time"
 )
 
 // maxSizeIterator iterator will stop returning entries when estimated max table size is reached or exceeded
@@ -62,19 +62,23 @@ func (s *maxSizeIterator) Close() {
 
 // RemoveExpiredEntriesIterator filters out any keys which have expired due to retention time being exceeded
 type RemoveExpiredEntriesIterator struct {
-	iter             iteration2.Iterator
-	prefixRetentions []retention.PrefixRetention
-	sstCreationTime  uint64
-	now              uint64
+	iter              iteration2.Iterator
+	sstCreationTime   uint64
+	now               uint64
+	retentionProvider RetentionProvider
 }
 
-func NewRemoveExpiredEntriesIterator(iter iteration2.Iterator, prefixRetentions []retention.PrefixRetention,
-	sstCreationTime uint64, now uint64) *RemoveExpiredEntriesIterator {
+type RetentionProvider interface {
+	GetSlabRetention(slabID int) (time.Duration, error)
+}
+
+func NewRemoveExpiredEntriesIterator(iter iteration2.Iterator, sstCreationTime uint64, now uint64,
+	retentionProvider RetentionProvider) *RemoveExpiredEntriesIterator {
 	return &RemoveExpiredEntriesIterator{
-		iter:             iter,
-		prefixRetentions: prefixRetentions,
-		sstCreationTime:  sstCreationTime,
-		now:              now,
+		iter:              iter,
+		sstCreationTime:   sstCreationTime,
+		now:               now,
+		retentionProvider: retentionProvider,
 	}
 }
 
@@ -96,12 +100,17 @@ func (r *RemoveExpiredEntriesIterator) IsValid() (bool, error) {
 			return false, nil
 		}
 		curr := r.iter.Current()
-		expired := r.isExpired(curr.Key)
+		expired, err := r.isExpired(curr.Key)
+		if err != nil {
+			return false, err
+		}
 		if !expired {
 			return true, nil
 		}
-		log.Debugf("RemoveExpiredEntriesIterator removed key %v (%s) value %v (%s)", curr.Key, string(curr.Key),
-			curr.Value, string(curr.Value))
+		if log.DebugEnabled {
+			log.Debugf("RemoveExpiredEntriesIterator removed key %v (%s) value %v (%s)", curr.Key, string(curr.Key),
+				curr.Value, string(curr.Value))
+		}
 		err = r.iter.Next()
 		if err != nil {
 			return false, err
@@ -112,23 +121,17 @@ func (r *RemoveExpiredEntriesIterator) IsValid() (bool, error) {
 func (r *RemoveExpiredEntriesIterator) Close() {
 }
 
-func (r *RemoveExpiredEntriesIterator) isExpired(key []byte) bool {
-	expired := false
-	for _, prefixRetention := range r.prefixRetentions {
-		matches := false
-		lp := len(prefixRetention.Prefix)
-		if len(key) >= lp {
-			matches = bytes.Equal(key[:lp], prefixRetention.Prefix)
-		}
-		if !matches {
-			continue
-		}
-		expired = prefixRetention.Retention == 0 || r.sstCreationTime+prefixRetention.Retention <= r.now
-		if expired {
-			break
-		}
+func (r *RemoveExpiredEntriesIterator) isExpired(key []byte) (bool, error) {
+	slabID := int(binary.BigEndian.Uint64(key[16:]))
+	retention, err := r.retentionProvider.GetSlabRetention(slabID)
+	if err != nil {
+		return false, err
 	}
-	return expired
+	if retention == 0 {
+		return false, nil
+	}
+	expired := r.sstCreationTime+uint64(retention.Milliseconds()) <= r.now
+	return expired, nil
 }
 
 // RemoveDeadVersionsIterator filters out any dead version ranges

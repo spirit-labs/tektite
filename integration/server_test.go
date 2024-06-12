@@ -4,6 +4,7 @@ package integration
 
 import (
 	"fmt"
+	"github.com/google/uuid"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/conf"
 	"github.com/spirit-labs/tektite/kafka"
@@ -68,7 +69,10 @@ func startClusterWithConfigSetter(t *testing.T, numServers int, fk *fake.Kafka, 
 
 	cfg := conf.Config{}
 	cfg.ApplyDefaults()
+	cfg.LogScope = t.Name()
+
 	cfg.ClusterAddresses = remotingAddresses
+	cfg.ClusterName = uuid.NewString() // must have unique namespace in etcd
 	cfg.HttpApiEnabled = true
 	cfg.HttpApiAddresses = httpServerListenAddresses
 	cfg.HttpApiTlsConfig = tlsConf
@@ -103,12 +107,19 @@ func startClusterWithConfigSetter(t *testing.T, numServers int, fk *fake.Kafka, 
 
 	// Start them in parallel
 	var chans []chan error
+	log.Debugf("%s: starting %d servers", t.Name(), len(servers))
 	for _, s := range servers {
 		ch := make(chan error, 1)
 		chans = append(chans, ch)
-		s := s
+		theServer := s
 		go func() {
-			err := s.Start()
+			log.Debugf("%s: starting server %d", t.Name(), theServer.GetConfig().NodeID)
+			err := theServer.Start()
+			if err != nil {
+				log.Errorf("%s: starting server %d returned err %v", t.Name(), theServer.GetConfig().NodeID, err)
+			} else {
+				log.Errorf("%s: started server %d ok", t.Name(), theServer.GetConfig().NodeID)
+			}
 			ch <- err
 		}()
 	}

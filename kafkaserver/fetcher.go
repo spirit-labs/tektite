@@ -7,6 +7,7 @@ import (
 	"github.com/spirit-labs/tektite/encoding"
 	"github.com/spirit-labs/tektite/kafkaencoding"
 	log "github.com/spirit-labs/tektite/logger"
+	"github.com/spirit-labs/tektite/proc"
 	"github.com/spirit-labs/tektite/types"
 	"hash"
 	"hash/crc32"
@@ -118,6 +119,7 @@ type PartitionFetcher struct {
 	crc32             hash.Hash32
 	allocator         Allocator
 	evictCount        int64
+	partitionHash     []byte
 }
 
 type Waiter struct {
@@ -138,6 +140,7 @@ func (w *Waiter) complete() {
 }
 
 func NewPartitionFetcher(store store, partitionID int, allocator Allocator, topicInfo *TopicInfo) *PartitionFetcher {
+	partitionHash := proc.CalcPartitionHash(topicInfo.ConsumerInfoProvider.PartitionMapping(), uint64(partitionID))
 	return &PartitionFetcher{
 		firstCachedOffset: -1,
 		lastCachedOffset:  -1,
@@ -147,6 +150,7 @@ func NewPartitionFetcher(store store, partitionID int, allocator Allocator, topi
 		partitionID:       uint64(partitionID),
 		allocator:         allocator,
 		topicInfo:         topicInfo,
+		partitionHash:     partitionHash,
 	}
 }
 
@@ -298,10 +302,9 @@ func (f *PartitionFetcher) Fetch(fetchOffset int64, minBytes int, maxBytes int, 
 	}
 	// We will wait.
 	if f.waiter != nil {
-		// protocol error - fetch for same partition has come in while we're already waiting on a fetch
-		log.Error("fetch for partition when fetch already waiting on same partition")
-		complFunc(nil, 0, KafkaProtocolError{ErrorCode: ErrorCodeUnknownServerError})
-		return nil
+		// Already have a waiter - send an error on it
+		f.waiter.complFunc(nil, 0, KafkaProtocolError{ErrorCode: ErrorCodeUnknownServerError})
+		f.waiter = nil
 	}
 	return &Waiter{
 		pf:            f,
@@ -344,10 +347,10 @@ func (kpe KafkaProtocolError) Error() string {
 
 func (f *PartitionFetcher) fetchFromStore(fetchOffset int64, maxBytes int) ([]byte, error) {
 	slabId := uint64(f.topicInfo.ConsumerInfoProvider.SlabID())
-	iterStart := encoding.EncodeEntryPrefix(slabId, f.partitionID, 25)
+	iterStart := encoding.EncodeEntryPrefix(f.partitionHash, slabId, 33)
 	iterStart = append(iterStart, 1) // not null
 	iterStart = encoding.KeyEncodeInt(iterStart, fetchOffset)
-	iterEnd := encoding.EncodeEntryPrefix(slabId, f.partitionID+1, 16)
+	iterEnd := encoding.EncodeEntryPrefix(f.partitionHash, slabId+1, 24)
 	iter, err := f.store.NewIterator(iterStart, iterEnd, math.MaxUint64, false)
 	if err != nil {
 		return nil, err
@@ -368,7 +371,7 @@ func (f *PartitionFetcher) fetchFromStore(fetchOffset int64, maxBytes int) ([]by
 		}
 		kv := iter.Current()
 
-		offset, _ := encoding.KeyDecodeInt(kv.Key, 17)
+		offset, _ := encoding.KeyDecodeInt(kv.Key, 25)
 		if firstOffset == -1 {
 			firstOffset = offset
 		}

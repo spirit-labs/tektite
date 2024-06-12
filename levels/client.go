@@ -7,22 +7,17 @@ import (
 	"github.com/spirit-labs/tektite/errors"
 	"github.com/spirit-labs/tektite/protos/clustermsgs"
 	"github.com/spirit-labs/tektite/remoting"
-	"github.com/spirit-labs/tektite/retention"
 	"sync"
 	"sync/atomic"
 	"time"
 )
 
 type Client interface {
-	GetTableIDsForRange(keyStart []byte, keyEnd []byte) (OverlappingTableIDs, uint64, []VersionRange, error)
-
-	GetPrefixRetentions() ([]retention.PrefixRetention, error)
+	GetTableIDsForRange(keyStart []byte, keyEnd []byte) (OverlappingTableIDs, []VersionRange, error)
 
 	RegisterL0Tables(registrationBatch RegistrationBatch) error
 
 	ApplyChanges(registrationBatch RegistrationBatch) error
-
-	RegisterPrefixRetentions(prefixRetentions []retention.PrefixRetention) error
 
 	PollForJob() (*CompactionJob, error)
 
@@ -33,6 +28,12 @@ type Client interface {
 	LoadLastFlushedVersion() (int64, error)
 
 	GetStats() (Stats, error)
+
+	RegisterSlabRetention(slabID int, retention time.Duration) error
+
+	UnregisterSlabRetention(slabID int) error
+
+	GetSlabRetention(slabID int) (time.Duration, error)
 
 	Start() error
 
@@ -61,14 +62,14 @@ func NewExternalClient(serverAddresses []string, tlsConf conf.TLSConfig, serverR
 	}
 }
 
-func (c *externalClient) GetTableIDsForRange(keyStart []byte, keyEnd []byte) (OverlappingTableIDs, uint64, []VersionRange, error) {
+func (c *externalClient) GetTableIDsForRange(keyStart []byte, keyEnd []byte) (OverlappingTableIDs, []VersionRange, error) {
 	req := &clustermsgs.LevelManagerGetTableIDsForRangeMessage{
 		KeyStart: keyStart,
 		KeyEnd:   keyEnd,
 	}
 	r, err := c.sendRpcWithRetryOnNoLeader(req)
 	if err != nil {
-		return nil, 0, nil, err
+		return nil, nil, err
 	}
 	resp := r.(*clustermsgs.LevelManagerGetTableIDsForRangeResponse)
 	otids := DeserializeOverlappingTableIDs(resp.Payload, 0)
@@ -79,18 +80,7 @@ func (c *externalClient) GetTableIDsForRange(keyStart []byte, keyEnd []byte) (Ov
 			VersionEnd:   rng.VersionEnd,
 		}
 	}
-	return otids, resp.LevelManagerNow, versionRanges, nil
-}
-
-func (c *externalClient) GetPrefixRetentions() ([]retention.PrefixRetention, error) {
-	req := &clustermsgs.LevelManagerGetPrefixRetentionsMessage{}
-	r, err := c.sendRpcWithRetryOnNoLeader(req)
-	if err != nil {
-		return nil, err
-	}
-	resp := r.(*clustermsgs.LevelManagerRawResponse)
-	prefixRetentions, _ := retention.DeserializePrefixRetentions(resp.Payload, 0)
-	return prefixRetentions, nil
+	return otids, versionRanges, nil
 }
 
 func (c *externalClient) RegisterL0Tables(registrationBatch RegistrationBatch) error {
@@ -116,14 +106,6 @@ func (c *externalClient) RegisterDeadVersionRange(versionRange VersionRange, clu
 	bytes = encoding.AppendStringToBufferLE(bytes, clusterName)
 	bytes = encoding.AppendUint64ToBufferLE(bytes, uint64(clusterVersion))
 	req := &clustermsgs.LevelManagerRegisterDeadVersionRangeRequest{Payload: bytes}
-	_, err := c.sendRpcWithRetryOnNoLeader(req)
-	return err
-}
-
-func (c *externalClient) RegisterPrefixRetentions(prefixRetentions []retention.PrefixRetention) error {
-	bytes := make([]byte, 0, 256)
-	bytes = retention.SerializePrefixRetentions(bytes, prefixRetentions)
-	req := &clustermsgs.LevelManagerRegisterPrefixRetentionsRequest{Payload: bytes}
 	_, err := c.sendRpcWithRetryOnNoLeader(req)
 	return err
 }
@@ -166,6 +148,28 @@ func (c *externalClient) GetStats() (Stats, error) {
 	var stats Stats
 	stats.Deserialize(resp.Payload, 0)
 	return stats, nil
+}
+
+func (c *externalClient) RegisterSlabRetention(slabID int, retention time.Duration) error {
+	req := &clustermsgs.LevelManagerRegisterSlabRetentionMessage{SlabId: int64(slabID), Retention: int64(retention)}
+	_, err := c.sendRpcWithRetryOnNoLeader(req)
+	return err
+}
+
+func (c *externalClient) UnregisterSlabRetention(slabID int) error {
+	req := &clustermsgs.LevelManagerUnregisterSlabRetentionMessage{SlabId: int64(slabID)}
+	_, err := c.sendRpcWithRetryOnNoLeader(req)
+	return err
+}
+
+func (c *externalClient) GetSlabRetention(slabID int) (time.Duration, error) {
+	req := &clustermsgs.LevelManagerGetSlabRetentionMessage{SlabId: int64(slabID)}
+	r, err := c.sendRpcWithRetryOnNoLeader(req)
+	if err != nil {
+		return 0, err
+	}
+	resp := r.(*clustermsgs.LevelManagerGetSlabRetentionResponse)
+	return time.Duration(resp.Retention), nil
 }
 
 func (c *externalClient) Start() error {

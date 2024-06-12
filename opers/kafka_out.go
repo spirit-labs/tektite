@@ -62,7 +62,7 @@ func (k *KafkaOutOperator) HandleStreamBatch(batch *evbatch.Batch, execCtx Strea
 	off.lastTimestamp = lastTimestamp
 	off.loaded = true
 	if k.storeOffset {
-		storeOffset(execCtx, off.lastOffset, k.offsetsSlabID, execCtx.WriteVersion())
+		storeOffset(execCtx, off.lastOffset, k.offsetsSlabID, execCtx.WriteVersion(), k.schema.MappingID)
 	}
 	return nil, k.sendBatchDownStream(batch, execCtx)
 }
@@ -94,6 +94,10 @@ func (k *KafkaOutOperator) SlabID() int {
 	return k.slabID
 }
 
+func (k *KafkaOutOperator) PartitionMapping() string {
+	return k.schema.MappingID
+}
+
 func (k *KafkaOutOperator) EarliestOffset(int) (int64, int64, bool) {
 	// currently always zero
 	return 0, 0, true
@@ -111,7 +115,7 @@ func (k *KafkaOutOperator) LatestOffset(partitionID int) (int64, int64, bool, er
 		return off.lastOffset, off.lastTimestamp, true, nil
 	}
 	// load from store
-	offset, err := loadOffset(k.offsetsSlabID, partitionID, k.store)
+	offset, err := loadOffset(k.offsetsSlabID, partitionID, k.schema.MappingID, k.store)
 	if err != nil {
 		return 0, 0, false, err
 	}

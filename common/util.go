@@ -33,10 +33,14 @@ func StringToByteSliceZeroCopy(str string) []byte {
 //
 //goland:noinspection GoUnusedExportedFunction
 func DumpStacks() {
+	fmt.Println(GetAllStacks())
+}
+
+func GetAllStacks() string {
 	buf := make([]byte, 1<<16)
 	l := runtime.Stack(buf, true)
 	s := string(buf[:l])
-	fmt.Println(s)
+	return s
 }
 
 func GetCurrentStack() string {
@@ -136,7 +140,7 @@ func CreateKeyPair(certPath string, keyPath string) (tls.Certificate, error) {
 }
 
 func CallWithRetryOnUnavailable[R any](action func() (R, error), stopped func() bool) (R, error) {
-	return CallWithRetryOnUnavailableWithTimeout(action, stopped, 10*time.Millisecond, time.Duration(math.MaxInt64), "")
+	return CallWithRetryOnUnavailableWithTimeout(action, stopped, 10*time.Millisecond, time.Duration(math.MaxInt64), "failed to execute retryable operation")
 }
 
 func CallWithRetryOnUnavailableWithTimeout[R any](action func() (R, error), stopped func() bool, delay time.Duration,

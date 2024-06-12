@@ -10,6 +10,7 @@ import (
 	"github.com/spirit-labs/tektite/iteration"
 	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/opers"
+	"github.com/spirit-labs/tektite/proc"
 	"github.com/spirit-labs/tektite/types"
 	"math"
 	"sync"
@@ -28,7 +29,6 @@ type GetOperator struct {
 	keyColumnTypes  []types.ColumnType
 	rowColumnTypes  []types.ColumnType
 	slabID          int
-	keyPrefix       []byte
 	store           iteratorProvider
 	emptyBatch      *evbatch.Batch
 	nodeID          int
@@ -72,15 +72,16 @@ func NewGetOperator(isRange bool, rangeStartExprs []expr.Expression, rangeEndExp
 		keyColumnTypes:  keyColumnTypes,
 		rowColumnTypes:  rowColumnTypes,
 		slabID:          slabID,
-		keyPrefix:       encoding.AppendUint64ToBufferBE(nil, uint64(slabID)),
-		store:           store,
-		emptyBatch:      evbatch.CreateEmptyBatch(tableSchema.EventSchema),
-		nodeID:          nodeID,
-		keySchema:       keySchema,
+		//keyPrefix:       encoding.AppendUint64ToBufferBE(nil, uint64(slabID)),
+		store:      store,
+		emptyBatch: evbatch.CreateEmptyBatch(tableSchema.EventSchema),
+		nodeID:     nodeID,
+		keySchema:  keySchema,
 	}
 }
 
-func (g *GetOperator) CreateIterator(partID uint64, args *evbatch.Batch, highestVersion uint64) (iteration.Iterator, error) {
+func (g *GetOperator) CreateIterator(mappingID string, partID uint64, args *evbatch.Batch, highestVersion uint64) (iteration.Iterator, error) {
+	partitionHash := proc.CalcPartitionHash(mappingID, partID)
 	var start, end []byte
 	if !g.isRange {
 		// get
@@ -88,12 +89,12 @@ func (g *GetOperator) CreateIterator(partID uint64, args *evbatch.Batch, highest
 		if err != nil {
 			return nil, err
 		}
-		start = encoding.AppendUint64ToBufferBE(g.keyPrefix, partID)
-		start = append(start, keyStart...)
+		prefix := encoding.EncodeEntryPrefix(partitionHash, uint64(g.slabID), 24+len(keyStart))
+		start = append(prefix, keyStart...)
 		end = common.IncrementBytesBigEndian(start)
 	} else if g.rangeStartExprs == nil && g.rangeEndExprs == nil {
 		// scan all
-		start = encoding.AppendUint64ToBufferBE(g.keyPrefix, partID)
+		start = encoding.EncodeEntryPrefix(partitionHash, uint64(g.slabID), 24)
 		end = common.IncrementBytesBigEndian(start)
 	} else {
 		// scan range
@@ -105,10 +106,10 @@ func (g *GetOperator) CreateIterator(partID uint64, args *evbatch.Batch, highest
 			if !g.startInclusive {
 				keyStart = common.IncrementBytesBigEndian(keyStart)
 			}
-			start = encoding.AppendUint64ToBufferBE(g.keyPrefix, partID)
+			start = encoding.EncodeEntryPrefix(partitionHash, uint64(g.slabID), 24+len(keyStart))
 			start = append(start, keyStart...)
 		} else {
-			start = encoding.AppendUint64ToBufferBE(g.keyPrefix, partID)
+			start = encoding.EncodeEntryPrefix(partitionHash, uint64(g.slabID), 24)
 		}
 		if g.rangeEndExprs != nil {
 			keyEnd, err := g.CreateRangeEndKey(args)
@@ -118,10 +119,10 @@ func (g *GetOperator) CreateIterator(partID uint64, args *evbatch.Batch, highest
 			if g.endInclusive {
 				keyEnd = common.IncrementBytesBigEndian(keyEnd)
 			}
-			end = encoding.AppendUint64ToBufferBE(g.keyPrefix, partID)
+			end = encoding.EncodeEntryPrefix(partitionHash, uint64(g.slabID), 24+len(keyEnd))
 			end = append(end, keyEnd...)
 		} else {
-			end = encoding.AppendUint64ToBufferBE(g.keyPrefix, partID+1)
+			end = encoding.EncodeEntryPrefix(partitionHash, uint64(g.slabID+1), 24)
 		}
 	}
 	log.Debugf("node:%d creating query iterator start:%v end:%v with max version:%d", g.nodeID, start, end, highestVersion)

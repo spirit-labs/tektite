@@ -1,6 +1,6 @@
 package levels
 
-import "github.com/spirit-labs/tektite/retention"
+import "time"
 
 type InMemClient struct {
 	LevelManager *LevelManager
@@ -14,12 +14,8 @@ func (c *InMemClient) LoadLastFlushedVersion() (int64, error) {
 	return -1, nil
 }
 
-func (c *InMemClient) GetTableIDsForRange(keyStart []byte, keyEnd []byte) (OverlappingTableIDs, uint64, []VersionRange, error) {
+func (c *InMemClient) GetTableIDsForRange(keyStart []byte, keyEnd []byte) (OverlappingTableIDs, []VersionRange, error) {
 	return c.LevelManager.GetTableIDsForRange(keyStart, keyEnd)
-}
-
-func (c *InMemClient) GetPrefixRetentions() ([]retention.PrefixRetention, error) {
-	return c.LevelManager.GetPrefixRetentions()
 }
 
 func (c *InMemClient) RegisterL0Tables(registrationBatch RegistrationBatch) error {
@@ -38,10 +34,6 @@ func (c *InMemClient) RegisterDeadVersionRange(versionRange VersionRange, cluste
 	return c.LevelManager.RegisterDeadVersionRange(versionRange, clusterName, clusterVersion, false, -1)
 }
 
-func (c *InMemClient) RegisterPrefixRetentions(prefixRetentions []retention.PrefixRetention) error {
-	return c.LevelManager.RegisterPrefixRetentions(prefixRetentions, false, -1)
-}
-
 func (c *InMemClient) PollForJob() (*CompactionJob, error) {
 	type pollRes struct {
 		job *CompactionJob
@@ -57,6 +49,18 @@ func (c *InMemClient) PollForJob() (*CompactionJob, error) {
 
 func (c *InMemClient) GetStats() (Stats, error) {
 	return c.LevelManager.GetStats(), nil
+}
+
+func (c *InMemClient) RegisterSlabRetention(slabID int, retention time.Duration) error {
+	return c.LevelManager.RegisterSlabRetention(slabID, retention, false, -1)
+}
+
+func (c *InMemClient) UnregisterSlabRetention(slabID int) error {
+	return c.LevelManager.UnregisterSlabRetention(slabID, false, -1)
+}
+
+func (c *InMemClient) GetSlabRetention(slabID int) (time.Duration, error) {
+	return c.LevelManager.GetSlabRetention(slabID)
 }
 
 func (c *InMemClient) Start() error {

@@ -31,14 +31,14 @@ func TestSerializeDeserializeOverlappingTableIDs(t *testing.T) {
 
 func TestSerializeDeserializeRegistrationEntry(t *testing.T) {
 	regEntry := &RegistrationEntry{
-		Level:        23,
-		TableID:      sst.SSTableID("sometableid"),
-		KeyStart:     []byte("keystart"),
-		KeyEnd:       []byte("keyend"),
-		MinVersion:   2536353,
-		MaxVersion:   2353653,
-		DeleteRatio:  0.25,
-		CreationTime: 12345,
+		Level:       23,
+		TableID:     sst.SSTableID("sometableid"),
+		KeyStart:    []byte("keystart"),
+		KeyEnd:      []byte("keyend"),
+		MinVersion:  2536353,
+		MaxVersion:  2353653,
+		DeleteRatio: 0.25,
+		AddedTime:   12345,
 	}
 	var buff []byte
 	buff = append(buff, 1, 2, 3)
@@ -206,10 +206,10 @@ func TestSerializeDeserializeMasterRecord(t *testing.T) {
 					}},
 			},
 		},
-		prefixRetentions: map[string]uint64{
-			"prefix3": 1,
-			"prefix4": 2,
-			"prefix5": 3,
+		slabRetentions: map[uint64]uint64{
+			10: 1000,
+			11: 2000,
+			12: 3000,
 		},
 		deadVersionRanges: []VersionRange{{
 			VersionStart: 123,

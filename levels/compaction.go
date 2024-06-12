@@ -3,14 +3,15 @@ package levels
 import (
 	"bytes"
 	"container/heap"
+	"encoding/binary"
 	"fmt"
 	"github.com/google/uuid"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/encoding"
 	"github.com/spirit-labs/tektite/errors"
 	log "github.com/spirit-labs/tektite/logger"
-	"github.com/spirit-labs/tektite/retention"
 	"github.com/spirit-labs/tektite/sst"
+	"math"
 	"strings"
 	"time"
 )
@@ -32,15 +33,20 @@ func (lm *LevelManager) maybeScheduleCompaction() error {
 	// Get a level to compact (if any)
 	level, numTables := lm.chooseLevelToCompact()
 	if level == -1 {
-		lm.dumpLevelInfo()
+		if log.DebugEnabled {
+			lm.dumpLevelInfo()
+		}
 		// nothing to do
 		return nil
 	}
-	log.Debugf("in levelmanager maybeScheduleCompaction - chose level %d", level)
-
 	tables, err := lm.chooseTablesToCompact(level, numTables)
 	if err != nil {
 		return err
+	}
+
+	log.Debugf("in levelmanager maybeScheduleCompaction - chose level %d num tables to compact: %d", level, len(tables))
+	if len(tables) == 0 {
+		return nil
 	}
 
 	_, _, err = lm.scheduleCompaction(level, tables, nil, nil)
@@ -107,7 +113,6 @@ func (lm *LevelManager) scheduleCompaction(level int, tables []*TableEntry, dead
 			tablesToCompact = append(tablesToCompact, []tableToCompact{{
 				level:             level,
 				table:             st,
-				expiredPrefixes:   lm.calcExpiredOverlappingPrefixes(st.RangeStart, st.RangeEnd, st.CreationTime),
 				deadVersionRanges: deadVersionRanges,
 			}})
 			tableIDs = append(tableIDs, st.SSTableID)
@@ -116,9 +121,8 @@ func (lm *LevelManager) scheduleCompaction(level int, tables []*TableEntry, dead
 			var nextLevelTables []tableToCompact
 			for _, st := range overlapping {
 				nextLevelTables = append(nextLevelTables, tableToCompact{
-					level:           level + 1,
-					table:           st,
-					expiredPrefixes: lm.calcExpiredOverlappingPrefixes(st.RangeStart, st.RangeEnd, st.CreationTime),
+					level: level + 1,
+					table: st,
 				})
 			}
 			tablesToCompact = append(tablesToCompact, nextLevelTables)
@@ -131,16 +135,17 @@ func (lm *LevelManager) scheduleCompaction(level int, tables []*TableEntry, dead
 			isMove:             false, // always false as source tables are likely overlapping, so need merging
 			preserveTombstones: preserveTombstones,
 			scheduleTime:       common.NanoTime(),
+			serverTime:         uint64(time.Now().UTC().UnixMilli()),
 			lastFlushedVersion: lm.masterRecord.lastFlushedVersion,
 		}
-		log.Debugf("created compaction job %s with tables %v from level %d last level is %d, preserve tombstones is %t",
-			id, tableIDs, level, lm.getLastLevel(), preserveTombstones)
+		log.Debugf("created compaction job %s from level %d last level is %d, preserve tombstones is %t",
+			id, level, lm.getLastLevel(), preserveTombstones)
 		jobs = append(jobs, job)
 
 		lm.lockTablesForJob(job)
 	} else {
 		// level > 0
-
+		now := uint64(time.Now().UTC().UnixMilli())
 	table:
 		for _, table := range tables {
 			_, locked := lm.lockedTables[string(table.SSTableID)]
@@ -178,25 +183,17 @@ func (lm *LevelManager) scheduleCompaction(level int, tables []*TableEntry, dead
 			// create the job
 			var tablesToCompact [][]tableToCompact
 
-			expiredPrefixes := lm.calcExpiredOverlappingPrefixes(table.RangeStart, table.RangeEnd, table.CreationTime)
-			hasExpiredPrefixes := len(expiredPrefixes) > 0
 			tablesToCompact = append(tablesToCompact, []tableToCompact{{
 				level:             level,
 				table:             table,
-				expiredPrefixes:   expiredPrefixes,
 				deadVersionRanges: deadVersionRanges,
 			}})
 
 			var nextLevelTables []tableToCompact
 			for _, st := range overlapping {
-				expiredPrefixes := lm.calcExpiredOverlappingPrefixes(st.RangeStart, st.RangeEnd, st.CreationTime)
-				if len(expiredPrefixes) > 0 {
-					hasExpiredPrefixes = true
-				}
 				nextLevelTables = append(nextLevelTables, tableToCompact{
-					level:           level + 1,
-					table:           st,
-					expiredPrefixes: lm.calcExpiredOverlappingPrefixes(st.RangeStart, st.RangeEnd, st.CreationTime),
+					level: level + 1,
+					table: st,
 				})
 			}
 			if len(nextLevelTables) > 0 {
@@ -206,9 +203,12 @@ func (lm *LevelManager) scheduleCompaction(level int, tables []*TableEntry, dead
 			// We move tables directly if there is no overlap with next level, but if moving to last level
 			// there is extra constraint there can't be any deletes, as we need to removed deletes on the last level
 			// and, it needs a merge to do that
-			// Also we don't move if there are any potential expired prefixes or dead version ranges as these will
-			// need to be filtered out
-			move := !hasExpiredPrefixes && deadVersionRanges == nil && (len(overlapping) == 0 && (level+1 != lm.getLastLevel() || !hasDeletes))
+			// Also we don't move if there are any dead version ranges as these will need to be filtered out
+			// And we don't move is if there any potential expired entries in the table as they will need to be
+			// filtered out too
+			hasPotentialExpiredEntries := lm.hasPotentialExpiredEntries(table, now)
+
+			move := !hasPotentialExpiredEntries && deadVersionRanges == nil && (len(overlapping) == 0 && (level+1 != lm.getLastLevel() || !hasDeletes))
 
 			id := uuid.New().String()
 			job := CompactionJob{
@@ -218,8 +218,11 @@ func (lm *LevelManager) scheduleCompaction(level int, tables []*TableEntry, dead
 				isMove:             move,
 				preserveTombstones: preserveTombstones,
 				scheduleTime:       common.NanoTime(),
+				serverTime:         uint64(time.Now().UTC().UnixMilli()),
 				lastFlushedVersion: lm.masterRecord.lastFlushedVersion,
 			}
+			log.Debugf("created compaction job %s from level %d last level is %d, preserve tombstones is %t",
+				id, level, lm.getLastLevel(), preserveTombstones)
 			jobs = append(jobs, job)
 			// lock the tables
 			lm.lockTablesForJob(job)
@@ -246,6 +249,33 @@ func (lm *LevelManager) scheduleCompaction(level int, tables []*TableEntry, dead
 
 	// return number of jobs, whether any tables were locked
 	return len(jobs), hasLocked, nil
+}
+
+func (lm *LevelManager) hasPotentialExpiredEntries(te *TableEntry, now uint64) bool {
+	if len(lm.masterRecord.slabRetentions) == 0 {
+		return false
+	}
+	// If all the entries in the table are for the same partition hash then we can directly look at the slab id
+	// to see if entries are expired
+	partitionHash1 := te.RangeStart[:16]
+	partitionHash2 := te.RangeEnd[:16]
+	same := bytes.Equal(partitionHash1, partitionHash2)
+	if !same {
+		// Might not have expired entries but we err on the side of caution and return true, which will prevent a move
+		return true
+	}
+	slabID1 := binary.BigEndian.Uint64(te.RangeStart[16:])
+	slabID2 := binary.BigEndian.Uint64(te.RangeEnd[16:])
+	for slabID, ret := range lm.masterRecord.slabRetentions {
+		retMillis := uint64(time.Duration(ret).Milliseconds())
+		if slabID >= slabID1 && slabID <= slabID2 {
+			age := now - te.AddedTime
+			if age >= retMillis {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (lm *LevelManager) queueOrDespatchJob(job CompactionJob, complFunc func(error)) {
@@ -276,23 +306,6 @@ func (lm *LevelManager) queueOrDespatchJob(job CompactionJob, complFunc func(err
 		lm.stats.QueuedJobs++
 	}
 	lm.pendingCompactions[job.levelFrom]++
-}
-
-func (lm *LevelManager) calcExpiredOverlappingPrefixes(rangeStart []byte, rangeEnd []byte, creationTime uint64) []retention.PrefixRetention {
-	var expired []retention.PrefixRetention
-	now := uint64(time.Now().UTC().UnixMilli())
-	for prefix, ret := range lm.masterRecord.prefixRetentions {
-		bPrefix := []byte(prefix)
-		if retention.DoesPrefixApplyToTable(bPrefix, rangeStart, rangeEnd) {
-			if ret == 0 || creationTime+ret <= now {
-				// Note that we set the Retention to zero here - this is because we are evaluating whether the
-				// prefix has expired or not on the level manager, not on the compaction worker which might have
-				// a different time. By setting to zero, any matching keys will be removed.
-				expired = append(expired, retention.PrefixRetention{Prefix: bPrefix, Retention: 0})
-			}
-		}
-	}
-	return expired
 }
 
 func (lm *LevelManager) lockTablesForJob(job CompactionJob) {
@@ -360,11 +373,6 @@ func (lm *LevelManager) tableCount(level int) int {
 
 func (lm *LevelManager) chooseTablesToCompact(level int, numTables int) ([]*TableEntry, error) {
 
-	iter, err := lm.levelIterator(level)
-	if err != nil {
-		return nil, err
-	}
-
 	if level == 0 {
 		// We choose all tables
 		entries := lm.getLevelSegmentEntries(0)
@@ -374,6 +382,33 @@ func (lm *LevelManager) chooseTablesToCompact(level int, numTables int) ([]*Tabl
 			return nil, err
 		}
 		return l0Seg.tableEntries, nil
+	}
+
+	iter, err := lm.levelIterator(level)
+	if err != nil {
+		return nil, err
+	}
+
+	var minAddedTime uint64 = math.MaxUint64
+	var maxAddedTime uint64
+	for {
+		te, err := iter.Next()
+		if err != nil {
+			return nil, err
+		}
+		if te == nil {
+			break
+		}
+		if te.AddedTime < minAddedTime {
+			minAddedTime = te.AddedTime
+		}
+		if te.AddedTime > maxAddedTime {
+			maxAddedTime = te.AddedTime
+		}
+	}
+	iter, err = lm.levelIterator(level)
+	if err != nil {
+		return nil, err
 	}
 
 	h := scoreHeap{}
@@ -389,7 +424,7 @@ func (lm *LevelManager) chooseTablesToCompact(level int, numTables int) ([]*Tabl
 		}
 		heap.Push(&h, scoreEntry{
 			tableEntry: te,
-			score:      lm.computeScore(te),
+			score:      computeScore(te, minAddedTime, maxAddedTime),
 		})
 		if h.Len() > numTables {
 			heap.Pop(&h)
@@ -404,21 +439,24 @@ func (lm *LevelManager) chooseTablesToCompact(level int, numTables int) ([]*Tabl
 	return entries, nil
 }
 
-func (lm *LevelManager) computeScore(te *TableEntry) float64 {
-
-	// The score is just the num expired prefixes + delete ratio - this gives 1 expired prefix and 100% delete ratio the same
-	// score. delete ratio is likely to be lower than 1.0 so this gives expired prefixes an advantage - this is what
-	// we want - for them to be removed from the LSM as soon as possible.
-	now := uint64(time.Now().UTC().UnixMilli())
-	numExpired := 0
-	for prefix, ret := range lm.masterRecord.prefixRetentions {
-		if retention.DoesPrefixApplyToTable(common.StringToByteSliceZeroCopy(prefix), te.RangeStart, te.RangeEnd) {
-			if ret == 0 || te.CreationTime+uint64(ret) <= now {
-				numExpired++
-			}
-		}
+func computeScore(te *TableEntry, minAddedTime uint64, maxAddedTime uint64) float64 {
+	/*
+		The score has three components.
+		1. From 0-1 as AddedTime varies linearly between maxAddedTime and minAddedTime
+		2. DeleteRatio, from 0-1
+		3. If there is one or more prefix tombstones then contribute 3 (this happens when table is dropped)
+	*/
+	var ageContrib float64
+	if maxAddedTime > minAddedTime {
+		// if AddedTime = minAddedTime then + 1, if AddedTime = maxAddedTime then -1
+		// So we prioritise compaction of older tables
+		ageContrib = 1 - float64(te.AddedTime-minAddedTime)/float64(maxAddedTime-minAddedTime)
 	}
-	return te.DeleteRatio + float64(numExpired)
+	var prefixDeleteContrib float64
+	if te.NumPrefixDeletes > 0 {
+		prefixDeleteContrib = 3
+	}
+	return ageContrib + te.DeleteRatio + prefixDeleteContrib
 }
 
 type scoreEntry struct {
@@ -478,7 +516,9 @@ func (lm *LevelManager) compactionComplete(jobID string) error {
 		log.Debugf("in compactionComplete %s calling completion", jobID)
 		cf(nil)
 	}
-	lm.dumpLevelInfo()
+	if log.DebugEnabled {
+		lm.dumpLevelInfo()
+	}
 	// After compaction, the dest level might need compaction, or we might have more dead entries to remove,
 	// so we trigger a check
 	return lm.maybeScheduleCompaction()
@@ -730,7 +770,6 @@ type LevelIterator interface {
 type tableToCompact struct {
 	level             int
 	table             *TableEntry
-	expiredPrefixes   []retention.PrefixRetention
 	deadVersionRanges []VersionRange
 }
 
@@ -746,7 +785,8 @@ type CompactionJob struct {
 	tables             [][]tableToCompact
 	isMove             bool
 	preserveTombstones bool
-	scheduleTime       uint64
+	scheduleTime       uint64 // Used for timing jobs - we use nanoTime to avoid errors if clocks change
+	serverTime         uint64 // Unix millis past epoch - Used on compaction workers to determine if entries are expired
 	lastFlushedVersion int64
 }
 
@@ -759,10 +799,6 @@ func (c *CompactionJob) Serialize(buff []byte) []byte {
 		for _, tableToCompact := range tablesToCompact {
 			buff = encoding.AppendUint32ToBufferLE(buff, uint32(tableToCompact.level))
 			buff = tableToCompact.table.serialize(buff)
-			buff = encoding.AppendUint32ToBufferLE(buff, uint32(len(tableToCompact.expiredPrefixes)))
-			for _, prefix := range tableToCompact.expiredPrefixes {
-				buff = prefix.Serialize(buff)
-			}
 			buff = encoding.AppendUint32ToBufferLE(buff, uint32(len(tableToCompact.deadVersionRanges)))
 			for _, rng := range tableToCompact.deadVersionRanges {
 				buff = rng.Serialize(buff)
@@ -772,6 +808,7 @@ func (c *CompactionJob) Serialize(buff []byte) []byte {
 	buff = encoding.AppendBoolToBuffer(buff, c.isMove)
 	buff = encoding.AppendBoolToBuffer(buff, c.preserveTombstones)
 	buff = encoding.AppendUint64ToBufferLE(buff, c.scheduleTime)
+	buff = encoding.AppendUint64ToBufferLE(buff, c.serverTime)
 	buff = encoding.AppendUint64ToBufferLE(buff, uint64(c.lastFlushedVersion))
 	return buff
 }
@@ -794,16 +831,6 @@ func (c *CompactionJob) Deserialize(buff []byte, offset int) int {
 			te := &TableEntry{}
 			offset = te.deserialize(buff, offset)
 
-			var lp uint32
-			lp, offset = encoding.ReadUint32FromBufferLE(buff, offset)
-			var expiredPrefixes []retention.PrefixRetention
-			if lp > 0 {
-				expiredPrefixes = make([]retention.PrefixRetention, int(lp))
-				for i := 0; i < int(lp); i++ {
-					offset = expiredPrefixes[i].Deserialize(buff, offset)
-				}
-			}
-
 			var lvr uint32
 			lvr, offset = encoding.ReadUint32FromBufferLE(buff, offset)
 			var deadVersionRanges []VersionRange
@@ -817,7 +844,6 @@ func (c *CompactionJob) Deserialize(buff []byte, offset int) int {
 			tables2[j] = tableToCompact{
 				level:             int(l),
 				table:             te,
-				expiredPrefixes:   expiredPrefixes,
 				deadVersionRanges: deadVersionRanges,
 			}
 		}
@@ -826,6 +852,7 @@ func (c *CompactionJob) Deserialize(buff []byte, offset int) int {
 	c.isMove, offset = encoding.ReadBoolFromBuffer(buff, offset)
 	c.preserveTombstones, offset = encoding.ReadBoolFromBuffer(buff, offset)
 	c.scheduleTime, offset = encoding.ReadUint64FromBufferLE(buff, offset)
+	c.serverTime, offset = encoding.ReadUint64FromBufferLE(buff, offset)
 	var lfv uint64
 	lfv, offset = encoding.ReadUint64FromBufferLE(buff, offset)
 	c.lastFlushedVersion = int64(lfv)
@@ -861,12 +888,13 @@ func (c *CompactionResult) Deserialize(buff []byte, offset int) int {
 // Tables lower in the list take precedence to tables higher in the list when a common key is found
 
 type ssTableInfo struct {
-	sst         *sst.SSTable
-	rangeStart  []byte
-	rangeEnd    []byte
-	minVersion  uint64
-	maxVersion  uint64
-	deleteRatio float64
+	sst              *sst.SSTable
+	rangeStart       []byte
+	rangeEnd         []byte
+	minVersion       uint64
+	maxVersion       uint64
+	deleteRatio      float64
+	numPrefixDeletes uint32
 }
 
 type poller struct {

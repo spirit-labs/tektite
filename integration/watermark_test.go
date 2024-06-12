@@ -10,7 +10,6 @@ import (
 	"github.com/spirit-labs/tektite/opers"
 	"github.com/spirit-labs/tektite/parser"
 	"github.com/spirit-labs/tektite/proc"
-	"github.com/spirit-labs/tektite/retention"
 	store2 "github.com/spirit-labs/tektite/store"
 	"github.com/spirit-labs/tektite/testutils"
 	"github.com/spirit-labs/tektite/types"
@@ -423,8 +422,9 @@ func setup(t *testing.T) (opers.StreamManager, proc.Manager, *conf.Config) {
 	require.NoError(t, err)
 	cfg := &conf.Config{}
 	cfg.ApplyDefaults()
+	cfg.LogScope = t.Name()
 	cfg.ProcessorCount = 10
-	streamMgr := opers.NewStreamManager(nil, store, &dummyPrefixRetention{},
+	streamMgr := opers.NewStreamManager(nil, store, &testSlabRetentions{},
 		&expr.ExpressionFactory{}, cfg, true)
 
 	stateMgr := &testClustStateMgr{}
@@ -692,8 +692,13 @@ func (g *gatheringWMOperator) GetStreamInfo() *opers.StreamInfo {
 func (g *gatheringWMOperator) Teardown(opers.StreamManagerCtx, *sync.RWMutex) {
 }
 
-type dummyPrefixRetention struct {
+type testSlabRetentions struct {
 }
 
-func (d *dummyPrefixRetention) AddPrefixRetention(retention.PrefixRetention) {
+func (t testSlabRetentions) RegisterSlabRetention(slabID int, retention time.Duration) error {
+	return nil
+}
+
+func (t testSlabRetentions) UnregisterSlabRetention(slabID int) error {
+	return nil
 }

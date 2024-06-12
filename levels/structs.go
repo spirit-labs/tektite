@@ -49,9 +49,10 @@ type RegistrationEntry struct {
 	MaxVersion       uint64
 	KeyStart, KeyEnd []byte
 	DeleteRatio      float64
-	CreationTime     uint64
+	AddedTime        uint64
 	NumEntries       uint64
 	TableSize        uint64
+	NumPrefixDeletes uint32
 }
 
 func (re *RegistrationEntry) serialize(buff []byte) []byte {
@@ -65,9 +66,10 @@ func (re *RegistrationEntry) serialize(buff []byte) []byte {
 	buff = encoding.AppendUint32ToBufferLE(buff, uint32(len(re.KeyEnd)))
 	buff = append(buff, re.KeyEnd...)
 	buff = encoding.AppendFloat64ToBufferLE(buff, re.DeleteRatio)
-	buff = encoding.AppendUint64ToBufferLE(buff, re.CreationTime)
+	buff = encoding.AppendUint64ToBufferLE(buff, re.AddedTime)
 	buff = encoding.AppendUint64ToBufferLE(buff, re.NumEntries)
 	buff = encoding.AppendUint64ToBufferLE(buff, re.TableSize)
+	buff = encoding.AppendUint32ToBufferLE(buff, re.NumPrefixDeletes)
 	return buff
 }
 
@@ -88,9 +90,10 @@ func (re *RegistrationEntry) deserialize(buff []byte, offset int) int {
 	re.KeyEnd = buff[offset : offset+int(l)]
 	offset += int(l)
 	re.DeleteRatio, offset = encoding.ReadFloat64FromBufferLE(buff, offset)
-	re.CreationTime, offset = encoding.ReadUint64FromBufferLE(buff, offset)
+	re.AddedTime, offset = encoding.ReadUint64FromBufferLE(buff, offset)
 	re.NumEntries, offset = encoding.ReadUint64FromBufferLE(buff, offset)
 	re.TableSize, offset = encoding.ReadUint64FromBufferLE(buff, offset)
+	re.NumPrefixDeletes, offset = encoding.ReadUint32FromBufferLE(buff, offset)
 	return offset
 }
 
@@ -172,15 +175,16 @@ func (s *segment) deserialize(buff []byte) {
 }
 
 type TableEntry struct {
-	SSTableID    sst.SSTableID
-	RangeStart   []byte
-	RangeEnd     []byte
-	MinVersion   uint64
-	MaxVersion   uint64
-	DeleteRatio  float64
-	CreationTime uint64
-	NumEntries   uint64
-	Size         uint64
+	SSTableID        sst.SSTableID
+	RangeStart       []byte
+	RangeEnd         []byte
+	MinVersion       uint64
+	MaxVersion       uint64
+	DeleteRatio      float64
+	AddedTime        uint64 // The time the table was first added to the database - used to calculate retention
+	NumEntries       uint64
+	Size             uint64
+	NumPrefixDeletes uint32
 }
 
 func (te *TableEntry) serialize(buff []byte) []byte {
@@ -195,6 +199,7 @@ func (te *TableEntry) serialize(buff []byte) []byte {
 	buff = encoding.AppendFloat64ToBufferLE(buff, te.DeleteRatio)
 	buff = encoding.AppendUint64ToBufferLE(buff, te.NumEntries)
 	buff = encoding.AppendUint64ToBufferLE(buff, te.Size)
+	buff = encoding.AppendUint32ToBufferLE(buff, te.NumPrefixDeletes)
 	return buff
 }
 
@@ -214,6 +219,7 @@ func (te *TableEntry) deserialize(buff []byte, offset int) int {
 	te.DeleteRatio, offset = encoding.ReadFloat64FromBufferLE(buff, offset)
 	te.NumEntries, offset = encoding.ReadUint64FromBufferLE(buff, offset)
 	te.Size, offset = encoding.ReadUint64FromBufferLE(buff, offset)
+	te.NumPrefixDeletes, offset = encoding.ReadUint32FromBufferLE(buff, offset)
 	return offset
 }
 
@@ -358,7 +364,7 @@ type masterRecord struct {
 	version              uint64
 	levelSegmentEntries  []levelEntries
 	levelTableCounts     map[int]int
-	prefixRetentions     map[string]uint64 // this is a map as we can get duplicate registrations
+	slabRetentions       map[uint64]uint64 // this is a map as we can get duplicate registrations
 	deadVersionRanges    []VersionRange
 	lastFlushedVersion   int64
 	lastProcessedReplSeq int
@@ -376,9 +382,9 @@ func (mr *masterRecord) copy() *masterRecord {
 		}
 	}
 
-	prefixRetentionsCopy := make(map[string]uint64, len(mr.prefixRetentions))
-	for prefix, retention := range mr.prefixRetentions {
-		prefixRetentionsCopy[prefix] = retention
+	prefixRetentionsCopy := make(map[uint64]uint64, len(mr.slabRetentions))
+	for slabID, retention := range mr.slabRetentions {
+		prefixRetentionsCopy[slabID] = retention
 	}
 
 	tableCountCopy := make(map[int]int, len(mr.levelTableCounts))
@@ -392,7 +398,7 @@ func (mr *masterRecord) copy() *masterRecord {
 		version:              mr.version,
 		levelSegmentEntries:  lseCopy,
 		levelTableCounts:     tableCountCopy,
-		prefixRetentions:     prefixRetentionsCopy,
+		slabRetentions:       prefixRetentionsCopy,
 		deadVersionRanges:    deadVersionRangesCopy,
 		lastFlushedVersion:   mr.lastFlushedVersion,
 		lastProcessedReplSeq: mr.lastProcessedReplSeq,
@@ -416,10 +422,9 @@ func (mr *masterRecord) serialize(buff []byte) []byte {
 		buff = encoding.AppendUint32ToBufferLE(buff, uint32(level))
 		buff = encoding.AppendUint64ToBufferLE(buff, uint64(cnt))
 	}
-	buff = encoding.AppendUint32ToBufferLE(buff, uint32(len(mr.prefixRetentions)))
-	for prefix, retention := range mr.prefixRetentions {
-		buff = encoding.AppendUint32ToBufferLE(buff, uint32(len(prefix)))
-		buff = append(buff, prefix...)
+	buff = encoding.AppendUint32ToBufferLE(buff, uint32(len(mr.slabRetentions)))
+	for slabID, retention := range mr.slabRetentions {
+		buff = encoding.AppendUint64ToBufferLE(buff, slabID)
 		buff = encoding.AppendUint64ToBufferLE(buff, retention)
 	}
 	buff = encoding.AppendUint32ToBufferLE(buff, uint32(len(mr.deadVersionRanges)))
@@ -465,15 +470,13 @@ func (mr *masterRecord) deserialize(buff []byte, offset int) int {
 	}
 	var np uint32
 	np, offset = encoding.ReadUint32FromBufferLE(buff, offset)
-	mr.prefixRetentions = make(map[string]uint64, np)
+	mr.slabRetentions = make(map[uint64]uint64, np)
 	for i := 0; i < int(np); i++ {
-		var lp uint32
-		lp, offset = encoding.ReadUint32FromBufferLE(buff, offset)
-		prefix := buff[offset : offset+int(lp)]
-		offset += int(lp)
+		var slabID uint64
+		slabID, offset = encoding.ReadUint64FromBufferLE(buff, offset)
 		var retention uint64
 		retention, offset = encoding.ReadUint64FromBufferLE(buff, offset)
-		mr.prefixRetentions[string(prefix)] = retention
+		mr.slabRetentions[slabID] = retention
 	}
 	var nr uint32
 	nr, offset = encoding.ReadUint32FromBufferLE(buff, offset)

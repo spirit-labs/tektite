@@ -238,6 +238,7 @@ type Config struct {
 	DebugServerAddresses []string
 
 	Original string
+	LogScope string
 }
 
 type KafkaClientType int

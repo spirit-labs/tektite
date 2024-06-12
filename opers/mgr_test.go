@@ -6,12 +6,12 @@ import (
 	"github.com/spirit-labs/tektite/expr"
 	"github.com/spirit-labs/tektite/kafka"
 	"github.com/spirit-labs/tektite/parser"
-	"github.com/spirit-labs/tektite/retention"
 	store2 "github.com/spirit-labs/tektite/store"
 	"github.com/spirit-labs/tektite/testutils"
 	"github.com/spirit-labs/tektite/tppm"
 	"github.com/stretchr/testify/require"
 	"sort"
+	"sync"
 	"testing"
 	"time"
 )
@@ -124,7 +124,7 @@ func testBridgeFromOper(t *testing.T, msgs [][]*kafka.Message, numFailuresToCrea
 
 	fact := msgClientFact{msgs: msgs,
 		numFailuresToCreate: numFailuresToCreate}
-	mgr := NewStreamManager(fact.createTestMessageClient, store, &dummyPrefixRetention{}, &expr.ExpressionFactory{}, cfg, false)
+	mgr := NewStreamManager(fact.createTestMessageClient, store, &dummySlabRetentions{}, &expr.ExpressionFactory{}, cfg, false)
 	mgr.SetProcessorManager(pm)
 	mgr.Loaded()
 	pm.SetBatchHandler(mgr)
@@ -235,7 +235,7 @@ func TestAddRemoveProcessors(t *testing.T) {
 	cfg := &conf.Config{}
 	cfg.ApplyDefaults()
 	fact := msgClientFact{msgs: msgs}
-	mgr := NewStreamManager(fact.createTestMessageClient, st, &dummyPrefixRetention{}, &expr.ExpressionFactory{}, cfg, false)
+	mgr := NewStreamManager(fact.createTestMessageClient, st, &dummySlabRetentions{}, &expr.ExpressionFactory{}, cfg, false)
 	mgr.SetProcessorManager(pm)
 	mgr.Loaded()
 	pm.SetBatchHandler(mgr)
@@ -303,7 +303,7 @@ func TestGetInjectableReceivers(t *testing.T) {
 
 	cfg := &conf.Config{}
 	cfg.ApplyDefaults()
-	mgr := NewStreamManager(nil, st, &dummyPrefixRetention{}, &expr.ExpressionFactory{}, cfg, false).(*streamManager)
+	mgr := NewStreamManager(nil, st, &dummySlabRetentions{}, &expr.ExpressionFactory{}, cfg, false).(*streamManager)
 	mgr.SetProcessorManager(pm)
 	mgr.Loaded()
 	pm.SetBatchHandler(mgr)
@@ -425,7 +425,7 @@ func TestGetForwardingProcessorCountKafkaIn(t *testing.T) {
 
 	cfg := &conf.Config{}
 	cfg.ApplyDefaults()
-	mgr := NewStreamManager(nil, st, &dummyPrefixRetention{}, &expr.ExpressionFactory{}, cfg, true).(*streamManager)
+	mgr := NewStreamManager(nil, st, &dummySlabRetentions{}, &expr.ExpressionFactory{}, cfg, true).(*streamManager)
 	mgr.SetProcessorManager(pm)
 	mgr.Loaded()
 	pm.SetBatchHandler(mgr)
@@ -487,7 +487,7 @@ func TestGetForwardingProcessorCountMultiplePartitions(t *testing.T) {
 
 	cfg := &conf.Config{}
 	cfg.ApplyDefaults()
-	mgr := NewStreamManager(nil, st, &dummyPrefixRetention{}, &expr.ExpressionFactory{}, cfg, true).(*streamManager)
+	mgr := NewStreamManager(nil, st, &dummySlabRetentions{}, &expr.ExpressionFactory{}, cfg, true).(*streamManager)
 	mgr.SetProcessorManager(pm)
 	mgr.Loaded()
 	pm.SetBatchHandler(mgr)
@@ -560,7 +560,7 @@ func TestGetRequiredCompletions(t *testing.T) {
 
 	cfg := &conf.Config{}
 	cfg.ApplyDefaults()
-	mgr := NewStreamManager(nil, st, &dummyPrefixRetention{}, &expr.ExpressionFactory{}, cfg, false).(*streamManager)
+	mgr := NewStreamManager(nil, st, &dummySlabRetentions{}, &expr.ExpressionFactory{}, cfg, false).(*streamManager)
 	mgr.SetProcessorManager(pm)
 	mgr.Loaded()
 	pm.SetBatchHandler(mgr)
@@ -650,6 +650,85 @@ func TestGetRequiredCompletions(t *testing.T) {
 	require.Equal(t, numProcs+numProcs2+1, mgr.GetRequiredCompletions())
 }
 
+type testSlabRetentions struct {
+	lock       sync.Mutex
+	retentions map[int]time.Duration
+}
+
+func (t *testSlabRetentions) RegisterSlabRetention(slabID int, retention time.Duration) error {
+	t.lock.Lock()
+	defer t.lock.Unlock()
+	t.retentions[slabID] = retention
+	return nil
+}
+
+func (t *testSlabRetentions) UnregisterSlabRetention(slabID int) error {
+	t.lock.Lock()
+	defer t.lock.Unlock()
+	delete(t.retentions, slabID)
+	return nil
+}
+
+func (t *testSlabRetentions) getRetention(slabID int) (time.Duration, bool) {
+	t.lock.Lock()
+	defer t.lock.Unlock()
+	ret, ok := t.retentions[slabID]
+	return ret, ok
+}
+
+func TestRegisterUnregisterSlabRetentions(t *testing.T) {
+	st := store2.TestStore()
+	pm := tppm.NewTestProcessorManager(st)
+	defer pm.Close()
+	//goland:noinspection GoUnhandledErrorResult
+	st.Start()
+	//goland:noinspection GoUnhandledErrorResult
+	defer st.Stop()
+
+	retentions := &testSlabRetentions{retentions: map[int]time.Duration{}}
+
+	cfg := &conf.Config{}
+	cfg.ApplyDefaults()
+	mgr := NewStreamManager(nil, st, retentions, &expr.ExpressionFactory{}, cfg, false).(*streamManager)
+	mgr.SetProcessorManager(pm)
+	mgr.Loaded()
+	pm.SetBatchHandler(mgr)
+
+	// dummy receiver
+	require.Equal(t, 1, mgr.GetRequiredCompletions())
+
+	// Deploy top level stream:
+
+	ret := 23 * time.Hour
+
+	stream1 := parser.CreateStreamDesc{
+		StreamName: "stream1",
+		OperatorDescs: []parser.Parseable{
+			&parser.BridgeFromDesc{
+				TopicName:  "test_topic",
+				Partitions: 5,
+			},
+			&parser.StoreStreamDesc{
+				Retention: &ret,
+			},
+		},
+	}
+
+	err := mgr.DeployStream(stream1, []int{1000}, []int{1000, 1001}, "", 23)
+	require.NoError(t, err)
+
+	retReceived, ok := retentions.getRetention(1001)
+	require.True(t, ok)
+
+	require.Equal(t, ret, retReceived)
+
+	err = mgr.UndeployStream(parser.DeleteStreamDesc{StreamName: "stream1"}, 24)
+	require.NoError(t, err)
+
+	_, ok = retentions.getRetention(1001)
+	require.False(t, ok)
+}
+
 func calcExpectedMessages(partMsgs [][]*kafka.Message, partIDs []int) []*kafka.Message {
 	var expected []*kafka.Message
 	for i := 0; i < len(partMsgs[0]); i++ {
@@ -677,8 +756,13 @@ func createKafkaMessageBytes(partitionID int, offset int, key []byte, value []by
 	}
 }
 
-type dummyPrefixRetention struct {
+type dummySlabRetentions struct {
 }
 
-func (d *dummyPrefixRetention) AddPrefixRetention(retention.PrefixRetention) {
+func (d *dummySlabRetentions) RegisterSlabRetention(slabID int, retention time.Duration) error {
+	return nil
+}
+
+func (d dummySlabRetentions) UnregisterSlabRetention(slabID int) error {
+	return nil
 }
