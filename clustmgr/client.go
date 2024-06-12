@@ -30,7 +30,7 @@ type Client interface {
 	GetLock(lockName string, timeout time.Duration) (bool, error)
 	ReleaseLock(lockName string) error
 	GetClusterState() (*ClusterState, map[int]int64, int64, int64, error)
-	SetClusterState(clusterState *ClusterState, activeNodes map[int]int64, version int64, maxRevision int64) (bool, error)
+	SetClusterState(clusterState *ClusterState, activeNodes map[int]int64, previousVersion int64, maxRevision int64) (bool, error)
 	GetNodeRevision() int64
 	PrepareForShutdown()
 	GetMutex(name string) (*Mutex, error)
@@ -708,7 +708,7 @@ func deserializeClusterState(bytes []byte) clusterStateInfo {
 	}
 }
 
-func (c *client) SetClusterState(clusterState *ClusterState, nodesState map[int]int64, version int64, maxRevision int64) (bool, error) {
+func (c *client) SetClusterState(clusterState *ClusterState, nodesState map[int]int64, previousVersion int64, maxRevision int64) (bool, error) {
 	log.Debugf("%s: client node id %d setting cluster state %v", c.logScope, c.nodeID, clusterState)
 	ctx, cancel := context.WithTimeout(context.Background(), c.callTimeout)
 	defer cancel()
@@ -722,7 +722,7 @@ func (c *client) SetClusterState(clusterState *ClusterState, nodesState map[int]
 	bytes = encoding.AppendUint64ToBufferLE(bytes, uint64(maxRevision))
 	// Only put the KV if the current version matches the specified version - this protects against network
 	// partitions
-	resp, err := txn.If(clientv3.Compare(clientv3.Version(c.clusterStateKey), "=", version)).
+	resp, err := txn.If(clientv3.Compare(clientv3.Version(c.clusterStateKey), "=", previousVersion)).
 		Then(clientv3.OpPut(c.clusterStateKey, string(bytes))).Commit()
 	if err != nil {
 		return false, convertEtcdError(err)
