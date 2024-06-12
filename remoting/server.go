@@ -46,7 +46,7 @@ type server struct {
 	acceptLoopExitGroup      sync.WaitGroup
 	connections              sync.Map
 	messageHandlers          sync.Map
-	responsesDisabled        common.AtomicBool
+	responsesDisabled        atomic.Bool
 	tlsConf                  conf.TLSConfig
 	connectionSeq            uint64
 	connectionClosedHandlers []func(int)
@@ -168,7 +168,7 @@ func (s *server) removeConnection(conn *connection) {
 
 // DisableResponses is used to disable responses - for testing only
 func (s *server) DisableResponses() {
-	s.responsesDisabled.Set(true)
+	s.responsesDisabled.Store(true)
 }
 
 func (s *server) newConnection(conn net.Conn) *connection {
@@ -268,7 +268,7 @@ func (c *connection) handleMessageAsync0(msg []byte) {
 		ConnectionID: c.id,
 	}
 	handler.HandleMessage(holder, func(respMsg ClusterMessage, respErr error) {
-		if request.requiresResponse && !c.s.responsesDisabled.Get() {
+		if request.requiresResponse && !c.s.responsesDisabled.Load() {
 			if err := c.sendResponse(request, respMsg, respErr); err != nil {
 				// This can happen if the node the response is being sent to has crashed
 				// It can be ignored

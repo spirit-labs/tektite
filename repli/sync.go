@@ -398,7 +398,7 @@ func (r *replicator) receiveReplicatedSync(batch *proc.ProcessBatch, clusterVers
 	}
 	log.Debugf("node %d processor %d synced ok", r.cfg.NodeID, r.id)
 
-	r.valid.Set(true)
+	r.valid.Store(true)
 	r.replicaSyncing = false
 
 	return nil

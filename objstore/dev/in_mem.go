@@ -5,6 +5,7 @@ import (
 	"github.com/spirit-labs/tektite/errors"
 	log "github.com/spirit-labs/tektite/logger"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -16,7 +17,7 @@ func NewInMemStore(delay time.Duration) *InMemStore {
 type InMemStore struct {
 	store       sync.Map
 	delay       time.Duration
-	unavailable common.AtomicBool
+	unavailable atomic.Bool
 }
 
 func (f *InMemStore) Get(key []byte) ([]byte, error) {
@@ -62,11 +63,11 @@ func (f *InMemStore) Delete(key []byte) error {
 }
 
 func (f *InMemStore) SetUnavailable(unavailable bool) {
-	f.unavailable.Set(unavailable)
+	f.unavailable.Store(unavailable)
 }
 
 func (f *InMemStore) checkUnavailable() error {
-	if f.unavailable.Get() {
+	if f.unavailable.Load() {
 		return errors.NewTektiteErrorf(errors.Unavailable, "cloud store is unavailable")
 	}
 	return nil

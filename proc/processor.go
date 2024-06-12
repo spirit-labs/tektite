@@ -126,7 +126,7 @@ type processor struct {
 	batchHandler              BatchHandler
 	replicator                Replicator
 	receiverInfoProvider      ReceiverInfoProvider
-	leader                    common.AtomicBool
+	leader                    atomic.Bool
 	stopped                   bool
 	shuttingDown              bool
 	actions                   chan func() error
@@ -200,7 +200,7 @@ func (p *processor) IsStopped() bool {
 }
 
 func (p *processor) IsLeader() bool {
-	return p.leader.Get()
+	return p.leader.Load()
 }
 
 func (p *processor) SetReplicator(replicator Replicator) {
@@ -690,7 +690,7 @@ func (p *processor) SubmitAction(action func() error) bool {
 
 func (p *processor) SetLeader() {
 	log.Debugf("node %d processor %d is becoming leader", p.cfg.NodeID, p.id)
-	p.leader.Set(true)
+	p.leader.Store(true)
 	// Need to make sure runLoop has actually started and goID set before we continue, hence the channel
 	ch := make(chan struct{}, 1)
 	common.Go(func() {

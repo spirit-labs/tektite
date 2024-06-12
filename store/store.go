@@ -24,7 +24,7 @@ import (
 )
 
 type Store struct {
-	started            common.AtomicBool
+	started            atomic.Bool
 	stopped            bool
 	conf               conf.Config
 	memTable           *mem.Memtable
@@ -53,8 +53,8 @@ type Store struct {
 	clearFlushedLock            sync.Mutex
 	periodicMtInQueue           atomic.Bool // we limit to one empty memtable for periodic flush in queue at any one time
 	shutdownFlushImmediate      bool
-	clearing                    common.AtomicBool
-	//flushing                    common.AtomicBool
+	clearing                    atomic.Bool
+	//flushing                    atomic.Bool
 }
 
 func NewStore(cloudStoreClient objstore.Client, levelManagerClient levels.Client, tableCache *tabcache.Cache, conf conf.Config) *Store {
@@ -75,7 +75,7 @@ func (s *Store) Start() error {
 	if s.stopped {
 		panic("store cannot be restarted")
 	}
-	if s.started.Get() {
+	if s.started.Load() {
 		return nil
 	}
 	s.createNewMemtable()
@@ -89,7 +89,7 @@ func (s *Store) Start() error {
 	s.mtLastReplace = 0
 	s.lastCommittedBatchSequences = sync.Map{}
 	s.clusterVersion = 0
-	s.started.Set(true)
+	s.started.Store(true)
 	common.Go(s.flushLoop)
 	s.scheduleMtReplace()
 	return nil
@@ -97,7 +97,7 @@ func (s *Store) Start() error {
 
 func (s *Store) Stop() error {
 	s.lock.Lock()
-	if !s.started.Get() {
+	if !s.started.Load() {
 		s.lock.Unlock()
 		return nil
 	}
@@ -107,7 +107,7 @@ func (s *Store) Stop() error {
 		s.mtReplaceTimer.Stop()
 		s.mtReplaceTimer = nil
 	}
-	s.started.Set(false)
+	s.started.Store(false)
 	close(s.flushChan)
 	s.stopped = true
 	s.lock.Unlock()
@@ -121,7 +121,7 @@ func (s *Store) CloudStore() objstore.Client {
 
 func (s *Store) maybeBlockWrite() error {
 	for s.queueFull.Load() {
-		if !s.started.Get() {
+		if !s.started.Load() {
 			return errors.New("store is not started")
 		}
 		time.Sleep(s.conf.StoreWriteBlockedRetryInterval)
@@ -157,7 +157,7 @@ func (s *Store) Write(batch *mem.Batch) error {
 }
 
 func (s *Store) Flush(sync bool, shutdown bool) error {
-	if !s.started.Get() {
+	if !s.started.Load() {
 		return nil
 	}
 	log.Debugf("node %d calling store.Flush()", s.conf.NodeID)
@@ -290,7 +290,7 @@ func (s *Store) replaceMemtable0(memtable *mem.Memtable, allowFlushEmpty bool, t
 func (s *Store) doWrite(batch *mem.Batch) (*mem.Memtable, bool, error) {
 	s.lock.RLock()
 	defer s.lock.RUnlock()
-	if !s.started.Get() {
+	if !s.started.Load() {
 		// We return an unavailable error here. This can occur on shutdown as the store is stopped before processors
 		// The sender can retry.
 		return nil, false, errors.NewTektiteErrorf(errors.Unavailable, "store not started")
@@ -308,7 +308,7 @@ func (s *Store) doWrite(batch *mem.Batch) (*mem.Memtable, bool, error) {
 func (s *Store) updateLastCompletedVersion(version int64) {
 	s.lock.Lock() // We have to lock to protect the flush channel - it gets closed from another goroutine
 	defer s.lock.Unlock()
-	if !s.started.Get() {
+	if !s.started.Load() {
 		return
 	}
 	atomic.StoreInt64(&s.lastCompletedVersion, version)
@@ -363,7 +363,7 @@ func (s *Store) Get(key []byte) ([]byte, error) {
 }
 
 func (s *Store) GetWithMaxVersion(key []byte, maxVersion uint64) ([]byte, error) {
-	if !s.started.Get() {
+	if !s.started.Load() {
 		return nil, errors.NewTektiteErrorf(errors.Unavailable, "store not started")
 	}
 	unlocked := false

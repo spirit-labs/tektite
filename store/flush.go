@@ -89,7 +89,7 @@ func (s *Store) ClearUnflushedData() {
 	}
 	// Set the clearing flag - this enables any flush of sstables that is in a retry loop (e.g. due to cluster version
 	// being too low) to exit and for us to proceed
-	s.clearing.Set(true)
+	s.clearing.Store(true)
 	s.clearFlushedLock.Lock()
 	defer s.clearFlushedLock.Unlock()
 	s.mtFlushQueueLock.Lock()
@@ -98,7 +98,7 @@ func (s *Store) ClearUnflushedData() {
 	s.createNewMemtable()
 	s.mtQueue = nil
 	s.queueFull.Store(false)
-	s.clearing.Set(false)
+	s.clearing.Store(false)
 }
 
 func (s *Store) maybeFlushSSTables() error {
@@ -142,7 +142,7 @@ func (s *Store) maybeFlushSSTables() error {
 			id := []byte(fmt.Sprintf("sst-%s", uuid.New().String()))
 			tableBytes := entry.tableInfo.ssTable.Serialize()
 			for {
-				if !s.started.Get() {
+				if !s.started.Load() {
 					return nil
 				}
 				start := time.Now()
@@ -166,7 +166,7 @@ func (s *Store) maybeFlushSSTables() error {
 			log.Debugf("store %d added sstable with id %v for memtable %s to table cache", s.conf.NodeID, id,
 				entry.memtable.Uuid)
 			for {
-				if !s.started.Get() || s.clearing.Get() {
+				if !s.started.Load() || s.clearing.Load() {
 					return nil
 				}
 				clusterVersion := s.getClusterVersion()
@@ -194,7 +194,7 @@ func (s *Store) maybeFlushSSTables() error {
 					var tektiteErr errors.TektiteError
 					if errors.As(err, &tektiteErr) {
 						if tektiteErr.Code == errors.Unavailable || tektiteErr.Code == errors.LevelManagerNotLeaderNode {
-							if !s.started.Get() || s.clearing.Get() {
+							if !s.started.Load() || s.clearing.Load() {
 								// Allow to break out of the loop if stopped or clearing
 								return nil
 							}

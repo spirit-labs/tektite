@@ -16,7 +16,7 @@ func NewCountDownFuture(initialCount int, completionFunc func(error)) *CountDown
 type CountDownFuture struct {
 	count          int32
 	completionFunc func(error)
-	errSent        AtomicBool
+	errSent        atomic.Bool
 }
 
 // SetCount must not be called after CountDown has been called!
@@ -26,7 +26,7 @@ func (pf *CountDownFuture) SetCount(count int) {
 
 func (pf *CountDownFuture) CountDown(err error) {
 	if err != nil {
-		if pf.errSent.CompareAndSet(false, true) {
+		if pf.errSent.CompareAndSwap(false, true) {
 			pf.completionFunc(err)
 		} else {
 			log.Debugf("countdown future complete with additional error %v", err)
