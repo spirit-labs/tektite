@@ -2412,3 +2412,126 @@ func TestJobCreatedWithLastFlushedVersion(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, int64(100), job.lastFlushedVersion)
 }
+
+func TestCompactionChooseOldestTablesToCompact(t *testing.T) {
+	entries := []TableEntry{
+		createTE(0, 3000, 0),
+		createTE(0, 7000, 0),
+		createTE(0, 1000, 0),
+		createTE(0, 5000, 0),
+		createTE(0, 4000, 0),
+		createTE(0, 6000, 0),
+		createTE(0, 2000, 0),
+		createTE(0, 9000, 0),
+		createTE(0, 8000, 0),
+	}
+	iter := &testLevelIterator{entries: entries}
+	res, err := chooseTablesToCompactFromLevel(iter, 3)
+	require.NoError(t, err)
+	require.Equal(t, 3, len(res))
+	require.Equal(t, &entries[2], res[0])
+	require.Equal(t, &entries[6], res[1])
+	require.Equal(t, &entries[0], res[2])
+
+	err = iter.Reset()
+	require.NoError(t, err)
+	res, err = chooseTablesToCompactFromLevel(iter, 1)
+	require.NoError(t, err)
+	require.Equal(t, 1, len(res))
+	require.Equal(t, &entries[2], res[0])
+}
+
+func TestCompactionChooseHighestDeleteRatiosToCompact(t *testing.T) {
+	entries := []TableEntry{
+		createTE(0.4, 0, 0),
+		createTE(0.1, 0, 0),
+		createTE(0.9, 0, 0),
+		createTE(0.7, 0, 0),
+		createTE(0, 0, 0),
+		createTE(0.3, 0, 0),
+		createTE(0.2, 0, 0),
+		createTE(0.6, 0, 0),
+		createTE(0.8, 0, 0),
+	}
+	iter := &testLevelIterator{entries: entries}
+	res, err := chooseTablesToCompactFromLevel(iter, 3)
+	require.NoError(t, err)
+	require.Equal(t, 3, len(res))
+	require.Equal(t, &entries[2], res[0])
+	require.Equal(t, &entries[8], res[1])
+	require.Equal(t, &entries[3], res[2])
+
+	err = iter.Reset()
+	require.NoError(t, err)
+	res, err = chooseTablesToCompactFromLevel(iter, 1)
+	require.NoError(t, err)
+	require.Equal(t, 1, len(res))
+	require.Equal(t, &entries[2], res[0])
+}
+
+func TestCompactionChooseHighestNumPrefixDeletesToCompact(t *testing.T) {
+	entries := []TableEntry{
+		createTE(0, 0, 0),
+		createTE(0, 0, 0),
+		createTE(0, 0, 1),
+		createTE(0, 0, 0),
+	}
+	iter := &testLevelIterator{entries: entries}
+	res, err := chooseTablesToCompactFromLevel(iter, 1)
+	require.NoError(t, err)
+	require.Equal(t, 1, len(res))
+	require.Equal(t, &entries[2], res[0])
+}
+
+func TestCompactionChooseHighestScoreToCompact(t *testing.T) {
+	entries := []TableEntry{
+		createTE(0, 1000, 0), // 1
+		createTE(0, 9000, 0), // 0
+		createTE(1, 1000, 0), // 2
+		createTE(1, 9000, 0), // 1
+		createTE(0, 9000, 1), // 3
+	}
+	iter := &testLevelIterator{entries: entries}
+	res, err := chooseTablesToCompactFromLevel(iter, 5)
+	require.NoError(t, err)
+	require.Equal(t, 5, len(res))
+	require.Equal(t, &entries[4], res[0])
+	require.Equal(t, &entries[2], res[1])
+	require.Equal(t, &entries[3], res[2])
+	require.Equal(t, &entries[0], res[3])
+	require.Equal(t, &entries[1], res[4])
+}
+
+func createTE(deleteRatio float64, addedTime uint64, numPrefixDeletes int) TableEntry {
+	return TableEntry{
+		SSTableID:        nil,
+		RangeStart:       nil,
+		RangeEnd:         nil,
+		MinVersion:       0,
+		MaxVersion:       0,
+		DeleteRatio:      deleteRatio,
+		AddedTime:        addedTime,
+		NumEntries:       0,
+		Size:             0,
+		NumPrefixDeletes: uint32(numPrefixDeletes),
+	}
+}
+
+type testLevelIterator struct {
+	entries []TableEntry
+	pos     int
+}
+
+func (t *testLevelIterator) Next() (*TableEntry, error) {
+	if t.pos >= len(t.entries) {
+		return nil, nil
+	}
+	entry := &t.entries[t.pos]
+	t.pos++
+	return entry, nil
+}
+
+func (t *testLevelIterator) Reset() error {
+	t.pos = 0
+	return nil
+}

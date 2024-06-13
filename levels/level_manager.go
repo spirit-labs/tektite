@@ -636,13 +636,13 @@ func newLevelIter(levelManager *LevelManager, segEntries []segmentEntry) (*level
 		lm:         levelManager,
 		segEntries: segEntries,
 	}
-	if err := li.init(); err != nil {
+	if err := li.Reset(); err != nil {
 		return nil, err
 	}
 	return li, nil
 }
 
-func (l *levelIter) init() error {
+func (l *levelIter) Reset() error {
 	if len(l.segEntries) == 0 {
 		return nil
 	}
