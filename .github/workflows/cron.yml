@@ -31,7 +31,7 @@ jobs:
       - name: Install gotestsum
         run: go install gotest.tools/gotestsum@latest
       - name: Run Unit Tests
-        run: gotestsum -f github-actions -- -race -count=1 -timeout 10m -failfast ./...
+        run: gotestsum -f pkgname-and-test-fails -- -race -count=1 -timeout 10m -failfast ./...
   run-integration-tests:
     needs: build
     runs-on: ubuntu-latest
@@ -48,4 +48,4 @@ jobs:
       - name: Install gotestsum
         run: go install gotest.tools/gotestsum@latest
       - name: Run Integration Tests
-        run: gotestsum -f github-actions -- -race -count=1 -timeout 10m -failfast -tags=integration ./integration/...
+        run: gotestsum -f pkgname-and-test-fails -- -race -count=1 -timeout 10m -failfast -tags=integration ./integration/...
