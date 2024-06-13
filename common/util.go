@@ -9,7 +9,6 @@ import (
 	"os"
 	"runtime"
 	"strconv"
-	"sync/atomic"
 	"time"
 	"unsafe"
 )
@@ -75,37 +74,6 @@ func CopyByteSlice(buff []byte) []byte {
 	res := make([]byte, len(buff))
 	copy(res, buff)
 	return res
-}
-
-const atFalse = 0
-const atTrue = 1
-
-type AtomicBool struct {
-	val int32
-}
-
-func (a *AtomicBool) Get() bool {
-	i := atomic.LoadInt32(&a.val)
-	return i == atTrue
-}
-
-func (a *AtomicBool) Set(val bool) {
-	atomic.StoreInt32(&a.val, a.toInt(val))
-}
-
-func (a *AtomicBool) toInt(val bool) int32 {
-	// Uggghhh, why doesn't golang have an immediate if construct?
-	var i int32
-	if val {
-		i = atTrue
-	} else {
-		i = atFalse
-	}
-	return i
-}
-
-func (a *AtomicBool) CompareAndSet(expected bool, val bool) bool {
-	return atomic.CompareAndSwapInt32(&a.val, a.toInt(expected), a.toInt(val))
 }
 
 func GetOrDefaultIntProperty(propName string, props map[string]string, def int) (int, error) {

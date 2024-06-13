@@ -9,6 +9,7 @@ import (
 	"math"
 	"math/rand"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -125,7 +126,7 @@ func (l *MessageProviderFactory) getMessageGenerator(name string) (msggen.Messag
 type MessageProvider struct {
 	factory               *MessageProviderFactory
 	msgs                  chan *kafka.Message
-	running               common.AtomicBool
+	running               atomic.Bool
 	numPartitions         int
 	partitions            []int
 	offsets               []int64
@@ -161,7 +162,7 @@ func (l *MessageProvider) Stop() error {
 }
 
 func (l *MessageProvider) Start() error {
-	l.running.Set(true)
+	l.running.Store(true)
 	common.Go(l.genLoop)
 	return nil
 }
@@ -169,14 +170,14 @@ func (l *MessageProvider) Start() error {
 func (l *MessageProvider) Close() error {
 	l.msgLock.Lock()
 	defer l.msgLock.Unlock()
-	l.running.Set(false)
+	l.running.Store(false)
 	return nil
 }
 
 func (l *MessageProvider) genLoop() {
 	var msgCount int64
 	var msg *kafka.Message
-	for l.running.Get() && msgCount < l.maxMessages {
+	for l.running.Load() && msgCount < l.maxMessages {
 		if msg == nil {
 			var err error
 			msg, err = l.genMessage()

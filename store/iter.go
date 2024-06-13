@@ -24,7 +24,7 @@ type Iterator struct {
 func (s *Store) NewIterator(keyStart []byte, keyEnd []byte, highestVersion uint64, preserveTombstones bool) (iteration.Iterator, error) {
 	log.Debugf("creating store iterator from keystart %v to keyend %v", keyStart, keyEnd)
 
-	if !s.started.Get() {
+	if !s.started.Load() {
 		return nil, errors.NewTektiteErrorf(errors.Unavailable, "store not started")
 	}
 

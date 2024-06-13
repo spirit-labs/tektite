@@ -3,7 +3,6 @@ package repli
 import (
 	"fmt"
 	"github.com/spirit-labs/tektite/clustmgr"
-	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/conf"
 	"github.com/spirit-labs/tektite/debug"
 	"github.com/spirit-labs/tektite/errors"
@@ -30,7 +29,7 @@ type replicator struct {
 	lastProcessedSequence      int
 	acquiesceCh                chan struct{}
 	replicatedBatches          []*proc.ProcessBatch
-	valid                      common.AtomicBool
+	valid                      atomic.Bool
 	invalidReplicas            map[int]*invalidReplicaEntry
 	batchSequence              int
 	joinedClusterVersion       int
@@ -137,7 +136,7 @@ func (r *replicator) checkInProcessorLoop() {
 }
 
 func (r *replicator) IsValid() bool {
-	return r.valid.Get()
+	return r.valid.Load()
 }
 
 func (r *replicator) markReplicaAsValid() (bool, error) {

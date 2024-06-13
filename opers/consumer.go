@@ -3,6 +3,7 @@ package opers
 import (
 	log "github.com/spirit-labs/tektite/logger"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/spirit-labs/tektite/common"
@@ -15,7 +16,7 @@ type MessageConsumer struct {
 	msgProvider  kafka.MessageProvider
 	pollTimeout  time.Duration
 	maxMessages  int
-	running      common.AtomicBool
+	running      atomic.Bool
 	msgBatch     []*kafka.Message
 	stopWg       sync.WaitGroup
 	errorHandler func(error)
@@ -43,13 +44,13 @@ func NewMessageConsumer(receiver BatchReceiver, msgProvider kafka.MessageProvide
 }
 
 func (m *MessageConsumer) start() {
-	m.running.Set(true)
+	m.running.Store(true)
 	common.Go(m.pollLoop)
 }
 
 func (m *MessageConsumer) Stop(fromLoop bool) error {
 	// If not called from the pollLoop then we must wait for the pollLoop to exit
-	if !fromLoop && m.running.CompareAndSet(true, false) {
+	if !fromLoop && m.running.CompareAndSwap(true, false) {
 		m.stopWg.Wait()
 	}
 	return m.msgProvider.Stop()
@@ -58,10 +59,10 @@ func (m *MessageConsumer) Stop(fromLoop bool) error {
 func (m *MessageConsumer) pollLoop() {
 	defer common.PanicHandler()
 	defer func() {
-		m.running.Set(false)
+		m.running.Store(false)
 		m.stopWg.Done()
 	}()
-	for m.running.Get() {
+	for m.running.Load() {
 		messages, err := m.getBatch(m.pollTimeout)
 		if err != nil {
 			m.handleError(err, false)

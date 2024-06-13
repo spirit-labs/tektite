@@ -24,7 +24,7 @@ type Memtable struct {
 	sl                   *arenaskl.Skiplist
 	flushedCallbacksLock common.SpinLock
 	flushedCallbacks     []func(error)
-	hasWrites            common.AtomicBool
+	hasWrites            atomic.Bool
 	reservedSpace        int64
 }
 
@@ -114,13 +114,13 @@ func (m *Memtable) Write(batch writeBatch) (bool, error) {
 		return false, err
 	}
 	if batchMemSize > 0 {
-		m.hasWrites.Set(true)
+		m.hasWrites.Store(true)
 	}
 	return true, nil
 }
 
 func (m *Memtable) HasWrites() bool {
-	return m.hasWrites.Get()
+	return m.hasWrites.Load()
 }
 
 func (m *Memtable) AddFlushedCallback(flushedCallback func(error)) {

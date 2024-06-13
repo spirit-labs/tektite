@@ -13,6 +13,7 @@ import (
 	"github.com/spirit-labs/tektite/types"
 	"math"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -43,7 +44,7 @@ type iteratorInfo struct {
 	loadedAllRows    bool
 	lastLoadedOffset int64
 	partID           int
-	closed           common.AtomicBool
+	closed           atomic.Bool
 }
 
 func NewBackfillOperator(schema *OperatorSchema, store store, cfg *conf.Config, fromSlabID int,
@@ -149,7 +150,7 @@ func (b *BackfillOperator) HandleStreamBatch(batch *evbatch.Batch, execCtx Strea
 		}
 	}
 	if execCtx.BackFill() {
-		if info.closed.Get() { // Set from a different GR hence it is atomic
+		if info.closed.Load() { // Set from a different GR hence it is atomic
 			if info.initialised {
 				if info.iter != nil {
 					info.iter.Close()
@@ -309,7 +310,7 @@ func (b *BackfillOperator) processorsChanged(processor proc.Processor, started b
 		for _, partID := range partitions {
 			uPartID := uint64(partID)
 			info := &b.partitionIterators[uPartID]
-			info.closed.Set(true)
+			info.closed.Store(true)
 			// fire off an empty batch to close the iterator etc
 			pb := proc.NewProcessBatch(-1, nil, b.receiverID, partID, -1)
 			pb.BackFill = true

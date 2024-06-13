@@ -6,6 +6,7 @@ import (
 	"github.com/spirit-labs/tektite/conf"
 	log "github.com/spirit-labs/tektite/logger"
 	"net/http"
+	"sync/atomic"
 )
 
 /*
@@ -15,9 +16,9 @@ and provide startup, readiness and live-ness endpoints.
 type Endpoints struct {
 	conf    conf.Config
 	server  *http.Server
-	started common.AtomicBool
-	ready   common.AtomicBool
-	live    common.AtomicBool
+	started atomic.Bool
+	ready   atomic.Bool
+	live    atomic.Bool
 }
 
 func NewLifecycleEndpoints(config conf.Config) *Endpoints {
@@ -27,9 +28,9 @@ func NewLifecycleEndpoints(config conf.Config) *Endpoints {
 func (e *Endpoints) SetActive(active bool) {
 	// For now we don't have fine grained control over started, ready or live but we can add this at a later date if
 	// necessary
-	e.started.Set(active)
-	e.ready.Set(active)
-	e.live.Set(active)
+	e.started.Store(active)
+	e.ready.Store(active)
+	e.live.Store(active)
 }
 
 func (e *Endpoints) Start() error {
@@ -66,11 +67,11 @@ func (e *Endpoints) Stop() error {
 }
 
 type handler struct {
-	state *common.AtomicBool
+	state *atomic.Bool
 }
 
 func (i *handler) ServeHTTP(writer http.ResponseWriter, _ *http.Request) {
-	if i.state.Get() {
+	if i.state.Load() {
 		writer.WriteHeader(http.StatusOK)
 	} else {
 		writer.WriteHeader(http.StatusServiceUnavailable)

@@ -2,9 +2,11 @@ package fake
 
 import (
 	"encoding/binary"
+
 	"github.com/spirit-labs/tektite/evbatch"
 	"github.com/spirit-labs/tektite/kafka"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/spirit-labs/tektite/errors"
@@ -152,13 +154,13 @@ func (t *Topic) close() {
 type Subscriber struct {
 	topic       *Topic
 	partitions  []*Partition
-	stopped     common.AtomicBool
+	stopped     atomic.Bool
 	msgBuffer   []*kafka.Message
 	nextOffsets map[int32]int64
 }
 
 func (c *Subscriber) GetMessage(pollTimeout time.Duration) (*kafka.Message, error) {
-	if c.stopped.Get() {
+	if c.stopped.Load() {
 		panic("subscriber is stopped")
 	}
 	start := time.Now()
@@ -191,7 +193,7 @@ func (c *Subscriber) GetMessage(pollTimeout time.Duration) (*kafka.Message, erro
 }
 
 func (c *Subscriber) Unsubscribe() error {
-	c.stopped.Set(true)
+	c.stopped.Store(true)
 	return nil
 }
 
@@ -257,7 +259,7 @@ func (f *MessageProvider) Start() error {
 }
 
 func (f *MessageProvider) Stop() error {
-	f.subscriber.stopped.Set(true)
+	f.subscriber.stopped.Store(true)
 	return nil
 }
 
