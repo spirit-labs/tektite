@@ -432,6 +432,8 @@ func setupManagers(t *testing.T, st *store2.Store) ([]*manager, []opers.StreamMa
 	for _, mgr := range mgrs {
 		err := mgr.Start()
 		require.NoError(t, err)
+		err = mgr.Activate()
+		require.NoError(t, err)
 	}
 	return mgrs, pMgrs, qMgrs, rem
 }

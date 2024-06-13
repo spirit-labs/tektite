@@ -268,6 +268,7 @@ func NewServerWithClientFactory(config conf.Config, clientFactory kafka.ClientFa
 		lockManager:         lockManager,
 		sequenceManager:     sequenceManager,
 		processorManager:    processorManager,
+		commandManager:      commandMgr,
 		clusterStateManager: clustStateMgr,
 		streamManager:       streamManager,
 		queryManager:        queryManager,
@@ -291,6 +292,7 @@ type Server struct {
 	metrics             *metrics.Server
 	store               *store.Store
 	processorManager    proc.Manager
+	commandManager      command.Manager
 	clusterStateManager clustmgr.StateManager
 	streamManager       opers.StreamManager
 	queryManager        query.Manager
@@ -349,6 +351,11 @@ func (s *Server) Start() error {
 	}
 	// We delay starting kafka and api server until replicators are ready
 	if err := s.processorManager.EnsureReplicatorsReady(); err != nil {
+		return err
+	}
+	// We must activate command manager - prompting it to load commands *after* replicators are ready or can
+	// cause processing of batches (e.g. for storing compaction results or deleting slabs) to fail
+	if err := s.commandManager.Activate(); err != nil {
 		return err
 	}
 	if s.kafkaServer != nil {

@@ -1336,7 +1336,6 @@ func (sm *streamManager) deleteSlab(slabInfo *SlabInfo) {
 
 		sm.processorManager.ForwardBatch(batch, false, func(err error) {
 			if err != nil {
-				// This can fail when undeploy is executed again when nodes restart and replay old commands
 				log.Warnf("%s: failed to write tombstones for deleting slab %d %v", sm.cfg.LogScope, slabInfo.SlabID, err)
 			}
 		})
