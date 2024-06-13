@@ -39,7 +39,7 @@ import (
 
 const (
 	TestPrefixes           = "" // Set this to a prefix of a test if you want to only run those tests, e.g. during development
-	ExcludedTestPrefixes   = "retention"
+	ExcludedTestPrefixes   = ""
 	caSignedServerKeyPath  = "testdata/keys/casignedserverkey.pem"
 	caSignedServerCertPath = "testdata/keys/casignedservercert.pem"
 )
