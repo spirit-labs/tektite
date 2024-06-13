@@ -555,7 +555,7 @@ func (a *AggregateOperator) closeWindow(entry windowEntry, partitionID int, exec
 	// Note that `ws` must be the first column for us to be able to load the window efficiently
 
 	partitionHash := a.hashCache.getHash(partitionID)
-	keyStart := encoding.EncodeEntryPrefix(partitionHash, a.aggStateSlabID, 25)
+	keyStart := encoding.EncodeEntryPrefix(partitionHash, a.aggStateSlabID, 33)
 	keyStart = append(keyStart, 1) // not null
 	keyStart = encoding.KeyEncodeTimestamp(keyStart, types.NewTimestamp(entry.ws))
 	keyEnd := common.IncrementBytesBigEndian(keyStart)

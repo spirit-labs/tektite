@@ -432,7 +432,7 @@ func (c *consumerHolder) pause() {
 
 func (bf *BridgeFromOperator) loadLastOffset(partitionID int, maxVersion uint64) (int64, error) {
 	partitionHash := bf.hashCache.getHash(partitionID)
-	key := encoding.EncodeEntryPrefix(partitionHash, bf.offsetsSlabID, 32)
+	key := encoding.EncodeEntryPrefix(partitionHash, bf.offsetsSlabID, 24)
 	v, err := bf.store.GetWithMaxVersion(key, maxVersion)
 	if err != nil {
 		return 0, err
