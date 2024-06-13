@@ -259,7 +259,7 @@ func TestSetAndGetClusterState(t *testing.T) {
 	//goland:noinspection GoUnhandledErrorResult
 	defer cli.Stop(false)
 
-	csR, ns, ver, _, err := cli.GetClusterState()
+	csR, ns, ver, mr, err := cli.GetClusterState()
 	require.Nil(t, csR)
 	require.Equal(t, 0, int(ver))
 	require.Equal(t, 0, len(ns))
@@ -278,27 +278,29 @@ func TestSetAndGetClusterState(t *testing.T) {
 		1: 100,
 		2: 100,
 	}
-	ok, err := cli.SetClusterState(cs, nsSet, 47, 0)
+	ok, err := cli.SetClusterState(cs, nsSet, 47, 100)
 	require.NoError(t, err)
 	// Should fail as there's no previous cluster state with that version
 	require.False(t, ok)
 
-	csR, ns, ver, _, err = cli.GetClusterState()
+	csR, ns, ver, mr, err = cli.GetClusterState()
 	require.Nil(t, csR)
 	require.Equal(t, 0, int(ver))
 	require.Equal(t, 0, len(ns))
+	require.Equal(t, 0, int(mr))
 
-	ok, err = cli.SetClusterState(cs, nsSet, 0, 0)
+	ok, err = cli.SetClusterState(cs, nsSet, 0, 100)
 	require.NoError(t, err)
 	// Should succeed as version 0 means no previous version
 	require.True(t, ok)
 
-	csR, ns, ver, _, err = cli.GetClusterState()
+	csR, ns, ver, mr, err = cli.GetClusterState()
 	require.NoError(t, err)
 	require.NotNil(t, csR)
 	require.Equal(t, 1, int(ver))
 	require.Equal(t, cs, csR)
 	require.Equal(t, nsSet, ns)
+	require.Equal(t, 100, int(mr))
 
 	nsSet2 := map[int]int64{
 		0: 101,
@@ -316,27 +318,29 @@ func TestSetAndGetClusterState(t *testing.T) {
 		},
 	}
 
-	ok, err = cli.SetClusterState(cs2, nsSet2, 0, 0)
+	ok, err = cli.SetClusterState(cs2, nsSet2, 0, 101)
 	require.NoError(t, err)
 	require.False(t, ok)
 
-	csR, ns, ver, _, err = cli.GetClusterState()
+	csR, ns, ver, mr, err = cli.GetClusterState()
 	require.NoError(t, err)
 	require.NotNil(t, csR)
 	require.Equal(t, 1, int(ver))
 	require.Equal(t, cs, csR)
 	require.Equal(t, nsSet, ns)
+	require.Equal(t, 100, int(mr))
 
-	ok, err = cli.SetClusterState(cs2, nsSet2, 1, 0)
+	ok, err = cli.SetClusterState(cs2, nsSet2, 1, 101)
 	require.NoError(t, err)
 	require.True(t, ok)
 
-	csR, ns, ver, _, err = cli.GetClusterState()
+	csR, ns, ver, mr, err = cli.GetClusterState()
 	require.NoError(t, err)
 	require.NotNil(t, csR)
 	require.Equal(t, 2, int(ver))
 	require.Equal(t, cs2, csR)
 	require.Equal(t, nsSet2, ns)
+	require.Equal(t, 101, int(mr))
 
 	nsSet3 := map[int]int64{
 		0: 102,
@@ -353,16 +357,17 @@ func TestSetAndGetClusterState(t *testing.T) {
 			{clustmgr.GroupNode{1, true, true, 1}, clustmgr.GroupNode{0, true, true, 1}, clustmgr.GroupNode{2, false, true, 1}},
 		},
 	}
-	ok, err = cli.SetClusterState(cs3, nsSet3, 2, 0)
+	ok, err = cli.SetClusterState(cs3, nsSet3, 2, 102)
 	require.NoError(t, err)
 	require.True(t, ok)
 
-	csR, ns, ver, _, err = cli.GetClusterState()
+	csR, ns, ver, mr, err = cli.GetClusterState()
 	require.NoError(t, err)
 	require.NotNil(t, csR)
 	require.Equal(t, 3, int(ver))
 	require.Equal(t, cs3, csR)
 	require.Equal(t, nsSet3, ns)
+	require.Equal(t, 102, int(mr))
 }
 
 func TestSetAndReceiveClusterState(t *testing.T) {
@@ -371,6 +376,7 @@ func TestSetAndReceiveClusterState(t *testing.T) {
 	cleanUp(t)
 	numClients := 5
 	var clients []clustmgr.Client
+
 	var chans []chan clustmgr.ClusterState
 	var nodeChanges int64
 
@@ -530,6 +536,51 @@ func TestGetValidGroups(t *testing.T) {
 			}
 		}
 	}
+}
+
+func TestMutex(t *testing.T) {
+	t.Parallel()
+
+	cleanUp(t)
+	cli := clustmgr.NewClient(t.Name(), "test_cluster", 10,
+		[]string{etcdAddress}, 1*time.Second, 1*time.Second, 5*time.Second,
+		func(state map[int]int64, maxRevision int64) {}, func(cs clustmgr.ClusterState) {}, "")
+	err := cli.Start()
+	require.NoError(t, err)
+	//goland:noinspection GoUnhandledErrorResult
+	defer cli.Stop(false)
+
+	mut1, err := cli.GetMutex("mutex1")
+	require.NoError(t, err)
+
+	var secondHeld atomic.Bool
+
+	go func() {
+		mut2, err := cli.GetMutex("mutex1")
+		if err != nil {
+			panic(err)
+		}
+		secondHeld.Store(true)
+		err = mut2.Close()
+		if err != nil {
+			panic(err)
+		}
+	}()
+
+	// Wait a little while and make sure second caller doesn't acquire mutex
+	time.Sleep(100 * time.Millisecond)
+	require.False(t, secondHeld.Load())
+
+	err = mut1.Close()
+	require.NoError(t, err)
+
+	// Now mutext should be got
+	ok, err := testutils.WaitUntilWithError(func() (bool, error) {
+		return secondHeld.Load(), nil
+	}, 2*time.Second, 1*time.Millisecond)
+	require.NoError(t, err)
+	require.True(t, ok)
+
 }
 
 func cleanUp(t *testing.T) {
