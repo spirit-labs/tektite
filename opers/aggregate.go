@@ -594,9 +594,7 @@ func (a *AggregateOperator) closeWindow(entry windowEntry, partitionID int, exec
 	batch := evbatch.NewBatchFromBuilders(a.outSchema.EventSchema, colBuilders...)
 	pb := proc.NewProcessBatch(execCtx.Processor().ID(), batch, a.closedWindowReceiverID, partitionID, -1)
 	pb.Version = execCtx.WriteVersion()
-	ebb := make([]byte, 8)
-	binary.LittleEndian.PutUint64(ebb, uint64(entry.ws))
-	pb.EvBatchBytes = ebb
+	pb.EvBatchBytes = keyStart
 	execCtx.Processor().IngestBatch(pb, func(err error) {
 		if err != nil {
 			log.Errorf("failed to ingest closed window batch: %v", err)
@@ -953,13 +951,23 @@ func (a *AggregateOperator) ReceiveBatch(batch *evbatch.Batch, execCtx StreamExe
 		prefix := encoding.EncodeEntryPrefix(partitionHash, a.resultsSlabID, 64)
 		storeBatchInTable(batch, a.outKeyColIndexes, a.outAggColIndexes, prefix, execCtx, -1, false)
 	}
-	ws := binary.LittleEndian.Uint64(execCtx.EventBatchBytes())
+	keyPrefix := execCtx.EventBatchBytes()
+	ws, _ := encoding.KeyDecodeInt(keyPrefix, 25)
 	// delete the open window from storage
 	key := encoding.EncodeEntryPrefix(partitionHash, a.openWindowsSlabID, 40)
-	key = encoding.KeyEncodeTimestamp(key, types.NewTimestamp(int64(ws)))
+	key = encoding.KeyEncodeTimestamp(key, types.NewTimestamp(ws))
 	key = encoding.EncodeVersion(key, uint64(execCtx.WriteVersion()))
 	execCtx.StoreEntry(common.KV{
 		Key: key,
+	}, false)
+	// create a tombstone and endmarker to delete the data from the window
+	endMarker := append(common.IncrementBytesBigEndian(keyPrefix), 0)
+	execCtx.StoreEntry(common.KV{
+		Key: keyPrefix,
+	}, false)
+	execCtx.StoreEntry(common.KV{
+		Key:   endMarker,
+		Value: []byte{'x'},
 	}, false)
 	return nil, a.sendBatchDownStream(batch, execCtx)
 }
