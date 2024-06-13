@@ -598,7 +598,7 @@ func (c *Config) Validate() error { //nolint:gocyclo
 		return errors.NewInvalidConfigurationError("cluster-eviction-timeout must be >= 1s")
 	}
 	if c.ClusterStateUpdateInterval < 1*time.Millisecond {
-		return errors.NewInvalidConfigurationError("cluster-eviction-timeout must be >= 1ms")
+		return errors.NewInvalidConfigurationError("cluster-state-update-interval must be >= 1ms")
 	}
 
 	if c.KafkaInitialJoinDelay < 0 {
