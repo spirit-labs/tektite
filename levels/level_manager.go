@@ -1538,7 +1538,8 @@ func (lm *LevelManager) GetCompactionStats() CompactionStats {
 func (lm *LevelManager) GetStats() Stats {
 	lm.lock.RLock()
 	defer lm.lock.RUnlock()
-	return *lm.masterRecord.stats
+	statsCopy := lm.masterRecord.stats.copy()
+	return *statsCopy
 }
 
 func (lm *LevelManager) getDeadVersions() []VersionRange {

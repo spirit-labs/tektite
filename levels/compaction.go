@@ -371,7 +371,7 @@ func (lm *LevelManager) tableCount(level int) int {
 	return lm.masterRecord.levelTableCounts[level]
 }
 
-func (lm *LevelManager) chooseTablesToCompact(level int, numTables int) ([]*TableEntry, error) {
+func (lm *LevelManager) chooseTablesToCompact(level int, maxTables int) ([]*TableEntry, error) {
 	if level == 0 {
 		// We choose all tables
 		entries := lm.getLevelSegmentEntries(0)
@@ -387,10 +387,10 @@ func (lm *LevelManager) chooseTablesToCompact(level int, numTables int) ([]*Tabl
 	if err != nil {
 		return nil, err
 	}
-	return chooseTablesToCompactFromLevel(iter, numTables)
+	return chooseTablesToCompactFromLevel(iter, maxTables)
 }
 
-func chooseTablesToCompactFromLevel(iter LevelIterator, numTables int) ([]*TableEntry, error) {
+func chooseTablesToCompactFromLevel(iter LevelIterator, maxTables int) ([]*TableEntry, error) {
 	// Iterate through once to get min and max added time
 	var minAddedTime uint64 = math.MaxUint64
 	var maxAddedTime uint64
@@ -428,7 +428,7 @@ func chooseTablesToCompactFromLevel(iter LevelIterator, numTables int) ([]*Table
 			tableEntry: te,
 			score:      computeScore(te, minAddedTime, maxAddedTime),
 		})
-		if h.Len() > numTables {
+		if h.Len() > maxTables {
 			heap.Pop(&h)
 		}
 	}
@@ -755,6 +755,24 @@ func (lm *LevelManager) unlockTable(tableName string) {
 	lm.lock.Lock()
 	defer lm.lock.Unlock()
 	delete(lm.lockedTables, tableName)
+}
+
+func (lm *LevelManager) forceCompaction(level int, maxTables int) error {
+	lm.lock.Lock()
+	defer lm.lock.Unlock()
+	entries := lm.getLevelSegmentEntries(level)
+	if len(entries.segmentEntries) == 0 {
+		return nil
+	}
+	tables, err := lm.chooseTablesToCompact(level, maxTables)
+	if err != nil {
+		return err
+	}
+	if len(tables) == 0 {
+		return nil
+	}
+	_, _, err = lm.scheduleCompaction(level, tables, nil, nil)
+	return err
 }
 
 type CompactionStats struct {
