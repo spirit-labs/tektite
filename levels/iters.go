@@ -1,7 +1,6 @@
 package levels
 
 import (
-	"bytes"
 	"encoding/binary"
 	"github.com/spirit-labs/tektite/common"
 	iteration2 "github.com/spirit-labs/tektite/iteration"
@@ -9,62 +8,6 @@ import (
 	"math"
 	"time"
 )
-
-// maxSizeIterator iterator will stop returning entries when estimated max table size is reached or exceeded
-type maxSizeIterator struct {
-	iter         iteration2.Iterator
-	maxSize      int
-	size         int
-	lastKey      []byte
-	iterComplete bool
-}
-
-func newMaxSizeIterator(maxSize int, iter iteration2.Iterator) *maxSizeIterator {
-	return &maxSizeIterator{
-		maxSize: maxSize,
-		size:    21,
-		iter:    iter,
-	}
-}
-
-func (s *maxSizeIterator) IterComplete() bool {
-	return s.iterComplete
-}
-
-func (s *maxSizeIterator) Current() common.KV {
-	return s.iter.Current()
-}
-
-func (s *maxSizeIterator) Next() error {
-	curr := s.iter.Current()
-	lcc := len(curr.Key)
-	// estimate of how much space an entry takes up in the sstable (data and index)
-	s.size += 12 + 2*lcc + len(curr.Value)
-	s.lastKey = curr.Key
-	return s.iter.Next()
-}
-
-func (s *maxSizeIterator) IsValid() (bool, error) {
-	valid, err := s.iter.IsValid()
-	if err != nil {
-		return false, err
-	}
-	if valid && s.lastKey != nil {
-		k := s.Current().Key
-		if bytes.Equal(s.lastKey[:len(s.lastKey)-8], k[:len(k)-8]) {
-			// If keys only differ by version they must not be split across different sstables
-			return true, nil
-		}
-	}
-	s.iterComplete = !valid
-	if s.size >= s.maxSize {
-		return false, nil
-	}
-	return valid, nil
-}
-
-func (s *maxSizeIterator) Close() {
-}
 
 // RemoveExpiredEntriesIterator filters out any keys which have expired due to retention time being exceeded
 type RemoveExpiredEntriesIterator struct {

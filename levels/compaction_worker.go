@@ -354,9 +354,6 @@ func mergeSSTables(format common.DataFormat, tables [][]tableToMerge, preserveTo
 	lastFlushedVersion int64, jobID string, retentionProvider RetentionProvider, serverTime uint64) ([]ssTableInfo, error) {
 
 	totEntries := 0
-	totDataSize := 0
-	totTables := 0
-
 	chainIters := make([]iteration2.Iterator, len(tables))
 	for i, overlapping := range tables {
 		sourceIters := make([]iteration2.Iterator, len(overlapping))
@@ -375,17 +372,10 @@ func mergeSSTables(format common.DataFormat, tables [][]tableToMerge, preserveTo
 				return nil, err
 			}
 			totEntries += table.sst.NumEntries()
-			totDataSize += table.sst.SizeBytes()
-			totTables++
 		}
 		chainIter := iteration2.NewChainingIterator(sourceIters)
 		chainIters[i] = chainIter
 	}
-
-	numTables := float64(totDataSize) / float64(maxTableSize)
-	numEntriesPerTableEstimate := int(float64(totEntries) / numTables)
-
-	totMergedEntries := 0
 
 	var minNonCompactableVersion uint64
 	if lastFlushedVersion == -1 {
@@ -402,33 +392,62 @@ func mergeSSTables(format common.DataFormat, tables [][]tableToMerge, preserveTo
 	}
 	log.Debugf("compaction created merging iterator: %p with minnoncompactable version %d for job %s",
 		mi, minNonCompactableVersion, jobID)
-	var outTables []ssTableInfo
+
+	mergeResults := make([]common.KV, 0, totEntries)
 	for {
-		meIter := newMaxSizeIterator(maxTableSize, mi)
-		ssTable, smallestKey, largestKey, minVersion, maxVersion, err := sst.BuildSSTable(format, maxTableSize, numEntriesPerTableEstimate,
-			meIter)
+		valid, err := mi.IsValid()
 		if err != nil {
 			return nil, err
 		}
-		if ssTable.NumEntries() == 0 {
+		if !valid {
 			break
 		}
-		outTables = append(outTables, ssTableInfo{
-			sst:              ssTable,
-			rangeStart:       smallestKey,
-			rangeEnd:         largestKey,
-			minVersion:       minVersion,
-			maxVersion:       maxVersion,
-			deleteRatio:      ssTable.DeleteRatio(),
-			numPrefixDeletes: uint32(ssTable.NumPrefixDeletes()),
-		})
-		totMergedEntries += ssTable.NumEntries()
-		if meIter.IterComplete() {
-			break
+		mergeResults = append(mergeResults, mi.Current())
+		if err := mi.Next(); err != nil {
+			return nil, err
 		}
 	}
 
-	log.Debugf("compaction job merged %d entries into %d entries", totEntries, totMergedEntries)
+	size := 0
+	iLast := 0
+	var outTables []ssTableInfo
+	var lastKeyNoVersion []byte
+	for i, curr := range mergeResults {
+
+		k := curr.Key
+		size += 12 + 2*len(k) + len(curr.Value)
+
+		keyNoVersion := k[:len(k)-8]
+		if lastKeyNoVersion != nil && bytes.Equal(lastKeyNoVersion, keyNoVersion) {
+			// If keys only differ by version they must not be split across different sstables
+			continue
+		}
+		lastKeyNoVersion = keyNoVersion
+
+		// estimate of how much space an entry takes up in the sstable (data and index)
+
+		if size >= maxTableSize || i == len(mergeResults)-1 {
+			iter := newSliceIterator(mergeResults[iLast : i+1])
+			ssTable, smallestKey, largestKey, minVersion, maxVersion, err := sst.BuildSSTable(format, size, i+1-iLast,
+				iter)
+			if err != nil {
+				return nil, err
+			}
+			outTables = append(outTables, ssTableInfo{
+				sst:              ssTable,
+				rangeStart:       smallestKey,
+				rangeEnd:         largestKey,
+				minVersion:       minVersion,
+				maxVersion:       maxVersion,
+				deleteRatio:      ssTable.DeleteRatio(),
+				numPrefixDeletes: uint32(ssTable.NumPrefixDeletes()),
+			})
+			iLast = i + 1
+			size = 0
+		}
+	}
+
+	log.Debugf("compaction job merged %d entries into %d entries", totEntries, len(mergeResults))
 
 	return outTables, nil
 }
@@ -484,4 +503,33 @@ func validateRegEntry(entry RegistrationEntry, objStore objstore.Client) {
 		panic(fmt.Sprintf("last key %v (%s) and range end %v (%s) are not equal",
 			lastKey, string(lastKey), entry.KeyEnd, string(entry.KeyEnd)))
 	}
+}
+
+func newSliceIterator(kvs []common.KV) *sliceIterator {
+	return &sliceIterator{kvs: kvs, lkvs: len(kvs)}
+}
+
+type sliceIterator struct {
+	lkvs int
+	kvs  []common.KV
+	pos  int
+}
+
+func (s *sliceIterator) Current() common.KV {
+	if s.pos >= s.lkvs {
+		return common.KV{}
+	}
+	return s.kvs[s.pos]
+}
+
+func (s *sliceIterator) Next() error {
+	s.pos++
+	return nil
+}
+
+func (s *sliceIterator) IsValid() (bool, error) {
+	return s.pos < s.lkvs, nil
+}
+
+func (s *sliceIterator) Close() {
 }

@@ -902,7 +902,7 @@ func buildAndRegisterTableWithKeyRangeAndVersion(t *testing.T, name string, rang
 		if !tombstones {
 			val = []byte(fmt.Sprintf("val%06d", i))
 		}
-		si.AddKV(encoding.EncodeVersion([]byte(key), uint64(version)), val)
+		si.AddKV(encoding.EncodeVersion(key, uint64(version)), val)
 	}
 	table, smallestKey, largestKey, _, _, err := sst.BuildSSTable(common.DataFormatV1, 0, 0, si)
 	require.NoError(t, err)

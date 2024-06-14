@@ -1377,61 +1377,6 @@ func testScoreHeap(t *testing.T, in []float64, expected []float64, n int) {
 	require.Equal(t, expected, out)
 }
 
-func TestMaxSizeIterator(t *testing.T) {
-	si := &iteration.StaticIterator{}
-	numEntries := 1000
-	for i := 0; i < numEntries; i++ {
-		si.AddKVAsString(fmt.Sprintf("key-%05d", i), fmt.Sprintf("val-%05d", i))
-	}
-	maxSize := 500
-	me := newMaxSizeIterator(maxSize, si)
-	for i := 0; i < numEntries; i++ {
-		valid, err := me.IsValid()
-		require.NoError(t, err)
-		if !valid {
-			break
-		}
-		entry := me.Current()
-		require.Equal(t, fmt.Sprintf("key-%05d", i), string(entry.Key))
-		require.Equal(t, fmt.Sprintf("val-%05d", i), string(entry.Value))
-		err = me.Next()
-		require.NoError(t, err)
-	}
-}
-
-func TestMaxSizeIteratorDontSplitVersions(t *testing.T) {
-	si := &iteration.StaticIterator{}
-	numEntries := 1000
-	numVersions := 10
-	for i := 0; i < numEntries; i++ {
-		for j := 0; j < numVersions; j++ {
-			k := encoding.EncodeVersion([]byte(fmt.Sprintf("key-%05d", i)), uint64(j))
-			si.AddKV(k, []byte(fmt.Sprintf("val-%05d", i)))
-		}
-	}
-	maxSize := 2000
-
-	me := newMaxSizeIterator(maxSize, si)
-
-	for i := 0; i < numEntries; i++ {
-		for j := 0; j < numVersions; j++ {
-			valid, err := me.IsValid()
-			require.NoError(t, err)
-			if !valid {
-				// We can't split in middle of version
-				require.Equal(t, 0, j)
-				me = newMaxSizeIterator(maxSize, si)
-			}
-			entry := me.Current()
-			k := encoding.EncodeVersion([]byte(fmt.Sprintf("key-%05d", i)), uint64(j))
-			require.Equal(t, k, entry.Key)
-			require.Equal(t, fmt.Sprintf("val-%05d", i), string(entry.Value))
-			err = me.Next()
-			require.NoError(t, err)
-		}
-	}
-}
-
 func TestRemoveDeadVersionsIterator(t *testing.T) {
 	si := &iteration.StaticIterator{}
 	numEntries := 1000
