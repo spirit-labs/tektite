@@ -76,6 +76,15 @@ func TestBuildWithTombstones(t *testing.T) {
 	requireIterValid(t, iter, false)
 }
 
+func TestBuildWithPrefixTombstones(t *testing.T) {
+	gi := &iteration2.StaticIterator{}
+	gi.AddKV([]byte("................prefix1_"), nil)
+	gi.AddKV([]byte("................prefix2_"), nil)
+	sstable, _, _, _, _, err := BuildSSTable(common.DataFormatV1, 0, 0, gi)
+	require.NoError(t, err)
+	require.Equal(t, 2, sstable.NumPrefixDeletes())
+}
+
 func TestSeek(t *testing.T) {
 	commonPrefix := []byte("keyprefix/")
 	numEntries := 1000
@@ -233,16 +242,27 @@ func testIterate(t *testing.T, startKey []byte, endKey []byte, firstExpected int
 }
 
 func TestSerializeDeserialize(t *testing.T) {
-	commonPrefix := []byte("keyprefix/")
+	commonPrefix := []byte("................prefix1_")
 	numEntries := 1000
-	iter := prepareInput(commonPrefix, []byte("valueprefix/"), numEntries)
+
+	gi := &iteration2.StaticIterator{}
+	// add a prefix deletion
+	gi.AddKV(commonPrefix, nil)
+	// add some entries
+	for i := 0; i < numEntries; i++ {
+		key := fmt.Sprintf("%ssomekey-%010d", string(commonPrefix), i)
+		value := fmt.Sprintf("%ssomevalue-%010d", string(commonPrefix), i)
+		gi.AddKVAsString(key, value)
+	}
 	// add some deletes too
 	key1 := fmt.Sprintf("%ssomekey-%010d", string(commonPrefix), numEntries)
-	iter.AddKV([]byte(key1), nil)
+	gi.AddKV([]byte(key1), nil)
 	key2 := fmt.Sprintf("%ssomekey-%010d", string(commonPrefix), numEntries+1)
-	iter.AddKV([]byte(key2), nil)
-	sstable, _, _, _, _, err := BuildSSTable(common.DataFormatV1, 0, 0, iter)
+	gi.AddKV([]byte(key2), nil)
+
+	sstable, _, _, _, _, err := BuildSSTable(common.DataFormatV1, 0, 0, gi)
 	require.NoError(t, err)
+	require.Equal(t, 1, int(sstable.numPrefixDeletes))
 	buff := sstable.Serialize()
 
 	sstable2 := &SSTable{}
@@ -255,6 +275,7 @@ func TestSerializeDeserialize(t *testing.T) {
 	require.Equal(t, sstable.maxKeyLength, sstable2.maxKeyLength)
 	require.Equal(t, sstable.data, sstable2.data)
 	require.Equal(t, sstable.creationTime, sstable2.creationTime)
+	require.Equal(t, sstable.numPrefixDeletes, sstable2.numPrefixDeletes)
 }
 
 func prepareInput(keyPrefix []byte, valuePrefix []byte, numEntries int) *iteration2.StaticIterator {
