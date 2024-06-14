@@ -16,6 +16,7 @@ func NewKafkaOutOperator(ts *StoreStreamOperator, slabID int, offsetsSlabID int,
 		store:               store,
 		offsets:             make([]partitionOffsets, schema.PartitionScheme.Partitions),
 		storeStreamOperator: ts,
+		hashCache:           newPartitionHashCache(schema.MappingID, schema.Partitions),
 	}, nil
 }
 
@@ -28,6 +29,7 @@ type KafkaOutOperator struct {
 	schema              *OperatorSchema
 	store               store
 	storeStreamOperator *StoreStreamOperator
+	hashCache           *partitionHashCache
 }
 
 type partitionOffsets struct {
@@ -62,7 +64,8 @@ func (k *KafkaOutOperator) HandleStreamBatch(batch *evbatch.Batch, execCtx Strea
 	off.lastTimestamp = lastTimestamp
 	off.loaded = true
 	if k.storeOffset {
-		storeOffset(execCtx, off.lastOffset, k.offsetsSlabID, execCtx.WriteVersion(), k.schema.MappingID)
+		partitionHash := k.hashCache.getHash(execCtx.PartitionID())
+		storeOffset(execCtx, off.lastOffset, partitionHash, k.offsetsSlabID, execCtx.WriteVersion())
 	}
 	return nil, k.sendBatchDownStream(batch, execCtx)
 }
@@ -115,7 +118,8 @@ func (k *KafkaOutOperator) LatestOffset(partitionID int) (int64, int64, bool, er
 		return off.lastOffset, off.lastTimestamp, true, nil
 	}
 	// load from store
-	offset, err := loadOffset(k.offsetsSlabID, partitionID, k.schema.MappingID, k.store)
+	partitionHash := k.hashCache.getHash(partitionID)
+	offset, err := loadOffset(partitionHash, k.offsetsSlabID, k.store)
 	if err != nil {
 		return 0, 0, false, err
 	}

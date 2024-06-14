@@ -565,7 +565,7 @@ func (st *scriptTest) verifyRemainingData(require *require.Assertions) {
 						return false, err
 					}
 					if valid {
-						log.Infof("found data for prefix %v on node %d", prefix, processorNode)
+						log.Infof("found data for prefix %v slabID %d on node %d", prefix, slabID, processorNode)
 					}
 					// We don't want to see any data
 					return !valid, nil

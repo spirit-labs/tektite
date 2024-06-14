@@ -1,7 +1,10 @@
 package opers
 
 import (
+	"github.com/spirit-labs/tektite/common"
+	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/proc"
+	"os"
 	"sync"
 )
 
@@ -15,6 +18,7 @@ type partitionHashCache struct {
 }
 
 func newPartitionHashCache(mappingID string, partitions int) *partitionHashCache {
+	validateHashes(mappingID, partitions)
 	var hashesSlice [][]byte
 	var hashesMap map[int][]byte
 	if partitions > maxHashesInSlice {
@@ -55,4 +59,20 @@ func (p *partitionHashCache) getHash(partitionID int) []byte {
 	hash = proc.CalcPartitionHash(p.mappingID, uint64(partitionID))
 	p.hashesMap[partitionID] = hash
 	return hash
+}
+
+func validateHashes(mappingID string, partitions int) {
+	// check uniqueness - chance of collision is incredibly remote, same as chance of 2 secure random UUIDs being
+	// same, so it won't happen
+	hashesMap := make(map[string]struct{}, partitions)
+	for i := 0; i < partitions; i++ {
+		partitionHash := proc.CalcPartitionHash(mappingID, uint64(i))
+		sHash := common.ByteSliceToStringZeroCopy(partitionHash)
+		_, exists := hashesMap[sHash]
+		if exists {
+			log.Fatal("non unique partition hash for mapping id %s partitions %d", mappingID, partitions)
+			os.Exit(1)
+		}
+		hashesMap[sHash] = struct{}{}
+	}
 }

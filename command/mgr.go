@@ -455,20 +455,20 @@ func calcSequencesCountForStream(cp *parser.CreateStreamDesc) (receiverCount int
 		switch desc.(type) {
 		case *parser.BridgeFromDesc:
 			receiverCount++
-			slabCount++ // dedup slab
+			slabCount++
 		case *parser.BridgeToDesc:
 			receiverCount++
-			slabCount += 2
+			slabCount += 3
 		case *parser.KafkaInDesc:
 			receiverCount++
-			slabCount++ // offsets slab
+			slabCount++
 		case *parser.KafkaOutDesc:
 			slabCount += 2
 		case *parser.PartitionDesc:
 			receiverCount++
-			slabCount++ // dedup slab
 		case *parser.BackfillDesc:
 			receiverCount++
+			slabCount++
 		case *parser.AggregateDesc:
 			slabCount += 3
 			receiverCount++
