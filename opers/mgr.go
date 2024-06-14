@@ -907,13 +907,6 @@ func (sm *streamManager) deployAggregateOperator(streamName string, op *parser.A
 				})
 			}
 		}
-		// We set retention on the internal aggregate state to be 1 hour + (size + lateness)
-		// This is not ideal - really we want to mark prefix for deletion as soon as window is closed but
-		// registering a prefix retention for each closed window does not scale. We need to implement efficient
-		// range deletions in the database.
-		r := size + lateness + time.Hour
-		ret := &slabRetention{slabID: aggStateSlabID, Retention: r}
-		prefixRetentions = append(prefixRetentions, *ret)
 	} else {
 		if op.Retention != nil {
 			prefixRetentions = append(prefixRetentions, slabRetention{
