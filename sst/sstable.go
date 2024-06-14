@@ -107,7 +107,7 @@ func BuildSSTable(format common.DataFormat, buffSizeEstimate int, entriesEstimat
 		})
 		numEntries++
 		if len(kv.Value) == 0 {
-			if len(kv.Key) == 24 {
+			if len(kv.Key) == 32 { // [partition_hash, slab_id, version]
 				numPrefixDeletes++
 			}
 			numDeletes++

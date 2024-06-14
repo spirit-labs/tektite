@@ -89,7 +89,7 @@ func TestMergingIteratorTwoIteratorsOneSmall(t *testing.T) {
 }
 
 func TestMergingIteratorValidReturnChanges(t *testing.T) {
-	// We need to support iterators changing the rersult of IsValid() from false to true on
+	// We need to support iterators changing the result of IsValid() from false to true on
 	// subsequent calls. E.g. this can happen with MemTableIterator as new data arrives between the two calls
 	iter1 := createIter(5, 50)
 	iter2 := createIter(2, 20)

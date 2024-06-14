@@ -12,10 +12,11 @@ import (
 
 // maxSizeIterator iterator will stop returning entries when estimated max table size is reached or exceeded
 type maxSizeIterator struct {
-	iter    iteration2.Iterator
-	maxSize int
-	size    int
-	lastKey []byte
+	iter         iteration2.Iterator
+	maxSize      int
+	size         int
+	lastKey      []byte
+	iterComplete bool
 }
 
 func newMaxSizeIterator(maxSize int, iter iteration2.Iterator) *maxSizeIterator {
@@ -24,6 +25,10 @@ func newMaxSizeIterator(maxSize int, iter iteration2.Iterator) *maxSizeIterator 
 		size:    21,
 		iter:    iter,
 	}
+}
+
+func (s *maxSizeIterator) IterComplete() bool {
+	return s.iterComplete
 }
 
 func (s *maxSizeIterator) Current() common.KV {
@@ -51,6 +56,7 @@ func (s *maxSizeIterator) IsValid() (bool, error) {
 			return true, nil
 		}
 	}
+	s.iterComplete = !valid
 	if s.size >= s.maxSize {
 		return false, nil
 	}

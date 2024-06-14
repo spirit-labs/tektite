@@ -404,19 +404,14 @@ func mergeSSTables(format common.DataFormat, tables [][]tableToMerge, preserveTo
 		mi, minNonCompactableVersion, jobID)
 	var outTables []ssTableInfo
 	for {
-		v, err := mi.IsValid()
-		if err != nil {
-			return nil, err
-		}
-		if !v {
-			break
-		}
 		meIter := newMaxSizeIterator(maxTableSize, mi)
-
 		ssTable, smallestKey, largestKey, minVersion, maxVersion, err := sst.BuildSSTable(format, maxTableSize, numEntriesPerTableEstimate,
 			meIter)
 		if err != nil {
 			return nil, err
+		}
+		if ssTable.NumEntries() == 0 {
+			break
 		}
 		outTables = append(outTables, ssTableInfo{
 			sst:              ssTable,
@@ -428,6 +423,9 @@ func mergeSSTables(format common.DataFormat, tables [][]tableToMerge, preserveTo
 			numPrefixDeletes: uint32(ssTable.NumPrefixDeletes()),
 		})
 		totMergedEntries += ssTable.NumEntries()
+		if meIter.IterComplete() {
+			break
+		}
 	}
 
 	log.Debugf("compaction job merged %d entries into %d entries", totEntries, totMergedEntries)

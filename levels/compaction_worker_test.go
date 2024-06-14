@@ -8,6 +8,7 @@ import (
 	"github.com/spirit-labs/tektite/conf"
 	"github.com/spirit-labs/tektite/encoding"
 	"github.com/spirit-labs/tektite/iteration"
+	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/objstore"
 	"github.com/spirit-labs/tektite/sst"
 	"github.com/spirit-labs/tektite/tabcache"
@@ -694,6 +695,127 @@ func TestCompactionDeadVersions(t *testing.T) {
 		i++
 		if i == 10 {
 			i = lastRangeStart
+		}
+	}
+}
+
+func TestCompactionPrefixDeletions(t *testing.T) {
+	l0CompactionTrigger := 4
+	l1CompactionTrigger := 4
+	levelMultiplier := 10
+	lm, tearDown := setup(t, func(cfg *conf.Config) {
+		cfg.L0CompactionTrigger = l0CompactionTrigger
+		cfg.L1CompactionTrigger = l1CompactionTrigger
+		cfg.L0MaxTablesBeforeBlocking = 2 * l0CompactionTrigger
+		cfg.LevelMultiplier = levelMultiplier
+	})
+	defer tearDown(t)
+
+	// Make sure all entries get compacted
+	err := lm.StoreLastFlushedVersion(math.MaxInt64, false, 0)
+	require.NoError(t, err)
+
+	rangeStart := 0
+	numEntriesPerTable := 10
+	tableCount := 0
+	numLevels := 4
+	// we will generate sufficient tables to fill approx numLevels levels
+	numTables := getNumTablesToFill(numLevels, l0CompactionTrigger, l1CompactionTrigger, levelMultiplier)
+	numTables-- // subtract one as we don't want l0 to be completely full and thus trigger a compaction at the end
+
+	var prefixes [][]byte
+	for i := 0; i < 3; i++ {
+		prefix := []byte("xxxxxxxxxxxxxxxx") // partition hash
+		prefix = append(prefix, []byte(fmt.Sprintf("prefix%d_", i))...)
+		prefixes = append(prefixes, prefix)
+	}
+
+	// Build and add tables with 3 different prefixes
+	for tableCount < numTables {
+		tableName := uuid.New().String()
+		rangeEnd := rangeStart + numEntriesPerTable - 1
+		smallestKey, largestKey := buildAndRegisterTableWithKeyRangeWithPrefix(t, tableName, rangeStart, rangeEnd,
+			lm.GetObjectStore(), prefixes[tableCount%3])
+		addTable(t, lm, tableName, smallestKey, largestKey)
+		rangeStart += numEntriesPerTable
+		tableCount++
+	}
+
+	// wait for compaction jobs to complete
+	ok, err := testutils.WaitUntilWithError(func() (bool, error) {
+		stats := lm.GetCompactionStats()
+		return stats.QueuedJobs == 0 && stats.InProgressJobs == 0, nil
+	}, 30*time.Second, 1*time.Millisecond)
+	require.NoError(t, err)
+	require.True(t, ok)
+
+	// Make sure L0 is empty
+	err = lm.forceCompaction(0, 1)
+	require.NoError(t, err)
+	ok, err = testutils.WaitUntilWithError(func() (bool, error) {
+		l0Stats := lm.GetStats().LevelStats[0]
+		return l0Stats.Tables == 0, nil
+	}, 30*time.Second, 1*time.Millisecond)
+	require.NoError(t, err)
+	require.True(t, ok)
+
+	log.Debug("adding deletion bomb")
+
+	// Now we'll add a deletion bomb
+	si := &iteration.StaticIterator{}
+	tombstone := common.CopyByteSlice(prefixes[1])
+	endMarker := append(common.IncrementBytesBigEndian(tombstone), 0)
+	si.AddKV(encoding.EncodeVersion(tombstone, math.MaxUint64), nil)
+	si.AddKV(encoding.EncodeVersion(endMarker, math.MaxUint64), []byte{'x'})
+	log.Debugf("added tombstone:%s", tombstone)
+	log.Debugf("added endmarker:%s", endMarker)
+
+	table, smallestKey, largestKey, _, _, err := sst.BuildSSTable(common.DataFormatV1, 0, 0, si)
+	require.NoError(t, err)
+	buff := table.Serialize()
+	tableName := uuid.New().String()
+	err = lm.GetObjectStore().Put([]byte(tableName), buff)
+	require.NoError(t, err)
+	addTable(t, lm, tableName, smallestKey, largestKey)
+
+	lastLevel := lm.getLastLevel()
+	for level := 0; level < lastLevel; level++ {
+
+		// Force compaction at each level to let the delete bomb progress
+		log.Debugf("forcing compaction at level %d", level)
+		err = lm.forceCompaction(level, 1)
+		require.NoError(t, err)
+
+		// wait for compaction jobs to complete
+		ok, err = testutils.WaitUntilWithError(func() (bool, error) {
+			stats := lm.GetCompactionStats()
+			return stats.QueuedJobs == 0 && stats.InProgressJobs == 0, nil
+		}, 30*time.Second, 1*time.Millisecond)
+		require.NoError(t, err)
+		require.True(t, ok)
+
+		log.Debugf("compaction complete at level %d", level)
+	}
+
+	// There should be no prefix1 in any levels
+
+	endRange := common.IncrementBytesBigEndian(prefixes[1])
+	for i := 0; i < lm.getLastLevel(); i++ {
+		iter, err := lm.LevelIterator(i)
+		require.NoError(t, err)
+		for {
+			te, err := iter.Next()
+			require.NoError(t, err)
+			if te == nil {
+				break
+			}
+			overlap := hasOverlap(prefixes[1], endRange, te.RangeStart, te.RangeEnd)
+			if overlap {
+				log.Debug("has overlap!")
+				lm.dumpLevelInfo()
+				lm.Dump()
+			}
+			require.False(t, overlap)
 		}
 	}
 }
