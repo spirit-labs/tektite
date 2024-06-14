@@ -3,8 +3,10 @@ package sst
 import (
 	"fmt"
 	"github.com/spirit-labs/tektite/common"
+	"github.com/spirit-labs/tektite/encoding"
 	iteration2 "github.com/spirit-labs/tektite/iteration"
 	"github.com/stretchr/testify/require"
+	"math"
 	"testing"
 	"time"
 )
@@ -78,8 +80,8 @@ func TestBuildWithTombstones(t *testing.T) {
 
 func TestBuildWithPrefixTombstones(t *testing.T) {
 	gi := &iteration2.StaticIterator{}
-	gi.AddKV([]byte("................prefix1_"), nil)
-	gi.AddKV([]byte("................prefix2_"), nil)
+	gi.AddKV(encoding.EncodeVersion([]byte("................prefix1_"), 0), nil)
+	gi.AddKV(encoding.EncodeVersion([]byte("................prefix2_"), 0), nil)
 	sstable, _, _, _, _, err := BuildSSTable(common.DataFormatV1, 0, 0, gi)
 	require.NoError(t, err)
 	require.Equal(t, 2, sstable.NumPrefixDeletes())
@@ -247,18 +249,18 @@ func TestSerializeDeserialize(t *testing.T) {
 
 	gi := &iteration2.StaticIterator{}
 	// add a prefix deletion
-	gi.AddKV(commonPrefix, nil)
+	gi.AddKV(encoding.EncodeVersion(commonPrefix, math.MaxUint64), nil)
 	// add some entries
 	for i := 0; i < numEntries; i++ {
 		key := fmt.Sprintf("%ssomekey-%010d", string(commonPrefix), i)
 		value := fmt.Sprintf("%ssomevalue-%010d", string(commonPrefix), i)
-		gi.AddKVAsString(key, value)
+		gi.AddKV(encoding.EncodeVersion([]byte(key), 0), []byte(value))
 	}
 	// add some deletes too
 	key1 := fmt.Sprintf("%ssomekey-%010d", string(commonPrefix), numEntries)
-	gi.AddKV([]byte(key1), nil)
+	gi.AddKV(encoding.EncodeVersion([]byte(key1), 0), nil)
 	key2 := fmt.Sprintf("%ssomekey-%010d", string(commonPrefix), numEntries+1)
-	gi.AddKV([]byte(key2), nil)
+	gi.AddKV(encoding.EncodeVersion([]byte(key2), 0), nil)
 
 	sstable, _, _, _, _, err := BuildSSTable(common.DataFormatV1, 0, 0, gi)
 	require.NoError(t, err)
