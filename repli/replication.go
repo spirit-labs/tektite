@@ -697,21 +697,6 @@ func (r *replicator) Acquiesce() {
 	}
 }
 
-func (r *replicator) TruncateProcessedBatches(version int) error {
-	seq, err := r.processor.LoadLastProcessedReplBatchSeq(version)
-	log.Debugf("processor %d truncating to sequence %d", r.processor.ID(), seq)
-	if err != nil {
-		return err
-	}
-	if seq != -1 {
-		r.processor.SubmitAction(func() error {
-			r.removeFlushedBatches(int(seq))
-			return nil
-		})
-	}
-	return nil
-}
-
 func (r *replicator) Resume() {
 	r.processor.SubmitAction(func() error {
 		r.acquiescing = false

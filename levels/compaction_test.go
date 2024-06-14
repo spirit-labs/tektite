@@ -1212,6 +1212,109 @@ func TestMergePreserveTombstonesNotAllEntriesRemoved(t *testing.T) {
 	checkKVs(t, res[0].sst, "val", 0, -1, 1, 1, 2, -1, 3, 3)
 }
 
+func TestMergeIntoMultipleTables(t *testing.T) {
+	maxTableSize := 1000
+	numTables := 10
+
+	var ssts []*sst.SSTable
+	var tablesToMerge []tableToMerge
+	i := 0
+	for len(ssts) < numTables {
+		builder := newSSTableBuilder()
+		size := 0
+		for {
+			key := fmt.Sprintf("xxxxxxxxxxxxxxxxsssssssskey%05d", i)
+			value := fmt.Sprintf("val%05d", i)
+			builder.addEntryWithVersion(key, value, 1)
+			i++
+			size += 12 + 2*(len(key)+8) + len(value)
+			if size >= maxTableSize {
+				break
+			}
+		}
+		sst, err := builder.build()
+		require.NoError(t, err)
+		ssts = append(ssts, sst)
+		tablesToMerge = append(tablesToMerge, tableToMerge{sst: sst})
+	}
+
+	res, err := mergeSSTables(common.DataFormatV1, [][]tableToMerge{tablesToMerge}, true, maxTableSize, math.MaxInt64, "", nil, 0)
+	require.NoError(t, err)
+	require.Equal(t, numTables, len(res))
+
+	i = 0
+	for j := 0; j < numTables; j++ {
+		iter, err := res[j].sst.NewIterator(nil, nil)
+		require.NoError(t, err)
+		for {
+			valid, err := iter.IsValid()
+			require.NoError(t, err)
+			if !valid {
+				break
+			}
+			expectedKey := encoding.EncodeVersion([]byte(fmt.Sprintf("xxxxxxxxxxxxxxxxsssssssskey%05d", i)), 1)
+			expectedValue := []byte(fmt.Sprintf("val%05d", i))
+			require.Equal(t, expectedKey, iter.Current().Key)
+			require.Equal(t, expectedValue, iter.Current().Value)
+			err = iter.Next()
+			require.NoError(t, err)
+			i++
+		}
+	}
+}
+
+func TestMergeSameKeysDifferentVersions(t *testing.T) {
+
+	maxTableSize := 1000
+	numTables := 10
+
+	var ssts []*sst.SSTable
+	var tablesToMerge []tableToMerge
+	i := 10000
+	key := "xxxxxxxxxxxxxxxxsssssssskey00001"
+	// We fill tables with same key but different versions
+	for len(ssts) < numTables {
+		builder := newSSTableBuilder()
+		size := 0
+		for {
+			value := fmt.Sprintf("val%05d", i)
+			builder.addEntryWithVersion(key, value, uint64(i))
+			i--
+			size += 12 + 2*(len(key)+8) + len(value)
+			if size >= maxTableSize {
+				break
+			}
+		}
+		sst, err := builder.build()
+		require.NoError(t, err)
+		ssts = append(ssts, sst)
+		tablesToMerge = append(tablesToMerge, tableToMerge{sst: sst})
+	}
+
+	res, err := mergeSSTables(common.DataFormatV1, [][]tableToMerge{tablesToMerge}, true, maxTableSize, math.MaxInt64, "", nil, 0)
+	require.NoError(t, err)
+	// We never split different versions of same key across tables, so one table should be produced.
+	require.Equal(t, 1, len(res))
+
+	i = 10000
+	iter, err := res[0].sst.NewIterator(nil, nil)
+	require.NoError(t, err)
+	for {
+		valid, err := iter.IsValid()
+		require.NoError(t, err)
+		if !valid {
+			break
+		}
+		expectedKey := encoding.EncodeVersion([]byte(key), uint64(i))
+		expectedValue := []byte(fmt.Sprintf("val%05d", i))
+		require.Equal(t, expectedKey, iter.Current().Key)
+		require.Equal(t, expectedValue, iter.Current().Value)
+		err = iter.Next()
+		require.NoError(t, err)
+		i--
+	}
+}
+
 func TestMergeNotPreserveTombstonesAllEntriesRemoved(t *testing.T) {
 	builder1 := newSSTableBuilder()
 	builder1.addEntryWithVersion("key00000", "val00000", 1)
