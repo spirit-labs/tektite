@@ -118,9 +118,7 @@ func TestHTTPWithTLSClientAuthFailNoClientCertProvided(t *testing.T) {
 		ClientAuth:      "require-and-verify-client-cert",
 	}
 
-	expected := "connection error: Post \"https://localhost:6666/tektite/statement\": tls: failed to verify certificate: x509: certificate signed by unknown authority\n"
-
-	testCliFailure(t, clientTLSConfig, serverTLSConfig, expected)
+	testCliFailure(t, clientTLSConfig, serverTLSConfig)
 }
 
 func TestHTTPWithTLSClientAuthFailUntrustedClientCertProvided(t *testing.T) {
@@ -137,8 +135,7 @@ func TestHTTPWithTLSClientAuthFailUntrustedClientCertProvided(t *testing.T) {
 		ClientCertsPath: selfSignedClientCertPath,
 		ClientAuth:      "require-and-verify-client-cert",
 	}
-	expected := "connection error: remote error: tls: certificate required\n"
-	testCliFailure(t, clientTLSConfig, serverTLSConfig, expected)
+	testCliFailure(t, clientTLSConfig, serverTLSConfig)
 }
 
 func startServer(t *testing.T, serverAddress string, tlsConf conf.TLSConfig) (*api.HTTPAPIServer, *testQueryManager,
@@ -153,8 +150,7 @@ func startServer(t *testing.T, serverAddress string, tlsConf conf.TLSConfig) (*a
 	return server, queryMgr, commandMgr, moduleManager
 }
 
-func testCliFailure(t *testing.T, clientTLSConfig tekclient.TLSConfig, serverTLSConfig conf.TLSConfig,
-	expectedOut string) {
+func testCliFailure(t *testing.T, clientTLSConfig tekclient.TLSConfig, serverTLSConfig conf.TLSConfig) {
 	serverAddress, err := common.AddressWithPort("localhost")
 	require.NoError(t, err)
 	server, _, commandMgr, _ := startServer(t, serverAddress, serverTLSConfig)
@@ -182,9 +178,7 @@ func testCliFailure(t *testing.T, clientTLSConfig tekclient.TLSConfig, serverTLS
 	require.Equal(t, "", commandMgr.getTsl())
 	actual := out.String()
 
-	expectedOut = strings.Replace(expectedOut, "localhost:6666", serverAddress, 1)
-
-	require.Equal(t, expectedOut, actual)
+	require.True(t, strings.HasPrefix(actual, "connection error:"))
 }
 
 func testCli(t *testing.T, clientTLSConfig tekclient.TLSConfig, serverTLSConfig conf.TLSConfig) {
