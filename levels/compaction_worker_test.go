@@ -811,7 +811,7 @@ func TestCompactionPrefixDeletions(t *testing.T) {
 			}
 			overlap := hasOverlap(prefixes[1], endRange, te.RangeStart, te.RangeEnd)
 			if overlap {
-				log.Debug("has overlap!")
+				log.Info("has overlap!")
 				lm.dumpLevelInfo()
 				lm.Dump()
 			}

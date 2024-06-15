@@ -1474,7 +1474,7 @@ func (lm *LevelManager) dumpLevelInfo() {
 		tableCount := lm.masterRecord.levelTableCounts[level]
 		builder.WriteString(fmt.Sprintf("level:%d table_count:%d, ", level, tableCount))
 	}
-	log.Debug(builder.String())
+	log.Info(builder.String())
 }
 
 func (lm *LevelManager) Dump() {
@@ -1484,25 +1484,25 @@ func (lm *LevelManager) Dump() {
 }
 
 func (lm *LevelManager) dump() {
-	log.Debugf("Dumping LevelManager ====================")
+	log.Infof("Dumping LevelManager ====================")
 	for level, entries := range lm.masterRecord.levelSegmentEntries {
-		log.Debugf("Dumping level %d. There are %d segment entries", level, len(entries.segmentEntries))
+		log.Infof("Dumping level %d. There are %d segment entries", level, len(entries.segmentEntries))
 		for _, segEntry := range entries.segmentEntries {
-			log.Debugf("segment entry %s range start %s range end %s", string(segEntry.segmentID),
+			log.Infof("segment entry %s range start %s range end %s", string(segEntry.segmentID),
 				string(segEntry.rangeStart), string(segEntry.rangeEnd))
 			seg, err := lm.getSegment(segEntry.segmentID)
 			if err != nil {
 				panic(err)
 			}
-			log.Debugf("segment %v has %d table entries", segEntry.segmentID, len(seg.tableEntries))
+			log.Infof("segment %v has %d table entries", segEntry.segmentID, len(seg.tableEntries))
 			for _, te := range seg.tableEntries {
-				log.Debugf("table entry sstableid %v (%s) range start %s range end %s deleteRatio %.2f hasDeletes %t", te.SSTableID, string(te.SSTableID),
+				log.Infof("table entry sstableid %v (%s) range start %s range end %s deleteRatio %.2f hasDeletes %t", te.SSTableID, string(te.SSTableID),
 					string(te.RangeStart), string(te.RangeEnd), te.DeleteRatio, te.DeleteRatio > 0)
 			}
 		}
 	}
 	for prefix := range lm.masterRecord.slabRetentions {
-		log.Debugf("prefix %v", prefix)
+		log.Infof("prefix %v", prefix)
 	}
 }
 
