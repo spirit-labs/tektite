@@ -238,21 +238,21 @@ func testFailoverReplicationQueuesWithAggregation(t *testing.T, failLevelManager
 	// First we send messages to topic1 - this has one partition, so offsets should come back in contiguous order
 	_, err = sendMessagesForAggregation(numMessages, "sensor_agg", producer)
 	require.NoError(t, err)
-	log.Info("sent messagaes")
+	log.Debug("sent messagaes")
 
 	waitForAggRows(t, "sensor_agg", 20, client)
 
-	log.Infof("**** stopping server %d", failNode)
+	log.Debugf("**** stopping server %d", failNode)
 
 	// Now stop one of the nodes - this should cause a failover
 	err = servers[failNode].Stop()
 	require.NoError(t, err)
 
-	log.Info("**** stopped server")
+	log.Debug("**** stopped server")
 
 	sleepRandom(2000 * time.Millisecond)
 
-	log.Info("*** waiting for rows after failover")
+	log.Debug("*** waiting for rows after failover")
 
 	waitForAggRows(t, "sensor_agg", 20, client)
 }
