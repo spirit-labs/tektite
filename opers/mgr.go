@@ -411,7 +411,7 @@ func (sm *streamManager) deployStream(streamDesc parser.CreateStreamDesc, receiv
 				slabSliceSeqs, extraSlabInfos, retentions)
 		case *parser.KafkaInDesc:
 			oper, kafkaEndpointInfo, err = sm.deployKafkaInOperator(streamDesc.StreamName, op, receiverSliceSeqs,
-				slabSliceSeqs)
+				slabSliceSeqs, extraSlabInfos)
 		case *parser.KafkaOutDesc:
 			oper, retentions, userSlab, err = sm.deployKafkaOutOperator(streamDesc.StreamName, op,
 				prevOperator, kafkaEndpointInfo, slabSliceSeqs, extraSlabInfos, retentions)
@@ -431,7 +431,7 @@ func (sm *streamManager) deployStream(streamDesc parser.CreateStreamDesc, receiv
 			oper, retentions, userSlab, err = sm.deployStoreTableOperator(streamDesc.StreamName, op, prevOperator,
 				slabSliceSeqs, retentions)
 		case *parser.BackfillDesc:
-			oper, err = sm.deployBackfillOperator(operators, receiverSliceSeqs, op)
+			oper, err = sm.deployBackfillOperator(streamDesc.StreamName, operators, receiverSliceSeqs, slabSliceSeqs, op, extraSlabInfos)
 		case *parser.JoinDesc:
 			var deferredWiring func(info *StreamInfo)
 			oper, extraSlabInfos, retentions, deferredWiring, err = sm.deployJoinOperator(streamDesc.StreamName, op, receiverSliceSeqs,
@@ -562,7 +562,7 @@ func (sm *streamManager) deployBridgeFromOperator(streamName string, op *parser.
 	if err != nil {
 		return nil, err
 	}
-	extraSlabInfos[fmt.Sprintf("dedup-bridge-from-%s-%d", streamName, offsetsSlabID)] =
+	extraSlabInfos[fmt.Sprintf("offsets-bridge-from-%s-%d", streamName, offsetsSlabID)] =
 		&SlabInfo{
 			StreamName: streamName,
 			SlabID:     offsetsSlabID,
@@ -615,7 +615,7 @@ func (sm *streamManager) deployBridgeToOperator(streamName string, op *parser.Br
 	if !hasOffset {
 		// Need to add an offset in the store operator
 		offsetsSlabID = slabSliceSeqs.GetNextID()
-		extraSlabInfos[fmt.Sprintf("consumer-endpoint-offsets-%s-%d", streamName, offsetsSlabID)] =
+		extraSlabInfos[fmt.Sprintf("bridge-to-offsets-%s-%d", streamName, offsetsSlabID)] =
 			&SlabInfo{
 				StreamName: streamName,
 				SlabID:     offsetsSlabID,
@@ -639,7 +639,15 @@ func (sm *streamManager) deployBridgeToOperator(streamName string, op *parser.Br
 		Retention: ret,
 	})
 	backfillReceiverID := receiverSliceSeqs.GetNextID()
-	bfo := NewBackfillOperator(sso.OutSchema(), sm.stor, sm.cfg, slabID, sm.cfg.MaxBackfillBatchSize, backfillReceiverID, true)
+	backfillOffsetsSlabID := slabSliceSeqs.GetNextID()
+	extraSlabInfos[fmt.Sprintf("bridge-to-back-fill-offsets-%s-%d", streamName, offsetsSlabID)] =
+		&SlabInfo{
+			StreamName: streamName,
+			SlabID:     backfillOffsetsSlabID,
+			Type:       SlabTypeInternal,
+			Schema:     prevOperator.OutSchema(),
+		}
+	bfo := NewBackfillOperator(sso.OutSchema(), sm.stor, sm.cfg, slabID, backfillOffsetsSlabID, sm.cfg.MaxBackfillBatchSize, backfillReceiverID, true)
 	bt, err := NewBridgeToOperator(op, sso, bfo, sm.messageClientFactory)
 	if err != nil {
 		return nil, nil, nil, err
@@ -659,7 +667,7 @@ func getMappingID() string {
 }
 
 func (sm *streamManager) deployKafkaInOperator(streamName string, op *parser.KafkaInDesc,
-	receiverSliceSeqs *sliceSeq, slabSliceSeqs *sliceSeq) (Operator, *KafkaEndpointInfo, error) {
+	receiverSliceSeqs *sliceSeq, slabSliceSeqs *sliceSeq, extraSlabInfos map[string]*SlabInfo) (Operator, *KafkaEndpointInfo, error) {
 	receiverID := receiverSliceSeqs.GetNextID()
 	offsetsSlabID := slabSliceSeqs.GetNextID()
 	kafkaIn := NewKafkaInOperator(getMappingID(), sm.stor, offsetsSlabID, receiverID,
@@ -676,6 +684,13 @@ func (sm *streamManager) deployKafkaInOperator(streamName string, op *parser.Kaf
 		InEndpoint: kafkaIn,
 		Schema:     kafkaIn.OutSchema(),
 	}
+	extraSlabInfos[fmt.Sprintf("offsets-kafka-in-%s-%d", streamName, offsetsSlabID)] =
+		&SlabInfo{
+			StreamName: streamName,
+			SlabID:     offsetsSlabID,
+			Type:       SlabTypeInternal,
+			Schema:     kafkaIn.OutSchema(),
+		}
 	return kafkaIn, kafkaEndpointInfo, nil
 }
 
@@ -749,16 +764,11 @@ func (sm *streamManager) deployKafkaOutOperator(streamName string, op *parser.Ka
 	slabID := slabSliceSeqs.GetNextID()
 	offsetsSlabID := -1
 	hasOffset := HasOffsetColumn(prevOperator.OutSchema().EventSchema)
+	addedOffset := false
 	if !hasOffset {
 		// Need to add an offset in the store operator
 		offsetsSlabID = slabSliceSeqs.GetNextID()
-		extraSlabInfos[fmt.Sprintf("consumer-endpoint-offsets-%s-%d", streamName, offsetsSlabID)] =
-			&SlabInfo{
-				StreamName: streamName,
-				SlabID:     offsetsSlabID,
-				Type:       SlabTypeInternal,
-				Schema:     prevOperator.OutSchema(),
-			}
+		addedOffset = true
 	}
 	// The consumer_endpoint operator wraps a to-stream operator, we create that next
 	ret := time.Duration(0)
@@ -786,7 +796,18 @@ func (sm *streamManager) deployKafkaOutOperator(streamName string, op *parser.Ka
 			// in this case we can store the last offset ourselves from inside the kafka out operator
 			offsetsSlabID = slabSliceSeqs.GetNextID()
 			storeOffset = true
+			addedOffset = true
 		}
+	}
+	if addedOffset {
+		// We added an offset slanb so we need to add it to the extra slabs so it gets deleted on undeploy
+		extraSlabInfos[fmt.Sprintf("kafka-out-offsets-%s-%d", streamName, offsetsSlabID)] =
+			&SlabInfo{
+				StreamName: streamName,
+				SlabID:     offsetsSlabID,
+				Type:       SlabTypeInternal,
+				Schema:     prevOperator.OutSchema(),
+			}
 	}
 	kafkaOutOper, err := NewKafkaOutOperator(storeStreamOperator, slabID, offsetsSlabID, prevOperator.OutSchema(),
 		sm.stor, storeOffset)
@@ -965,8 +986,8 @@ func (sm *streamManager) deployStoreTableOperator(streamName string, op *parser.
 	return to, prefixRetentions, userSlab, nil
 }
 
-func (sm *streamManager) deployBackfillOperator(operators []Operator,
-	receiverSliceSeqs *sliceSeq, desc *parser.BackfillDesc) (*BackfillOperator, error) {
+func (sm *streamManager) deployBackfillOperator(streamName string, operators []Operator,
+	receiverSliceSeqs *sliceSeq, slabSliceSeqs *sliceSeq, desc *parser.BackfillDesc, extraSlabInfos map[string]*SlabInfo) (*BackfillOperator, error) {
 	// Already verified in validateStream() so this is safe:
 	continuation := operators[0].(*ContinuationOperator)
 	upstreamStream := continuation.GetParentOperator().GetStreamInfo()
@@ -977,8 +998,16 @@ func (sm *streamManager) deployBackfillOperator(operators []Operator,
 			"parent stream '%s' must be a stored stream when there is a 'backfill' operator", upstreamStream.StreamDesc.StreamName)
 	}
 	receiverID := receiverSliceSeqs.GetNextID()
-	backfillOper := NewBackfillOperator(fromSlab.Schema, sm.stor, sm.cfg, fromSlab.SlabID,
+	offsetsSlabID := slabSliceSeqs.GetNextID()
+	backfillOper := NewBackfillOperator(fromSlab.Schema, sm.stor, sm.cfg, fromSlab.SlabID, offsetsSlabID,
 		sm.cfg.MaxBackfillBatchSize, receiverID, false)
+	extraSlabInfos[fmt.Sprintf("offsets-backfill-%s-%d", streamName, offsetsSlabID)] =
+		&SlabInfo{
+			StreamName: streamName,
+			SlabID:     offsetsSlabID,
+			Type:       SlabTypeInternal,
+			Schema:     backfillOper.OutSchema(),
+		}
 	return backfillOper, nil
 }
 

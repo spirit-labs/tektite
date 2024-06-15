@@ -25,6 +25,7 @@ type BackfillOperator struct {
 	schema               *OperatorSchema
 	store                store
 	fromSlabID           int
+	offsetsSlabID        int
 	lagging              bool
 	partitionIterators   []iteratorInfo
 	rowCols              []int
@@ -47,7 +48,7 @@ type iteratorInfo struct {
 	closed           atomic.Bool
 }
 
-func NewBackfillOperator(schema *OperatorSchema, store store, cfg *conf.Config, fromSlabID int,
+func NewBackfillOperator(schema *OperatorSchema, store store, cfg *conf.Config, fromSlabID int, offsetsSlabID,
 	maxBackfillBatchSize int, receiverID int, storeCommittedAsync bool) *BackfillOperator {
 	if !HasOffsetColumn(schema.EventSchema) {
 		panic("input not a stored stream")
@@ -67,6 +68,7 @@ func NewBackfillOperator(schema *OperatorSchema, store store, cfg *conf.Config, 
 		store:                store,
 		cfg:                  cfg,
 		fromSlabID:           fromSlabID,
+		offsetsSlabID:        offsetsSlabID,
 		rowCols:              rowCols,
 		partitionIterators:   make([]iteratorInfo, partitionCount),
 		maxBackfillBatchSize: maxBackfillBatchSize,
@@ -76,12 +78,9 @@ func NewBackfillOperator(schema *OperatorSchema, store store, cfg *conf.Config, 
 	}
 }
 
-func (b *BackfillOperator) storeCommittedOffSetForPartition(partititionID int, offset int64, execCtx StreamExecContext) {
+func (b *BackfillOperator) storeCommittedOffSetForPartition(offset int64, execCtx StreamExecContext) {
 	partitionHash := b.hashCache.getHash(execCtx.PartitionID())
-	key := encoding.EncodeEntryPrefix(partitionHash, common.BackfillOffsetSlabID, 56)
-	key = encoding.AppendUint64ToBufferBE(key, uint64(b.fromSlabID))
-	key = encoding.AppendUint64ToBufferBE(key, uint64(b.receiverID))
-	key = encoding.AppendUint64ToBufferBE(key, uint64(partititionID))
+	key := encoding.EncodeEntryPrefix(partitionHash, uint64(b.offsetsSlabID), 32)
 	key = encoding.EncodeVersion(key, uint64(execCtx.WriteVersion()))
 	value := make([]byte, 0, 8)
 	value = encoding.AppendUint64ToBufferLE(value, uint64(offset))
@@ -204,7 +203,7 @@ func (b *BackfillOperator) HandleStreamBatch(batch *evbatch.Batch, execCtx Strea
 func (b *BackfillOperator) handleStreamBatch(batch *evbatch.Batch, execCtx StreamExecContext) (*evbatch.Batch, error) {
 	if !b.storeCommittedAsync && batch != nil && batch.RowCount != 0 {
 		lastOffset := int(batch.GetIntColumn(0).Get(batch.RowCount - 1))
-		b.storeCommittedOffSetForPartition(execCtx.PartitionID(), int64(lastOffset), execCtx)
+		b.storeCommittedOffSetForPartition(int64(lastOffset), execCtx)
 	}
 	return batch, b.sendBatchDownStream(batch, execCtx)
 }
@@ -360,10 +359,7 @@ func (b *BackfillOperator) initialiseIteratorAtOffset(partID int, offset int64, 
 
 func (b *BackfillOperator) loadCommittedOffsetForPartition(execCtx StreamExecContext) (int64, bool, error) {
 	partitionHash := b.hashCache.getHash(execCtx.PartitionID())
-	key := encoding.EncodeEntryPrefix(partitionHash, common.BackfillOffsetSlabID, 48)
-	key = encoding.AppendUint64ToBufferBE(key, uint64(b.fromSlabID))
-	key = encoding.AppendUint64ToBufferBE(key, uint64(b.receiverID))
-	key = encoding.AppendUint64ToBufferBE(key, uint64(execCtx.PartitionID()))
+	key := encoding.EncodeEntryPrefix(partitionHash, uint64(b.offsetsSlabID), 24)
 	value, err := execCtx.Get(key)
 	if err != nil {
 		return 0, false, err

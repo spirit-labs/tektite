@@ -35,6 +35,7 @@ func NewKafkaInOperator(mappingID string, store store, offsetsSlabID int, receiv
 		useServerTimestamp: useServerTimestamp,
 		nextOffsets:        nextOffsets,
 		lastAppendTimes:    make([]int64, partitions),
+		hashCache:          newPartitionHashCache(inSchema.MappingID, inSchema.Partitions),
 	}
 }
 
@@ -49,6 +50,7 @@ type KafkaInOperator struct {
 	nextOffsets        []int64
 	lastAppendTimes    []int64
 	watermarkOperator  *WaterMarkOperator
+	hashCache          *partitionHashCache
 }
 
 func (k *KafkaInOperator) GetPartitionProcessorMapping() map[int]int {
@@ -91,7 +93,8 @@ func (k *KafkaInOperator) getNextOffset(partitionID int) (int64, error) {
 		return nextOffset, nil
 	}
 	// Load from store
-	return loadOffset(k.offsetsSlabID, partitionID, k.inSchema.MappingID, k.store)
+	partitionHash := k.hashCache.getHash(partitionID)
+	return loadOffset(partitionHash, k.offsetsSlabID, k.store)
 }
 
 func (k *KafkaInOperator) convertRecordset(bytes []byte, execCtx StreamExecContext) (*evbatch.Batch, int64, error) {
@@ -167,7 +170,8 @@ func (k *KafkaInOperator) convertRecordset(bytes []byte, execCtx StreamExecConte
 	}
 	k.nextOffsets[partitionID] = kOffset
 	k.lastAppendTimes[partitionID] = lastTimestamp
-	storeOffset(execCtx, kOffset, k.offsetsSlabID, execCtx.WriteVersion(), k.inSchema.MappingID)
+	partitionHash := k.hashCache.getHash(partitionID)
+	storeOffset(execCtx, kOffset, partitionHash, k.offsetsSlabID, execCtx.WriteVersion())
 	return evbatch.NewBatchFromBuilders(KafkaSchema, colBuilders...), maxTimestamp, nil
 }
 

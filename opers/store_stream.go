@@ -65,10 +65,11 @@ func (ts *StoreStreamOperator) HandleQueryBatch(*evbatch.Batch, QueryExecContext
 }
 
 func (ts *StoreStreamOperator) HandleStreamBatch(batch *evbatch.Batch, execCtx StreamExecContext) (*evbatch.Batch, error) {
+	partitionHash := ts.hashCache.getHash(execCtx.PartitionID())
 	if ts.addOffset {
 		// Add the offset column
 		colBuilder := evbatch.NewIntColBuilder()
-		kOffset, err := ts.getNextOffset(execCtx.PartitionID())
+		kOffset, err := ts.getNextOffset(execCtx.PartitionID(), partitionHash)
 		if err != nil {
 			return nil, err
 		}
@@ -87,9 +88,8 @@ func (ts *StoreStreamOperator) HandleStreamBatch(batch *evbatch.Batch, execCtx S
 		batch = evbatch.NewBatch(ts.outSchema.EventSchema, newCols...)
 
 		ts.nextOffsets[execCtx.PartitionID()] = kOffset
-		storeOffset(execCtx, kOffset, ts.offsetsSlabID, execCtx.WriteVersion(), ts.inSchema.MappingID)
+		storeOffset(execCtx, kOffset, partitionHash, ts.offsetsSlabID, execCtx.WriteVersion())
 	}
-	partitionHash := ts.hashCache.getHash(execCtx.PartitionID())
 	keyPrefix := encoding.EncodeEntryPrefix(partitionHash, uint64(ts.slabID), 64)
 	storeBatchInTable(batch, []int{0}, ts.rowCols, keyPrefix, execCtx, ts.nodeID, false)
 	return batch, ts.sendBatchDownStream(batch, execCtx)
@@ -99,13 +99,13 @@ func (ts *StoreStreamOperator) HandleBarrier(execCtx StreamExecContext) error {
 	return ts.BaseOperator.HandleBarrier(execCtx)
 }
 
-func (ts *StoreStreamOperator) getNextOffset(partitionID int) (int64, error) {
+func (ts *StoreStreamOperator) getNextOffset(partitionID int, partitionHash []byte) (int64, error) {
 	nextOffset := ts.nextOffsets[partitionID]
 	if nextOffset != -1 {
 		return nextOffset, nil
 	}
 	// Load from store
-	return loadOffset(ts.offsetsSlabID, partitionID, ts.inSchema.MappingID, ts.store)
+	return loadOffset(partitionHash, ts.offsetsSlabID, ts.store)
 }
 
 func (ts *StoreStreamOperator) InSchema() *OperatorSchema {

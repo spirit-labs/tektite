@@ -101,7 +101,7 @@ func testStoreOperator(t *testing.T, to *StoreStreamOperator, columnNamesIn []st
 			expectedPartitionHash := proc.CalcPartitionHash(to.OutSchema().MappingID, uint64(partID))
 			require.Equal(t, expectedPartitionHash, partitionHash)
 			slabID, _ := encoding.ReadUint64FromBufferBE(kv.Key, 16)
-			if !foundOffsetEntry && slabID == common.StreamOffsetSequenceSlabID {
+			if !foundOffsetEntry && slabID == uint64(to.offsetsSlabID) {
 				foundOffsetEntry = true
 				continue
 			}

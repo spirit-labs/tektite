@@ -19,9 +19,10 @@ import (
 
 func TestLoadBackfill(t *testing.T) {
 	version := 123
-	fromTableID := 1234
+	fromSlabID := 1234
+	offsetsSlabID := 1235
 	maxBackFillBatchSize := 50
-	fs, sinkOper, store, schema := setup(t, maxBackFillBatchSize, fromTableID, 9)
+	fs, sinkOper, store, schema := setup(t, maxBackFillBatchSize, fromSlabID, offsetsSlabID, 9)
 	//goland:noinspection GoUnhandledErrorResult
 	defer store.Stop()
 	pm := tppm.NewTestProcessorManager(store)
@@ -35,10 +36,10 @@ func TestLoadBackfill(t *testing.T) {
 	partitionProcessorMapping := fs.OutSchema().PartitionScheme.PartitionProcessorMapping
 
 	// Write some rows in partition 0
-	writeRowsToPartition(t, 0, numRowsPerPartition, fromTableID, store, version)
+	writeRowsToPartition(t, 0, numRowsPerPartition, fromSlabID, store, version)
 
 	// Write some rows in partition 5
-	writeRowsToPartition(t, 5, numRowsPerPartition, fromTableID, store, version)
+	writeRowsToPartition(t, 5, numRowsPerPartition, fromSlabID, store, version)
 
 	partition0Processor, ok := partitionProcessorMapping[0]
 	require.True(t, ok)
@@ -84,8 +85,8 @@ func TestLoadBackfill(t *testing.T) {
 
 	// Write some rows in partitions 1 and 4
 	sinkOper.Clear()
-	writeRowsToPartition(t, 1, numRowsPerPartition, fromTableID, store, version)
-	writeRowsToPartition(t, 4, numRowsPerPartition, fromTableID, store, version)
+	writeRowsToPartition(t, 1, numRowsPerPartition, fromSlabID, store, version)
+	writeRowsToPartition(t, 4, numRowsPerPartition, fromSlabID, store, version)
 
 	partition1Processor, ok := partitionProcessorMapping[1]
 	require.True(t, ok)
@@ -164,7 +165,8 @@ func TestBackfillStoreLoadOffsets(t *testing.T) {
 
 	maxBackFillBatchSize := 50
 	fromTableID := 1234
-	fs, _, store, _ := setup(t, maxBackFillBatchSize, fromTableID, 9)
+	offsetsSlabID := 1235
+	fs, _, store, _ := setup(t, maxBackFillBatchSize, fromTableID, offsetsSlabID, 9)
 	//goland:noinspection GoUnhandledErrorResult
 	defer store.Stop()
 
@@ -182,7 +184,7 @@ func TestBackfillStoreLoadOffsets(t *testing.T) {
 		entries: mb,
 	}
 
-	fs.storeCommittedOffSetForPartition(2, 2234, ctx1)
+	fs.storeCommittedOffSetForPartition(2234, ctx1)
 	require.Equal(t, 1, mb.Len())
 	writeEntriesToStore(t, mb, store)
 
@@ -216,7 +218,7 @@ func TestBackfillStoreLoadOffsets(t *testing.T) {
 			store:   store,
 			entries: mb,
 		}
-		fs.storeCommittedOffSetForPartition(i, int64(i*1000+234), ctx)
+		fs.storeCommittedOffSetForPartition(int64(i*1000+234), ctx)
 		require.Equal(t, 1, mb.Len())
 		writeEntriesToStore(t, mb, store)
 	}
@@ -320,7 +322,7 @@ func createBatchForInjection(schema *evbatch.EventSchema, numRows int, offsetSta
 	return evbatch.NewBatchFromBuilders(schema, builders...)
 }
 
-func setup(t *testing.T, maxBackFillBatchSize int, fromTableID int, partitionCount int) (*BackfillOperator, *testSinkOper, *store2.Store, *evbatch.EventSchema) {
+func setup(t *testing.T, maxBackFillBatchSize int, fromSlabID int, offsetsSlabID int, partitionCount int) (*BackfillOperator, *testSinkOper, *store2.Store, *evbatch.EventSchema) {
 	schema := evbatch.NewEventSchema([]string{"offset", "event_time", "f1", "f2"},
 		[]types.ColumnType{types.ColumnTypeInt, types.ColumnTypeTimestamp, types.ColumnTypeString, types.ColumnTypeFloat})
 
@@ -332,7 +334,7 @@ func setup(t *testing.T, maxBackFillBatchSize int, fromTableID int, partitionCou
 		PartitionScheme: NewPartitionScheme("bar", partitionCount, false, 48)}
 	cfg := &conf.Config{}
 	cfg.ApplyDefaults()
-	fs := NewBackfillOperator(operSchema, store, cfg, fromTableID, maxBackFillBatchSize,
+	fs := NewBackfillOperator(operSchema, store, cfg, fromSlabID, offsetsSlabID, maxBackFillBatchSize,
 		receiverID, false)
 	sinkOper := newTestSinkOper(operSchema)
 	fs.AddDownStreamOperator(sinkOper)
