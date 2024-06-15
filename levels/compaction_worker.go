@@ -417,8 +417,10 @@ func mergeSSTables(format common.DataFormat, tables [][]tableToMerge, preserveTo
 		k := curr.Key
 		size += 12 + 2*len(k) + len(curr.Value)
 
+		isLast := i == len(mergeResults)-1
+
 		keyNoVersion := k[:len(k)-8]
-		if lastKeyNoVersion != nil && bytes.Equal(lastKeyNoVersion, keyNoVersion) {
+		if lastKeyNoVersion != nil && bytes.Equal(lastKeyNoVersion, keyNoVersion) && !isLast {
 			// If keys only differ by version they must not be split across different sstables
 			continue
 		}
@@ -426,7 +428,7 @@ func mergeSSTables(format common.DataFormat, tables [][]tableToMerge, preserveTo
 
 		// estimate of how much space an entry takes up in the sstable (data and index)
 
-		if size >= maxTableSize || i == len(mergeResults)-1 {
+		if size >= maxTableSize || isLast {
 			iter := newSliceIterator(mergeResults[iLast : i+1])
 			ssTable, smallestKey, largestKey, minVersion, maxVersion, err := sst.BuildSSTable(format, size, i+1-iLast,
 				iter)
