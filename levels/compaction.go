@@ -507,9 +507,9 @@ func (lm *LevelManager) compactionComplete(jobID string) error {
 	if compactionJob.timer != nil {
 		compactionJob.timer.Stop()
 	}
+	lm.unlockTablesForJob(job)
 	lm.stats.InProgressJobs--
 	lm.stats.CompletedJobs++
-	lm.unlockTablesForJob(job)
 	dur := time.Duration(common.NanoTime() - job.scheduleTime)
 	log.Debugf("compaction complete job %s - time from schedule %d ms", job.id, dur.Milliseconds())
 	cf := compactionJob.jobHolder.completionFunc

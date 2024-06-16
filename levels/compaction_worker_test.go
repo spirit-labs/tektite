@@ -774,50 +774,51 @@ func TestCompactionPrefixDeletions(t *testing.T) {
 	require.NoError(t, err)
 	buff := table.Serialize()
 	tableName := uuid.New().String()
+	log.Debugf("deletion bomb table is %s", tableName)
 	err = lm.GetObjectStore().Put([]byte(tableName), buff)
 	require.NoError(t, err)
 	addTable(t, lm, tableName, smallestKey, largestKey)
 
-	lastLevel := lm.getLastLevel()
-	for level := 0; level < lastLevel; level++ {
-
-		// Force compaction at each level to let the delete bomb progress
-		log.Debugf("forcing compaction at level %d", level)
-		err = lm.forceCompaction(level, 1)
-		require.NoError(t, err)
-
-		// wait for compaction jobs to complete
-		ok, err = testutils.WaitUntilWithError(func() (bool, error) {
-			stats := lm.GetCompactionStats()
-			return stats.QueuedJobs == 0 && stats.InProgressJobs == 0, nil
-		}, 30*time.Second, 1*time.Millisecond)
-		require.NoError(t, err)
-		require.True(t, ok)
-
-		log.Debugf("compaction complete at level %d", level)
-	}
-
-	// There should be no prefix1 in any levels
-
-	endRange := common.IncrementBytesBigEndian(prefixes[1])
-	for i := 0; i < lm.getLastLevel(); i++ {
-		iter, err := lm.LevelIterator(i)
-		require.NoError(t, err)
-		for {
-			te, err := iter.Next()
+	ok, err = testutils.WaitUntilWithError(func() (bool, error) {
+		lastLevel := lm.getLastLevel()
+		for level := 0; level < lastLevel; level++ {
+			// Force compaction at each level to let the delete bomb progress
+			log.Debugf("forcing compaction at level %d", level)
+			err = lm.forceCompaction(level, 1)
 			require.NoError(t, err)
-			if te == nil {
-				break
-			}
-			overlap := hasOverlap(prefixes[1], endRange, te.RangeStart, te.RangeEnd)
-			if overlap {
-				log.Info("has overlap!")
-				lm.dumpLevelInfo()
-				lm.Dump()
-			}
-			require.False(t, overlap)
+
+			// wait for compaction jobs to complete
+			ok, err = testutils.WaitUntilWithError(func() (bool, error) {
+				stats := lm.GetCompactionStats()
+				return stats.QueuedJobs == 0 && stats.InProgressJobs == 0, nil
+			}, 30*time.Second, 1*time.Millisecond)
+			require.NoError(t, err)
+			require.True(t, ok)
+
+			log.Debugf("compaction complete at level %d", level)
 		}
-	}
+
+		// There should be no prefix1 in any levels
+		endRange := common.IncrementBytesBigEndian(prefixes[1])
+		for i := 0; i < lm.getLastLevel(); i++ {
+			iter, err := lm.LevelIterator(i)
+			require.NoError(t, err)
+			for {
+				te, err := iter.Next()
+				require.NoError(t, err)
+				if te == nil {
+					break
+				}
+				if hasOverlap(prefixes[1], endRange, te.RangeStart, te.RangeEnd) {
+					return false, nil
+				}
+			}
+		}
+		return true, nil
+	}, 10*time.Second, 100*time.Millisecond)
+	require.NoError(t, err)
+	require.True(t, ok)
+
 }
 
 func setup(t *testing.T, cfgFunc func(cfg *conf.Config)) (*LevelManager, func(t *testing.T)) {
