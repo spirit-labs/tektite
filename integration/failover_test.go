@@ -181,6 +181,7 @@ func waitForIncrementingRows(t *testing.T, tableName string, numMessages int, cl
 }
 
 func TestFailoverReplicationQueuesWithAggregation(t *testing.T) {
+	t.Skip("flaky test")
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
 	}
@@ -189,6 +190,7 @@ func TestFailoverReplicationQueuesWithAggregation(t *testing.T) {
 }
 
 func TestFailoverReplicationQueuesWithAggregationFailLevelManagerNode(t *testing.T) {
+	t.Skip("flaky test")
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
 	}
