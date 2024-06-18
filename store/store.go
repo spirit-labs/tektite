@@ -36,25 +36,22 @@ type Store struct {
 	queueFull          atomic.Bool
 	// We use a separate lock to protect the flush queue as we don't want the removal from queue to block
 	// writes to the memtable
-	mtQueue                     []*flushQueueEntry
-	mtFlushQueueLock            sync.Mutex
-	lastCompletedVersion        int64
-	lastLocalFlushedVersion     int64
-	minCurrentMTVersion         int64
-	iterators                   sync.Map
-	mtReplaceTimerLock          sync.Mutex
-	mtReplaceTimer              *common.TimerHandle
-	mtLastReplace               uint64
-	mtMaxReplaceTime            uint64
-	lastCommittedBatchSequences sync.Map
-	stopWg                      sync.WaitGroup
-	clusterVersion              uint64
-	versionFlushedHandler       func(version int)
-	clearFlushedLock            sync.Mutex
-	periodicMtInQueue           atomic.Bool // we limit to one empty memtable for periodic flush in queue at any one time
-	shutdownFlushImmediate      bool
-	clearing                    atomic.Bool
-	//flushing                    atomic.Bool
+	mtQueue                 []*flushQueueEntry
+	mtFlushQueueLock        sync.Mutex
+	lastCompletedVersion    int64
+	lastLocalFlushedVersion int64
+	iterators               sync.Map
+	mtReplaceTimerLock      sync.Mutex
+	mtReplaceTimer          *common.TimerHandle
+	mtLastReplace           uint64
+	mtMaxReplaceTime        uint64
+	stopWg                  sync.WaitGroup
+	clusterVersion          uint64
+	versionFlushedHandler   func(version int)
+	clearFlushedLock        sync.Mutex
+	periodicMtInQueue       atomic.Bool // we limit to one empty memtable for periodic flush in queue at any one time
+	shutdownFlushImmediate  bool
+	clearing                atomic.Bool
 }
 
 func NewStore(cloudStoreClient objstore.Client, levelManagerClient levels.Client, tableCache *tabcache.Cache, conf conf.Config) *Store {
@@ -87,7 +84,6 @@ func (s *Store) Start() error {
 	s.lastCompletedVersion = -1
 	s.iterators = sync.Map{}
 	s.mtLastReplace = 0
-	s.lastCommittedBatchSequences = sync.Map{}
 	s.clusterVersion = 0
 	s.started.Store(true)
 	common.Go(s.flushLoop)
