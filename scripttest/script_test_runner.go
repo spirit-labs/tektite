@@ -540,7 +540,6 @@ func (st *scriptTest) verifyRemainingData(require *require.Assertions) {
 			k := iter.Current().Key
 			slabID := binary.BigEndian.Uint64(k[16:])
 			if slabID >= common.UserSlabIDBase {
-				log.Infof("found remaining data for slab %d", slabID)
 				// There is user data
 				// Find which processor and node owns this prefix
 				partitionHash := k[:16]
@@ -565,13 +564,13 @@ func (st *scriptTest) verifyRemainingData(require *require.Assertions) {
 						return false, err
 					}
 					if valid {
-						log.Infof("found data for prefix %v slabID %d on node %d", prefix, slabID, processorNode)
+						log.Debugf("found remaining data for prefix %v slabID %d on node %d", prefix, slabID, processorNode)
 					}
 					// We don't want to see any data
 					return !valid, nil
 				}, 10*time.Second, 25*time.Millisecond)
-				require.True(ok)
 				require.NoError(err)
+				require.True(ok, "found remaining data at end of test")
 			}
 			err = iter.Next()
 			require.NoError(err)
