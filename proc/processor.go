@@ -10,7 +10,6 @@ import (
 	"github.com/spirit-labs/tektite/errors"
 	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/mem"
-	"github.com/spirit-labs/tektite/store"
 	"github.com/timandy/routine"
 	"sync"
 	"sync/atomic"
@@ -83,7 +82,7 @@ type Processor interface {
 
 type VersionCompleteHandler func(version int, requiredCompletions int, commandID int, doom bool, completionFunc func(error))
 
-func NewProcessor(id int, cfg *conf.Config, store *store.Store, batchForwarder BatchForwarder,
+func NewProcessor(id int, cfg *conf.Config, store *ProcessorStore, batchForwarder BatchForwarder,
 	batchHandler BatchHandler, receiverInfoProvider ReceiverInfoProvider, dataKey []byte) Processor {
 	// We choose cache max size to 25% of the available space in a newly created memtable
 	cacheMaxSize := int64(0.25 * float64(int64(cfg.MemtableMaxSizeBytes)-mem.MemtableSizeOverhead))
@@ -136,7 +135,7 @@ type processor struct {
 	currentVersion            int
 	storeCache                *WriteCache
 	stopWg                    sync.WaitGroup
-	store                     *store.Store
+	store                     *ProcessorStore
 	barrierInfos              map[int]*barrierInfo
 	verCompleteHandler        VersionCompleteHandler
 	completedReceiverVersions map[int]int
@@ -191,6 +190,7 @@ func (p *processor) Stop() {
 	if p.forwardResendTimer != nil {
 		p.forwardResendTimer.Stop()
 	}
+	p.store.stop()
 }
 
 func (p *processor) IsStopped() bool {
@@ -691,6 +691,7 @@ func (p *processor) SubmitAction(action func() error) bool {
 func (p *processor) SetLeader() {
 	log.Debugf("node %d processor %d is becoming leader", p.cfg.NodeID, p.id)
 	p.leader.Store(true)
+	p.store.start()
 	// Need to make sure runLoop has actually started and goID set before we continue, hence the channel
 	ch := make(chan struct{}, 1)
 	common.Go(func() {
