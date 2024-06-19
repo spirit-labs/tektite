@@ -4,11 +4,12 @@ import (
 	"encoding/binary"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/encoding"
+	"github.com/spirit-labs/tektite/proc"
 )
 
-func loadOffset(partitionHash []byte, slabID int, store store) (int64, error) {
+func loadOffset(partitionHash []byte, slabID int, processor proc.Processor) (int64, error) {
 	key := encoding.EncodeEntryPrefix(partitionHash, uint64(slabID), 24)
-	value, err := store.Get(key)
+	value, err := processor.Get(key)
 	if err != nil {
 		return 0, err
 	}

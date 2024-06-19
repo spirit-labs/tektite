@@ -4,7 +4,6 @@ import (
 	"github.com/spirit-labs/tektite/encoding"
 	"github.com/spirit-labs/tektite/evbatch"
 	"github.com/spirit-labs/tektite/types"
-	"sync"
 )
 
 type StoreStreamOperator struct {
@@ -17,12 +16,11 @@ type StoreStreamOperator struct {
 	nodeID        int
 	addOffset     bool
 	nextOffsets   []int64
-	store         store
 	offsetsSlabID int
 	hashCache     *partitionHashCache
 }
 
-func NewStoreStreamOperator(inSchema *OperatorSchema, slabID int, offsetsSlabID int, store store, nodeID int) (*StoreStreamOperator, error) {
+func NewStoreStreamOperator(inSchema *OperatorSchema, slabID int, offsetsSlabID int, nodeID int) (*StoreStreamOperator, error) {
 	nextOffsets := make([]int64, inSchema.PartitionScheme.Partitions)
 	for i := range nextOffsets {
 		nextOffsets[i] = -1
@@ -53,7 +51,6 @@ func NewStoreStreamOperator(inSchema *OperatorSchema, slabID int, offsetsSlabID 
 		rowCols:       rowCols,
 		nodeID:        nodeID,
 		addOffset:     addOffset,
-		store:         store,
 		offsetsSlabID: offsetsSlabID,
 		nextOffsets:   nextOffsets,
 		hashCache:     newPartitionHashCache(inSchema.MappingID, inSchema.Partitions),
@@ -69,7 +66,7 @@ func (ts *StoreStreamOperator) HandleStreamBatch(batch *evbatch.Batch, execCtx S
 	if ts.addOffset {
 		// Add the offset column
 		colBuilder := evbatch.NewIntColBuilder()
-		kOffset, err := ts.getNextOffset(execCtx.PartitionID(), partitionHash)
+		kOffset, err := ts.getNextOffset(execCtx, partitionHash)
 		if err != nil {
 			return nil, err
 		}
@@ -99,13 +96,13 @@ func (ts *StoreStreamOperator) HandleBarrier(execCtx StreamExecContext) error {
 	return ts.BaseOperator.HandleBarrier(execCtx)
 }
 
-func (ts *StoreStreamOperator) getNextOffset(partitionID int, partitionHash []byte) (int64, error) {
-	nextOffset := ts.nextOffsets[partitionID]
+func (ts *StoreStreamOperator) getNextOffset(execCtx StreamExecContext, partitionHash []byte) (int64, error) {
+	nextOffset := ts.nextOffsets[execCtx.PartitionID()]
 	if nextOffset != -1 {
 		return nextOffset, nil
 	}
 	// Load from store
-	return loadOffset(partitionHash, ts.offsetsSlabID, ts.store)
+	return loadOffset(partitionHash, ts.offsetsSlabID, execCtx.Processor())
 }
 
 func (ts *StoreStreamOperator) InSchema() *OperatorSchema {
@@ -120,5 +117,6 @@ func (ts *StoreStreamOperator) Setup(StreamManagerCtx) error {
 	return nil
 }
 
-func (ts *StoreStreamOperator) Teardown(StreamManagerCtx, *sync.RWMutex) {
+func (ts *StoreStreamOperator) Teardown(mgr StreamManagerCtx, completeCB func(error)) {
+	completeCB(nil)
 }

@@ -7,10 +7,12 @@ import (
 	"github.com/spirit-labs/tektite/conf"
 	"github.com/spirit-labs/tektite/evbatch"
 	"github.com/spirit-labs/tektite/expr"
+	"github.com/spirit-labs/tektite/levels"
+	"github.com/spirit-labs/tektite/objstore/dev"
 	"github.com/spirit-labs/tektite/opers"
 	"github.com/spirit-labs/tektite/parser"
 	"github.com/spirit-labs/tektite/proc"
-	store2 "github.com/spirit-labs/tektite/store"
+	"github.com/spirit-labs/tektite/tabcache"
 	"github.com/spirit-labs/tektite/testutils"
 	"github.com/spirit-labs/tektite/types"
 	"github.com/stretchr/testify/require"
@@ -140,8 +142,8 @@ func TestForwardedWaterMark(t *testing.T) {
 			etMax = time.Date(2023, 11, 11, 11, 11, 11, 0, time.UTC)
 		}
 		etMaxUnixMillis := etMax.UnixMilli()
-		processor, ok := processorMgr.GetProcessor(procID)
-		require.True(t, ok)
+		processor := processorMgr.GetProcessor(procID)
+		require.NotNil(t, processor)
 
 		pb := createBatchWithMaxEventTime(etMaxUnixMillis, processor.ID(), receiverID, partitionID)
 
@@ -217,8 +219,8 @@ func TestWaterMarkAllProcessorsIdle(t *testing.T) {
 	for procID, partitionID := range processors {
 		et := time.Date(2023, 11, 11, 11, 11, 11, 0, time.UTC)
 		etMaxUnixMillis := et.UnixMilli()
-		processor, ok := processorMgr.GetProcessor(procID)
-		require.True(t, ok)
+		processor := processorMgr.GetProcessor(procID)
+		require.NotNil(t, processor)
 
 		pb := createBatchWithMaxEventTime(etMaxUnixMillis, processor.ID(), receiverID, partitionID)
 
@@ -310,8 +312,8 @@ func TestWaterMarkNotAllProcessorsIdle(t *testing.T) {
 			}
 		}
 		etMaxUnixMillis := etMax.UnixMilli()
-		processor, ok := processorMgr.GetProcessor(procID)
-		require.True(t, ok)
+		processor := processorMgr.GetProcessor(procID)
+		require.NotNil(t, processor)
 
 		pb := createBatchWithMaxEventTime(etMaxUnixMillis, processor.ID(), receiverID, partitionID)
 
@@ -410,29 +412,30 @@ func TestEventTimeWaterMarkUsingKafkaIn(t *testing.T) {
 
 func getProcessorForPartition(t *testing.T, partitionID int, ppm map[int]int, processorMgr proc.Manager) proc.Processor {
 	processorID := ppm[partitionID]
-	processor, ok := processorMgr.GetProcessor(processorID)
-	require.True(t, ok)
+	processor := processorMgr.GetProcessor(processorID)
+	require.NotNil(t, processor)
 	return processor
 }
 
 func setup(t *testing.T) (opers.StreamManager, proc.Manager, *conf.Config) {
-	store := store2.TestStore()
 
-	err := store.Start()
-	require.NoError(t, err)
 	cfg := &conf.Config{}
 	cfg.ApplyDefaults()
 	cfg.LogScope = t.Name()
 	cfg.ProcessorCount = 10
-	streamMgr := opers.NewStreamManager(nil, store, &testSlabRetentions{},
+	streamMgr := opers.NewStreamManager(nil, &testSlabRetentions{},
 		&expr.ExpressionFactory{}, cfg, true)
 
 	stateMgr := &testClustStateMgr{}
 
-	processorMgr := proc.NewProcessorManager(stateMgr, streamMgr, store, cfg, nil,
+	objStoreClient := dev.NewInMemStore(0)
+	tc, err := tabcache.NewTableCache(objStoreClient, cfg)
+	require.NoError(t, err)
+
+	processorMgr := proc.NewProcessorManagerWithFailure(stateMgr, streamMgr, cfg, nil,
 		func(processorID int) proc.BatchHandler {
 			return streamMgr
-		}, nil, &testIngestNotifier{})
+		}, nil, &testIngestNotifier{}, objStoreClient, nil, tc, false)
 	vmgrClient := &testVmgrClient{
 		initialWriteVersion:     101,
 		initialCompletedVersion: 100,
@@ -457,6 +460,19 @@ func setup(t *testing.T) (opers.StreamManager, proc.Manager, *conf.Config) {
 	deployProcessors(t, processorMgr, cfg.ProcessorCount)
 
 	return streamMgr, processorMgr, cfg
+}
+
+type testCommandBatchIngestor struct {
+	lm *levels.LevelManager
+}
+
+func (tcbi *testCommandBatchIngestor) ingest(buff []byte, complFunc func(error)) {
+	regBatch := levels.RegistrationBatch{}
+	regBatch.Deserialize(buff, 1)
+	go func() {
+		err := tcbi.lm.ApplyChanges(regBatch, false, 0)
+		complFunc(err)
+	}()
 }
 
 func deployStream(t *testing.T, streamMgr opers.StreamManager, tsl string,
@@ -556,7 +572,7 @@ func (t *testVmgrClient) GetLastFailureFlushedVersion(int) (int, error) {
 	return 0, nil
 }
 
-func (t *testVmgrClient) VersionFlushed(int, int, int, int) error {
+func (t *testVmgrClient) VersionFlushed(int, int, int) error {
 	return nil
 }
 
@@ -689,7 +705,8 @@ func (g *gatheringWMOperator) GetStreamInfo() *opers.StreamInfo {
 	return nil
 }
 
-func (g *gatheringWMOperator) Teardown(opers.StreamManagerCtx, *sync.RWMutex) {
+func (g *gatheringWMOperator) Teardown(mgr opers.StreamManagerCtx, completeCB func(error)) {
+	completeCB(nil)
 }
 
 type testSlabRetentions struct {

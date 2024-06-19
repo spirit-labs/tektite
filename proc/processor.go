@@ -8,9 +8,9 @@ import (
 	"github.com/spirit-labs/tektite/debug"
 	"github.com/spirit-labs/tektite/encoding"
 	"github.com/spirit-labs/tektite/errors"
+	"github.com/spirit-labs/tektite/iteration"
 	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/mem"
-	"github.com/spirit-labs/tektite/store"
 	"github.com/timandy/routine"
 	"sync"
 	"sync/atomic"
@@ -62,10 +62,6 @@ type Processor interface {
 
 	SetVersionCompleteHandler(handler VersionCompleteHandler)
 
-	SetNotIdleNotifier(func())
-
-	IsIdle(completedVersion int) bool
-
 	IsStopped() bool
 
 	SetReplicator(replicator Replicator)
@@ -79,11 +75,17 @@ type Processor interface {
 	WriteCache() *WriteCache
 
 	LoadLastProcessedReplBatchSeq(version int) (int64, error)
+
+	Get(key []byte) ([]byte, error)
+
+	GetWithMaxVersion(key []byte, maxVersion uint64) ([]byte, error)
+
+	NewIterator(keyStart []byte, keyEnd []byte, highestVersion uint64, preserveTombstones bool) (iteration.Iterator, error)
 }
 
 type VersionCompleteHandler func(version int, requiredCompletions int, commandID int, doom bool, completionFunc func(error))
 
-func NewProcessor(id int, cfg *conf.Config, store *store.Store, batchForwarder BatchForwarder,
+func NewProcessor(id int, cfg *conf.Config, store IStore, batchForwarder BatchForwarder,
 	batchHandler BatchHandler, receiverInfoProvider ReceiverInfoProvider, dataKey []byte) Processor {
 	// We choose cache max size to 25% of the available space in a newly created memtable
 	cacheMaxSize := int64(0.25 * float64(int64(cfg.MemtableMaxSizeBytes)-mem.MemtableSizeOverhead))
@@ -136,7 +138,7 @@ type processor struct {
 	currentVersion            int
 	storeCache                *WriteCache
 	stopWg                    sync.WaitGroup
-	store                     *store.Store
+	store                     IStore
 	barrierInfos              map[int]*barrierInfo
 	verCompleteHandler        VersionCompleteHandler
 	completedReceiverVersions map[int]int
@@ -191,6 +193,7 @@ func (p *processor) Stop() {
 	if p.forwardResendTimer != nil {
 		p.forwardResendTimer.Stop()
 	}
+	p.store.Stop()
 }
 
 func (p *processor) IsStopped() bool {
@@ -290,23 +293,8 @@ func (p *processor) notifyNotIdle() {
 	}
 }
 
-func (p *processor) doCheckIdle(completedVersion int) bool {
-	// Considered idle if no batches processed since the specified version
-	if p.lastProcessedVersion <= completedVersion {
-		p.idle = true
-		return true
-	}
-	return false
-}
-
-func (p *processor) IsIdle(completedVersion int) bool {
-	ch := make(chan bool, 1)
-	p.SubmitAction(func() error {
-		idle := p.doCheckIdle(completedVersion)
-		ch <- idle
-		return nil
-	})
-	return <-ch
+func (p *processor) Get(key []byte) ([]byte, error) {
+	return p.store.Get(key)
 }
 
 func (p *processor) ProcessBatch(batch *ProcessBatch, completionFunc func(error)) {
@@ -691,6 +679,7 @@ func (p *processor) SubmitAction(action func() error) bool {
 func (p *processor) SetLeader() {
 	log.Debugf("node %d processor %d is becoming leader", p.cfg.NodeID, p.id)
 	p.leader.Store(true)
+	p.store.Start()
 	// Need to make sure runLoop has actually started and goID set before we continue, hence the channel
 	ch := make(chan struct{}, 1)
 	common.Go(func() {
@@ -772,4 +761,18 @@ func (p *processor) LoadLastProcessedReplBatchSeq(version int) (int64, error) {
 	}
 	seq, _ := encoding.ReadUint64FromBufferLE(value, 0)
 	return int64(seq), nil
+}
+
+func (p *processor) GetWithMaxVersion(key []byte, maxVersion uint64) ([]byte, error) {
+	if !p.IsLeader() {
+		return nil, errors.NewTektiteErrorf(errors.Unavailable, "processor %d is not leader", p.id)
+	}
+	return p.store.GetWithMaxVersion(key, maxVersion)
+}
+
+func (p *processor) NewIterator(keyStart []byte, keyEnd []byte, highestVersion uint64, preserveTombstones bool) (iteration.Iterator, error) {
+	if !p.IsLeader() {
+		return nil, errors.NewTektiteErrorf(errors.Unavailable, "processor %d is not leader", p.id)
+	}
+	return p.store.NewIterator(keyStart, keyEnd, highestVersion, preserveTombstones)
 }

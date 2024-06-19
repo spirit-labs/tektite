@@ -27,11 +27,12 @@ require (
 )
 
 require (
-	github.com/alexflint/go-filemutex v1.3.0
+	github.com/DataDog/sketches-go v1.2.1
 	github.com/apache/arrow/go/v11 v11.0.0
 	github.com/chzyer/readline v1.5.1
 	github.com/dgraph-io/ristretto v0.1.0
 	github.com/docker/docker v25.0.4+incompatible
+	github.com/docker/go-connections v0.5.0
 	github.com/emirpasic/gods v1.18.1
 	github.com/minio/minio-go/v7 v7.0.69
 	github.com/testcontainers/testcontainers-go v0.29.1
@@ -40,6 +41,7 @@ require (
 	github.com/tidwall/gjson v1.14.4
 	github.com/timandy/routine v1.1.1
 	go.etcd.io/etcd/client/v3 v3.5.9
+	golang.org/x/sync v0.5.0
 )
 
 require (
@@ -63,7 +65,6 @@ require (
 	github.com/cpuguy83/dockercfg v0.3.1 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/distribution/reference v0.5.0 // indirect
-	github.com/docker/go-connections v0.5.0 // indirect
 	github.com/docker/go-units v0.5.0 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect

@@ -11,7 +11,6 @@ import (
 	"github.com/spirit-labs/tektite/parser"
 	"github.com/spirit-labs/tektite/proc"
 	"github.com/spirit-labs/tektite/types"
-	"sync"
 	"time"
 )
 
@@ -41,7 +40,6 @@ type JoinOperator struct {
 	isStreamTableJoin           bool
 	externalTableID             int
 	nodeID                      int
-	st                          store
 	withinMillis                int64
 	receiverID                  int
 	batchReceiver               *batchReceiver
@@ -85,7 +83,7 @@ type handleIncomingCtx struct {
 
 func NewJoinOperator(leftTableSlabID int, rightTableSlabID int, left Operator, right Operator,
 	leftIsTable bool, rightIsTable bool, leftSlab *SlabInfo, rightSlab *SlabInfo, joinElements []parser.JoinElement,
-	within time.Duration, st store, nodeID int, receiverID int, op *parser.JoinDesc) (*JoinOperator, error) {
+	within time.Duration, nodeID int, receiverID int, op *parser.JoinDesc) (*JoinOperator, error) {
 
 	isStreamTableJoin := leftIsTable || rightIsTable
 
@@ -176,12 +174,12 @@ func NewJoinOperator(leftTableSlabID int, rightTableSlabID int, left Operator, r
 		rightKeyCols = append(rightKeyCols, EventTimeColName)
 	}
 
-	leftTable, err := NewStoreTableOperator(left.OutSchema(), leftTableSlabID, st, leftKeyCols, nodeID,
+	leftTable, err := NewStoreTableOperator(left.OutSchema(), leftTableSlabID, leftKeyCols, nodeID,
 		false, op)
 	if err != nil {
 		return nil, err
 	}
-	rightTable, err := NewStoreTableOperator(right.OutSchema(), rightTableSlabID, st, rightKeyCols, nodeID,
+	rightTable, err := NewStoreTableOperator(right.OutSchema(), rightTableSlabID, rightKeyCols, nodeID,
 		false, op)
 	if err != nil {
 		return nil, err
@@ -343,7 +341,6 @@ func NewJoinOperator(leftTableSlabID int, rightTableSlabID int, left Operator, r
 		rightLookupOffsetInOutput:   rightLookupOffsetInOutput,
 		externalTableID:             externalTableID,
 		nodeID:                      nodeID,
-		st:                          st,
 		withinMillis:                within.Milliseconds(),
 		leftEventTimeColIndex:       leftEventTimeColIndex,
 		rightEventTimeColIndex:      rightEventTimeColIndex,
@@ -471,7 +468,7 @@ func (j *JoinOperator) handleIncomingStreamTable(batch *evbatch.Batch, execCtx S
 		lookupEnd := common.IncrementBytesBigEndian(lookupStart)
 		log.Debugf("looking up row in external table start %v end %v version %d", lookupStart, lookupEnd, execCtx.WriteVersion())
 		incomingET := eventTimeCol.Get(i).Val
-		iter, err := j.st.NewIterator(lookupStart, lookupEnd, uint64(execCtx.WriteVersion()), false)
+		iter, err := execCtx.Processor().NewIterator(lookupStart, lookupEnd, uint64(execCtx.WriteVersion()), false)
 		if err != nil {
 			return nil, err
 		}
@@ -560,7 +557,7 @@ func (j *JoinOperator) handleIncomingStreamStream(batch *evbatch.Batch, execCtx 
 		lookupEnd = encoding.KeyEncodeInt(lookupEnd, etBoundTo)
 
 		log.Debugf("lookup start %v end %v maxVersion %d", lookupStart, lookupEnd, execCtx.WriteVersion())
-		iter, err := j.st.NewIterator(lookupStart, lookupEnd, uint64(execCtx.WriteVersion()), false)
+		iter, err := execCtx.Processor().NewIterator(lookupStart, lookupEnd, uint64(execCtx.WriteVersion()), false)
 		if err != nil {
 			return nil, err
 		}
@@ -753,8 +750,9 @@ func (j *JoinOperator) Setup(mgr StreamManagerCtx) error {
 	return nil
 }
 
-func (j *JoinOperator) Teardown(mgr StreamManagerCtx, _ *sync.RWMutex) {
+func (j *JoinOperator) Teardown(mgr StreamManagerCtx, completeCB func(error)) {
 	mgr.UnregisterReceiver(j.receiverID)
+	completeCB(nil)
 }
 
 type inputOper struct {
@@ -811,7 +809,8 @@ func (r *inputOper) GetStreamInfo() *StreamInfo {
 	return nil
 }
 
-func (r *inputOper) Teardown(StreamManagerCtx, *sync.RWMutex) {
+func (r *inputOper) Teardown(mgr StreamManagerCtx, completeCB func(error)) {
+	completeCB(nil)
 }
 
 type batchReceiver struct {

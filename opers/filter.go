@@ -4,7 +4,6 @@ import (
 	"github.com/spirit-labs/tektite/evbatch"
 	"github.com/spirit-labs/tektite/expr"
 	"github.com/spirit-labs/tektite/parser"
-	"sync"
 )
 
 func NewFilterOperator(schema *OperatorSchema, exprDesc parser.ExprDesc, expressionFactory *expr.ExpressionFactory) (*FilterOperator, error) {
@@ -77,5 +76,6 @@ func (f *FilterOperator) Setup(StreamManagerCtx) error {
 	return nil
 }
 
-func (f *FilterOperator) Teardown(StreamManagerCtx, *sync.RWMutex) {
+func (f *FilterOperator) Teardown(mgr StreamManagerCtx, completeCB func(error)) {
+	completeCB(nil)
 }

@@ -39,6 +39,42 @@ func TestMergingIteratorTombstonesDoNotPreserve(t *testing.T) {
 	expectEntries(t, mi, 0, 0, 3, 300, 8, 8000, 9, 90, 12, 120, 13, 1300, 18, 18000)
 }
 
+func TestMergingIteratorTombstonesDoNotPreserveWithVersions(t *testing.T) {
+	iter1 := createIterWithVersions(1, -1, 2, 1, 1, 1, 2, 2, 1)
+	iters := []Iterator{iter1}
+	mi, err := NewMergingIterator(iters, false, 3)
+	require.NoError(t, err)
+	expectEntries(t, mi, 2, 2)
+}
+
+func TestMergingIteratorTombstonesSameIterator(t *testing.T) {
+	iter1 := createIterWithVersions(2, -1, 2, 2, 2, 1, 3, 3, 3)
+	iters := []Iterator{iter1}
+	mi, err := NewMergingIterator(iters, false, 3)
+	require.NoError(t, err)
+	expectEntries(t, mi, 3, 3)
+}
+
+func TestMergingIteratorWithTombstonesNotPreserved2(t *testing.T) {
+	iter1 := createIterWithVersions(2, 12, 7, 3, 13, 11)
+	iter2 := createIterWithVersions(2, -1, 8, 3, -1, 10)
+	iter3 := createIterWithVersions(2, 32, 9, 3, 33, 12)
+	iters := []Iterator{iter1, iter2, iter3}
+	mi, err := NewCompactionMergingIterator(iters, false, 13)
+	require.NoError(t, err)
+	expectEntries(t, mi, 2, 32, 3, 33)
+}
+
+func TestMergingIteratorWithTombstonesNotPreserved3(t *testing.T) {
+	iter1 := createIterWithVersions(3, 13, 11)
+	iter2 := createIterWithVersions(3, -1, 10)
+	iter3 := createIterWithVersions(3, 33, 12)
+	iters := []Iterator{iter1, iter2, iter3}
+	mi, err := NewCompactionMergingIterator(iters, false, 13)
+	require.NoError(t, err)
+	expectEntries(t, mi, 3, 33)
+}
+
 func TestMergingIteratorTombstonesPreserve(t *testing.T) {
 	iter1 := createIter(2, -1, 5, -1, 9, 90, 11, -1, 12, 120)
 	iter2 := createIter(0, 0, 3, 300, 5, 500, 13, 1300, 14, -1)

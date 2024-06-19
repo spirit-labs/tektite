@@ -48,6 +48,16 @@ func startClusterWithConfigSetter(t *testing.T, numServers int, fk *fake.Kafka, 
 	objStore := dev.NewDevStore(objStoreAddress)
 	err = objStore.Start()
 	require.NoError(t, err)
+	servers, tearDown := startClusterWithObjStore(t, objStoreAddress, numServers, fk, configSetter)
+	return servers, func(t *testing.T) {
+		tearDown(t)
+		err := objStore.Stop()
+		require.NoError(t, err)
+	}
+}
+
+func startClusterWithObjStore(t *testing.T, objStoreAddress string, numServers int, fk *fake.Kafka, configSetter func(cfg *conf.Config)) ([]*server.Server, func(t *testing.T)) {
+	common.RequireDebugServer(t)
 
 	tlsConf := conf.TLSConfig{
 		Enabled:  true,
@@ -105,6 +115,16 @@ func startClusterWithConfigSetter(t *testing.T, numServers int, fk *fake.Kafka, 
 		servers = append(servers, s)
 	}
 
+	startServers(t, servers)
+
+	return servers, func(t *testing.T) {
+		cfg := servers[0].GetConfig()
+		err := shutdown.PerformShutdown(&cfg, true)
+		require.NoError(t, err)
+	}
+}
+
+func startServers(t *testing.T, servers []*server.Server) {
 	// Start them in parallel
 	var chans []chan error
 	log.Debugf("%s: starting %d servers", t.Name(), len(servers))
@@ -129,13 +149,6 @@ func startClusterWithConfigSetter(t *testing.T, numServers int, fk *fake.Kafka, 
 		if err != nil {
 			log.Errorf("Got error in starting server %v", err)
 		}
-		require.NoError(t, err)
-	}
-	return servers, func(t *testing.T) {
-		cfg := servers[0].GetConfig()
-		err := shutdown.PerformShutdown(&cfg, true)
-		require.NoError(t, err)
-		err = objStore.Stop()
 		require.NoError(t, err)
 	}
 }

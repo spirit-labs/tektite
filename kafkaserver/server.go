@@ -7,8 +7,8 @@ import (
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/conf"
 	"github.com/spirit-labs/tektite/errors"
-	"github.com/spirit-labs/tektite/iteration"
 	log "github.com/spirit-labs/tektite/logger"
+	"github.com/spirit-labs/tektite/opers"
 	"github.com/spirit-labs/tektite/proc"
 	"github.com/spirit-labs/tektite/types"
 	"io"
@@ -20,20 +20,14 @@ const (
 	readBuffSize = 8 * 1024
 )
 
-type store interface {
-	NewIterator(keyStart []byte, keyEnd []byte, highestVersion uint64, preserveTombstones bool) (iteration.Iterator, error)
-	Get(key []byte) ([]byte, error)
-}
-
-func NewServer(cfg *conf.Config, metadataProvider MetadataProvider,
-	procProvider processorProvider, groupCoordinator *GroupCoordinator, store store,
-	streamMgr streamMgr) *Server {
+func NewServer(cfg *conf.Config, metadataProvider MetadataProvider, procProvider processorProvider,
+	groupCoordinator *GroupCoordinator, streamMgr streamMgr) *Server {
 	return &Server{
 		cfg:              cfg,
 		metadataProvider: metadataProvider,
 		procProvider:     procProvider,
 		groupCoordinator: groupCoordinator,
-		fetcher:          newFetcher(store, streamMgr, int(cfg.KafkaFetchCacheMaxSizeBytes)),
+		fetcher:          newFetcher(procProvider, streamMgr, int(cfg.KafkaFetchCacheMaxSizeBytes)),
 	}
 }
 
@@ -52,8 +46,7 @@ type Server struct {
 }
 
 type processorProvider interface {
-	GetProcessorForPartition(topicName string, partitionID int) (proc.Processor, bool)
-	GetProcessor(processorID int) (proc.Processor, bool)
+	GetProcessor(processorID int) proc.Processor
 	NodeForPartition(partitionID int, mappingID string, partitionCount int) int
 }
 
@@ -380,6 +373,7 @@ type TopicInfo struct {
 }
 
 type TopicInfoProvider interface {
+	PartitionScheme() *opers.PartitionScheme
 	ReceiverID() int
 	GetLastProducedInfo(partitionID int) (int64, int64)
 	IngestBatch(recordBatchBytes []byte, processor proc.Processor, partitionID int,
@@ -388,7 +382,7 @@ type TopicInfoProvider interface {
 
 type ConsumerInfoProvider interface {
 	SlabID() int
-	PartitionMapping() string
+	PartitionScheme() *opers.PartitionScheme
 	EarliestOffset(partitionID int) (int64, int64, bool)
 	LatestOffset(partitionID int) (int64, int64, bool, error)
 	OffsetByTimestamp(timestamp types.Timestamp, partitionID int) (int64, int64, bool)

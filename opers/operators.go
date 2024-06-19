@@ -29,7 +29,7 @@ type Operator interface {
 	SetParentOperator(operator Operator)
 	SetStreamInfo(info *StreamInfo)
 	GetStreamInfo() *StreamInfo
-	Teardown(mgr StreamManagerCtx, lock *sync.RWMutex)
+	Teardown(mgr StreamManagerCtx, completeCB func(error))
 }
 
 type OperatorSchema struct {

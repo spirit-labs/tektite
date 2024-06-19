@@ -44,6 +44,14 @@ type Manager interface {
 	Stop() error
 }
 
+type ManagerTest interface {
+	Manager
+	LastProcessedCommandID() int64
+	LoadCommands(fromCommandID int64) (*evbatch.Batch, error)
+	SetClusterCompactor(clusterCompactor bool)
+	MaybeCompact() error
+}
+
 type manager struct {
 	lock                   sync.Mutex
 	cfg                    *conf.Config
@@ -75,7 +83,7 @@ type Signaller interface {
 
 func NewCommandManager(streamManager opers.StreamManager, queryManager query.Manager,
 	seqManager sequence.Manager, lockManager lock.Manager, batchForwarder batchForwarder,
-	vmgrClient vmgr.Client, parser *parser.Parser, cfg *conf.Config) Manager {
+	vmgrClient vmgr.Client, parser *parser.Parser, cfg *conf.Config) ManagerTest {
 	return &manager{
 		cfg:                    cfg,
 		streamManager:          streamManager,
@@ -133,7 +141,7 @@ func (m *manager) Activate() error {
 	}
 	m.streamManager.Loaded()
 	// Force a compaction if necessary
-	if err := m.maybeCompact(); err != nil {
+	if err := m.MaybeCompact(); err != nil {
 		return err
 	}
 	m.scheduleCheckCompaction(true)
@@ -144,7 +152,7 @@ func (m *manager) scheduleCheckCompaction(first bool) {
 	m.compactionTimer = common.ScheduleTimer(m.cfg.CommandCompactionInterval, first, func() {
 		m.lock.Lock()
 		defer m.lock.Unlock()
-		if err := m.maybeCompact(); err != nil {
+		if err := m.MaybeCompact(); err != nil {
 			log.Errorf("failed to create snapshot %v", err)
 		}
 		m.scheduleCheckCompaction(false)
@@ -166,7 +174,7 @@ func (m *manager) scheduleLoadCommands(first bool) {
 }
 
 func (m *manager) loadAndProcessCommands() error {
-	batch, err := m.loadCommands(m.lastProcessedCommandID + 1)
+	batch, err := m.LoadCommands(m.lastProcessedCommandID + 1)
 	if err != nil {
 		return err
 	}
@@ -180,7 +188,7 @@ func (m *manager) loadAndProcessCommands() error {
 	return nil
 }
 
-func (m *manager) loadCommands(fromCommandID int64) (*evbatch.Batch, error) {
+func (m *manager) LoadCommands(fromCommandID int64) (*evbatch.Batch, error) {
 	return common.CallWithRetryOnUnavailableWithTimeout[*evbatch.Batch](func() (*evbatch.Batch, error) {
 		return m.executeQuerySingleResultBatch(LoadCommandsQueryName, []any{fromCommandID})
 	}, func() bool {
@@ -295,7 +303,7 @@ func (m *manager) ExecuteCommand(command string) error {
 	defer m.releaseClusterLock()
 
 	// Load the commands to get the last command id - note that what is in store is the source of truth
-	batch, err := m.loadCommands(m.lastProcessedCommandID + 1)
+	batch, err := m.LoadCommands(m.lastProcessedCommandID + 1)
 	if err != nil {
 		return err
 	}
@@ -370,7 +378,7 @@ func (m *manager) ExecuteCommand(command string) error {
 	return err
 }
 
-func (m *manager) maybeCompact() error {
+func (m *manager) MaybeCompact() error {
 	if !m.isClusterCompactor() {
 		return nil
 	}
