@@ -21,7 +21,7 @@ To get started with Tektite, please follow the [Getting Started Guide](https://t
 
 If you're interested, please get involved! We're looking for contributors to help with testing, documentation, and development. Please go to [CONTRIBUTING](CONTRIBUTING.MD) for more information.
 * :mega: [Slack Channel](https://join.slack.com/t/tektiteworkspace/shared_invite/zt-2ju7rh24j-fr2SFinO5TaL2k32L0tK5w)
-* :book: [Website & Documentation](https://www.tektitedb.com)
+* :book: [Website & Documentation](http://www.tektitedb.com)
 * :thread: [GitHub Discussions](https://github.com/spirit-labs/tektite/discussions)
 * :writing_hand: [Create an Issue](https://github.com/spirit-labs/tektite/issues/new)
 
