@@ -253,5 +253,6 @@ func (s *SortOperator) Setup(StreamManagerCtx) error {
 	return nil
 }
 
-func (s *SortOperator) Teardown(StreamManagerCtx, *sync.RWMutex) {
+func (s *SortOperator) Teardown(mgr StreamManagerCtx, completeCB func(error)) {
+	completeCB(nil)
 }

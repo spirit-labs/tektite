@@ -3,8 +3,13 @@
 package tppm
 
 import (
+	"bytes"
+	"encoding/binary"
 	"fmt"
+	"github.com/emirpasic/gods/maps/treemap"
+	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/errors"
+	"github.com/spirit-labs/tektite/iteration"
 	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/mem"
 	"github.com/spirit-labs/tektite/proc"
@@ -14,8 +19,82 @@ import (
 	"sync/atomic"
 )
 
-type store interface {
+type Store interface {
 	Write(batch *mem.Batch) error
+	NewIterator(keyStart []byte, keyEnd []byte, maxVersion int64, preserveTombStones bool) (iteration.Iterator, error)
+	GetWithMaxVersion(key []byte, maxVersion uint64) ([]byte, error)
+}
+
+type TestStore struct {
+	lock sync.Mutex
+	data *treemap.Map
+}
+
+func NewTestStore() *TestStore {
+	return &TestStore{
+		data: treemap.NewWithStringComparator(),
+	}
+}
+
+func (t *TestStore) Write(batch *mem.Batch) error {
+	t.lock.Lock()
+	defer t.lock.Unlock()
+	batch.Range(func(key []byte, value []byte) bool {
+		t.data.Put(string(key), value)
+		return true
+	})
+	return nil
+}
+
+func (t *TestStore) GetWithMaxVersion(key []byte, maxVersion uint64) ([]byte, error) {
+	t.lock.Lock()
+	defer t.lock.Unlock()
+	iter := t.data.Iterator()
+	for iter.Next() {
+		dataKey := []byte(iter.Key().(string))
+		value := iter.Value().([]byte)
+		dataKeyNoVersion := dataKey[:len(dataKey)-8]
+		if bytes.Equal(key, dataKeyNoVersion) {
+			ver := math.MaxUint64 - binary.BigEndian.Uint64(dataKey[len(dataKey)-8:])
+			if ver <= maxVersion {
+				return value, nil
+			}
+		}
+	}
+	return nil, nil
+}
+
+func (t *TestStore) NewIterator(keyStart []byte, keyEnd []byte, maxVersion int64, preserveTombStones bool) (iteration.Iterator, error) {
+	t.lock.Lock()
+	defer t.lock.Unlock()
+	pref := keyStart[:24]
+	var entries []common.KV
+	iter := t.data.Iterator()
+	for iter.Next() {
+		key := []byte(iter.Key().(string))
+		if !bytes.Equal(key[:24], pref) {
+			continue
+		}
+		keyNoVersion := key[:len(key)-8]
+		if bytes.Compare(keyNoVersion, keyStart) >= 0 && bytes.Compare(keyNoVersion, keyEnd) < 0 {
+			value := iter.Value().([]byte)
+			entries = append(entries, common.KV{
+				Key:   key,
+				Value: value,
+			})
+		}
+	}
+	si := iteration.NewStaticIterator(entries)
+	return iteration.NewMergingIterator([]iteration.Iterator{si}, preserveTombStones, uint64(maxVersion))
+}
+
+func NewTestProcessorManager() *TestProcessorManager {
+	return &TestProcessorManager{
+		listeners:        map[string]proc.ProcessorListener{},
+		activeProcessors: map[int]*TestProcessor{},
+		st:               NewTestStore(),
+		writeVersion:     123,
+	}
 }
 
 type TestProcessorManager struct {
@@ -23,8 +102,16 @@ type TestProcessorManager struct {
 	listeners        map[string]proc.ProcessorListener
 	activeProcessors map[int]*TestProcessor
 	batchHandler     proc.BatchHandler
-	st               store
+	st               Store
 	writeVersion     uint64
+}
+
+func (t *TestProcessorManager) NodeForPartition(partitionID int, mappingID string, partitionCount int) int {
+	return 0
+}
+
+func (t *TestProcessorManager) GetStore() Store {
+	return t.st
 }
 
 func (t *TestProcessorManager) SetWriteVersion(version uint64) {
@@ -40,7 +127,7 @@ func (t *TestProcessorManager) AddActiveProcessor(id int) {
 	defer t.lock.Unlock()
 	_, ok := t.activeProcessors[id]
 	if ok {
-		panic("already a processor")
+		return
 	}
 	processor := newTestProcessor(id, t)
 	go processor.eventLoop()
@@ -60,7 +147,7 @@ func (t *TestProcessorManager) RemoveActiveProcessor(id int) {
 	t.sendProcessorChanged(processor, false)
 }
 
-func (t *TestProcessorManager) GetProcessor(id int) *TestProcessor {
+func (t *TestProcessorManager) GetProcessor(id int) proc.Processor {
 	t.lock.Lock()
 	defer t.lock.Unlock()
 	processor, ok := t.activeProcessors[id]
@@ -73,15 +160,6 @@ func (t *TestProcessorManager) GetProcessor(id int) *TestProcessor {
 func (t *TestProcessorManager) sendProcessorChanged(processor proc.Processor, added bool) {
 	for _, listener := range t.listeners {
 		listener(processor, added, false)
-	}
-}
-
-func NewTestProcessorManager(st store) *TestProcessorManager {
-	return &TestProcessorManager{
-		listeners:        map[string]proc.ProcessorListener{},
-		activeProcessors: map[int]*TestProcessor{},
-		st:               st,
-		writeVersion:     123,
 	}
 }
 
@@ -134,6 +212,18 @@ type TestProcessor struct {
 	stopWg     sync.WaitGroup
 	version    *uint64
 	storeCache *proc.WriteCache
+}
+
+func (t *TestProcessor) Get(key []byte) ([]byte, error) {
+	return t.tpm.st.GetWithMaxVersion(key, math.MaxUint64)
+}
+
+func (t *TestProcessor) GetWithMaxVersion(key []byte, maxVersion uint64) ([]byte, error) {
+	return t.tpm.st.GetWithMaxVersion(key, maxVersion)
+}
+
+func (t *TestProcessor) NewIterator(keyStart []byte, keyEnd []byte, highestVersion uint64, preserveTombstones bool) (iteration.Iterator, error) {
+	return t.tpm.st.NewIterator(keyStart, keyEnd, int64(highestVersion), preserveTombstones)
 }
 
 func (t *TestProcessor) LoadLastProcessedReplBatchSeq(int) (int64, error) {

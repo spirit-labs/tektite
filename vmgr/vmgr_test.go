@@ -760,11 +760,11 @@ func TestFlushDisabledWhileFailureInProgress(t *testing.T) {
 	versionToFlush := vmgr.getLastVersionToFlush()
 
 	// try and flush this version - it should be ignored as failure in progress
-	err = vmgr.VersionFlushed(0, current, 16, 2)
+	err = vmgr.VersionFlushed(0, current, 2)
 	require.NoError(t, err)
-	err = vmgr.VersionFlushed(1, current, 16, 2)
+	err = vmgr.VersionFlushed(1, current, 2)
 	require.NoError(t, err)
-	err = vmgr.VersionFlushed(2, current, 16, 2)
+	err = vmgr.VersionFlushed(2, current, 2)
 	require.NoError(t, err)
 
 	require.Equal(t, versionToFlush, vmgr.getLastVersionToFlush())
@@ -1034,13 +1034,76 @@ func TestVersionFlushedAllSameVersion(t *testing.T) {
 	err = vmgr.VersionComplete(curr, 1, 0, false)
 	require.NoError(t, err)
 
-	err = vmgr.VersionFlushed(0, completed, 16, 1)
+	err = vmgr.VersionFlushed(0, completed, 1)
 	require.NoError(t, err)
 
-	err = vmgr.VersionFlushed(1, completed, 16, 1)
+	err = vmgr.VersionFlushed(1, completed, 1)
 	require.NoError(t, err)
 
-	err = vmgr.VersionFlushed(2, completed, 16, 1)
+	err = vmgr.VersionFlushed(2, completed, 1)
+	require.NoError(t, err)
+
+	require.Equal(t, completed, vmgr.getLastVersionToFlush())
+
+	// Wait for it to be flushed to level manager
+	ok, err := testutils.WaitUntilWithError(func() (bool, error) {
+		return int(lmgrClient.getLastFlushedVersion()) == completed, nil
+	}, 5*time.Second, 1*time.Millisecond)
+	require.NoError(t, err)
+	require.True(t, ok)
+
+	_, _, flushed, err := vmgr.GetVersions()
+	require.NoError(t, err)
+	require.Equal(t, completed, flushed)
+}
+
+func TestVersionFlushedClusterVersionReset(t *testing.T) {
+	cfg := &conf.Config{}
+	cfg.ApplyDefaults()
+
+	cfg.VersionManagerStoreFlushedInterval = 10 * time.Millisecond
+	seqMgr := sequence.NewInMemSequenceManager()
+	vmgr, remotingServer, _, lmgrClient := setupWithSeqMgrWithActivate(t, seqMgr, cfg, true)
+	defer func() {
+		stopVmgr(t, vmgr)
+		err := remotingServer.Stop()
+		require.NoError(t, err)
+	}()
+
+	curr, completed, _, err := vmgr.GetVersions()
+
+	err = vmgr.VersionComplete(curr, 1, 0, false)
+	require.NoError(t, err)
+
+	err = vmgr.VersionFlushed(0, completed, 1)
+	require.NoError(t, err)
+
+	err = vmgr.VersionFlushed(1, completed, 1)
+	require.NoError(t, err)
+
+	// different cluster version
+	err = vmgr.VersionFlushed(2, completed, 2)
+	require.NoError(t, err)
+
+	require.Equal(t, -1, vmgr.getLastVersionToFlush())
+
+	err = vmgr.VersionFlushed(1, completed, 2)
+	require.NoError(t, err)
+
+	err = vmgr.VersionFlushed(0, completed, 3)
+	require.NoError(t, err)
+
+	require.Equal(t, -1, vmgr.getLastVersionToFlush())
+
+	err = vmgr.VersionFlushed(1, completed, 3)
+	require.NoError(t, err)
+
+	err = vmgr.VersionFlushed(2, completed, 2)
+	require.NoError(t, err)
+
+	require.Equal(t, -1, vmgr.getLastVersionToFlush())
+
+	err = vmgr.VersionFlushed(2, completed, 3)
 	require.NoError(t, err)
 
 	require.Equal(t, completed, vmgr.getLastVersionToFlush())
@@ -1060,6 +1123,7 @@ func TestVersionFlushedAllSameVersion(t *testing.T) {
 func TestVersionFlushedTakeMinVersion(t *testing.T) {
 	cfg := &conf.Config{}
 	cfg.ApplyDefaults()
+	cfg.ProcessorCount = 3
 
 	cfg.VersionManagerStoreFlushedInterval = 10 * time.Millisecond
 	seqMgr := sequence.NewInMemSequenceManager()
@@ -1081,13 +1145,13 @@ func TestVersionFlushedTakeMinVersion(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	err := vmgr.VersionFlushed(0, 7, 16, 1)
+	err := vmgr.VersionFlushed(0, 7, 1)
 	require.NoError(t, err)
 
-	err = vmgr.VersionFlushed(1, 8, 16, 1)
+	err = vmgr.VersionFlushed(1, 8, 1)
 	require.NoError(t, err)
 
-	err = vmgr.VersionFlushed(2, 9, 16, 1)
+	err = vmgr.VersionFlushed(2, 9, 1)
 	require.NoError(t, err)
 
 	require.Equal(t, 7, vmgr.getLastVersionToFlush())
@@ -1098,30 +1162,13 @@ func TestVersionFlushedTakeMinVersion(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 7, flushed)
 
-	err = vmgr.VersionFlushed(0, 8, 16, 1)
+	err = vmgr.VersionFlushed(0, 8, 1)
 	require.NoError(t, err)
 
-	err = vmgr.VersionFlushed(1, 8, 16, 1)
+	err = vmgr.VersionFlushed(1, 8, 1)
 	require.NoError(t, err)
 
-	err = vmgr.VersionFlushed(2, 9, 16, 1)
-	require.NoError(t, err)
-
-	require.Equal(t, 8, vmgr.getLastVersionToFlush())
-
-	// Wait for it to be flushed to level manager
-	waitForFlushedVersion(t, lmgrClient, 8)
-	_, _, flushed, err = vmgr.GetVersions()
-	require.NoError(t, err)
-	require.Equal(t, 8, flushed)
-
-	err = vmgr.VersionFlushed(0, 9, 16, 1)
-	require.NoError(t, err)
-
-	err = vmgr.VersionFlushed(1, 8, 16, 1)
-	require.NoError(t, err)
-
-	err = vmgr.VersionFlushed(2, 9, 16, 1)
+	err = vmgr.VersionFlushed(2, 9, 1)
 	require.NoError(t, err)
 
 	require.Equal(t, 8, vmgr.getLastVersionToFlush())
@@ -1132,13 +1179,30 @@ func TestVersionFlushedTakeMinVersion(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 8, flushed)
 
-	err = vmgr.VersionFlushed(0, 9, 16, 1)
+	err = vmgr.VersionFlushed(0, 9, 1)
 	require.NoError(t, err)
 
-	err = vmgr.VersionFlushed(1, 9, 16, 1)
+	err = vmgr.VersionFlushed(1, 8, 1)
 	require.NoError(t, err)
 
-	err = vmgr.VersionFlushed(2, 9, 16, 1)
+	err = vmgr.VersionFlushed(2, 9, 1)
+	require.NoError(t, err)
+
+	require.Equal(t, 8, vmgr.getLastVersionToFlush())
+
+	// Wait for it to be flushed to level manager
+	waitForFlushedVersion(t, lmgrClient, 8)
+	_, _, flushed, err = vmgr.GetVersions()
+	require.NoError(t, err)
+	require.Equal(t, 8, flushed)
+
+	err = vmgr.VersionFlushed(0, 9, 1)
+	require.NoError(t, err)
+
+	err = vmgr.VersionFlushed(1, 9, 1)
+	require.NoError(t, err)
+
+	err = vmgr.VersionFlushed(2, 9, 1)
 	require.NoError(t, err)
 
 	require.Equal(t, 9, vmgr.getLastVersionToFlush())
@@ -1153,6 +1217,7 @@ func TestVersionFlushedTakeMinVersion(t *testing.T) {
 func TestVersionFlushedAllProcessorsCallIn(t *testing.T) {
 	cfg := &conf.Config{}
 	cfg.ApplyDefaults()
+	cfg.ProcessorCount = 3
 
 	cfg.VersionManagerStoreFlushedInterval = 10 * time.Millisecond
 	seqMgr := sequence.NewInMemSequenceManager()
@@ -1174,22 +1239,19 @@ func TestVersionFlushedAllProcessorsCallIn(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	err := vmgr.VersionFlushed(0, 7, 10, 1)
+	err := vmgr.VersionFlushed(0, 7, 1)
 	require.NoError(t, err)
 
-	err = vmgr.VersionFlushed(1, 7, 16, 1)
+	err = vmgr.VersionFlushed(1, 7, 1)
 	require.NoError(t, err)
 
-	err = vmgr.VersionFlushed(2, 7, 5, 1)
+	err = vmgr.VersionFlushed(1, 7, 1)
 	require.NoError(t, err)
 
 	// not all processors called in
 	require.Equal(t, -1, vmgr.getLastVersionToFlush())
 
-	err = vmgr.VersionFlushed(0, 7, 16, 1)
-	require.NoError(t, err)
-
-	err = vmgr.VersionFlushed(2, 7, 16, 1)
+	err = vmgr.VersionFlushed(2, 7, 1)
 	require.NoError(t, err)
 
 	// Wait for it to be flushed to level manager
@@ -1202,6 +1264,7 @@ func TestVersionFlushedAllProcessorsCallIn(t *testing.T) {
 func TestShutdown(t *testing.T) {
 	cfg := &conf.Config{}
 	cfg.ApplyDefaults()
+	cfg.ProcessorCount = 3
 
 	seqMgr := sequence.NewInMemSequenceManager()
 	vmgr, remotingServer, _, lmgrClient := setupWithSeqMgrWithActivate(t, seqMgr, cfg, true)
@@ -1235,13 +1298,13 @@ func TestShutdown(t *testing.T) {
 		}
 	}()
 
-	err := vmgr.VersionFlushed(0, completed, 16, 1)
+	err := vmgr.VersionFlushed(0, completed, 1)
 	require.NoError(t, err)
 
-	err = vmgr.VersionFlushed(1, completed, 16, 1)
+	err = vmgr.VersionFlushed(1, completed, 1)
 	require.NoError(t, err)
 
-	err = vmgr.VersionFlushed(2, completed, 16, 1)
+	err = vmgr.VersionFlushed(2, completed, 1)
 	require.NoError(t, err)
 
 	waitForFlushedVersion(t, lmgrClient, completed)

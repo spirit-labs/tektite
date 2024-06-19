@@ -73,31 +73,21 @@ func (s *Server) executePhase(msg *clustermsgs.ShutdownMessage, completionFunc f
 	case 3:
 		log.Debugf("node %d executing store flush", s.conf.NodeID)
 
-		// All data has been written, we can flush. Note, completion of this stage does not mean all data is
-		// actually flushed from the store, it may not be able to flush some data because version > last completed.
-		// Until version manager is shutdown and further versions complete, the store still needs to
-		// respond to last completed version broadcasts and flush versions.
-		err = s.store.Flush(true, true)
+		// All data has been written, we can flush.
+		err = s.processorManager.FlushAllProcessors(true)
 
 		log.Debugf("node %d shutdown, store flush called, err: %v", s.conf.NodeID, err)
 	case 4:
-		// shutdown the version manager - this waits for specified version to be flushed and stores it in the
+		// shutdown the version manager - this waits for version to be flushed and stores it in the
 		// level manager
 		log.Debugf("node %d shutdown, calling vmgr shutdown", s.conf.NodeID)
 		versionManagerFlushed, err = s.versionManager.Shutdown()
 		log.Debugf("node %d shutdown, version manager shutdown called, flushed: %t err: %v",
 			s.conf.NodeID, versionManagerFlushed, err)
 	case 5:
-		// Now we can now shut down the store - this needs to be done before level manager is shut down, as there can
-		// be a call register tables with level manager in progress. Stopping the store will wait for that to complete
-		// before shutting down level manager
-		log.Debug("shutting down store")
-		err = s.store.Stop()
-		if err == nil {
-			// Now we must acquiesce the level manager replicator - this is necessary, so we don't get attempts to apply
-			// actions on the level manager after it has shutdown
-			err = s.processorManager.AcquiesceLevelManagerProcessor()
-		}
+		// Now we must acquiesce the level manager replicator - this is necessary, so we don't get attempts to apply
+		// actions on the level manager after it has shutdown
+		err = s.processorManager.AcquiesceLevelManagerProcessor()
 		log.Debug("acquiesced level manager processor")
 	case 6:
 		levelManagerFlushed, err = s.levelManagerService.Shutdown()

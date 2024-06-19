@@ -346,7 +346,6 @@ type scriptTest struct {
 	outFile      string
 	output       *strings.Builder
 	rnd          *rand.Rand
-	server       *server.Server
 	topics       []*fake.Topic
 	cli          *cli.Cli
 	clientNodeID int
@@ -394,7 +393,6 @@ func (st *scriptTest) run() {
 func (st *scriptTest) runTestIteration(require *require.Assertions, commands []string, iter int) int {
 	log.Infof("%s: Running test iteration %d", st.testName, iter)
 	start := time.Now()
-	st.server = st.chooseServer()
 	st.output = &strings.Builder{}
 	st.cli = st.createCli(require)
 	numIters := 1
@@ -436,8 +434,6 @@ func (st *scriptTest) runTestIteration(require *require.Assertions, commands []s
 			st.executeRestartCluster(require)
 		} else if strings.HasPrefix(command, "--pause") {
 			st.executePause(require, command)
-		} else if strings.HasPrefix(command, "--flush data") {
-			st.executeFlush(require)
 		} else if strings.HasPrefix(command, "--breakpoint") {
 			// Add a breakpoint in your debugger here, then add "--breakpoint" to your test script and it will stop at
 			// that line, then you can add further breakpoints in your code
@@ -507,6 +503,7 @@ func (st *scriptTest) runTestIteration(require *require.Assertions, commands []s
 
 func (st *scriptTest) verifyRemainingData(require *require.Assertions) {
 	// Now we verify that the test has left the cluster in a clean state
+	start := time.Now()
 	log.Infof("%s: verifying data at end of test", st.testName)
 	for _, s := range st.testSuite.tektiteCluster {
 
@@ -523,13 +520,14 @@ func (st *scriptTest) verifyRemainingData(require *require.Assertions) {
 		}
 	}
 
-	// We check there's no remaining user data in the store. Note that tombstones are written on the owning processor
-	// and may not have been pushed to the LSM yet, so we might expect to see user data if we create the iterator on
-	// a node different to the one that owns the processor. This is ok the tombstone will eventally be flushed to the LSM.
-	// So, if we detect data for a user partition we check on the owning node that there is no data.
-	for _, s := range st.testSuite.tektiteCluster {
-		store := s.GetStore()
-		iter, err := store.NewIterator(nil, nil, math.MaxUint64, false)
+	// We check there's no remaining user data that hasn't been deleted
+	procCount := st.testSuite.tektiteCluster[0].GetConfig().ProcessorCount
+	for procID := 0; procID < procCount; procID++ {
+		leaderNode, err := st.testSuite.tektiteCluster[0].GetProcessorManager().GetLeaderNode(procID)
+		require.NoError(err)
+		processor := st.testSuite.tektiteCluster[leaderNode].GetProcessorManager().GetProcessor(procID)
+		require.NotNil(processor)
+		iter, err := processor.NewIterator(nil, nil, math.MaxUint64, false)
 		require.NoError(err)
 		for {
 			valid, err := iter.IsValid()
@@ -538,23 +536,24 @@ func (st *scriptTest) verifyRemainingData(require *require.Assertions) {
 				break
 			}
 			k := iter.Current().Key
-			slabID := binary.BigEndian.Uint64(k[16:])
+			slabID := int(binary.BigEndian.Uint64(k[16:]))
+
 			if slabID >= common.UserSlabIDBase {
-				// There is user data
 				// Find which processor and node owns this prefix
 				partitionHash := k[:16]
-				processorID := proc.CalcProcessorForHash(partitionHash, s.GetConfig().ProcessorCount)
-				processorNode, err := s.GetProcessorManager().GetLeaderNode(processorID)
+				owningProcessorID := proc.CalcProcessorForHash(partitionHash, procCount)
+				processorNode, err := st.testSuite.tektiteCluster[0].GetProcessorManager().GetLeaderNode(owningProcessorID)
 				require.NoError(err)
+				processor = st.testSuite.tektiteCluster[processorNode].GetProcessorManager().GetProcessor(owningProcessorID)
+				require.NotNil(processor)
 				// Then on this node there should be no data for this partition. The only reason we see data on
 				// other nodes is because tombstone hasn't been pushed to level manager yet, but when executed on
 				// the owning node, no data should be seen
-				store2 := st.testSuite.tektiteCluster[processorNode].GetStore()
 				prefix := k[:24]
 				rangeEnd := common.IncrementBytesBigEndian(prefix)
 				// Now wait until valid as deleting streams is async
 				ok, err := testutils.WaitUntilWithError(func() (bool, error) {
-					iter2, err := store2.NewIterator(prefix, rangeEnd, math.MaxUint64, false)
+					iter2, err := processor.NewIterator(prefix, rangeEnd, math.MaxUint64, false)
 					if err != nil {
 						return false, err
 					}
@@ -564,19 +563,21 @@ func (st *scriptTest) verifyRemainingData(require *require.Assertions) {
 						return false, err
 					}
 					if valid {
-						log.Debugf("found remaining data for prefix %v slabID %d on node %d", prefix, slabID, processorNode)
+						log.Errorf("found data for prefix %v slabID %d on node %d processor id %d - key %v value %v", prefix,
+							slabID, processorNode, processor.ID(), iter2.Current().Key, iter2.Current().Value)
 					}
 					// We don't want to see any data
 					return !valid, nil
 				}, 10*time.Second, 25*time.Millisecond)
+				require.True(ok)
 				require.NoError(err)
-				require.True(ok, "found remaining data at end of test")
 			}
 			err = iter.Next()
 			require.NoError(err)
 		}
 		iter.Close()
 	}
+	log.Infof("verifying data at end of test took %d ms", time.Since(start).Milliseconds())
 }
 
 var prefixCompareLines = []string{"Internal error - reference:"}
@@ -942,15 +943,6 @@ func (st *scriptTest) executePause(require *require.Assertions, command string) 
 	log.Debugf("Pausing for %d ms", pauseTime)
 	time.Sleep(time.Duration(pauseTime) * time.Millisecond)
 	require.NoError(err)
-}
-
-func (st *scriptTest) executeFlush(require *require.Assertions) {
-	ver := st.getMaxInProgressVersion()
-	for _, s := range st.testSuite.tektiteCluster {
-		err := s.GetStore().Flush(true, false)
-		require.NoError(err)
-	}
-	st.waitForVersion(require, ver, false)
 }
 
 func (st *scriptTest) executeTektiteStatement(require *require.Assertions, statement string) {

@@ -23,7 +23,6 @@ type BackfillOperator struct {
 	cfg                  *conf.Config
 	receiverID           int
 	schema               *OperatorSchema
-	store                store
 	fromSlabID           int
 	offsetsSlabID        int
 	lagging              bool
@@ -48,7 +47,7 @@ type iteratorInfo struct {
 	closed           atomic.Bool
 }
 
-func NewBackfillOperator(schema *OperatorSchema, store store, cfg *conf.Config, fromSlabID int, offsetsSlabID,
+func NewBackfillOperator(schema *OperatorSchema, cfg *conf.Config, fromSlabID int, offsetsSlabID,
 	maxBackfillBatchSize int, receiverID int, storeCommittedAsync bool) *BackfillOperator {
 	if !HasOffsetColumn(schema.EventSchema) {
 		panic("input not a stored stream")
@@ -65,7 +64,6 @@ func NewBackfillOperator(schema *OperatorSchema, store store, cfg *conf.Config, 
 	return &BackfillOperator{
 		id:                   uuid.New().String(),
 		schema:               schema,
-		store:                store,
 		cfg:                  cfg,
 		fromSlabID:           fromSlabID,
 		offsetsSlabID:        offsetsSlabID,
@@ -76,6 +74,22 @@ func NewBackfillOperator(schema *OperatorSchema, store store, cfg *conf.Config, 
 		storeCommittedAsync:  storeCommittedAsync,
 		hashCache:            newPartitionHashCache(schema.MappingID, schema.Partitions),
 	}
+}
+
+func (b *BackfillOperator) loadCommittedOffsetForPartition(execCtx StreamExecContext) (int64, bool, error) {
+	partitionHash := b.hashCache.getHash(execCtx.PartitionID())
+	key := encoding.EncodeEntryPrefix(partitionHash, uint64(b.offsetsSlabID), 24)
+	value, err := execCtx.Get(key)
+	if err != nil {
+		return 0, false, err
+	}
+	var offset int64
+	if value == nil {
+		return 0, false, nil
+	}
+	u := binary.LittleEndian.Uint64(value)
+	offset = int64(u)
+	return offset, true, nil
 }
 
 func (b *BackfillOperator) storeCommittedOffSetForPartition(offset int64, execCtx StreamExecContext) {
@@ -245,7 +259,7 @@ func (b *BackfillOperator) Setup(mgr StreamManagerCtx) error {
 	return nil
 }
 
-func (b *BackfillOperator) Teardown(mgr StreamManagerCtx, _ *sync.RWMutex) {
+func (b *BackfillOperator) Teardown(mgr StreamManagerCtx, cb func(error)) {
 	b.stopLock.Lock()
 	defer b.stopLock.Unlock()
 	b.stopped = true
@@ -255,6 +269,7 @@ func (b *BackfillOperator) Teardown(mgr StreamManagerCtx, _ *sync.RWMutex) {
 		value.(*common.TimerHandle).Stop()
 		return true
 	})
+	cb(nil)
 }
 
 func (b *BackfillOperator) processorChange(processor proc.Processor, started bool, _ bool) {
@@ -325,7 +340,6 @@ func (b *BackfillOperator) processorsChanged(processor proc.Processor, started b
 
 func (b *BackfillOperator) initialiseIterator(execCtx StreamExecContext, info *iteratorInfo) error {
 	execCtx.CheckInProcessorLoop()
-	partID := execCtx.PartitionID()
 	offset, ok, err := b.loadCommittedOffsetForPartition(execCtx)
 	if err != nil {
 		return err
@@ -337,40 +351,24 @@ func (b *BackfillOperator) initialiseIterator(execCtx StreamExecContext, info *i
 		// Start at one past the last committed
 		offset++
 	}
-	return b.initialiseIteratorAtOffset(partID, offset, info)
+	return b.initialiseIteratorAtOffset(execCtx, offset, info)
 }
 
-func (b *BackfillOperator) initialiseIteratorAtOffset(partID int, offset int64, info *iteratorInfo) error {
-	partitionHash := b.hashCache.getHash(partID)
+func (b *BackfillOperator) initialiseIteratorAtOffset(execCtx StreamExecContext, offset int64, info *iteratorInfo) error {
+	partitionHash := b.hashCache.getHash(execCtx.PartitionID())
 	keyStart := encoding.EncodeEntryPrefix(partitionHash, uint64(b.fromSlabID), 33)
 	keyStart = append(keyStart, 1) // not null
 	keyStart = encoding.KeyEncodeInt(keyStart, offset)
 	keyEnd := encoding.EncodeEntryPrefix(partitionHash, uint64(b.fromSlabID)+1, 24)
-	iter, err := b.store.NewIterator(keyStart, keyEnd, math.MaxInt64, false)
+	iter, err := execCtx.Processor().NewIterator(keyStart, keyEnd, math.MaxInt64, false)
 	if err != nil {
 		return err
 	}
 	info.lagging = true
 	info.iter = iter
-	info.partID = partID
+	info.partID = execCtx.PartitionID()
 	info.initialised = true
 	return nil
-}
-
-func (b *BackfillOperator) loadCommittedOffsetForPartition(execCtx StreamExecContext) (int64, bool, error) {
-	partitionHash := b.hashCache.getHash(execCtx.PartitionID())
-	key := encoding.EncodeEntryPrefix(partitionHash, uint64(b.offsetsSlabID), 24)
-	value, err := execCtx.Get(key)
-	if err != nil {
-		return 0, false, err
-	}
-	var offset int64
-	if value == nil {
-		return 0, false, nil
-	}
-	u := binary.LittleEndian.Uint64(value)
-	offset = int64(u)
-	return offset, true, nil
 }
 
 func (b *BackfillOperator) loadBatchForPartition(partID int) (*evbatch.Batch, error) {

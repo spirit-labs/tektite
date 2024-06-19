@@ -27,7 +27,7 @@ type LevelManagerService struct {
 }
 
 const (
-	ApplyChangesCommand byte = iota + 10
+	ApplyChangesCommand byte = iota + 100
 	RegisterDeadVersionRangeCommand
 	StoreLastFlushedVersionCommand
 	RegisterSlabRetentionCommand

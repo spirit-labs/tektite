@@ -3,10 +3,10 @@ package opers
 import (
 	"fmt"
 	"github.com/spirit-labs/tektite/conf"
+	"github.com/spirit-labs/tektite/iteration"
 	"github.com/spirit-labs/tektite/kafka"
 	"github.com/spirit-labs/tektite/mem"
 	"github.com/spirit-labs/tektite/proc"
-	store2 "github.com/spirit-labs/tektite/store"
 	"github.com/spirit-labs/tektite/tppm"
 	"github.com/stretchr/testify/require"
 	"sync/atomic"
@@ -28,26 +28,18 @@ func TestBridgeFromIngestAndConvertToEventBatch(t *testing.T) {
 		msgs = append(msgs, msg)
 	}
 
-	st := store2.TestStore()
-	err := st.Start()
-	require.NoError(t, err)
-	defer func() {
-		err := st.Stop()
-		require.NoError(t, err)
-	}()
-
 	cfg := &conf.Config{}
 	cfg.ApplyDefaults()
 
 	var ingestedMessageCount uint64
 
-	procMgr := tppm.NewTestProcessorManager(st)
+	procMgr := tppm.NewTestProcessorManager()
 	ingestEnabled := atomic.Bool{}
 	ingestEnabled.Store(true)
 	var lastFlushedVersion int64 = -1
 	oper, err := NewBridgeFromOperator(receiverID, defaultPollTimeout, defaultMaxMessages, topicName,
 		10, kafkaProps, msgClientFact{}.createTestMessageClient, false,
-		st, procMgr, 1001, cfg, &ingestedMessageCount, "fk", &ingestEnabled, &lastFlushedVersion)
+		procMgr, 1001, cfg, &ingestedMessageCount, "fk", &ingestEnabled, &lastFlushedVersion)
 	require.NoError(t, err)
 
 	processor := &capturingProcessor{}
@@ -71,6 +63,18 @@ func TestBridgeFromIngestAndConvertToEventBatch(t *testing.T) {
 
 type capturingProcessor struct {
 	processBatch *proc.ProcessBatch
+}
+
+func (cp *capturingProcessor) Get(key []byte) ([]byte, error) {
+	return nil, nil
+}
+
+func (cp *capturingProcessor) GetWithMaxVersion(key []byte, maxVersion uint64) ([]byte, error) {
+	return nil, nil
+}
+
+func (cp *capturingProcessor) NewIterator(keyStart []byte, keyEnd []byte, highestVersion uint64, preserveTombstones bool) (iteration.Iterator, error) {
+	return nil, nil
 }
 
 func (cp *capturingProcessor) LoadLastProcessedReplBatchSeq(int) (int64, error) {
@@ -162,31 +166,26 @@ func (cp *capturingProcessor) ID() int {
 }
 
 func TestLoadStoreLastOffset(t *testing.T) {
-	st := store2.TestStore()
-	err := st.Start()
-	require.NoError(t, err)
-	defer func() {
-		err := st.Stop()
-		require.NoError(t, err)
-	}()
-
 	cfg := &conf.Config{}
 	cfg.ApplyDefaults()
 	var ingestedMessageCount uint64
-	procMgr := tppm.NewTestProcessorManager(st)
+	procMgr := tppm.NewTestProcessorManager()
 	ingestEnabled := atomic.Bool{}
 	ingestEnabled.Store(true)
 	var lastFlushedVersion int64 = -1
 	oper, err := NewBridgeFromOperator(1001, defaultPollTimeout, defaultMaxMessages, "test_topic",
 		10, map[string]string{}, msgClientFact{}.createTestMessageClient, false,
-		st, procMgr, 1001, cfg, &ingestedMessageCount, "fk", &ingestEnabled, &lastFlushedVersion)
+		procMgr, 1001, cfg, &ingestedMessageCount, "fk", &ingestEnabled, &lastFlushedVersion)
 	require.NoError(t, err)
 
-	off, err := oper.loadLastOffset(9, 1000)
+	st := tppm.NewTestStore()
+	p := &testProcessor{id: 23, st: st}
+
+	off, err := oper.loadLastOffset(9, 1000, p)
 	require.NoError(t, err)
 	require.Equal(t, int64(-1), off)
 
-	ec := &testExecCtx{partitionID: 9, processor: &testProcessor{id: 23}, version: 500}
+	ec := &testExecCtx{partitionID: 9, processor: p, version: 500}
 
 	oper.storeLastOffset(9, 1000, ec)
 	batch := mem.NewBatch()
@@ -195,11 +194,11 @@ func TestLoadStoreLastOffset(t *testing.T) {
 	err = st.Write(batch)
 	require.NoError(t, err)
 
-	off, err = oper.loadLastOffset(9, 500)
+	off, err = oper.loadLastOffset(9, 500, p)
 	require.NoError(t, err)
 	require.Equal(t, int64(1000), off)
 
-	off, err = oper.loadLastOffset(9, 499)
+	off, err = oper.loadLastOffset(9, 499, p)
 	require.NoError(t, err)
 	require.Equal(t, int64(-1), off)
 }

@@ -224,8 +224,8 @@ func checkErrorAndCallCompletion(completionFunc func(error), err error) {
 }
 
 func getReplicator(manager proc.Manager, processorID int) (*replicator, error) {
-	processor, ok := manager.GetProcessor(processorID)
-	if !ok {
+	processor := manager.GetProcessor(processorID)
+	if processor == nil {
 		return nil, errors.NewTektiteErrorf(errors.Unavailable, "no processor available when getting replicator")
 	}
 	if processor.IsLeader() {

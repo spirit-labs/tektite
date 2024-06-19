@@ -5,7 +5,6 @@ import (
 	"github.com/spirit-labs/tektite/encoding"
 	"github.com/spirit-labs/tektite/evbatch"
 	"github.com/spirit-labs/tektite/proc"
-	store2 "github.com/spirit-labs/tektite/store"
 	"github.com/spirit-labs/tektite/types"
 	"github.com/stretchr/testify/require"
 	"math"
@@ -43,15 +42,12 @@ func TestStoreOperator(t *testing.T) {
 
 func createStoreOperator(t *testing.T, columnNamesIn []string, columnTypesIn []types.ColumnType) *StoreStreamOperator {
 	inSchema := evbatch.NewEventSchema(columnNamesIn, columnTypesIn)
-	st := store2.TestStore()
-	err := st.Start()
-	require.NoError(t, err)
 	partitionCount := 10
 	opSchema := &OperatorSchema{
 		EventSchema:     inSchema,
 		PartitionScheme: NewPartitionScheme("test_stream", partitionCount, false, 10),
 	}
-	to, err := NewStoreStreamOperator(opSchema, 1001, -1, st, -1)
+	to, err := NewStoreStreamOperator(opSchema, 1001, -1, -1)
 	require.NoError(t, err)
 	return to
 }

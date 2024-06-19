@@ -6,12 +6,14 @@ import (
 	"github.com/spirit-labs/tektite/encoding"
 	"github.com/spirit-labs/tektite/evbatch"
 	"github.com/spirit-labs/tektite/expr"
+	"github.com/spirit-labs/tektite/iteration"
 	"github.com/spirit-labs/tektite/mem"
 	"github.com/spirit-labs/tektite/parser"
 	"github.com/spirit-labs/tektite/proc"
-	store2 "github.com/spirit-labs/tektite/store"
+	"github.com/spirit-labs/tektite/tppm"
 	"github.com/spirit-labs/tektite/types"
 	"github.com/stretchr/testify/require"
+	"math"
 	"sync"
 	"testing"
 	"time"
@@ -223,14 +225,15 @@ func TestWindowedAggLateEventsDropped8(t *testing.T) {
 
 func testWindowedAggLateEventsDropped(t *testing.T, latenessMs int, waterMark int) {
 	tableID := 1001
-	agg, st := setupAgg(t, latenessMs, tableID, false)
+	agg := setupAgg(t, latenessMs, tableID, false)
 	partitionID := 1
 	ppm := agg.processSchema.PartitionScheme.PartitionProcessorMapping
 	processorID := ppm[partitionID]
 	version := 12345
 
+	st := tppm.NewTestStore()
 	// Send initial watermark
-	sendWaterMarkAndGetEntries(t, agg, waterMark, processorID, version)
+	sendWaterMarkAndGetEntries(t, st, agg, waterMark, processorID, version)
 
 	inData := [][]any{
 		{types.NewTimestamp(105), "UK", int64(3)},
@@ -238,9 +241,9 @@ func testWindowedAggLateEventsDropped(t *testing.T, latenessMs int, waterMark in
 		{types.NewTimestamp(105), "USA", int64(7)},
 		{types.NewTimestamp(105), "USA", int64(5)},
 	}
-	sendAggWindowBatch(t, inData, agg, st, version, partitionID)
+	sendAggWindowBatch(t, inData, agg, tppm.NewTestStore(), version, partitionID)
 
-	entries := sendWaterMarkAndGetEntries(t, agg, waterMark+10, processorID, version)
+	entries := sendWaterMarkAndGetEntries(t, st, agg, waterMark+10, processorID, version)
 	require.Equal(t, 0, len(entries))
 }
 
@@ -262,14 +265,15 @@ func TestWindowedAggEventsNotDropped4(t *testing.T) {
 
 func testWindowedAggEventsNotDropped(t *testing.T, latenessMs int, waterMark int) {
 	tableID := 1001
-	agg, st := setupAgg(t, latenessMs, tableID, false)
+	agg := setupAgg(t, latenessMs, tableID, false)
 	partitionID := 1
 	ppm := agg.processSchema.PartitionScheme.PartitionProcessorMapping
 	processorID := ppm[partitionID]
 	version := 12345
 
+	st := tppm.NewTestStore()
 	// Send initial watermark
-	sendWaterMarkAndGetEntries(t, agg, waterMark, processorID, version)
+	sendWaterMarkAndGetEntries(t, st, agg, waterMark, processorID, version)
 
 	inData := [][]any{
 		{types.NewTimestamp(105), "UK", int64(3)},
@@ -304,23 +308,24 @@ func testWindowedAggEventsNotDropped(t *testing.T, latenessMs int, waterMark int
 
 	// Send a high watermark to make sure any non dropped batch gets published
 
-	sendWaterMarkAndVerifyEntries(t, agg, 1000, partitionID, processorID, version, outData, 10, 20,
+	sendWaterMarkAndVerifyEntries(t, st, agg, 1000, partitionID, processorID, version, outData, 10, 20,
 		30, 40, 50, 60, 70, 80, 90, 100)
 }
 
 func testWindowedAgg(t *testing.T, inData [][]any, outData [][]any, waterMark int, latenessMs int, offset bool, closedWindows ...int) {
 	tableID := 1001
-	agg, st := setupAgg(t, latenessMs, tableID, offset)
+	agg := setupAgg(t, latenessMs, tableID, offset)
 
 	partitionID := 1
 	version := 12345
+	st := tppm.NewTestStore()
 	sendAggWindowBatch(t, inData, agg, st, version, partitionID)
 	processorID := agg.processSchema.PartitionScheme.PartitionProcessorMapping[partitionID]
 
-	sendWaterMarkAndVerifyEntries(t, agg, waterMark, partitionID, processorID, version, outData, closedWindows...)
+	sendWaterMarkAndVerifyEntries(t, st, agg, waterMark, partitionID, processorID, version, outData, closedWindows...)
 }
 
-func setupAgg(t *testing.T, latenessMs int, tableID int, offset bool) (*AggregateOperator, *store2.Store) {
+func setupAgg(t *testing.T, latenessMs int, tableID int, offset bool) *AggregateOperator {
 	inColumnNames := []string{"offset", "event_time", "country", "amount"}
 	inColumnTypes := []types.ColumnType{types.ColumnTypeInt, types.ColumnTypeTimestamp, types.ColumnTypeString, types.ColumnTypeInt}
 	if !offset {
@@ -334,9 +339,6 @@ func setupAgg(t *testing.T, latenessMs int, tableID int, offset bool) (*Aggregat
 	outColumnTypes := []types.ColumnType{types.ColumnTypeTimestamp, types.ColumnTypeTimestamp, types.ColumnTypeTimestamp, types.ColumnTypeString, types.ColumnTypeInt}
 
 	inSchema := evbatch.NewEventSchema(inColumnNames, inColumnTypes)
-	st := store2.TestStore()
-	err := st.Start()
-	require.NoError(t, err)
 	operSchema := &OperatorSchema{
 		EventSchema:     inSchema,
 		PartitionScheme: NewPartitionScheme("test_stream", 10, false, 10),
@@ -353,16 +355,16 @@ func setupAgg(t *testing.T, latenessMs int, tableID int, offset bool) (*Aggregat
 	}
 	agg, err := NewAggregateOperator(operSchema, aggDesc, tableID,
 		1002, 1003, 1004, time.Duration(100)*time.Millisecond,
-		time.Duration(10)*time.Millisecond, st, time.Duration(latenessMs)*time.Millisecond, false, true,
+		time.Duration(10)*time.Millisecond, time.Duration(latenessMs)*time.Millisecond, false, true,
 		&expr.ExpressionFactory{})
 	require.NoError(t, err)
 	require.Equal(t, outColumnNames, agg.aggStateSchema.ColumnNames())
 	require.Equal(t, outColumnTypes, agg.aggStateSchema.ColumnTypes())
-	return agg, st
+	return agg
 }
 
 func sendAggWindowBatch(t *testing.T, inData [][]any, agg *AggregateOperator,
-	st *store2.Store, version int, partitionID int) {
+	st tppm.Store, version int, partitionID int) {
 
 	inSchema := agg.inSchema.EventSchema
 
@@ -374,7 +376,7 @@ func sendAggWindowBatch(t *testing.T, inData [][]any, agg *AggregateOperator,
 	ctx := &testExecCtx{
 		version:     version,
 		partitionID: partitionID,
-		processor:   &testProcessor{id: processorID},
+		processor:   &testProcessor{id: processorID, st: tppm.NewTestStore()},
 	}
 	_, err := agg.HandleStreamBatch(batch, ctx)
 	require.NoError(t, err)
@@ -388,14 +390,14 @@ func sendAggWindowBatch(t *testing.T, inData [][]any, agg *AggregateOperator,
 	require.NoError(t, err)
 }
 
-func sendWaterMarkAndVerifyEntries(t *testing.T, agg *AggregateOperator, waterMark int, partitionID int,
+func sendWaterMarkAndVerifyEntries(t *testing.T, st tppm.Store, agg *AggregateOperator, waterMark int, partitionID int,
 	processorID int, version int, expectedOutData [][]any, closedWindows ...int) {
 
 	captureOper := &capturingOperator{}
 	agg.AddDownStreamOperator(captureOper)
 
 	// Send watermark and get published entries
-	entries := sendWaterMarkAndGetEntries(t, agg, waterMark, processorID, version)
+	entries := sendWaterMarkAndGetEntries(t, st, agg, waterMark, processorID, version)
 
 	if len(entries) == 0 {
 		require.Equal(t, len(expectedOutData), 0)
@@ -435,7 +437,7 @@ func sendWaterMarkAndVerifyEntries(t *testing.T, agg *AggregateOperator, waterMa
 	}
 }
 
-func sendWaterMarkAndGetEntries(t *testing.T, ao *AggregateOperator, waterMark int, processorID int, version int) []common.KV {
+func sendWaterMarkAndGetEntries(t *testing.T, st tppm.Store, ao *AggregateOperator, waterMark int, processorID int, version int) []common.KV {
 	ctx := &windowedAggExecCtx{
 		version:   version,
 		waterMark: waterMark,
@@ -444,6 +446,7 @@ func sendWaterMarkAndGetEntries(t *testing.T, ao *AggregateOperator, waterMark i
 		id:         processorID,
 		agg:        ao,
 		sendingCtx: ctx,
+		st:         st,
 	}
 	ctx.processor = processor
 	err := ao.HandleBarrier(ctx)
@@ -535,6 +538,19 @@ type windowedAggProcessor struct {
 	id         int
 	agg        *AggregateOperator
 	sendingCtx *windowedAggExecCtx
+	st         tppm.Store
+}
+
+func (w *windowedAggProcessor) Get(key []byte) ([]byte, error) {
+	return w.st.GetWithMaxVersion(key, math.MaxUint64)
+}
+
+func (w *windowedAggProcessor) GetWithMaxVersion(key []byte, maxVersion uint64) ([]byte, error) {
+	return w.st.GetWithMaxVersion(key, maxVersion)
+}
+
+func (w *windowedAggProcessor) NewIterator(keyStart []byte, keyEnd []byte, highestVersion uint64, preserveTombstones bool) (iteration.Iterator, error) {
+	return w.st.NewIterator(keyStart, keyEnd, int64(highestVersion), preserveTombstones)
 }
 
 func (w *windowedAggProcessor) LoadLastProcessedReplBatchSeq(int) (int64, error) {

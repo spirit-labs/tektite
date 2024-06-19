@@ -61,6 +61,12 @@ func NewMemtable(arena *arenaskl.Arena, nodeID int, maxSizeBytes int) *Memtable 
 	return mt
 }
 
+func (m *Memtable) Close() {
+	m.arena = nil
+	m.sl = nil
+	m.flushedCallbacks = nil
+}
+
 type writeBatch interface {
 	MemTableBytes() int64
 	Range(f func(key []byte, value []byte) bool)
@@ -129,7 +135,7 @@ func (m *Memtable) AddFlushedCallback(flushedCallback func(error)) {
 	m.flushedCallbacksLock.Unlock()
 }
 
-func (m *Memtable) Flushed(err error) error {
+func (m *Memtable) Flushed(err error) {
 	// If ok = true, the memtable has been successfully flushed to storage we now call all flushed callbacks
 	// If ok = false, memtable not pushed - most likely store has been halted (in tests), we still call the callbacks
 	// in this case, but with err
@@ -139,7 +145,6 @@ func (m *Memtable) Flushed(err error) error {
 		cb(err)
 	}
 	m.flushedCallbacks = nil
-	return nil
 }
 
 func (m *Memtable) GetLastKey() []byte {

@@ -107,10 +107,10 @@ func TestCompaction(t *testing.T) {
 
 	// Wait until all local data has been flushed
 	for _, server := range servers {
-		st := server.GetStore()
+		st := server.GetProcessorManager()
 		lcv := st.GetLastCompletedVersion()
 		ok, err := testutils.WaitUntilWithError(func() (bool, error) {
-			return st.GetFlushedVersion() >= lcv, nil
+			return st.GetLastFlushedVersion() >= lcv, nil
 		}, 45*time.Second, 100*time.Millisecond)
 		require.NoError(t, err)
 		require.True(t, ok)

@@ -9,10 +9,11 @@ import (
 	"github.com/spirit-labs/tektite/evbatch"
 	"github.com/spirit-labs/tektite/levels"
 	"github.com/spirit-labs/tektite/mem"
+	"github.com/spirit-labs/tektite/objstore/dev"
 	"github.com/spirit-labs/tektite/proc"
 	"github.com/spirit-labs/tektite/remoting"
 	"github.com/spirit-labs/tektite/sequence"
-	"github.com/spirit-labs/tektite/store"
+	"github.com/spirit-labs/tektite/tabcache"
 	"github.com/spirit-labs/tektite/testutils"
 	"github.com/spirit-labs/tektite/types"
 	"github.com/spirit-labs/tektite/vmgr"
@@ -34,13 +35,6 @@ as the batch ids increase, and that the batches received on the terminal receive
 */
 func TestSnapshotVersions(t *testing.T) {
 	t.Parallel()
-	st := store.TestStore()
-	err := st.Start()
-	require.NoError(t, err)
-	defer func() {
-		err := st.Stop()
-		require.NoError(t, err)
-	}()
 
 	seqMgr := sequence.NewInMemSequenceManager()
 
@@ -71,6 +65,7 @@ func TestSnapshotVersions(t *testing.T) {
 		1000->2000--->3000
 		           |-->4000
 	*/
+	objStoreClient := dev.NewInMemStore(0)
 	for i := 0; i < numProcMgrs; i++ {
 		clustStateMgr := &testClustStateMgr{}
 		clustStateMgrs = append(clustStateMgrs, clustStateMgr)
@@ -102,10 +97,13 @@ func TestSnapshotVersions(t *testing.T) {
 		cfg.LogScope = t.Name()
 		cfg.NodeID = i
 		cfg.ClusterAddresses = remotingAddresses
-		mgr := proc.NewProcessorManager(clustStateMgr, hndlr, st, cfg, nil, func(processorID int) proc.BatchHandler {
+		lMgrClient := &testLevelMgrClient{lastFlushedVersion: -1}
+		tableCache, err := tabcache.NewTableCache(objStoreClient, cfg)
+		require.NoError(t, err)
+		mgr := proc.NewProcessorManagerWithFailure(clustStateMgr, hndlr, cfg, nil, func(processorID int) proc.BatchHandler {
 			return hndlr
-		}, nil, &testIngestNotifier{})
-		err := mgr.Start()
+		}, nil, &testIngestNotifier{}, objStoreClient, lMgrClient, tableCache, false)
+		err = mgr.Start()
 		require.NoError(t, err)
 		mgrs = append(mgrs, mgr)
 		//goland:noinspection GoDeferInLoop
@@ -114,8 +112,6 @@ func TestSnapshotVersions(t *testing.T) {
 			require.NoError(t, err)
 		}()
 		clustStateMgr.SetClusterStateHandler(mgr.HandleClusterState)
-
-		lMgrClient := &testLevelMgrClient{lastFlushedVersion: -1}
 
 		vMgr := vmgr.NewVersionManager(seqMgr, lMgrClient, cfg, remotingAddresses...)
 		mgr.RegisterStateHandler(vMgr.HandleClusterState)
@@ -243,8 +239,7 @@ func TestSnapshotVersions(t *testing.T) {
 		leaderNode, err := mgr1.GetLeaderNode(procID)
 		require.NoError(t, err)
 		injectMgr := mgrs[leaderNode]
-		processor, ok := injectMgr.GetProcessor(procID)
-		require.True(t, ok)
+		processor := injectMgr.GetProcessor(procID)
 		require.NotNil(t, processor)
 
 		colBuilders := evbatch.CreateColBuilders(schema.ColumnTypes())

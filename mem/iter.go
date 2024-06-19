@@ -105,4 +105,6 @@ func (m *MemtableIterator) IsValid() (bool, error) {
 }
 
 func (m *MemtableIterator) Close() {
+	m.it = nil
+	m.prevIt = nil
 }
