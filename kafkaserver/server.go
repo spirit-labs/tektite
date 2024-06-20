@@ -25,9 +25,8 @@ type store interface {
 	Get(key []byte) ([]byte, error)
 }
 
-func NewServer(cfg *conf.Config, metadataProvider MetadataProvider,
-	procProvider processorProvider, groupCoordinator *GroupCoordinator, store store,
-	streamMgr streamMgr) *Server {
+func NewServer(cfg *conf.Config, metadataProvider MetadataProvider, procProvider processorProvider,
+	groupCoordinator *GroupCoordinator, streamMgr streamMgr) *Server {
 	return &Server{
 		cfg:              cfg,
 		metadataProvider: metadataProvider,

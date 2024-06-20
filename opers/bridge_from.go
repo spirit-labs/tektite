@@ -22,7 +22,6 @@ type BridgeFromOperator struct {
 	schema               *OperatorSchema
 	lock                 sync.Mutex
 	procMgr              ProcessorManager
-	store                store
 	stopped              bool
 	receiverID           int
 	consumers            map[int]*consumerHolder
@@ -52,7 +51,7 @@ var KafkaSchema = evbatch.NewEventSchema([]string{OffsetColName, EventTimeColNam
 	[]types.ColumnType{types.ColumnTypeInt, types.ColumnTypeTimestamp, types.ColumnTypeBytes, types.ColumnTypeBytes, types.ColumnTypeBytes})
 
 func NewBridgeFromOperator(receiverID int, pollTimeout time.Duration, maxMessages int, topicName string, partitions int,
-	kafkaProps map[string]string, clientFactory kafka.ClientFactory, testDisableIngest bool, store store,
+	kafkaProps map[string]string, clientFactory kafka.ClientFactory, testDisableIngest bool,
 	procMgr ProcessorManager, offsetsSlabID int, cfg *conf.Config, ingestedMessageCount *uint64, mappingID string,
 	ingestEnabled *atomic.Bool, lastFlushedVersion *int64) (*BridgeFromOperator, error) {
 	schema := &OperatorSchema{
@@ -83,7 +82,6 @@ func NewBridgeFromOperator(receiverID int, pollTimeout time.Duration, maxMessage
 		procMgr:              procMgr,
 		cfg:                  cfg,
 		ingestedMessageCount: ingestedMessageCount,
-		store:                store,
 		offsetsSlabID:        uint64(offsetsSlabID),
 		ingestEnabled:        ingestEnabled,
 		lastFlushedVersion:   lastFlushedVersion,
@@ -430,10 +428,10 @@ func (c *consumerHolder) pause() {
 	c.stop(false)
 }
 
-func (bf *BridgeFromOperator) loadLastOffset(partitionID int, maxVersion uint64) (int64, error) {
+func (bf *BridgeFromOperator) loadLastOffset(partitionID int, maxVersion uint64, processor proc.Processor) (int64, error) {
 	partitionHash := bf.hashCache.getHash(partitionID)
 	key := encoding.EncodeEntryPrefix(partitionHash, bf.offsetsSlabID, 24)
-	v, err := bf.store.GetWithMaxVersion(key, maxVersion)
+	v, err := processor.GetWithMaxVersion(key, maxVersion)
 	if err != nil {
 		return 0, err
 	}
@@ -498,7 +496,7 @@ func (bf *BridgeFromOperator) getStartOffsetsForConsumer(holder *consumerHolder,
 		// Can be -1 if startup first time before any version is flushed
 		if version != -1 {
 			var err error
-			lastOffset, err = bf.loadLastOffset(partID, uint64(version))
+			lastOffset, err = bf.loadLastOffset(partID, uint64(version), holder.processor)
 			if err != nil {
 				return nil, err
 			}

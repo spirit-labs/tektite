@@ -14,10 +14,9 @@ type RowDeleteOperator struct {
 	slabID  uint64
 	keyCols []int
 	rowCols []int
-	store   store
 }
 
-func NewRowDeleteOperator(schema *OperatorSchema, slabID int, store store, keyCols []int) (*RowDeleteOperator, error) {
+func NewRowDeleteOperator(schema *OperatorSchema, slabID int, keyCols []int) (*RowDeleteOperator, error) {
 	// We create a schema with just the key cols
 	var columnNames []string
 	var columnTypes []types.ColumnType
@@ -32,7 +31,6 @@ func NewRowDeleteOperator(schema *OperatorSchema, slabID int, store store, keyCo
 			PartitionScheme: schema.PartitionScheme,
 		},
 		slabID:  uint64(slabID),
-		store:   store,
 		keyCols: keyCols,
 	}, nil
 }

@@ -120,6 +120,7 @@ type PartitionFetcher struct {
 	allocator         Allocator
 	evictCount        int64
 	partitionHash     []byte
+	processor         proc.Processor
 }
 
 type Waiter struct {
@@ -351,7 +352,7 @@ func (f *PartitionFetcher) fetchFromStore(fetchOffset int64, maxBytes int) ([]by
 	iterStart = append(iterStart, 1) // not null
 	iterStart = encoding.KeyEncodeInt(iterStart, fetchOffset)
 	iterEnd := encoding.EncodeEntryPrefix(f.partitionHash, slabId+1, 24)
-	iter, err := f.store.NewIterator(iterStart, iterEnd, math.MaxUint64, false)
+	iter, err := f.processor.NewIterator(iterStart, iterEnd, math.MaxUint64, false)
 	if err != nil {
 		return nil, err
 	}

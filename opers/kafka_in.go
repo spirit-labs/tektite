@@ -11,7 +11,7 @@ import (
 
 var RecordBatchSchema = evbatch.NewEventSchema([]string{"record_batch"}, []types.ColumnType{types.ColumnTypeBytes})
 
-func NewKafkaInOperator(mappingID string, store store, offsetsSlabID int, receiverID int, partitions int,
+func NewKafkaInOperator(mappingID string, offsetsSlabID int, receiverID int, partitions int,
 	useServerTimestamp bool, numProcessors int) *KafkaInOperator {
 	partitionScheme := NewPartitionScheme(mappingID, partitions, true, numProcessors)
 	inSchema := &OperatorSchema{
@@ -27,7 +27,6 @@ func NewKafkaInOperator(mappingID string, store store, offsetsSlabID int, receiv
 		nextOffsets[i] = -1
 	}
 	return &KafkaInOperator{
-		store:              store,
 		offsetsSlabID:      offsetsSlabID,
 		inSchema:           inSchema,
 		outSchema:          outSchema,
@@ -43,7 +42,6 @@ type KafkaInOperator struct {
 	BaseOperator
 	inSchema           *OperatorSchema
 	outSchema          *OperatorSchema
-	store              store
 	offsetsSlabID      int
 	receiverID         int
 	useServerTimestamp bool
@@ -87,14 +85,14 @@ func (k *KafkaInOperator) HandleStreamBatch(batch *evbatch.Batch, execCtx Stream
 	return nil, k.sendBatchDownStream(outBatch, execCtx)
 }
 
-func (k *KafkaInOperator) getNextOffset(partitionID int) (int64, error) {
+func (k *KafkaInOperator) getNextOffset(partitionID int, processor proc.Processor) (int64, error) {
 	nextOffset := k.nextOffsets[partitionID]
 	if nextOffset != -1 {
 		return nextOffset, nil
 	}
 	// Load from store
 	partitionHash := k.hashCache.getHash(partitionID)
-	return loadOffset(partitionHash, k.offsetsSlabID, k.store)
+	return loadOffset(partitionHash, k.offsetsSlabID, processor)
 }
 
 func (k *KafkaInOperator) convertRecordset(bytes []byte, execCtx StreamExecContext) (*evbatch.Batch, int64, error) {
@@ -113,7 +111,7 @@ func (k *KafkaInOperator) convertRecordset(bytes []byte, execCtx StreamExecConte
 	off := 57
 	numRecords := int(binary.BigEndian.Uint32(bytes[off:]))
 	off += 4
-	kOffset, err := k.getNextOffset(partitionID)
+	kOffset, err := k.getNextOffset(partitionID, execCtx.Processor())
 	if err != nil {
 		return nil, 0, err
 	}

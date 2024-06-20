@@ -8,7 +8,6 @@ import (
 	"github.com/spirit-labs/tektite/evbatch"
 	"github.com/spirit-labs/tektite/mem"
 	"github.com/spirit-labs/tektite/proc"
-	store2 "github.com/spirit-labs/tektite/store"
 	"github.com/spirit-labs/tektite/testutils"
 	"github.com/spirit-labs/tektite/tppm"
 	"github.com/spirit-labs/tektite/types"
@@ -297,7 +296,7 @@ func (l *loadExecCtx) Processor() proc.Processor {
 }
 
 func (l *loadExecCtx) Get(key []byte) ([]byte, error) {
-	return l.store.Get(key)
+	return l.Processor().Get(key)
 }
 
 func (l *loadExecCtx) BackFill() bool {

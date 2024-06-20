@@ -21,7 +21,6 @@ import (
 	"github.com/spirit-labs/tektite/query"
 	"github.com/spirit-labs/tektite/repli"
 	"github.com/spirit-labs/tektite/sequence"
-	"github.com/spirit-labs/tektite/store"
 	"github.com/spirit-labs/tektite/tabcache"
 	"github.com/spirit-labs/tektite/vmgr"
 	"github.com/spirit-labs/tektite/wasm"
@@ -118,8 +117,6 @@ func NewServerWithClientFactory(config conf.Config, clientFactory kafka.ClientFa
 	// We use the same instance of a level manager client for the store and prefix retentions service
 	levMgrClient := levelManagerClientFactory.CreateLevelManagerClient()
 
-	dataStore := store.NewStore(objStoreClient, levMgrClient, tableCache, config)
-
 	var compactionService *levels.CompactionWorkerService
 	if config.CompactionWorkersEnabled {
 		// each compaction worker has its own level manager client to avoid contention, so we pass in the factory
@@ -136,7 +133,7 @@ func NewServerWithClientFactory(config conf.Config, clientFactory kafka.ClientFa
 
 	theParser := parser.NewParser(&wasmFunctionChecker{moduleManager})
 
-	streamManager := opers.NewStreamManager(clientFactory, dataStore, levMgrClient, exprFactory, &config, false)
+	streamManager := opers.NewStreamManager(clientFactory, levMgrClient, exprFactory, &config, false)
 
 	handlerFactory := &batchHandlerFactory{
 		cfg:           &config,
@@ -144,17 +141,17 @@ func NewServerWithClientFactory(config conf.Config, clientFactory kafka.ClientFa
 	}
 	flushNotifier := &levelManagerFlushNotifier{}
 	vmgrClient := proc.NewVmgrClient(&config)
-	processorManager := proc.NewProcessorManagerWithVmgrClient(clustStateMgr, streamManager, dataStore,
-		&config, repli.NewReplicator, handlerFactory.createBatchHandler, flushNotifier, streamManager, !config.FailureDisabled,
-		vmgrClient)
+	processorManager := proc.NewProcessorManagerWithVmgrClient(clustStateMgr, streamManager,
+		&config, repli.NewReplicator, handlerFactory.createBatchHandler, flushNotifier, streamManager,
+		vmgrClient, objStoreClient, levMgrClient, tableCache, !config.FailureDisabled)
 	vmgrClient.SetProcessorManager(processorManager)
 	clustStateMgr.SetClusterStateHandler(processorManager.HandleClusterState)
 	processorManager.RegisterStateHandler(versionManager.HandleClusterState)
 
 	streamManager.SetProcessorManager(processorManager)
 
-	queryManager := query.NewManager(processorManager, processorManager, config.NodeID, streamManager, dataStore,
-		streamManager.StreamMetaIteratorProvider(), query.NewDefaultRemoting(&config), config.ClusterAddresses,
+	queryManager := query.NewManager(processorManager, processorManager, config.NodeID, streamManager,
+		streamManager.StreamMetaIteratorProvider(), processorManager, query.NewDefaultRemoting(&config), config.ClusterAddresses,
 		config.QueryMaxBatchRows, exprFactory, theParser)
 
 	levelManagerService := levels.NewLevelManagerService(processorManager, &config, objStoreClient, tableCache,
@@ -166,8 +163,6 @@ func NewServerWithClientFactory(config conf.Config, clientFactory kafka.ClientFa
 
 	handlerFactory.levelManagerBatchHandler = proc.NewLevelManagerBatchHandler(levelManagerService)
 	flushNotifier.levelMgrService = levelManagerService
-
-	dmVersionSetter := levels.NewVersionSetter(&config, processorManager, dataStore)
 
 	theMetrics := metrics.NewServer(config, !config.MetricsEnabled)
 
@@ -198,12 +193,11 @@ func NewServerWithClientFactory(config conf.Config, clientFactory kafka.ClientFa
 			streamManager: streamManager,
 		}
 		kafkaGroupCoordinator, err = kafkaserver.NewGroupCoordinator(&config, processorProvider, streamManager,
-			metaProvider, dataStore, processorManager)
+			metaProvider, processorManager)
 		if err != nil {
 			return nil, err
 		}
-		kafkaServer = kafkaserver.NewServer(&config,
-			metaProvider, processorProvider, kafkaGroupCoordinator, dataStore, streamManager)
+		kafkaServer = kafkaserver.NewServer(&config, metaProvider, processorProvider, kafkaGroupCoordinator, streamManager)
 	}
 
 	var adminServer *admin.Server
@@ -227,7 +221,6 @@ func NewServerWithClientFactory(config conf.Config, clientFactory kafka.ClientFa
 	remotingServer.RegisterBlockingMessageHandler(remoting.ClusterMessageVersionsMessage, teeHandler)
 	processorManager.SetClusterMessageHandlers(remotingServer, teeHandler)
 	levelManagerService.SetClusterMessageHandlers(remotingServer)
-	dataStore.SetClusterMessageHandlers(teeHandler)
 	versionManager.SetClusterMessageHandlers(remotingServer)
 	queryManager.SetClusterMessageHandlers(remotingServer, teeHandler)
 
@@ -240,9 +233,7 @@ func NewServerWithClientFactory(config conf.Config, clientFactory kafka.ClientFa
 		levelManagerService,
 		levMgrClient,
 		tableCache,
-		dataStore,
 		vmgrClient,
-		dmVersionSetter,
 		streamManager,
 		queryManager,
 		moduleManager,
@@ -264,7 +255,6 @@ func NewServerWithClientFactory(config conf.Config, clientFactory kafka.ClientFa
 		remotingServer:      remotingServer,
 		services:            services,
 		metrics:             theMetrics,
-		store:               dataStore,
 		lockManager:         lockManager,
 		sequenceManager:     sequenceManager,
 		processorManager:    processorManager,
@@ -290,7 +280,6 @@ type Server struct {
 	stopped             bool
 	conf                conf.Config
 	metrics             *metrics.Server
-	store               *store.Store
 	processorManager    proc.Manager
 	commandManager      command.Manager
 	clusterStateManager clustmgr.StateManager
@@ -490,10 +479,6 @@ func (s *Server) GetLevelManager() *levels.LevelManager {
 
 func (s *Server) GetQueryManager() query.Manager {
 	return s.queryManager
-}
-
-func (s *Server) GetStore() *store.Store {
-	return s.store
 }
 
 func (s *Server) SetStopWaitGroup(waitGroup *sync.WaitGroup) {

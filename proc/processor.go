@@ -8,6 +8,7 @@ import (
 	"github.com/spirit-labs/tektite/debug"
 	"github.com/spirit-labs/tektite/encoding"
 	"github.com/spirit-labs/tektite/errors"
+	"github.com/spirit-labs/tektite/iteration"
 	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/mem"
 	"github.com/timandy/routine"
@@ -61,10 +62,6 @@ type Processor interface {
 
 	SetVersionCompleteHandler(handler VersionCompleteHandler)
 
-	SetNotIdleNotifier(func())
-
-	IsIdle(completedVersion int) bool
-
 	IsStopped() bool
 
 	SetReplicator(replicator Replicator)
@@ -78,6 +75,12 @@ type Processor interface {
 	WriteCache() *WriteCache
 
 	LoadLastProcessedReplBatchSeq(version int) (int64, error)
+
+	Get(key []byte) ([]byte, error)
+
+	GetWithMaxVersion(key []byte, maxVersion uint64) ([]byte, error)
+
+	NewIterator(keyStart []byte, keyEnd []byte, highestVersion uint64, preserveTombstones bool) (iteration.Iterator, error)
 }
 
 type VersionCompleteHandler func(version int, requiredCompletions int, commandID int, doom bool, completionFunc func(error))
@@ -290,23 +293,8 @@ func (p *processor) notifyNotIdle() {
 	}
 }
 
-func (p *processor) doCheckIdle(completedVersion int) bool {
-	// Considered idle if no batches processed since the specified version
-	if p.lastProcessedVersion <= completedVersion {
-		p.idle = true
-		return true
-	}
-	return false
-}
-
-func (p *processor) IsIdle(completedVersion int) bool {
-	ch := make(chan bool, 1)
-	p.SubmitAction(func() error {
-		idle := p.doCheckIdle(completedVersion)
-		ch <- idle
-		return nil
-	})
-	return <-ch
+func (p *processor) Get(key []byte) ([]byte, error) {
+	return p.store.Get(key)
 }
 
 func (p *processor) ProcessBatch(batch *ProcessBatch, completionFunc func(error)) {
@@ -764,7 +752,7 @@ func (p *processor) persistReplBatchSeq(batch *ProcessBatch, memBatch *mem.Batch
 }
 
 func (p *processor) LoadLastProcessedReplBatchSeq(version int) (int64, error) {
-	value, err := p.store.GetWithMaxVersion(p.replSeqKey, uint64(version))
+	value, err := p.store.getWithMaxVersion(p.replSeqKey, uint64(version))
 	if err != nil {
 		return 0, err
 	}

@@ -17,12 +17,11 @@ type StoreStreamOperator struct {
 	nodeID        int
 	addOffset     bool
 	nextOffsets   []int64
-	store         store
 	offsetsSlabID int
 	hashCache     *partitionHashCache
 }
 
-func NewStoreStreamOperator(inSchema *OperatorSchema, slabID int, offsetsSlabID int, store store, nodeID int) (*StoreStreamOperator, error) {
+func NewStoreStreamOperator(inSchema *OperatorSchema, slabID int, offsetsSlabID int, nodeID int) (*StoreStreamOperator, error) {
 	nextOffsets := make([]int64, inSchema.PartitionScheme.Partitions)
 	for i := range nextOffsets {
 		nextOffsets[i] = -1
@@ -53,7 +52,6 @@ func NewStoreStreamOperator(inSchema *OperatorSchema, slabID int, offsetsSlabID 
 		rowCols:       rowCols,
 		nodeID:        nodeID,
 		addOffset:     addOffset,
-		store:         store,
 		offsetsSlabID: offsetsSlabID,
 		nextOffsets:   nextOffsets,
 		hashCache:     newPartitionHashCache(inSchema.MappingID, inSchema.Partitions),

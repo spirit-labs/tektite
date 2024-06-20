@@ -84,7 +84,7 @@ func TestProcessBatch(t *testing.T) {
 	require.Equal(t, batch, batchHandler.receivedBatches[0].processBatch)
 	require.Equal(t, proc, batchHandler.receivedBatches[0].processor)
 
-	v, err := st.Get([]byte("key1"))
+	v, err := proc.Get([]byte("key1"))
 	require.NoError(t, err)
 	require.Equal(t, []byte("val1"), v)
 }
@@ -165,7 +165,7 @@ func TestForwardBatches(t *testing.T) {
 
 	require.Equal(t, forwardBatches, batchHandler.forwardedBatches)
 
-	v, err := st.Get([]byte("key1"))
+	v, err := proc.Get([]byte("key1"))
 	require.NoError(t, err)
 	require.Equal(t, []byte("val1"), v)
 }

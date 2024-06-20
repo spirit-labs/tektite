@@ -11,7 +11,6 @@ import (
 	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/opers"
 	"github.com/spirit-labs/tektite/proc"
-	store2 "github.com/spirit-labs/tektite/store"
 	"github.com/spirit-labs/tektite/types"
 	"math"
 	"sync"
@@ -26,7 +25,6 @@ type GroupCoordinator struct {
 	processorProvider  processorProvider
 	streamMgr          streamMgr
 	metaProvider       MetadataProvider
-	store              *store2.Store
 	groups             map[string]*group
 	groupsLock         sync.RWMutex
 	timers             sync.Map
@@ -52,7 +50,7 @@ type streamMgr interface {
 }
 
 func NewGroupCoordinator(cfg *conf.Config, provider processorProvider, streamMgr streamMgr,
-	metaProvider MetadataProvider, store *store2.Store, forwarder batchForwarder) (*GroupCoordinator, error) {
+	metaProvider MetadataProvider, forwarder batchForwarder) (*GroupCoordinator, error) {
 	schema := &opers.OperatorSchema{
 		EventSchema:     ConsumerOffsetsSchema,
 		PartitionScheme: opers.NewPartitionScheme(ConsumerOffsetsMappingID, ConsumerOffsetsPartitionCount, false, cfg.ProcessorCount),
@@ -67,7 +65,6 @@ func NewGroupCoordinator(cfg *conf.Config, provider processorProvider, streamMgr
 		processorProvider:  provider,
 		streamMgr:          streamMgr,
 		metaProvider:       metaProvider,
-		store:              store,
 		groups:             map[string]*group{},
 		consumerOffsetsPPM: schema.PartitionScheme.PartitionProcessorMapping,
 		forwarder:          forwarder,
@@ -1133,6 +1130,8 @@ func (g *group) loadOffset(topicID int64, partitionID int32) (int64, bool, error
 	iterStart = encoding.KeyEncodeInt(iterStart, int64(partitionID))
 
 	iterEnd := common.IncrementBytesBigEndian(iterStart)
+
+	processorID, ok := g.gc.processorProvider.GetProcessorForPartition(int(partitionID))
 
 	iter, err := g.gc.store.NewIterator(iterStart, iterEnd, math.MaxUint64, false)
 	if err != nil {

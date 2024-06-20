@@ -91,6 +91,7 @@ type ProcessorManager interface {
 	UnregisterListener(listenerName string)
 	AfterReceiverChange()
 	ForwardBatch(batch *proc.ProcessBatch, replicate bool, completionFunc func(error))
+	GetProcessor(processorID int) (proc.Processor, bool)
 }
 
 // SlabInfo A Slab represents tabular storage. We don't call it table as we distinguish between table and stream in the mental
@@ -110,20 +111,12 @@ const SlabTypeUserTable = SlabType(1)
 const SlabTypeQueryableInternal = SlabType(2)
 const SlabTypeInternal = SlabType(3)
 
-type store interface {
-	NewIterator(keyStart []byte, keyEnd []byte, highestVersion uint64, preserveTombstones bool) (iteration.Iterator, error)
-	Get(key []byte) ([]byte, error)
-	GetWithMaxVersion(key []byte, maxVersion uint64) ([]byte, error)
-	Write(batch *mem.Batch) error
-}
-
-func NewStreamManager(messageClientFactory kafka.ClientFactory, stor store,
+func NewStreamManager(messageClientFactory kafka.ClientFactory,
 	slabRetentions slabRetentions, expressionFactory *expr.ExpressionFactory, cfg *conf.Config, disableIngest bool) StreamManager {
 	mgr := &streamManager{
 		slabRetentions:         slabRetentions,
 		expressionFactory:      expressionFactory,
 		messageClientFactory:   messageClientFactory,
-		stor:                   stor,
 		streams:                map[string]*StreamInfo{},
 		kafkaEndpoints:         map[string]*KafkaEndpointInfo{},
 		receivers:              map[int]Receiver{},
@@ -159,7 +152,6 @@ type streamManager struct {
 	requiredCompletions    int
 	processorManager       ProcessorManager
 	messageClientFactory   kafka.ClientFactory
-	stor                   store
 	cfg                    *conf.Config
 	disableIngest          bool
 	ingestedMessageCount   uint64
@@ -423,7 +415,7 @@ func (sm *streamManager) deployStream(streamDesc parser.CreateStreamDesc, receiv
 			oper, err = sm.deployPartitionOperator(op, prevOperator, receiverSliceSeqs)
 		case *parser.AggregateDesc:
 			oper, retentions, userSlab, err = sm.deployAggregateOperator(streamDesc.StreamName, op, prevOperator,
-				slabSliceSeqs, receiverSliceSeqs, retentions, sm.stor, extraSlabInfos)
+				slabSliceSeqs, receiverSliceSeqs, retentions, extraSlabInfos)
 		case *parser.StoreStreamDesc:
 			oper, retentions, userSlab, err = sm.deployStoreStreamOperator(streamDesc.StreamName, op,
 				prevOperator, slabSliceSeqs, extraSlabInfos, retentions)
@@ -557,7 +549,7 @@ func (sm *streamManager) deployBridgeFromOperator(streamName string, op *parser.
 
 	bf, err := NewBridgeFromOperator(receiverID, pollTimeout, maxPollMessages, op.TopicName, op.Partitions,
 		op.Props, sm.messageClientFactory, sm.disableIngest,
-		sm.stor, sm.processorManager, offsetsSlabID, sm.cfg, &sm.ingestedMessageCount, getMappingID(), &sm.ingestEnabled,
+		sm.processorManager, offsetsSlabID, sm.cfg, &sm.ingestedMessageCount, getMappingID(), &sm.ingestEnabled,
 		&sm.lastFlushedVersion)
 	if err != nil {
 		return nil, err
@@ -647,7 +639,7 @@ func (sm *streamManager) deployBridgeToOperator(streamName string, op *parser.Br
 			Type:       SlabTypeInternal,
 			Schema:     prevOperator.OutSchema(),
 		}
-	bfo := NewBackfillOperator(sso.OutSchema(), sm.stor, sm.cfg, slabID, backfillOffsetsSlabID, sm.cfg.MaxBackfillBatchSize, backfillReceiverID, true)
+	bfo := NewBackfillOperator(sso.OutSchema(), sm.cfg, slabID, backfillOffsetsSlabID, sm.cfg.MaxBackfillBatchSize, backfillReceiverID, true)
 	bt, err := NewBridgeToOperator(op, sso, bfo, sm.messageClientFactory)
 	if err != nil {
 		return nil, nil, nil, err
@@ -670,7 +662,7 @@ func (sm *streamManager) deployKafkaInOperator(streamName string, op *parser.Kaf
 	receiverSliceSeqs *sliceSeq, slabSliceSeqs *sliceSeq, extraSlabInfos map[string]*SlabInfo) (Operator, *KafkaEndpointInfo, error) {
 	receiverID := receiverSliceSeqs.GetNextID()
 	offsetsSlabID := slabSliceSeqs.GetNextID()
-	kafkaIn := NewKafkaInOperator(getMappingID(), sm.stor, offsetsSlabID, receiverID,
+	kafkaIn := NewKafkaInOperator(getMappingID(), offsetsSlabID, receiverID,
 		op.Partitions, sm.cfg.KafkaUseServerTimestamp, sm.cfg.ProcessorCount)
 	wmType, wmLateness, wmIdleTimeout, err := defaultWatermarkArgs(op.WatermarkType, op.WatermarkLateness,
 		op.WatermarkIdleTimeout, op)
@@ -697,7 +689,7 @@ func (sm *streamManager) deployKafkaInOperator(streamName string, op *parser.Kaf
 func (sm *streamManager) setupStoreStreamOperator(streamName string, retention time.Duration,
 	schema *OperatorSchema, slabID int, offsetsSlabID int,
 	prefixRetentions []slabRetention) (*StoreStreamOperator, []slabRetention, *SlabInfo, error) {
-	tso, err := NewStoreStreamOperator(schema, slabID, offsetsSlabID, sm.stor, sm.cfg.NodeID)
+	tso, err := NewStoreStreamOperator(schema, slabID, offsetsSlabID, sm.cfg.NodeID)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -810,7 +802,7 @@ func (sm *streamManager) deployKafkaOutOperator(streamName string, op *parser.Ka
 			}
 	}
 	kafkaOutOper, err := NewKafkaOutOperator(storeStreamOperator, slabID, offsetsSlabID, prevOperator.OutSchema(),
-		sm.stor, storeOffset)
+		sm.processorManager, storeOffset)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -860,7 +852,7 @@ func (sm *streamManager) deployPartitionOperator(op *parser.PartitionDesc,
 
 func (sm *streamManager) deployAggregateOperator(streamName string, op *parser.AggregateDesc,
 	prevOperator Operator, slabSliceSeqs *sliceSeq, receiverSliceSeqs *sliceSeq,
-	prefixRetentions []slabRetention, store store, extraSlabInfos map[string]*SlabInfo) (Operator, []slabRetention, *SlabInfo, error) {
+	prefixRetentions []slabRetention, extraSlabInfos map[string]*SlabInfo) (Operator, []slabRetention, *SlabInfo, error) {
 	windowed := op.Size != nil
 	aggStateSlabID := slabSliceSeqs.GetNextID()
 	extraSlabInfos[fmt.Sprintf("aggregate-%s-%d", streamName, aggStateSlabID)] =
@@ -937,7 +929,7 @@ func (sm *streamManager) deployAggregateOperator(streamName string, op *parser.A
 		}
 	}
 	aggOper, err := NewAggregateOperator(prevOperator.OutSchema(), op, aggStateSlabID, openWindowsSlabID, resultsSlabID,
-		closedWindowReceiverID, size, hop, store, lateness, storeResults, includeWindowCols, sm.expressionFactory)
+		closedWindowReceiverID, size, hop, lateness, storeResults, includeWindowCols, sm.expressionFactory)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -964,7 +956,7 @@ func (sm *streamManager) deployStoreTableOperator(streamName string, op *parser.
 	prevOperator Operator, slabSliceSeqs *sliceSeq,
 	prefixRetentions []slabRetention) (Operator, []slabRetention, *SlabInfo, error) {
 	slabID := slabSliceSeqs.GetNextID()
-	to, err := NewStoreTableOperator(prevOperator.OutSchema(), slabID, sm.stor, op.KeyCols, sm.cfg.NodeID, false, op)
+	to, err := NewStoreTableOperator(prevOperator.OutSchema(), slabID, op.KeyCols, sm.cfg.NodeID, false, op)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -999,7 +991,7 @@ func (sm *streamManager) deployBackfillOperator(streamName string, operators []O
 	}
 	receiverID := receiverSliceSeqs.GetNextID()
 	offsetsSlabID := slabSliceSeqs.GetNextID()
-	backfillOper := NewBackfillOperator(fromSlab.Schema, sm.stor, sm.cfg, fromSlab.SlabID, offsetsSlabID,
+	backfillOper := NewBackfillOperator(fromSlab.Schema, sm.cfg, fromSlab.SlabID, offsetsSlabID,
 		sm.cfg.MaxBackfillBatchSize, receiverID, false)
 	extraSlabInfos[fmt.Sprintf("offsets-backfill-%s-%d", streamName, offsetsSlabID)] =
 		&SlabInfo{
@@ -1093,7 +1085,7 @@ func (sm *streamManager) deployJoinOperator(streamName string, op *parser.JoinDe
 		})
 	}
 	jo, err := NewJoinOperator(leftSlabID, rightSlabID, leftOper, rightOper, op.LeftIsTable, op.RightIsTable, leftStream.UserSlab,
-		rightStream.UserSlab, op.JoinElements, within, sm.stor, sm.cfg.NodeID, receiverID, op)
+		rightStream.UserSlab, op.JoinElements, within, sm.cfg.NodeID, receiverID, op)
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
@@ -1413,13 +1405,13 @@ func (sm *streamManager) RegisterSystemSlab(slabName string, persistorReceiverID
 	slabID int, schema *OperatorSchema, keyCols []string, noCache bool) error {
 	sm.lock.Lock()
 	defer sm.lock.Unlock()
-	to, err := NewStoreTableOperator(schema, slabID, sm.stor, keyCols, -1, noCache, nil)
+	to, err := NewStoreTableOperator(schema, slabID, keyCols, -1, noCache, nil)
 	if err != nil {
 		return err
 	}
 	sm.receivers[persistorReceiverID] = &sysTableReceiver{schema: schema, oper: to}
 	if deleterReceiverID != -1 {
-		del, err := NewRowDeleteOperator(schema, slabID, sm.stor, to.inKeyCols)
+		del, err := NewRowDeleteOperator(schema, slabID, to.inKeyCols)
 		if err != nil {
 			return err
 		}
@@ -1938,7 +1930,6 @@ func (sm *streamManager) newExecContext(processBatch *proc.ProcessBatch, process
 	return &execContext{
 		processBatch: processBatch,
 		processor:    processor,
-		store:        sm.stor,
 	}
 }
 
@@ -1950,7 +1941,6 @@ type execContext struct {
 	partitionBuilders map[int]map[int]buildersInfo
 	numForwardBatches int
 	forwardBarriers   []forwardBarrierInfo
-	store             store
 }
 
 func (e *execContext) CheckInProcessorLoop() {
@@ -1968,7 +1958,7 @@ func (e *execContext) Get(key []byte) ([]byte, error) {
 		return val, nil
 	}
 	// Then look in store
-	return e.store.Get(key)
+	return e.processor.Get(key)
 }
 
 func (e *execContext) StoreEntry(kv common.KV, noCache bool) {

@@ -18,7 +18,7 @@ import (
 
 func NewAggregateOperator(inSchema *OperatorSchema, aggDesc *parser.AggregateDesc,
 	aggStateSlabID int, openWindowsSlabID int, resultsSlabID int, closedWindowReceiverID int,
-	size time.Duration, hop time.Duration, store store, lateness time.Duration, storeResults bool,
+	size time.Duration, hop time.Duration, lateness time.Duration, storeResults bool,
 	includeWindowCols bool, expressionFactory *expr.ExpressionFactory) (*AggregateOperator, error) {
 
 	hasOffset := HasOffsetColumn(inSchema.EventSchema)
@@ -225,7 +225,6 @@ func NewAggregateOperator(inSchema *OperatorSchema, aggDesc *parser.AggregateDes
 		openWindows:                 make([][]windowEntry, inSchema.PartitionScheme.Partitions),
 		windowsLoaded:               make([]bool, inSchema.PartitionScheme.Partitions),
 		processorWatermarks:         processorWatermarks,
-		store:                       store,
 		lateness:                    lateness.Milliseconds(),
 		windowed:                    windowed,
 		size:                        int(size.Milliseconds()),
@@ -271,7 +270,6 @@ type AggregateOperator struct {
 	openWindows                 [][]windowEntry
 	windowsLoaded               []bool
 	processorWatermarks         []int64
-	store                       store
 	lateness                    int64
 	eventTimeColIndex           int
 	processingEventTimeColIndex int
@@ -319,7 +317,7 @@ func (a *AggregateOperator) augmentWithWindows(batch *evbatch.Batch, execCtx Str
 	weColBuilder := colBuilders[1].(*evbatch.TimestampColBuilder)
 
 	partitionID := execCtx.PartitionID()
-	openWindows, err := a.getOpenWindows(partitionID)
+	openWindows, err := a.getOpenWindows(partitionID, execCtx.Processor())
 	if err != nil {
 		return nil, err
 	}
@@ -451,10 +449,10 @@ func addWindow(toAdd windowEntry, windows []windowEntry) []windowEntry {
 	return newWindows
 }
 
-func (a *AggregateOperator) loadOpenWindows(partitionID int) ([]windowEntry, error) {
+func (a *AggregateOperator) loadOpenWindows(partitionID int, processor proc.Processor) ([]windowEntry, error) {
 	partitionHash := a.hashCache.getHash(partitionID)
 	key := encoding.EncodeEntryPrefix(partitionHash, a.openWindowsSlabID, 24)
-	iter, err := a.store.NewIterator(key, common.IncrementBytesBigEndian(key), math.MaxUint64, false)
+	iter, err := processor.NewIterator(key, common.IncrementBytesBigEndian(key), math.MaxUint64, false)
 	if err != nil {
 		return nil, err
 	}
@@ -486,7 +484,7 @@ func (a *AggregateOperator) loadOpenWindows(partitionID int) ([]windowEntry, err
 	return openWindows, nil
 }
 
-func (a *AggregateOperator) getOpenWindows(partitionID int) ([]windowEntry, error) {
+func (a *AggregateOperator) getOpenWindows(partitionID int, processor proc.Processor) ([]windowEntry, error) {
 	// Note, we can access windowsLoaded and openWindows without a memory barrier.
 	// This is because this method is called on the processor thread that all these partitions always run on.
 	// In other words windowsLoaded[x] and openWindows[x] are always accessed by the same goroutine.
@@ -494,7 +492,7 @@ func (a *AggregateOperator) getOpenWindows(partitionID int) ([]windowEntry, erro
 	if !a.windowsLoaded[partitionID] {
 		// The first time we receive a barrier for the partition we load any open windows that are persisted.
 		var err error
-		openWindows, err = a.loadOpenWindows(partitionID)
+		openWindows, err = a.loadOpenWindows(partitionID, processor)
 		if err != nil {
 			return nil, err
 		}
@@ -559,7 +557,7 @@ func (a *AggregateOperator) closeWindow(entry windowEntry, partitionID int, exec
 	keyStart = append(keyStart, 1) // not null
 	keyStart = encoding.KeyEncodeTimestamp(keyStart, types.NewTimestamp(entry.ws))
 	keyEnd := common.IncrementBytesBigEndian(keyStart)
-	iter, err := a.store.NewIterator(keyStart, keyEnd, math.MaxUint64, false)
+	iter, err := execCtx.Processor().NewIterator(keyStart, keyEnd, math.MaxUint64, false)
 	if err != nil {
 		return false, err
 	}

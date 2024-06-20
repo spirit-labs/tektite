@@ -297,7 +297,7 @@ func (ps *ProcessorStore) buildAndPushTable(entry *flushQueueEntry) error {
 // Get the value for the key, or nil if it doesn't exist.
 // Note the key argument must not contain the version.
 // Returns the highest version for the key
-func (ps *ProcessorStore) get(key []byte) ([]byte, error) {
+func (ps *ProcessorStore) Get(key []byte) ([]byte, error) {
 	return ps.getWithMaxVersion(key, math.MaxUint64)
 }
 

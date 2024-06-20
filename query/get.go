@@ -18,21 +18,21 @@ import (
 
 type GetOperator struct {
 	opers.BaseOperator
-	schema          *opers.OperatorSchema
-	isRange         bool
-	rangeStartExprs []expr.Expression
-	rangeEndExprs   []expr.Expression
-	startInclusive  bool
-	endInclusive    bool
-	keyColIndexes   []int
-	rowColIndexes   []int
-	keyColumnTypes  []types.ColumnType
-	rowColumnTypes  []types.ColumnType
-	slabID          int
-	store           iteratorProvider
-	emptyBatch      *evbatch.Batch
-	nodeID          int
-	keySchema       *evbatch.EventSchema
+	schema                 *opers.OperatorSchema
+	isRange                bool
+	rangeStartExprs        []expr.Expression
+	rangeEndExprs          []expr.Expression
+	startInclusive         bool
+	endInclusive           bool
+	keyColIndexes          []int
+	rowColIndexes          []int
+	keyColumnTypes         []types.ColumnType
+	rowColumnTypes         []types.ColumnType
+	slabID                 int
+	emptyBatch             *evbatch.Batch
+	nodeID                 int
+	keySchema              *evbatch.EventSchema
+	streamMetaIterProvider iteratorProvider
 }
 
 type KeyColExpr interface {
@@ -40,7 +40,7 @@ type KeyColExpr interface {
 }
 
 func NewGetOperator(isRange bool, rangeStartExprs []expr.Expression, rangeEndExprs []expr.Expression, startInclusive bool, endInclusive bool,
-	slabID int, keyColIndexes []int, tableSchema *opers.OperatorSchema, store iteratorProvider, nodeID int) *GetOperator {
+	slabID int, keyColIndexes []int, tableSchema *opers.OperatorSchema, nodeID int, streamMetaIterProvider iteratorProvider) *GetOperator {
 
 	keyColsSet := map[int]struct{}{}
 	var keyColumnTypes []types.ColumnType
@@ -72,15 +72,14 @@ func NewGetOperator(isRange bool, rangeStartExprs []expr.Expression, rangeEndExp
 		keyColumnTypes:  keyColumnTypes,
 		rowColumnTypes:  rowColumnTypes,
 		slabID:          slabID,
-		//keyPrefix:       encoding.AppendUint64ToBufferBE(nil, uint64(slabID)),
-		store:      store,
-		emptyBatch: evbatch.CreateEmptyBatch(tableSchema.EventSchema),
-		nodeID:     nodeID,
-		keySchema:  keySchema,
+		emptyBatch:      evbatch.CreateEmptyBatch(tableSchema.EventSchema),
+		nodeID:          nodeID,
+		keySchema:       keySchema,
 	}
 }
 
-func (g *GetOperator) CreateIterator(mappingID string, partID uint64, args *evbatch.Batch, highestVersion uint64) (iteration.Iterator, error) {
+func (g *GetOperator) CreateIterator(mappingID string, partID uint64, args *evbatch.Batch, highestVersion uint64,
+	processor proc.Processor) (iteration.Iterator, error) {
 	partitionHash := proc.CalcPartitionHash(mappingID, partID)
 	var start, end []byte
 	if !g.isRange {
@@ -126,7 +125,11 @@ func (g *GetOperator) CreateIterator(mappingID string, partID uint64, args *evba
 		}
 	}
 	log.Debugf("node:%d creating query iterator start:%v end:%v with max version:%d", g.nodeID, start, end, highestVersion)
-	return g.store.NewIterator(start, end, highestVersion, false)
+	if g.streamMetaIterProvider != nil {
+		return g.streamMetaIterProvider.NewIterator(start, end, highestVersion, false)
+	} else {
+		return processor.NewIterator(start, end, highestVersion, false)
+	}
 }
 
 func (g *GetOperator) CreateRangeStartKey(args *evbatch.Batch) ([]byte, error) {

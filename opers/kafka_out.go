@@ -1,22 +1,23 @@
 package opers
 
 import (
+	"github.com/spirit-labs/tektite/errors"
 	"github.com/spirit-labs/tektite/evbatch"
 	"github.com/spirit-labs/tektite/types"
 	"sync"
 )
 
-func NewKafkaOutOperator(ts *StoreStreamOperator, slabID int, offsetsSlabID int, schema *OperatorSchema, store store,
-	storeOffset bool) (*KafkaOutOperator, error) {
+func NewKafkaOutOperator(ts *StoreStreamOperator, slabID int, offsetsSlabID int, schema *OperatorSchema,
+	procMgr ProcessorManager, storeOffset bool) (*KafkaOutOperator, error) {
 	return &KafkaOutOperator{
 		slabID:              slabID,
 		offsetsSlabID:       offsetsSlabID,
 		storeOffset:         storeOffset,
 		schema:              schema,
-		store:               store,
 		offsets:             make([]partitionOffsets, schema.PartitionScheme.Partitions),
 		storeStreamOperator: ts,
 		hashCache:           newPartitionHashCache(schema.MappingID, schema.Partitions),
+		procMgr:             procMgr,
 	}, nil
 }
 
@@ -27,9 +28,9 @@ type KafkaOutOperator struct {
 	offsetsSlabID       int
 	storeOffset         bool
 	schema              *OperatorSchema
-	store               store
 	storeStreamOperator *StoreStreamOperator
 	hashCache           *partitionHashCache
+	procMgr             ProcessorManager
 }
 
 type partitionOffsets struct {
@@ -119,7 +120,12 @@ func (k *KafkaOutOperator) LatestOffset(partitionID int) (int64, int64, bool, er
 	}
 	// load from store
 	partitionHash := k.hashCache.getHash(partitionID)
-	offset, err := loadOffset(partitionHash, k.offsetsSlabID, k.store)
+	processorID := k.schema.PartitionProcessorMapping[partitionID]
+	processor, ok := k.procMgr.GetProcessor(processorID)
+	if !ok {
+		return 0, 0, false, errors.NewTektiteErrorf(errors.Unavailable, "cannot find processor %d", processorID)
+	}
+	offset, err := loadOffset(partitionHash, k.offsetsSlabID, processor)
 	if err != nil {
 		return 0, 0, false, err
 	}

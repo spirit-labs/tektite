@@ -17,7 +17,6 @@ type StoreTableOperator struct {
 	rowCols    []int
 	outRowCols []int
 	keyPrecfix []byte
-	store      store
 	nodeID     int
 	noCache    bool
 	hasKey     bool
@@ -26,7 +25,7 @@ type StoreTableOperator struct {
 	hashCache  *partitionHashCache
 }
 
-func NewStoreTableOperator(schema *OperatorSchema, slabID int, store store, keyCols []string, nodeID int, noCache bool,
+func NewStoreTableOperator(schema *OperatorSchema, slabID int, keyCols []string, nodeID int, noCache bool,
 	desc errMsgAtPositionProvider) (*StoreTableOperator, error) {
 	var inKeyCols []int
 	var outKeyCols []int
@@ -78,7 +77,6 @@ func NewStoreTableOperator(schema *OperatorSchema, slabID int, store store, keyC
 	return &StoreTableOperator{
 		inSchema:   schema,
 		outSchema:  outSchema,
-		store:      store,
 		inKeyCols:  inKeyCols,
 		outKeyCols: outKeyCols,
 		rowCols:    rowCols,

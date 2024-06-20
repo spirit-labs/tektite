@@ -23,7 +23,6 @@ type BackfillOperator struct {
 	cfg                  *conf.Config
 	receiverID           int
 	schema               *OperatorSchema
-	store                store
 	fromSlabID           int
 	offsetsSlabID        int
 	lagging              bool
@@ -48,7 +47,7 @@ type iteratorInfo struct {
 	closed           atomic.Bool
 }
 
-func NewBackfillOperator(schema *OperatorSchema, store store, cfg *conf.Config, fromSlabID int, offsetsSlabID,
+func NewBackfillOperator(schema *OperatorSchema, cfg *conf.Config, fromSlabID int, offsetsSlabID,
 	maxBackfillBatchSize int, receiverID int, storeCommittedAsync bool) *BackfillOperator {
 	if !HasOffsetColumn(schema.EventSchema) {
 		panic("input not a stored stream")
@@ -65,7 +64,6 @@ func NewBackfillOperator(schema *OperatorSchema, store store, cfg *conf.Config, 
 	return &BackfillOperator{
 		id:                   uuid.New().String(),
 		schema:               schema,
-		store:                store,
 		cfg:                  cfg,
 		fromSlabID:           fromSlabID,
 		offsetsSlabID:        offsetsSlabID,
@@ -325,7 +323,6 @@ func (b *BackfillOperator) processorsChanged(processor proc.Processor, started b
 
 func (b *BackfillOperator) initialiseIterator(execCtx StreamExecContext, info *iteratorInfo) error {
 	execCtx.CheckInProcessorLoop()
-	partID := execCtx.PartitionID()
 	offset, ok, err := b.loadCommittedOffsetForPartition(execCtx)
 	if err != nil {
 		return err
@@ -337,22 +334,22 @@ func (b *BackfillOperator) initialiseIterator(execCtx StreamExecContext, info *i
 		// Start at one past the last committed
 		offset++
 	}
-	return b.initialiseIteratorAtOffset(partID, offset, info)
+	return b.initialiseIteratorAtOffset(execCtx, offset, info)
 }
 
-func (b *BackfillOperator) initialiseIteratorAtOffset(partID int, offset int64, info *iteratorInfo) error {
-	partitionHash := b.hashCache.getHash(partID)
+func (b *BackfillOperator) initialiseIteratorAtOffset(execCtx StreamExecContext, offset int64, info *iteratorInfo) error {
+	partitionHash := b.hashCache.getHash(execCtx.PartitionID())
 	keyStart := encoding.EncodeEntryPrefix(partitionHash, uint64(b.fromSlabID), 33)
 	keyStart = append(keyStart, 1) // not null
 	keyStart = encoding.KeyEncodeInt(keyStart, offset)
 	keyEnd := encoding.EncodeEntryPrefix(partitionHash, uint64(b.fromSlabID)+1, 24)
-	iter, err := b.store.NewIterator(keyStart, keyEnd, math.MaxInt64, false)
+	iter, err := execCtx.Processor().NewIterator(keyStart, keyEnd, math.MaxInt64, false)
 	if err != nil {
 		return err
 	}
 	info.lagging = true
 	info.iter = iter
-	info.partID = partID
+	info.partID = execCtx.PartitionID()
 	info.initialised = true
 	return nil
 }
