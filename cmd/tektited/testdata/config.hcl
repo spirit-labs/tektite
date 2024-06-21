@@ -96,7 +96,7 @@ http-api-tls-client-certs-path = "http-client-certs-path"
 http-api-tls-client-auth = "require-and-verify-client-cert"
 
 kafka-server-enabled              = true
-kafka-server-addresses  = [
+kafka-server-listener-addresses  = [
   "kafka1:9301",
   "kafka2:9301",
   "kafka3:9301",
@@ -104,11 +104,11 @@ kafka-server-addresses  = [
   "kafka5:9301"
 ]
 kafka-use-server-timestamp        = true
-kafka-server-tls-enabled       = true
-kafka-server-tls-key-path      = "kafka-key-path"
-kafka-server-tls-cert-path     = "kafka-cert-path"
-kafka-server-tls-client-certs-path = "kafka-client-certs-path"
-kafka-server-tls-client-auth = "require-and-verify-client-cert"
+kafka-server-listener-tls-enabled       = true
+kafka-server-listener-tls-key-path      = "kafka-key-path"
+kafka-server-listener-tls-cert-path     = "kafka-cert-path"
+kafka-server-listener-tls-client-certs-path = "kafka-client-certs-path"
+kafka-server-listener-tls-client-auth = "require-and-verify-client-cert"
 kafka-initial-join-delay = "2s"
 kafka-min-session-timeout = "7s"
 kafka-max-session-timeout = "25s"

@@ -48,7 +48,7 @@ func testProducerEndpoint(t *testing.T, ct clientType) {
 			require.NoError(t, err)
 			kafkaListenAddresses = append(kafkaListenAddresses, address)
 		}
-		cfg.KafkaServerAddresses = kafkaListenAddresses
+		cfg.KafkaServerListenerConfig.Addresses = kafkaListenAddresses
 	})
 	defer tearDown(t)
 	client, err := tekclient.NewClient(servers[0].GetConfig().HttpApiAddresses[0], clientTLSConfig)
@@ -80,7 +80,7 @@ func testProducerEndpoint(t *testing.T, ct clientType) {
 
 	startTime := time.Now().UTC()
 
-	serverAddress := servers[0].GetConfig().KafkaServerAddresses[0]
+	serverAddress := servers[0].GetConfig().KafkaServerListenerConfig.Addresses[0]
 
 	switch ct {
 	case clientTypeGo:

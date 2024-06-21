@@ -10,8 +10,8 @@ import (
 	"github.com/spirit-labs/tektite/proc"
 	store2 "github.com/spirit-labs/tektite/store"
 	"github.com/stretchr/testify/require"
+	"net"
 	"strconv"
-	"strings"
 	"sync"
 	"testing"
 )
@@ -26,7 +26,31 @@ func TestProduce(t *testing.T) {
 	serverAddress, err := common.AddressWithPort("localhost")
 	require.NoError(t, err)
 
-	server, processor := createServer(t, topic, serverAddress)
+	server, processor := createServer(t, topic, serverAddress, "")
+
+	defer func() {
+		err := server.Stop()
+		require.NoError(t, err)
+	}()
+
+	sendMessages(t, topic, serverAddress, 100)
+
+	batch := processor.getBatch()
+	require.NotNil(t, batch)
+}
+
+func TestProduceWithAdvertised(t *testing.T) {
+	topic := "my_topic"
+
+	serverAddress, err := common.AddressWithPort("localhost")
+	require.NoError(t, err)
+
+	_, port, err := net.SplitHostPort(serverAddress)
+	require.NoError(t, err)
+
+	adverstisedAddress := fmt.Sprintf("127.0.0.1:%s", port)
+
+	server, processor := createServer(t, topic, serverAddress, adverstisedAddress)
 
 	defer func() {
 		err := server.Stop()
@@ -63,11 +87,18 @@ func sendMessages(t *testing.T, topic string, serverAddress string, numMessages 
 	}
 }
 
-func createServer(t *testing.T, topic string, serverAddress string) (*Server, *testProcessor) {
+func createServer(t *testing.T, topic string, serverAddress string, serverAdvertisedAddress string) (*Server, *testProcessor) {
 
-	colonIndex := strings.Index(serverAddress, ":")
-	host := serverAddress[:colonIndex]
-	port, err := strconv.Atoi(serverAddress[colonIndex+1:])
+	address := serverAddress
+
+	if serverAdvertisedAddress != "" {
+		address = serverAdvertisedAddress
+	}
+
+	host, portStr, err := net.SplitHostPort(address)
+	require.NoError(t, err)
+
+	port, err := strconv.Atoi(portStr)
 	require.NoError(t, err)
 
 	meta := &testMetadataProvider{}
@@ -104,7 +135,10 @@ func createServer(t *testing.T, topic string, serverAddress string) (*Server, *t
 	cfg := &conf.Config{}
 	cfg.ApplyDefaults()
 	cfg.KafkaServerEnabled = true
-	cfg.KafkaServerAddresses = []string{serverAddress}
+	cfg.KafkaServerListenerConfig.Addresses = []string{serverAddress}
+	if serverAdvertisedAddress != "" {
+		cfg.KafkaServerListenerConfig.AdvertisedAddresses = []string{serverAdvertisedAddress}
+	}
 
 	st := store2.TestStore()
 

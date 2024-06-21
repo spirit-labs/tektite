@@ -157,7 +157,7 @@ func (w *scriptTestSuite) createServerConfs() []conf.Config {
 	cfg.HttpApiEnabled = true
 	cfg.HttpApiAddresses = httpServerListenAddresses
 	cfg.HttpApiTlsConfig = serverTLSConfig
-	cfg.KafkaServerAddresses = kafkaListenAddresses
+	cfg.KafkaServerListenerConfig.Addresses = kafkaListenAddresses
 	cfg.KafkaServerEnabled = true
 	cfg.ProcessingEnabled = true
 	cfg.LevelManagerEnabled = true
@@ -753,7 +753,7 @@ func (st *scriptTest) produceMessages(require *require.Assertions, msgs []*kafka
 	s := st.chooseServer()
 	producer, err := kafkago.NewProducer(&kafkago.ConfigMap{
 		"partitioner":       "murmur2_random", // This matches the default hash algorithm we use, and same as Java client
-		"bootstrap.servers": s.GetConfig().KafkaServerAddresses[s.GetConfig().NodeID],
+		"bootstrap.servers": s.GetConfig().KafkaServerListenerConfig.Addresses[s.GetConfig().NodeID],
 		"acks":              "all"})
 	require.NoError(err)
 	defer producer.Close()
@@ -801,7 +801,7 @@ func (st *scriptTest) executeConsumeData(require *require.Assertions, command st
 
 	s := st.chooseServer()
 	cm := &kafkago.ConfigMap{
-		"bootstrap.servers":  s.GetConfig().KafkaServerAddresses[s.GetConfig().NodeID],
+		"bootstrap.servers":  s.GetConfig().KafkaServerListenerConfig.Addresses[s.GetConfig().NodeID],
 		"group.id":           groupID,
 		"auto.offset.reset":  earliestOrLatest,
 		"enable.auto.commit": false,

@@ -30,7 +30,7 @@ func TestRPCInternalError(t *testing.T) {
 	err := errors.New("spiders")
 	testRPCError(t, err, func(t *testing.T, tektiteError errors.TektiteError) {
 		t.Helper()
-		require.Equal(t, errors.InternalError, int(tektiteError.Code))
+		require.Equal(t, errors.InternalError, tektiteError.Code)
 	})
 }
 
@@ -168,7 +168,7 @@ func TestBroadcastErrorAllServers(t *testing.T) {
 	//goland:noinspection GoTypeAssertionOnErrors
 	perr, ok := err.(errors.TektiteError)
 	require.True(t, ok)
-	require.Equal(t, errors.InternalError, int(perr.Code))
+	require.Equal(t, errors.InternalError, perr.Code)
 
 	client.Stop()
 }
@@ -177,7 +177,7 @@ func TestBroadcastErrorOneServerInternalErrorNoDelays(t *testing.T) {
 	err := errors.New("spiders")
 	testBroadcastErrorOneServer(t, err, 0, 0, func(t *testing.T, tektiteError errors.TektiteError) {
 		t.Helper()
-		require.Equal(t, errors.InternalError, int(tektiteError.Code))
+		require.Equal(t, errors.InternalError, tektiteError.Code)
 	})
 }
 

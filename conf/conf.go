@@ -1,7 +1,9 @@
 package conf
 
 import (
+	"fmt"
 	"github.com/spirit-labs/tektite/common"
+	"net"
 	"strconv"
 	"time"
 
@@ -190,9 +192,8 @@ type Config struct {
 	AdminConsoleSampleInterval time.Duration
 
 	// Kafka protocol config
-	KafkaServerEnabled          bool      `name:"kafka-server-enabled"`
-	KafkaServerAddresses        []string  `name:"kafka-server-addresses"`
-	KafkaServerTLSConfig        TLSConfig `embed:"" prefix:"kafka-server-tls-"`
+	KafkaServerEnabled          bool           `name:"kafka-server-enabled"`
+	KafkaServerListenerConfig   ListenerConfig `embed:"" prefix:"kafka-server-listener-"`
 	KafkaUseServerTimestamp     bool
 	KafkaMinSessionTimeout      time.Duration
 	KafkaMaxSessionTimeout      time.Duration
@@ -269,6 +270,12 @@ type TLSConfig struct {
 	CertPath        string `help:"Path to a PEM encoded file containing the server certificate"`
 	ClientCertsPath string `help:"Path to a PEM encoded file containing trusted client certificates and/or CA certificates. Only needed with TLS client authentication"`
 	ClientAuth      string `help:"Client certificate authentication mode. One of: no-client-cert, request-client-cert, require-any-client-cert, verify-client-cert-if-given, require-and-verify-client-cert"`
+}
+
+type ListenerConfig struct {
+	Addresses           []string
+	AdvertisedAddresses []string
+	TLSConfig           TLSConfig `embed:"" prefix:"tls-"`
 }
 
 type ClientAuthMode string
@@ -612,6 +619,39 @@ func (c *Config) Validate() error { //nolint:gocyclo
 	}
 	if c.KafkaMaxSessionTimeout <= c.KafkaMinSessionTimeout {
 		return errors.NewInvalidConfigurationError("kafka-max-session-timeout must be > kafka-min-session-timeout")
+	}
+	if len(c.KafkaServerListenerConfig.AdvertisedAddresses) > 0 && len(c.KafkaServerListenerConfig.AdvertisedAddresses) != len(c.KafkaServerListenerConfig.Addresses) {
+		return errors.NewInvalidConfigurationError("kafka-server-listener-advertised-addresses must be the same length as kafka-server-listener-addresses")
+	}
+	if len(c.KafkaServerListenerConfig.Addresses) > 0 {
+		for _, addr := range c.KafkaServerListenerConfig.Addresses {
+			host, port, err := net.SplitHostPort(addr)
+			if err != nil {
+				return errors.NewInvalidConfigurationError(fmt.Sprintf("error when parsing address %s for kafka-server-listener-addresses. %s", addr, err))
+			}
+			if host == "0.0.0.0" {
+				return errors.NewInvalidConfigurationError("0.0.0.0 is not a valid address for kafka-server-listener-addresses")
+			} else if host == "" {
+				return errors.NewInvalidConfigurationError(fmt.Sprintf("invalid address %s for kafka-server-listener-addresses. IP address is required", addr))
+			} else if _, err := strconv.Atoi(port); err != nil {
+				return errors.NewInvalidConfigurationError(fmt.Sprintf("invalid port %s for kafka-server-listener-addresses. Port must be a number", port))
+			}
+		}
+	}
+	if len(c.KafkaServerListenerConfig.AdvertisedAddresses) > 0 {
+		for _, addr := range c.KafkaServerListenerConfig.AdvertisedAddresses {
+			host, port, err := net.SplitHostPort(addr)
+			if err != nil {
+				return errors.NewInvalidConfigurationError(fmt.Sprintf("error when parsing address %s for kafka-server-listener-advertised-addresses. %s", addr, err))
+			}
+			if host == "0.0.0.0" {
+				return errors.NewInvalidConfigurationError("0.0.0.0 is not a valid address for kafka-server-listener-advertised-addresses")
+			} else if host == "" {
+				return errors.NewInvalidConfigurationError(fmt.Sprintf("invalid address %s for kafka-server-listener-advertised-addresses. IP address is required", addr))
+			} else if _, err := strconv.Atoi(port); err != nil {
+				return errors.NewInvalidConfigurationError(fmt.Sprintf("invalid port %s for kafka-server-listener-advertised-addresses. Port must be a number", port))
+			}
+		}
 	}
 	return nil
 }

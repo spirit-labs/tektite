@@ -87,7 +87,7 @@ func TestDevStoreUnavailable(t *testing.T) {
 	require.Error(t, err)
 	var perr errors.TektiteError
 	if errors.As(err, &perr) {
-		require.Equal(t, errors.Unavailable, int(perr.Code))
+		require.Equal(t, errors.Unavailable, perr.Code)
 	} else {
 		require.Fail(t, "not a TektiteError")
 	}
@@ -96,7 +96,7 @@ func TestDevStoreUnavailable(t *testing.T) {
 	require.Error(t, err)
 	perr = errors.TektiteError{}
 	if errors.As(err, &perr) {
-		require.Equal(t, errors.Unavailable, int(perr.Code))
+		require.Equal(t, errors.Unavailable, perr.Code)
 	} else {
 		require.Fail(t, "not a TektiteError")
 	}
@@ -105,7 +105,7 @@ func TestDevStoreUnavailable(t *testing.T) {
 	require.Error(t, err)
 	perr = errors.TektiteError{}
 	if errors.As(err, &perr) {
-		require.Equal(t, errors.Unavailable, int(perr.Code))
+		require.Equal(t, errors.Unavailable, perr.Code)
 	} else {
 		require.Fail(t, "not a TektiteError")
 	}

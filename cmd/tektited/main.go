@@ -20,7 +20,7 @@ import (
 )
 
 type arguments struct {
-	Config        kong.ConfigFlag `help:"Path to config file" type:"existingfile" required:""`
+	Config        kong.ConfigFlag `help:"Path to config file" placeholder:"CONFIG_FILE" type:"existingfile" required:""`
 	Server        conf.Config     `help:"Server configuration" embed:"" prefix:""`
 	Log           log.Config      `help:"Configuration for the logger" embed:"" prefix:"log-"`
 	Shutdown      bool            `help:"Shut down the cluster"`

@@ -34,7 +34,7 @@ func TestCompaction(t *testing.T) {
 			require.NoError(t, err)
 			kafkaListenAddresses = append(kafkaListenAddresses, address)
 		}
-		cfg.KafkaServerAddresses = kafkaListenAddresses
+		cfg.KafkaServerListenerConfig.Addresses = kafkaListenAddresses
 		cfg.MemtableMaxSizeBytes = 100 * 1024
 		cfg.MemtableMaxReplaceInterval = 5 * time.Second
 		cfg.CompactionWorkersEnabled = true
@@ -53,7 +53,7 @@ func TestCompaction(t *testing.T) {
 	err = client.ExecuteStatement(`table1 := (kafka in partitions=32) -> (store table by key)`)
 	require.NoError(t, err)
 
-	serverAddress := servers[0].GetConfig().KafkaServerAddresses[0]
+	serverAddress := servers[0].GetConfig().KafkaServerListenerConfig.Addresses[0]
 
 	producer, err := kafkago.NewProducer(&kafkago.ConfigMap{
 		"partitioner":       "murmur2_random", // This matches the default hash algorithm we use, and same as Java client
