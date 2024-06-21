@@ -8,6 +8,29 @@ on:
   pull_request:
     branches: [ "main" ]
 jobs:
+  check-license:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+      - name: Check License
+        run: |
+          go install github.com/google/addlicense@latest
+          addlicense -c "The Tektite Authors" -check -ignore "**/*.yml" -ignore "**/*.xml" . > /dev/null ||
+          (
+          addlicense -c "The Tektite Authors" -check -v -ignore "**/*.yml" -ignore "**/*.xml" . |
+          xargs -I {} echo -e "\e[01;31mERROR\t\e[0mMissing license header in file: {}"; echo -e "
+          \e[01;04;32mHOW TO FIX:\e[0m
+          
+          Make sure the files listed above include the same license header as the rest of the source code files or use the following command to add the license header
+          
+           go install github.com/google/addlicense@latest
+           addlicense -c 'The Tektite Authors' -ignore '**/*.yml' -ignore '**/*.xml' .
+          " && exit 1 
+          )
   build:
     runs-on: ubuntu-latest
     env:
