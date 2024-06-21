@@ -188,16 +188,12 @@ func NewServerWithClientFactory(config conf.Config, clientFactory kafka.ClientFa
 		if err != nil {
 			return nil, err
 		}
-		processorProvider := &kafkaProcesorProvider{
-			procMgr:       processorManager,
-			streamManager: streamManager,
-		}
-		kafkaGroupCoordinator, err = kafkaserver.NewGroupCoordinator(&config, processorProvider, streamManager,
+		kafkaGroupCoordinator, err = kafkaserver.NewGroupCoordinator(&config, processorManager, streamManager,
 			metaProvider, processorManager)
 		if err != nil {
 			return nil, err
 		}
-		kafkaServer = kafkaserver.NewServer(&config, metaProvider, processorProvider, kafkaGroupCoordinator, streamManager)
+		kafkaServer = kafkaserver.NewServer(&config, metaProvider, processorManager, kafkaGroupCoordinator, streamManager)
 	}
 
 	var adminServer *admin.Server
@@ -329,12 +325,12 @@ func (s *Server) Start() error {
 	var err error
 	for _, serv := range s.services {
 		if !serviceIsNil(serv) {
-			log.Debugf("node %d starting service %s", s.nodeID, reflect.TypeOf(serv).String())
+			log.Infof("node %d starting service %s", s.nodeID, reflect.TypeOf(serv).String())
 			start := time.Now()
 			if err = serv.Start(); err != nil {
 				return errors.WithStack(err)
 			}
-			log.Debugf("node %d service %s starting took %d ms", s.nodeID, reflect.TypeOf(serv).String(),
+			log.Infof("node %d service %s starting took %d ms", s.nodeID, reflect.TypeOf(serv).String(),
 				time.Now().Sub(start).Milliseconds())
 		}
 	}
@@ -481,6 +477,10 @@ func (s *Server) GetQueryManager() query.Manager {
 	return s.queryManager
 }
 
+func (s *Server) GetCommandManager() command.Manager {
+	return s.commandManager
+}
+
 func (s *Server) SetStopWaitGroup(waitGroup *sync.WaitGroup) {
 	s.stopWaitGroup = waitGroup
 }
@@ -521,31 +521,6 @@ func (d *levelManagerFlushNotifier) AddFlushedCallback(callback func(err error))
 	if err := d.levelMgrService.AddFlushedCallback(callback); err != nil {
 		log.Errorf("failed to add levelManager flushed callback %v", err)
 	}
-}
-
-type kafkaProcesorProvider struct {
-	procMgr       proc.Manager
-	streamManager opers.StreamManager
-}
-
-func (k *kafkaProcesorProvider) GetProcessorForPartition(topicName string, partitionID int) (proc.Processor, bool) {
-	endpointInfo := k.streamManager.GetKafkaEndpoint(topicName)
-	if endpointInfo == nil || endpointInfo.InEndpoint == nil {
-		return nil, false
-	}
-	processorID, ok := endpointInfo.InEndpoint.GetPartitionProcessorMapping()[partitionID]
-	if !ok {
-		return nil, false
-	}
-	return k.procMgr.GetProcessor(processorID)
-}
-
-func (k *kafkaProcesorProvider) GetProcessor(processorID int) (proc.Processor, bool) {
-	return k.procMgr.GetProcessor(processorID)
-}
-
-func (k *kafkaProcesorProvider) NodeForPartition(partitionID int, mappingID string, partitionCount int) int {
-	return k.procMgr.NodeForPartition(partitionID, mappingID, partitionCount)
 }
 
 type localLevelManagerClientFactory struct {

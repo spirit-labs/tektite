@@ -67,7 +67,7 @@ func (ts *StoreStreamOperator) HandleStreamBatch(batch *evbatch.Batch, execCtx S
 	if ts.addOffset {
 		// Add the offset column
 		colBuilder := evbatch.NewIntColBuilder()
-		kOffset, err := ts.getNextOffset(execCtx.PartitionID(), partitionHash)
+		kOffset, err := ts.getNextOffset(execCtx, partitionHash)
 		if err != nil {
 			return nil, err
 		}
@@ -97,13 +97,13 @@ func (ts *StoreStreamOperator) HandleBarrier(execCtx StreamExecContext) error {
 	return ts.BaseOperator.HandleBarrier(execCtx)
 }
 
-func (ts *StoreStreamOperator) getNextOffset(partitionID int, partitionHash []byte) (int64, error) {
-	nextOffset := ts.nextOffsets[partitionID]
+func (ts *StoreStreamOperator) getNextOffset(execCtx StreamExecContext, partitionHash []byte) (int64, error) {
+	nextOffset := ts.nextOffsets[execCtx.PartitionID()]
 	if nextOffset != -1 {
 		return nextOffset, nil
 	}
 	// Load from store
-	return loadOffset(partitionHash, ts.offsetsSlabID, ts.store)
+	return loadOffset(partitionHash, ts.offsetsSlabID, execCtx.Processor())
 }
 
 func (ts *StoreStreamOperator) InSchema() *OperatorSchema {

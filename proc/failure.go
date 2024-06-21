@@ -234,7 +234,7 @@ func (f *failureHandler) getLastFailureFlushedVersion() error {
 	// that is why we wait for failure to be complete on all nodes before proceeding to the final stage. Otherwise,
 	// processing could be re-enabled on one node and messages forwarded to another node which hadn't cleared local
 	// store yet and dead state could be loaded from the local store (e.g. for an aggregation).
-	f.procMgr.store.ClearUnflushedData()
+	f.procMgr.ClearUnflushedData()
 
 	f.state = failureStateNotifyingComplete
 

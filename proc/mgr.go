@@ -47,6 +47,10 @@ type Manager interface {
 	VersionManagerClient() vmgr.Client
 	EnsureReplicatorsReady() error
 	SetLevelMgrProcessorInitialisedCallback(callback func() error)
+	ClearUnflushedData()
+	FlushAllProcessors(shutdown bool) error
+	GetLastCompletedVersion() int64
+	GetLastFlushedVersion() int64
 }
 
 type ProcessorManager struct {
@@ -70,6 +74,7 @@ type ProcessorManager struct {
 	stateHandlers               []clustmgr.ClusterStateHandler
 	currWriteVersion            int
 	lastCompletedVersion        int64
+	lastFlushedVersion          int64
 	injectableReceiverIDs       map[int][]int
 	lastClusterState            *clustmgr.ClusterState
 	lastInjectedBarrierVersion  int
@@ -85,17 +90,16 @@ type ProcessorManager struct {
 	shutdownVersionChannel      chan struct{}
 	latestCommandID             int64
 	flushCallbacks              []flushCallbackEntry
-	lastFlushedVersion          int
 	prevFlushedVersion          int
 	failure                     *failureHandler
 	replBatchFlushDisabled      bool
 	replBatchFlushLock          sync.Mutex
-	storeFlushedLock            sync.Mutex
 	lastMarkedVersion           int
 	failureEnabled              bool
 	levelMgrInitialisedCallback func() error
 	wfpCalled                   bool
 	processorDataKeys           map[int][]byte
+	versionClusterVersions      sync.Map
 }
 
 type BatchForwarder interface {
@@ -179,6 +183,7 @@ func NewProcessorManagerWithVmgrClient(clustStateMgr clustStateManager, receiver
 		clusterVersion:             -1,
 		currWriteVersion:           -1,
 		lastCompletedVersion:       -1,
+		lastFlushedVersion:         -1,
 		lastBarrierInjectionTime:   -1,
 		lastInjectedBarrierVersion: -1,
 		prevFlushedVersion:         -1,
@@ -466,8 +471,9 @@ func (m *ProcessorManager) setVersions(currentVersion int, lastCompleted int, la
 		return
 	}
 	m.currWriteVersion = currentVersion
-	lastCompletedIncreased := lastCompleted > m.getLastCompletedVersion()
+	lastCompletedIncreased := int64(lastCompleted) > m.GetLastCompletedVersion()
 	atomic.StoreInt64(&m.lastCompletedVersion, int64(lastCompleted))
+	atomic.StoreInt64(&m.lastFlushedVersion, int64(lastFlushed))
 	// Note that if last completed did not increase (but current version did) that means we are skipping versions
 	// - when that happens we do not want to delay versions, we want to do that quickly.
 	m.maybeSetVersionsForProcessors(!lastCompletedIncreased)
@@ -485,8 +491,12 @@ func (m *ProcessorManager) setVersions(currentVersion int, lastCompleted int, la
 	}
 }
 
-func (m *ProcessorManager) getLastCompletedVersion() int {
-	return int(atomic.LoadInt64(&m.lastCompletedVersion))
+func (m *ProcessorManager) GetLastCompletedVersion() int64 {
+	return atomic.LoadInt64(&m.lastCompletedVersion)
+}
+
+func (m *ProcessorManager) GetLastFlushedVersion() int64 {
+	return atomic.LoadInt64(&m.lastFlushedVersion)
 }
 
 func (m *ProcessorManager) GetCurrentVersion() int {
@@ -911,27 +921,19 @@ func (m *ProcessorManager) checkFlush(lastFlushed int) []flushCallbackEntry {
 	return toCall
 }
 
-func (m *ProcessorManager) storeFlushed(version int) {
-	// Note, we use a different lock to the main manager lock here to avoid deadlock where a flush is occurring
-	// while we're disabling flush in the store with the manager lock held when detecting a failure
-	m.storeFlushedLock.Lock()
-	defer m.storeFlushedLock.Unlock()
-	if version <= m.prevFlushedVersion {
-		return
-	}
+func (m *ProcessorManager) storeFlushed(processorID int, version int) {
 	cv := atomic.LoadInt64(&m.clusterVersion)
 	if cv < 0 {
 		// Can get periodic flush before first cluster state arrives
 		return
 	}
-	// The store has flushed all local data to the specified completed version. We can now tell version manager
+	// The processor has flushed all local data to the specified completed version. We can now tell version manager
 	// that this has occurred. When all processor managers report in with the same completed version for all processors
 	// then flushed version will be set to the specified value and broadcast.
-
-	if err := m.vMgrClient.VersionFlushed(m.cfg.NodeID, version, m.liveProcessorCount(), int(cv)); err != nil {
-		log.Errorf("failed to call VersionFlushed %v", err)
+	if err := m.vMgrClient.VersionFlushed(processorID, version, int(cv)); err != nil {
+		// Normal to fail during shutdown
+		log.Debugf("failed to call VersionFlushed %v", err)
 	}
-	log.Debugf("node %d called version flushed:%d", m.cfg.NodeID, version)
 	m.prevFlushedVersion = version
 }
 
@@ -1136,6 +1138,14 @@ func (m *ProcessorManager) disableReplBatchFlush(disabled bool) {
 
 func (m *ProcessorManager) isLevelManagerProcessor(processorID int) bool {
 	return m.cfg.LevelManagerEnabled && processorID == m.cfg.ProcessorCount
+}
+
+func (m *ProcessorManager) ClearUnflushedData() {
+	m.st.ClearUnflushedData()
+}
+
+func (m *ProcessorManager) FlushAllProcessors(shutdown bool) error {
+	return m.st.Flush(shutdown)
 }
 
 type noopReplicator struct {

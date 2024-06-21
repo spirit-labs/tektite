@@ -9,20 +9,25 @@ import (
 	"github.com/spirit-labs/tektite/encoding"
 	"github.com/spirit-labs/tektite/mem"
 	"github.com/spirit-labs/tektite/proc"
+	"github.com/spirit-labs/tektite/tppm"
 	"github.com/stretchr/testify/require"
 	"strings"
 	"testing"
 	"time"
 )
-import store2 "github.com/spirit-labs/tektite/store"
 
 func TestFetchOneBatchFromCache(t *testing.T) {
-	st := store2.TestStore()
-	fetcher := newFetcher(st, &testStreamMgr{}, conf.DefaultKafkaFetchCacheMaxSizeBytes)
+
+	cfg := &conf.Config{}
+	cfg.ApplyDefaults()
+	procMgr, streamMgr, _ := tppm.TestProcessorManager(cfg)
+
+	fetcher := newFetcher(procMgr, streamMgr, conf.DefaultKafkaFetchCacheMaxSizeBytes)
 	topicInfo := newTopicInfo("topic1", 10, 1000)
 
 	batch1 := createBatch(10)
-	partitionFetcher := fetcher.GetPartitionFetcher(topicInfo, 0)
+	partitionFetcher, err := fetcher.GetPartitionFetcher(topicInfo, 0)
+	require.NoError(t, err)
 	partitionFetcher.AddBatch(0, 99, batch1)
 
 	res := execFetch(topicInfo, 0, 0, 1000,
@@ -42,14 +47,15 @@ func TestFetchOneBatchFromCache(t *testing.T) {
 }
 
 func TestFetchFromCacheMultipleBatchesFromOffset(t *testing.T) {
-	st := store2.TestStore()
-	err := st.Start()
-	defer stopStore(t, st)
+	cfg := &conf.Config{}
+	cfg.ApplyDefaults()
+	procMgr, streamMgr, _ := tppm.TestProcessorManager(cfg)
 
-	require.NoError(t, err)
-	fetcher := newFetcher(st, &testStreamMgr{}, conf.DefaultKafkaFetchCacheMaxSizeBytes)
+	fetcher := newFetcher(procMgr, streamMgr, conf.DefaultKafkaFetchCacheMaxSizeBytes)
 	topicInfo := newTopicInfo("topic1", 10, 1000)
-	partitionFetcher := fetcher.GetPartitionFetcher(topicInfo, 0)
+
+	partitionFetcher, err := fetcher.GetPartitionFetcher(topicInfo, 0)
+	require.NoError(t, err)
 
 	batch1 := createBatch(10)
 	partitionFetcher.AddBatch(50, 99, batch1)
@@ -106,11 +112,15 @@ func TestFetchFromCacheMultipleBatchesFromOffset(t *testing.T) {
 }
 
 func TestFetchBatchAddedWhileWaiting(t *testing.T) {
-	st := store2.TestStore()
-	fetcher := newFetcher(st, &testStreamMgr{}, conf.DefaultKafkaFetchCacheMaxSizeBytes)
+	cfg := &conf.Config{}
+	cfg.ApplyDefaults()
+	procMgr, streamMgr, _ := tppm.TestProcessorManager(cfg)
+
+	fetcher := newFetcher(procMgr, streamMgr, conf.DefaultKafkaFetchCacheMaxSizeBytes)
 	topicInfo := newTopicInfo("topic1", 10, 1000)
 
-	partitionFetcher := fetcher.GetPartitionFetcher(topicInfo, 0)
+	partitionFetcher, err := fetcher.GetPartitionFetcher(topicInfo, 0)
+	require.NoError(t, err)
 	batch1 := createBatch(10)
 	partitionFetcher.AddBatch(0, 99, batch1)
 	batch2 := createBatch(10)
@@ -132,11 +142,15 @@ func TestFetchBatchAddedWhileWaiting(t *testing.T) {
 }
 
 func TestFetchWaitForBatchTimeout(t *testing.T) {
-	st := store2.TestStore()
-	fetcher := newFetcher(st, &testStreamMgr{}, conf.DefaultKafkaFetchCacheMaxSizeBytes)
+	cfg := &conf.Config{}
+	cfg.ApplyDefaults()
+	procMgr, streamMgr, _ := tppm.TestProcessorManager(cfg)
+
+	fetcher := newFetcher(procMgr, streamMgr, conf.DefaultKafkaFetchCacheMaxSizeBytes)
 	topicInfo := newTopicInfo("topic1", 10, 1000)
 
-	partitionFetcher := fetcher.GetPartitionFetcher(topicInfo, 0)
+	partitionFetcher, err := fetcher.GetPartitionFetcher(topicInfo, 0)
+	require.NoError(t, err)
 	batch1 := createBatch(10)
 	partitionFetcher.AddBatch(0, 99, batch1)
 
@@ -159,11 +173,15 @@ func TestFetchWaitForBatchTimeout(t *testing.T) {
 }
 
 func TestFetchMinBytes(t *testing.T) {
-	st := store2.TestStore()
-	fetcher := newFetcher(st, &testStreamMgr{}, conf.DefaultKafkaFetchCacheMaxSizeBytes)
+	cfg := &conf.Config{}
+	cfg.ApplyDefaults()
+	procMgr, streamMgr, _ := tppm.TestProcessorManager(cfg)
+
+	fetcher := newFetcher(procMgr, streamMgr, conf.DefaultKafkaFetchCacheMaxSizeBytes)
 	topicInfo := newTopicInfo("topic1", 10, 1000)
 
-	partitionFetcher := fetcher.GetPartitionFetcher(topicInfo, 0)
+	partitionFetcher, err := fetcher.GetPartitionFetcher(topicInfo, 0)
+	require.NoError(t, err)
 
 	batch1 := createBatch(10)
 	partitionFetcher.AddBatch(0, 99, batch1)
@@ -191,11 +209,15 @@ func TestFetchMinBytes(t *testing.T) {
 }
 
 func TestFetchMinBytesWhileWaitingTimeout(t *testing.T) {
-	st := store2.TestStore()
-	fetcher := newFetcher(st, &testStreamMgr{}, conf.DefaultKafkaFetchCacheMaxSizeBytes)
+	cfg := &conf.Config{}
+	cfg.ApplyDefaults()
+	procMgr, streamMgr, _ := tppm.TestProcessorManager(cfg)
+
+	fetcher := newFetcher(procMgr, streamMgr, conf.DefaultKafkaFetchCacheMaxSizeBytes)
 	topicInfo := newTopicInfo("topic1", 10, 1000)
 
-	partitionFetcher := fetcher.GetPartitionFetcher(topicInfo, 0)
+	partitionFetcher, err := fetcher.GetPartitionFetcher(topicInfo, 0)
+	require.NoError(t, err)
 
 	batch1 := createBatch(10)
 	batch2 := createBatch(15)
@@ -227,11 +249,15 @@ func TestFetchMinBytesWhileWaitingTimeout(t *testing.T) {
 }
 
 func TestFetchMinBytesWhileWaitingNoTimeout(t *testing.T) {
-	st := store2.TestStore()
-	fetcher := newFetcher(st, &testStreamMgr{}, conf.DefaultKafkaFetchCacheMaxSizeBytes)
+	cfg := &conf.Config{}
+	cfg.ApplyDefaults()
+	procMgr, streamMgr, _ := tppm.TestProcessorManager(cfg)
+
+	fetcher := newFetcher(procMgr, streamMgr, conf.DefaultKafkaFetchCacheMaxSizeBytes)
 	topicInfo := newTopicInfo("topic1", 10, 1000)
 
-	partitionFetcher := fetcher.GetPartitionFetcher(topicInfo, 0)
+	partitionFetcher, err := fetcher.GetPartitionFetcher(topicInfo, 0)
+	require.NoError(t, err)
 
 	batch1 := createBatch(10)
 	batch2 := createBatch(15)
@@ -265,11 +291,15 @@ func TestFetchMinBytesWhileWaitingNoTimeout(t *testing.T) {
 }
 
 func TestFetchFromCacheMaxBytes(t *testing.T) {
-	st := store2.TestStore()
-	fetcher := newFetcher(st, &testStreamMgr{}, conf.DefaultKafkaFetchCacheMaxSizeBytes)
+	cfg := &conf.Config{}
+	cfg.ApplyDefaults()
+	procMgr, streamMgr, _ := tppm.TestProcessorManager(cfg)
+
+	fetcher := newFetcher(procMgr, streamMgr, conf.DefaultKafkaFetchCacheMaxSizeBytes)
 	topicInfo := newTopicInfo("topic1", 10, 1000)
 
-	partitionFetcher := fetcher.GetPartitionFetcher(topicInfo, 0)
+	partitionFetcher, err := fetcher.GetPartitionFetcher(topicInfo, 0)
+	require.NoError(t, err)
 
 	batch1 := createBatch(10)
 	partitionFetcher.AddBatch(0, 99, batch1)
@@ -317,15 +347,16 @@ func TestFetchFromCacheMaxBytes(t *testing.T) {
 }
 
 func TestFetchFromStore(t *testing.T) {
-	st := store2.TestStore()
-	err := st.Start()
-	require.NoError(t, err)
-	defer stopStore(t, st)
-	fetcher := newFetcher(st, &testStreamMgr{}, conf.DefaultKafkaFetchCacheMaxSizeBytes)
+	cfg := &conf.Config{}
+	cfg.ApplyDefaults()
+	procMgr, streamMgr, _ := tppm.TestProcessorManager(cfg)
+
 	slabID := 1000
+	fetcher := newFetcher(procMgr, streamMgr, conf.DefaultKafkaFetchCacheMaxSizeBytes)
 	topicInfo := newTopicInfo("topic1", 10, slabID)
 
-	partitionFetcher := fetcher.GetPartitionFetcher(topicInfo, 0)
+	partitionFetcher, err := fetcher.GetPartitionFetcher(topicInfo, 0)
+	require.NoError(t, err)
 
 	numRows := 100
 	insertRowsInStore(t, st, topicInfo.ConsumerInfoProvider.PartitionMapping(), slabID, 0, numRows, 0, 0)
@@ -347,15 +378,16 @@ func TestFetchFromStore(t *testing.T) {
 }
 
 func TestFetchFromStoreMaxBytes(t *testing.T) {
-	st := store2.TestStore()
-	err := st.Start()
-	require.NoError(t, err)
-	defer stopStore(t, st)
-	fetcher := newFetcher(st, &testStreamMgr{}, conf.DefaultKafkaFetchCacheMaxSizeBytes)
+	cfg := &conf.Config{}
+	cfg.ApplyDefaults()
+	procMgr, streamMgr, _ := tppm.TestProcessorManager(cfg)
+
 	slabID := 1000
+	fetcher := newFetcher(procMgr, streamMgr, conf.DefaultKafkaFetchCacheMaxSizeBytes)
 	topicInfo := newTopicInfo("topic1", 10, slabID)
 
-	partitionFetcher := fetcher.GetPartitionFetcher(topicInfo, 0)
+	partitionFetcher, err := fetcher.GetPartitionFetcher(topicInfo, 0)
+	require.NoError(t, err)
 
 	numRows := 100
 	insertRowsInStore(t, st, topicInfo.ConsumerInfoProvider.PartitionMapping(), slabID, 0, numRows, 0, 0)
@@ -372,15 +404,16 @@ func TestFetchFromStoreMaxBytes(t *testing.T) {
 }
 
 func TestFetchFromStoreOneRecordReturnedEvenIfExceedsMaxBytes(t *testing.T) {
-	st := store2.TestStore()
-	err := st.Start()
-	require.NoError(t, err)
-	defer stopStore(t, st)
-	fetcher := newFetcher(st, &testStreamMgr{}, conf.DefaultKafkaFetchCacheMaxSizeBytes)
+	cfg := &conf.Config{}
+	cfg.ApplyDefaults()
+	procMgr, streamMgr, _ := tppm.TestProcessorManager(cfg)
+
 	slabID := 1000
+	fetcher := newFetcher(procMgr, streamMgr, conf.DefaultKafkaFetchCacheMaxSizeBytes)
 	topicInfo := newTopicInfo("topic1", 10, slabID)
 
-	partitionFetcher := fetcher.GetPartitionFetcher(topicInfo, 0)
+	partitionFetcher, err := fetcher.GetPartitionFetcher(topicInfo, 0)
+	require.NoError(t, err)
 
 	insertRowsInStore(t, st, topicInfo.ConsumerInfoProvider.PartitionMapping(), slabID, 0, 10, 0, 2000)
 
@@ -401,15 +434,16 @@ func TestFetchFromStoreOneRecordReturnedEvenIfExceedsMaxBytes(t *testing.T) {
 }
 
 func TestFetchEvictBatches(t *testing.T) {
-	st := store2.TestStore()
-	err := st.Start()
+	cfg := &conf.Config{}
+	cfg.ApplyDefaults()
+	procMgr, streamMgr, _ := tppm.TestProcessorManager(cfg)
+
+	slabID := 1000
+	fetcher := newFetcher(procMgr, streamMgr, conf.DefaultKafkaFetchCacheMaxSizeBytes)
+	topicInfo := newTopicInfo("topic1", 10, slabID)
+
+	partitionFetcher, err := fetcher.GetPartitionFetcher(topicInfo, 0)
 	require.NoError(t, err)
-	defer stopStore(t, st)
-
-	fetcher := newFetcher(st, &testStreamMgr{}, conf.DefaultKafkaFetchCacheMaxSizeBytes)
-	topicInfo := newTopicInfo("topic1", 10, 1000)
-
-	partitionFetcher := fetcher.GetPartitionFetcher(topicInfo, 0)
 
 	batch1 := createBatch(10)
 	partitionFetcher.AddBatch(0, 99, batch1)
@@ -519,7 +553,10 @@ type fetchResult struct {
 func execFetch(topicInfo *TopicInfo, partitionID int32, fetchOffset int64, maxWait time.Duration, minBytes int,
 	maxBytes int, fetcher *fetcher) fetchResult {
 	ch := make(chan fetchResult, 1)
-	partitionFetcher := fetcher.GetPartitionFetcher(topicInfo, partitionID)
+	partitionFetcher, err := fetcher.GetPartitionFetcher(topicInfo, partitionID)
+	if err != nil {
+		panic(err)
+	}
 	partitionFetcher.Fetch(fetchOffset, minBytes,
 		maxBytes, maxWait, func(batches [][]byte, hwm int64, err error) {
 			ch <- fetchResult{batches, hwm, err}

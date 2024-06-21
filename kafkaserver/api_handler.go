@@ -116,7 +116,11 @@ func (c *connection) handleProduce(apiVersion int16, reqBuff []byte, respBuffHea
 				continue
 			}
 
-			processor, ok := c.s.procProvider.GetProcessorForPartition(topicName, int(partitionID))
+			processorID, ok := topicInfo.ProduceInfoProvider.PartitionScheme().PartitionProcessorMapping[int(partitionID)]
+			if !ok {
+				panic("no processor for partition")
+			}
+			processor, ok := c.s.procProvider.GetProcessor(processorID)
 			if !ok {
 				topicResult.partitionProduceComplete(j, ErrorCodeUnknownTopicOrPartition, 0, 0)
 				continue
@@ -129,7 +133,13 @@ func (c *connection) handleProduce(apiVersion int16, reqBuff []byte, respBuffHea
 			var partitionFetcher *PartitionFetcher
 			if topicInfo.ConsumeEnabled {
 				// can be nil for produce only topic
-				partitionFetcher = c.s.fetcher.GetPartitionFetcher(&topicInfo, partitionID)
+				var err error
+				partitionFetcher, err = c.s.fetcher.GetPartitionFetcher(&topicInfo, partitionID)
+				if err != nil {
+					log.Errorf("failed to fetch partition fetcher for partition %d: %v", partitionID, err)
+					topicResult.partitionProduceComplete(j, ErrorCodeUnknownTopicOrPartition, 0, 0)
+					continue
+				}
 			}
 
 			var recordBatchBytes []byte
@@ -301,27 +311,31 @@ func (c *connection) handleFetch(apiVersion int16, reqBuff []byte, respBuffHeade
 				log.Error("sending back unknown topic or partition")
 				topicResult.partitionFetchComplete(j, int16(ErrorCodeUnknownTopicOrPartition), 0, nil)
 			} else {
-				partitionFetcher := c.s.fetcher.GetPartitionFetcher(&topicInfo, partitionID)
-
-				index := j
-				waiter := partitionFetcher.Fetch(fetchOffset, int(minBytes), int(fetchMaxBytes), time.Duration(maxWaitMs)*time.Millisecond,
-					func(batches [][]byte, hwm int64, err error) {
-						errorCode := ErrorCodeNone
-						if err != nil {
-							var kerr KafkaProtocolError
-							if errors.As(err, &kerr) {
-								errorCode = kerr.ErrorCode
-							} else {
-								errorCode = ErrorCodeUnknownServerError
-							}
-							log.Errorf("failed to execute fetch %v", err)
-						}
-						topicResult.partitionFetchComplete(index, int16(errorCode), hwm, batches)
-					})
-				if waiter != nil {
-					waiters = append(waiters, waiter)
+				partitionFetcher, err := c.s.fetcher.GetPartitionFetcher(&topicInfo, partitionID)
+				if err != nil {
+					log.Error("fetching partition fetcher failed: %v", err)
+					topicResult.partitionFetchComplete(j, int16(ErrorCodeUnknownTopicOrPartition), 0, nil)
 				} else {
-					hasData = true
+					index := j
+					waiter := partitionFetcher.Fetch(fetchOffset, int(minBytes), int(fetchMaxBytes), time.Duration(maxWaitMs)*time.Millisecond,
+						func(batches [][]byte, hwm int64, err error) {
+							errorCode := ErrorCodeNone
+							if err != nil {
+								var kerr KafkaProtocolError
+								if errors.As(err, &kerr) {
+									errorCode = kerr.ErrorCode
+								} else {
+									errorCode = ErrorCodeUnknownServerError
+								}
+								log.Errorf("failed to execute fetch %v", err)
+							}
+							topicResult.partitionFetchComplete(index, int16(errorCode), hwm, batches)
+						})
+					if waiter != nil {
+						waiters = append(waiters, waiter)
+					} else {
+						hasData = true
+					}
 				}
 			}
 		}

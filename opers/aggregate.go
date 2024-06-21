@@ -514,7 +514,7 @@ func (a *AggregateOperator) HandleBarrier(execCtx StreamExecContext) error {
 			// Note, we can access windowsLoaded and openWindows without a memory barrier.
 			// This is because this method is called on the processor thread that all these partitions always run on.
 			// In other words windowsLoaded[x] and openWindows[x] are always accessed by the same goroutine.
-			openWindows, err := a.getOpenWindows(partitionID)
+			openWindows, err := a.getOpenWindows(partitionID, execCtx.Processor())
 			if err != nil {
 				return err
 			}

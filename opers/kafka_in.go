@@ -51,6 +51,10 @@ type KafkaInOperator struct {
 	hashCache          *partitionHashCache
 }
 
+func (k *KafkaInOperator) PartitionScheme() *PartitionScheme {
+	return &k.inSchema.PartitionScheme
+}
+
 func (k *KafkaInOperator) GetPartitionProcessorMapping() map[int]int {
 	return k.inSchema.PartitionScheme.PartitionProcessorMapping
 }

@@ -890,6 +890,22 @@ type testProcessorManager struct {
 	groupStates map[int]clustmgr.GroupState
 }
 
+func (t *testProcessorManager) ClearUnflushedData() {
+	panic("not implemented")
+}
+
+func (t *testProcessorManager) FlushAllProcessors(shutdown bool) error {
+	panic("not implemented")
+}
+
+func (t *testProcessorManager) GetLastCompletedVersion() int64 {
+	panic("not implemented")
+}
+
+func (t *testProcessorManager) GetLastFlushedVersion() int64 {
+	panic("not implemented")
+}
+
 func (t *testProcessorManager) RegisterStateHandler(clustmgr.ClusterStateHandler) {
 	panic("not implemented")
 }

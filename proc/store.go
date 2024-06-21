@@ -43,11 +43,14 @@ type ProcessorStore struct {
 }
 
 func NewProcessorStore(s *Store, processorID int) *ProcessorStore {
+	// Note that we limit max queue size with a semaphore, not on pushChan size. This is because we remove
+	// from pushChan before push the sstable and remove the entry from the queue.
+	maxQueueSize := s.pm.cfg.MemtableFlushQueueMaxSize
 	return &ProcessorStore{
 		s:           s,
 		processorID: processorID,
-		pushChan:    make(chan struct{}),
-		sem:         semaphore.NewWeighted(10), // TODO make configurable
+		pushChan:    make(chan struct{}, maxQueueSize),
+		sem:         semaphore.NewWeighted(int64(maxQueueSize)),
 	}
 }
 
@@ -156,6 +159,7 @@ func (ps *ProcessorStore) replaceMemtable(periodic bool) error {
 	}
 	ps.queueLock.Lock()
 	defer ps.queueLock.Unlock()
+	ps.pushChan <- struct{}{}
 	lcv := ps.s.getLastCompletedVersion()
 	ps.queue = append(ps.queue, &flushQueueEntry{
 		mt:                   ps.mt,
@@ -163,7 +167,6 @@ func (ps *ProcessorStore) replaceMemtable(periodic bool) error {
 		seq:                  atomic.AddUint64(&ps.writeSeq, 1),
 		periodic:             periodic,
 	})
-	ps.pushChan <- struct{}{}
 	ps.createNewMemtable()
 	return ps.updateIterators(ps.mt)
 }
@@ -174,6 +177,9 @@ func (ps *ProcessorStore) clear() error {
 	if !ps.started {
 		return errors.New("processor store not started")
 	}
+	// We lock queueLock too to make sure no pushes in progress
+	ps.queueLock.Lock()
+	defer ps.queueLock.Unlock()
 	// We set the first good sequence to be the next write sequence
 	// Any entries with seq < first good sequence will be ignored when read by the push loop
 	// so this means they are logically "cleared"
@@ -192,35 +198,40 @@ func (ps *ProcessorStore) pushLoop() {
 		// Note that if we're stopping we will still consume entries, but we won't send them, this unblocks
 		// writers as we release the semaphore
 		if entry.seq >= atomic.LoadUint64(&ps.firstGoodSequence) && !ps.stopping.Load() {
-			if err := ps.buildAndPushTable(entry); err != nil {
+			ok, err := ps.buildAndPushTable(entry)
+			if err != nil {
 				log.Error(err)
 				return
+			}
+			if !ok {
+				log.Info("stopping")
 			}
 		}
 		ps.queueLock.Lock()
 		// Remove the pushed entry, note: we copy, so we don't retain references to popped entries in buffer
 		newEntries := make([]*flushQueueEntry, len(ps.queue)-1, cap(ps.queue))
 		copy(newEntries, ps.queue[1:])
+		ps.queue = newEntries
 		ps.queueLock.Unlock()
 		ps.sem.Release(1)
 	}
 }
 
-func (ps *ProcessorStore) buildAndPushTable(entry *flushQueueEntry) error {
+func (ps *ProcessorStore) buildAndPushTable(entry *flushQueueEntry) (bool, error) {
 	// build sstable and push to cloud and register them with the level-manager
-	if entry.mt != nil { // nil memtables are used for flush
+	if entry.mt.HasWrites() {
 		iter := entry.mt.NewIterator(nil, nil)
 		ssTable, smallestKey, largestKey, minVersion, maxVersion, err := sst2.BuildSSTable(ps.s.pm.cfg.TableFormat,
 			int(ps.s.pm.cfg.MemtableMaxSizeBytes), 8*1024, iter)
 		if err != nil {
-			return err
+			return false, err
 		}
 		// Push and register the SSTable
 		id := []byte(fmt.Sprintf("sst-%s", uuid.New().String()))
 		tableBytes := ssTable.Serialize()
 		for {
 			if ps.stopping.Load() {
-				return nil
+				return false, nil
 			}
 			if err := ps.s.cloudStoreClient.Put(id, tableBytes); err != nil {
 				if common.IsUnavailableError(err) {
@@ -229,20 +240,20 @@ func (ps *ProcessorStore) buildAndPushTable(entry *flushQueueEntry) error {
 					time.Sleep(ps.s.pm.cfg.SSTablePushRetryDelay)
 					continue
 				}
-				return err
+				return false, err
 			}
 			log.Debugf("store %d added sstable with id %v for memtable %s to cloud store", ps.s.pm.cfg.NodeID, id,
 				entry.mt.Uuid)
 			break
 		}
 		if err := ps.s.tableCache.AddSSTable(id, ssTable); err != nil {
-			return err
+			return false, err
 		}
 		log.Debugf("store %d added sstable with id %v for memtable %s to table cache", ps.s.pm.cfg.NodeID, id,
 			entry.mt.Uuid)
 		for {
 			if ps.stopping.Load() {
-				return nil
+				return false, nil
 			}
 			clusterVersion := ps.s.getClusterVersion()
 			// register with level-manager
@@ -269,7 +280,7 @@ func (ps *ProcessorStore) buildAndPushTable(entry *flushQueueEntry) error {
 					if tektiteErr.Code == errors.Unavailable || tektiteErr.Code == errors.LevelManagerNotLeaderNode {
 						if ps.stopping.Load() {
 							// Allow to break out of the loop if stopped or clearing
-							return nil
+							return false, nil
 						}
 						// Transient availability error - retry
 						log.Warnf("store failed to register new ss-table with level manager, will retry: %v", err)
@@ -277,7 +288,7 @@ func (ps *ProcessorStore) buildAndPushTable(entry *flushQueueEntry) error {
 						continue
 					}
 				}
-				return err
+				return false, err
 			}
 			log.Debugf("node %d registered memtable %s with levelManager sstableid %v- max version %d",
 				ps.s.pm.cfg.NodeID, entry.mt.Uuid, id, maxVersion)
@@ -286,22 +297,22 @@ func (ps *ProcessorStore) buildAndPushTable(entry *flushQueueEntry) error {
 	} else {
 		log.Debugf("node %d entry to flush has no writes", ps.s.pm.cfg.NodeID)
 	}
-	ps.s.versionFlushed(ps.processorID, entry.lastCompletedVersion)
+	ps.s.pm.storeFlushed(ps.processorID, int(entry.lastCompletedVersion))
 	if entry.periodic {
 		ps.periodicReplaceInQueue.Store(false)
 	}
 	log.Debugf("store %d calling flushed callback for memtable %s", ps.s.pm.cfg.NodeID, entry.mt.Uuid)
-	return entry.mt.Flushed(nil)
+	return true, entry.mt.Flushed(nil)
 }
 
 // Get the value for the key, or nil if it doesn't exist.
 // Note the key argument must not contain the version.
 // Returns the highest version for the key
 func (ps *ProcessorStore) Get(key []byte) ([]byte, error) {
-	return ps.getWithMaxVersion(key, math.MaxUint64)
+	return ps.GetWithMaxVersion(key, math.MaxUint64)
 }
 
-func (ps *ProcessorStore) getWithMaxVersion(key []byte, maxVersion uint64) ([]byte, error) {
+func (ps *ProcessorStore) GetWithMaxVersion(key []byte, maxVersion uint64) ([]byte, error) {
 	ps.lock.RLock() // Note, largely uncontended so minimal overhead
 	unlocked := false
 	defer func() {
@@ -491,10 +502,11 @@ func (ps *ProcessorStore) NewIterator(keyStart []byte, keyEnd []byte, highestVer
 		return nil, errors.New("processor store not started")
 	}
 
+	// FIXME - do we really need the readlock before the current iterator?
+	// We don't do this on the gets - if we do, then when we need to add on the gets too
+	ps.queueLock.RLock()
 	// First we add the current memtable
 	iters := []iteration.Iterator{ps.mt.NewIterator(keyStart, keyEnd)}
-
-	ps.queueLock.RLock()
 	for i := len(ps.queue) - 1; i >= 0; i-- {
 		entry := ps.queue[i]
 		iters = append(iters, entry.mt.NewIterator(keyStart, keyEnd))
@@ -650,6 +662,18 @@ func (s *Store) Flush(shutdown bool) error {
 	return <-ch
 }
 
+func (s *Store) ClearUnflushedData() {
+	s.pm.processors.Range(func(key, value any) bool {
+		proc := value.(*processor)
+		if proc.IsLeader() {
+			if err := proc.store.clear(); err != nil {
+				log.Errorf("failed to clear unflushed data: %v", err)
+			}
+		}
+		return true
+	})
+}
+
 func (s *Store) scheduleMtReplace() {
 	s.mtReplaceTimerLock.Lock()
 	defer s.mtReplaceTimerLock.Unlock()
@@ -675,10 +699,6 @@ func (s *Store) maybeReplaceMemtables() error {
 	return err
 }
 
-func (s *Store) versionFlushed(processorID int, flushedVersion int64) {
-	// TODO
-}
-
 func (s *Store) getClusterVersion() int {
 	return s.pm.ClusterVersion()
 }
@@ -700,5 +720,5 @@ func (s *Store) lastCompletedUpdated() {
 }
 
 func (s *Store) getLastCompletedVersion() int64 {
-	return int64(s.pm.getLastCompletedVersion())
+	return int64(s.pm.GetLastCompletedVersion())
 }

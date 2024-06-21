@@ -6,7 +6,6 @@ import (
 	"github.com/spirit-labs/tektite/kafka"
 	"github.com/spirit-labs/tektite/mem"
 	"github.com/spirit-labs/tektite/proc"
-	store2 "github.com/spirit-labs/tektite/store"
 	"github.com/spirit-labs/tektite/tppm"
 	"github.com/stretchr/testify/require"
 	"sync/atomic"

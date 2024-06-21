@@ -14,7 +14,6 @@ import (
 	"github.com/spirit-labs/tektite/proc"
 	"github.com/spirit-labs/tektite/protos/clustermsgs"
 	"github.com/spirit-labs/tektite/remoting"
-	"github.com/spirit-labs/tektite/store"
 	"github.com/spirit-labs/tektite/testutils"
 	"github.com/spirit-labs/tektite/tppm"
 	"github.com/spirit-labs/tektite/types"

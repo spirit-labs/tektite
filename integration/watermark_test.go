@@ -6,12 +6,11 @@ import (
 	"github.com/spirit-labs/tektite/clustmgr"
 	"github.com/spirit-labs/tektite/conf"
 	"github.com/spirit-labs/tektite/evbatch"
-	"github.com/spirit-labs/tektite/expr"
 	"github.com/spirit-labs/tektite/opers"
 	"github.com/spirit-labs/tektite/parser"
 	"github.com/spirit-labs/tektite/proc"
-	store2 "github.com/spirit-labs/tektite/store"
 	"github.com/spirit-labs/tektite/testutils"
+	"github.com/spirit-labs/tektite/tppm"
 	"github.com/spirit-labs/tektite/types"
 	"github.com/stretchr/testify/require"
 	"sync"
@@ -416,30 +415,21 @@ func getProcessorForPartition(t *testing.T, partitionID int, ppm map[int]int, pr
 }
 
 func setup(t *testing.T) (opers.StreamManager, proc.Manager, *conf.Config) {
-	store := store2.TestStore()
 
-	err := store.Start()
-	require.NoError(t, err)
 	cfg := &conf.Config{}
 	cfg.ApplyDefaults()
 	cfg.LogScope = t.Name()
 	cfg.ProcessorCount = 10
-	streamMgr := opers.NewStreamManager(nil, store, &testSlabRetentions{},
-		&expr.ExpressionFactory{}, cfg, true)
 
-	stateMgr := &testClustStateMgr{}
+	processorMgr, streamMgr, stateMgr := tppm.TestProcessorManager(cfg)
 
-	processorMgr := proc.NewProcessorManager(stateMgr, streamMgr, store, cfg, nil,
-		func(processorID int) proc.BatchHandler {
-			return streamMgr
-		}, nil, &testIngestNotifier{})
 	vmgrClient := &testVmgrClient{
 		initialWriteVersion:     101,
 		initialCompletedVersion: 100,
 		initialFlushedVersion:   90,
 	}
 	processorMgr.SetVersionManagerClient(vmgrClient)
-	err = processorMgr.Start()
+	err := processorMgr.Start()
 	require.NoError(t, err)
 
 	// wait for initial version to be initialised
@@ -556,7 +546,7 @@ func (t *testVmgrClient) GetLastFailureFlushedVersion(int) (int, error) {
 	return 0, nil
 }
 
-func (t *testVmgrClient) VersionFlushed(int, int, int, int) error {
+func (t *testVmgrClient) VersionFlushed(int, int, int) error {
 	return nil
 }
 

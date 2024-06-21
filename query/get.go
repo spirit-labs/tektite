@@ -61,20 +61,21 @@ func NewGetOperator(isRange bool, rangeStartExprs []expr.Expression, rangeEndExp
 	}
 	keySchema := evbatch.NewEventSchema(keyColNames, keyColumnTypes)
 	return &GetOperator{
-		isRange:         isRange,
-		rangeStartExprs: rangeStartExprs,
-		rangeEndExprs:   rangeEndExprs,
-		startInclusive:  startInclusive,
-		endInclusive:    endInclusive,
-		schema:          tableSchema,
-		keyColIndexes:   keyColIndexes,
-		rowColIndexes:   rowColIndexes,
-		keyColumnTypes:  keyColumnTypes,
-		rowColumnTypes:  rowColumnTypes,
-		slabID:          slabID,
-		emptyBatch:      evbatch.CreateEmptyBatch(tableSchema.EventSchema),
-		nodeID:          nodeID,
-		keySchema:       keySchema,
+		isRange:                isRange,
+		rangeStartExprs:        rangeStartExprs,
+		rangeEndExprs:          rangeEndExprs,
+		startInclusive:         startInclusive,
+		endInclusive:           endInclusive,
+		schema:                 tableSchema,
+		keyColIndexes:          keyColIndexes,
+		rowColIndexes:          rowColIndexes,
+		keyColumnTypes:         keyColumnTypes,
+		rowColumnTypes:         rowColumnTypes,
+		slabID:                 slabID,
+		emptyBatch:             evbatch.CreateEmptyBatch(tableSchema.EventSchema),
+		nodeID:                 nodeID,
+		keySchema:              keySchema,
+		streamMetaIterProvider: streamMetaIterProvider,
 	}
 }
 

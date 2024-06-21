@@ -69,10 +69,10 @@ func (l *LevelManagerLocalClient) RegisterL0Tables(registrationBatch levels.Regi
 }
 
 func (l *LevelManagerLocalClient) ApplyChanges(registrationBatch levels.RegistrationBatch) error {
-	bytes := make([]byte, 0, 256)
-	bytes = append(bytes, levels.ApplyChangesCommand)
-	bytes = registrationBatch.Serialize(bytes)
-	return ingestCommandBatchSync(bytes, l.processorManager, l.cfg.ProcessorCount)
+	buff := make([]byte, 0, 256)
+	buff = append(buff, levels.ApplyChangesCommand)
+	buff = registrationBatch.Serialize(buff)
+	return ingestCommandBatchSync(buff, l.processorManager, l.cfg.ProcessorCount)
 }
 
 func (l *LevelManagerLocalClient) RegisterDeadVersionRange(versionRange levels.VersionRange, clusterName string, clusterVersion int) error {

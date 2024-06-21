@@ -752,7 +752,7 @@ func (p *processor) persistReplBatchSeq(batch *ProcessBatch, memBatch *mem.Batch
 }
 
 func (p *processor) LoadLastProcessedReplBatchSeq(version int) (int64, error) {
-	value, err := p.store.getWithMaxVersion(p.replSeqKey, uint64(version))
+	value, err := p.store.GetWithMaxVersion(p.replSeqKey, uint64(version))
 	if err != nil {
 		return 0, err
 	}
@@ -761,4 +761,18 @@ func (p *processor) LoadLastProcessedReplBatchSeq(version int) (int64, error) {
 	}
 	seq, _ := encoding.ReadUint64FromBufferLE(value, 0)
 	return int64(seq), nil
+}
+
+func (p *processor) GetWithMaxVersion(key []byte, maxVersion uint64) ([]byte, error) {
+	if !p.IsLeader() {
+		return nil, errors.NewTektiteErrorf(errors.Unavailable, "processor %d is not leader", p.id)
+	}
+	return p.store.GetWithMaxVersion(key, maxVersion)
+}
+
+func (p *processor) NewIterator(keyStart []byte, keyEnd []byte, highestVersion uint64, preserveTombstones bool) (iteration.Iterator, error) {
+	if !p.IsLeader() {
+		return nil, errors.NewTektiteErrorf(errors.Unavailable, "processor %d is not leader", p.id)
+	}
+	return p.store.NewIterator(keyStart, keyEnd, highestVersion, preserveTombstones)
 }

@@ -8,7 +8,6 @@ import (
 	"github.com/spirit-labs/tektite/evbatch"
 	"github.com/spirit-labs/tektite/opers"
 	"github.com/spirit-labs/tektite/proc"
-	store2 "github.com/spirit-labs/tektite/store"
 	"github.com/stretchr/testify/require"
 	"strconv"
 	"strings"
@@ -120,16 +119,6 @@ type testBatchForwarder struct {
 }
 
 func (t testBatchForwarder) ForwardBatch(*proc.ProcessBatch, bool, func(error)) {
-}
-
-type testStreamMgr struct {
-}
-
-func (t testStreamMgr) RegisterSystemSlab(string, int, int, int, *opers.OperatorSchema, []string, bool) error {
-	return nil
-}
-
-func (t testStreamMgr) RegisterChangeListener(func(streamName string, deployed bool)) {
 }
 
 type testMetadataProvider struct {

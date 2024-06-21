@@ -14,7 +14,6 @@ import (
 	"github.com/spirit-labs/tektite/remoting"
 	"github.com/spirit-labs/tektite/repli"
 	"github.com/spirit-labs/tektite/sequence"
-	"github.com/spirit-labs/tektite/store"
 	"github.com/spirit-labs/tektite/tabcache"
 	"github.com/spirit-labs/tektite/vmgr"
 	"github.com/stretchr/testify/require"
@@ -30,13 +29,6 @@ external client and local client to access it.
 //goland:noinspection ALL
 func TestLevelManagerCluster(t *testing.T) {
 	t.Parallel()
-	st := store.TestStore()
-	err := st.Start()
-	require.NoError(t, err)
-	defer func() {
-		err := st.Stop()
-		require.NoError(t, err)
-	}()
 
 	cloudStore := dev.NewInMemStore(0)
 	tcConf := conf.Config{}
@@ -60,6 +52,8 @@ func TestLevelManagerCluster(t *testing.T) {
 	var mapperServices []*levels.LevelManagerService
 	var vmgrs []*vmgr.VersionManager
 
+	objStoreClient := dev.NewInMemStore(0)
+
 	for i := 0; i < numNodes; i++ {
 		clustStateMgr := &testClustStateMgr{}
 		clustStateMgrs = append(clustStateMgrs, clustStateMgr)
@@ -75,16 +69,24 @@ func TestLevelManagerCluster(t *testing.T) {
 
 		handler := &testBatchHandler{}
 
-		mgr := proc.NewProcessorManager(clustStateMgr, &testReceiverInfoProvider{}, st, cfg, repli.NewReplicator,
-			func(processorID int) proc.BatchHandler {
-				return handler
-			}, nil, &testIngestNotifier{})
+		lMgrClient := proc.NewLevelManagerLocalClient(cfg)
+
+		tableCache, err := tabcache.NewTableCache(objStoreClient, cfg)
+		require.NoError(t, err)
+		mgr := proc.NewProcessorManagerWithFailure(clustStateMgr, &testReceiverInfoProvider{}, cfg, repli.NewReplicator, func(processorID int) proc.BatchHandler {
+			return handler
+		}, nil, &testIngestNotifier{}, objStoreClient, lMgrClient, tableCache, false)
+
+		lMgrClient.SetProcessorManager(mgr)
+		
+		err = mgr.Start()
+		require.NoError(t, err)
 
 		levelManagerService := levels.NewLevelManagerService(mgr, cfg, cloudStore, tabCache,
 			proc.NewLevelManagerCommandIngestor(mgr), mgr)
 
 		mgr.SetLevelMgrProcessorInitialisedCallback(levelManagerService.ActivateLevelManager)
-		err := mgr.Start()
+		err = mgr.Start()
 		require.NoError(t, err)
 		mgrs = append(mgrs, mgr)
 		//goland:noinspection GoDeferInLoop
@@ -112,9 +114,6 @@ func TestLevelManagerCluster(t *testing.T) {
 		require.NoError(t, err)
 		mgr.RegisterStateHandler(levelManagerService.HandleClusterState)
 		mapperServices = append(mapperServices, levelManagerService)
-
-		lMgrClient := proc.NewLevelManagerLocalClient(cfg)
-		lMgrClient.SetProcessorManager(mgr)
 
 		vMgr := vmgr.NewVersionManager(seqMgr, lMgrClient, cfg, remotingAddresses...)
 		mgr.RegisterStateHandler(vMgr.HandleClusterState)

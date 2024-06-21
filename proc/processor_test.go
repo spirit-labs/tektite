@@ -8,7 +8,6 @@ import (
 	"github.com/spirit-labs/tektite/errors"
 	"github.com/spirit-labs/tektite/evbatch"
 	"github.com/spirit-labs/tektite/mem"
-	"github.com/spirit-labs/tektite/store"
 	"github.com/spirit-labs/tektite/testutils"
 	"github.com/stretchr/testify/require"
 	"math/rand"

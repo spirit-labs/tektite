@@ -9,7 +9,6 @@ import (
 	"github.com/spirit-labs/tektite/mem"
 	"github.com/spirit-labs/tektite/proc"
 	"github.com/spirit-labs/tektite/remoting"
-	"github.com/spirit-labs/tektite/store"
 	"github.com/spirit-labs/tektite/testutils"
 	"github.com/spirit-labs/tektite/types"
 	"github.com/stretchr/testify/require"

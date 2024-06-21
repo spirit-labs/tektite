@@ -98,8 +98,8 @@ func (k *KafkaOutOperator) SlabID() int {
 	return k.slabID
 }
 
-func (k *KafkaOutOperator) PartitionMapping() string {
-	return k.schema.MappingID
+func (k *KafkaOutOperator) PartitionScheme() *PartitionScheme {
+	return &k.schema.PartitionScheme
 }
 
 func (k *KafkaOutOperator) EarliestOffset(int) (int64, int64, bool) {

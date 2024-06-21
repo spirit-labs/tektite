@@ -7,6 +7,7 @@ import (
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/conf"
 	"github.com/spirit-labs/tektite/encoding"
+	"github.com/spirit-labs/tektite/errors"
 	"github.com/spirit-labs/tektite/evbatch"
 	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/opers"
@@ -21,15 +22,16 @@ import (
 GroupCoordinator manages Kafka consumer groups.
 */
 type GroupCoordinator struct {
-	cfg                *conf.Config
-	processorProvider  processorProvider
-	streamMgr          streamMgr
-	metaProvider       MetadataProvider
-	groups             map[string]*group
-	groupsLock         sync.RWMutex
-	timers             sync.Map
-	consumerOffsetsPPM map[int]int
-	forwarder          batchForwarder
+	cfg                       *conf.Config
+	processorProvider         processorProvider
+	streamMgr                 streamMgr
+	metaProvider              MetadataProvider
+	groups                    map[string]*group
+	groupsLock                sync.RWMutex
+	timers                    sync.Map
+	consumerOffsetsPPM        map[int]int
+	forwarder                 batchForwarder
+	partitionProcessorMapping map[int]int
 }
 
 const ConsumerOffsetsMappingID = "sys.consumer_offsets"
@@ -1002,11 +1004,12 @@ func (g *group) offsetCommit(memberID string, generationID int, topicNames []str
 	}
 	colBuilders := evbatch.CreateColBuilders(ConsumerOffsetsColumnTypes)
 	for i, topicName := range topicNames {
-		topicID, ok := g.topicIdForName(topicName)
+		topicInfo, ok := g.topicInfoForName(topicName)
 		if !ok {
 			fillErrorCodes(ErrorCodeUnknownTopicOrPartition, i, errorCodes)
 			continue
 		}
+		topicID := int64(topicInfo.ConsumerInfoProvider.SlabID())
 		topicPartIDs := partitionIDs[i]
 		topicOffsets := offsets[i]
 		for j, partitionID := range topicPartIDs {
@@ -1040,10 +1043,11 @@ func (g *group) offsetCommit(memberID string, generationID int, topicNames []str
 		return fillAllErrorCodes(errorCode, errorCodes)
 	}
 	for i, topicName := range topicNames {
-		topicID, ok := g.topicIdForName(topicName)
+		topicInfo, ok := g.topicInfoForName(topicName)
 		if !ok {
 			panic("unknown topic")
 		}
+		topicID := int64(topicInfo.ConsumerInfoProvider.SlabID())
 		po, ok := g.committedOffsets[topicID]
 		if !ok {
 			po = map[int32]int64{}
@@ -1059,12 +1063,12 @@ func (g *group) offsetCommit(memberID string, generationID int, topicNames []str
 	return errorCodes
 }
 
-func (g *group) topicIdForName(topicName string) (int64, bool) {
+func (g *group) topicInfoForName(topicName string) (*TopicInfo, bool) {
 	topicInfo, ok := g.gc.metaProvider.GetTopicInfo(topicName)
 	if !ok || !topicInfo.ConsumeEnabled {
-		return 0, false
+		return nil, false
 	}
-	return int64(topicInfo.ConsumerInfoProvider.SlabID()), true
+	return &topicInfo, true
 }
 
 func generateMemberID(clientID string) string {
@@ -1076,11 +1080,12 @@ func (g *group) offsetFetch(topicNames []string, partitionIDs [][]int32, errorCo
 	defer g.lock.Unlock()
 	offsets := make([][]int64, len(topicNames))
 	for i, topicName := range topicNames {
-		topicID, ok := g.topicIdForName(topicName)
+		topicInfo, ok := g.topicInfoForName(topicName)
 		if !ok {
 			fillErrorCodes(ErrorCodeUnknownTopicOrPartition, i, errorCodes)
 			continue
 		}
+		topicID := int64(topicInfo.ConsumerInfoProvider.SlabID())
 		topicOffsets, ok := g.committedOffsets[topicID]
 		if !ok {
 			topicOffsets = map[int32]int64{}
@@ -1093,7 +1098,7 @@ func (g *group) offsetFetch(topicNames []string, partitionIDs [][]int32, errorCo
 			offset, ok := topicOffsets[partitionID]
 			if !ok {
 				var err error
-				offset, ok, err = g.loadOffset(topicID, partitionID)
+				offset, ok, err = g.loadOffset(topicInfo, partitionID)
 				if err != nil {
 					log.Errorf("failed to load offset %v", err)
 					fillAllErrorCodes(ErrorCodeUnknownServerError, errorCodes)
@@ -1109,21 +1114,19 @@ func (g *group) offsetFetch(topicNames []string, partitionIDs [][]int32, errorCo
 	return offsets, errorCodes
 }
 
-func (g *group) loadOffset(topicID int64, partitionID int32) (int64, bool, error) {
+func (g *group) loadOffset(topicInfo *TopicInfo, partitionID int32) (int64, bool, error) {
 
 	consumerOffsetsPartitionID := g.gc.calcConsumerOffsetsPartition(g.id)
 
 	partitionHash := proc.CalcPartitionHash(ConsumerOffsetsMappingID, uint64(consumerOffsetsPartitionID))
 	iterStart := encoding.EncodeEntryPrefix(partitionHash, common.KafkaOffsetsSlabID, 128)
 
-	/*
-		keyCols := []string{"group_id", "topic_id", "partition_id"}
-	*/
-
+	// keyCols := []string{"group_id", "topic_id", "partition_id"}
 	iterStart = append(iterStart, 1) // not null
 	iterStart = encoding.KeyEncodeString(iterStart, g.id)
 
 	iterStart = append(iterStart, 1) // not null
+	topicID := int64(topicInfo.ConsumerInfoProvider.SlabID())
 	iterStart = encoding.KeyEncodeInt(iterStart, topicID)
 
 	iterStart = append(iterStart, 1) // not null
@@ -1131,9 +1134,15 @@ func (g *group) loadOffset(topicID int64, partitionID int32) (int64, bool, error
 
 	iterEnd := common.IncrementBytesBigEndian(iterStart)
 
-	processorID, ok := g.gc.processorProvider.GetProcessorForPartition(int(partitionID))
-
-	iter, err := g.gc.store.NewIterator(iterStart, iterEnd, math.MaxUint64, false)
+	processorID, ok := g.gc.consumerOffsetsPPM[consumerOffsetsPartitionID]
+	if !ok {
+		panic("no processor for partition")
+	}
+	processor, ok := g.gc.processorProvider.GetProcessor(processorID)
+	if !ok {
+		return 0, false, errors.NewTektiteErrorf(errors.Unavailable, "processor not available")
+	}
+	iter, err := processor.NewIterator(iterStart, iterEnd, math.MaxUint64, false)
 	if err != nil {
 		return 0, false, err
 	}

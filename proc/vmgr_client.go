@@ -106,11 +106,10 @@ func (c *VersionManagerClient) IsFailureComplete(clusterVersion int) (bool, erro
 	return resp.Complete, nil
 }
 
-func (c *VersionManagerClient) VersionFlushed(nodeID int, version int, liveProcessorCount int, clusterVersion int) error {
+func (c *VersionManagerClient) VersionFlushed(processorID int, version int, clusterVersion int) error {
 	_, err := c.sendMsg(&clustermsgs.VersionFlushedMessage{
-		NodeId:         uint32(nodeID),
+		ProcessorId:    uint32(processorID),
 		Version:        uint64(version),
-		ProcessorCount: uint64(liveProcessorCount),
 		ClusterVersion: uint64(clusterVersion),
 	}, true)
 	return err

@@ -6,7 +6,6 @@ import (
 	"github.com/spirit-labs/tektite/expr"
 	"github.com/spirit-labs/tektite/kafka"
 	"github.com/spirit-labs/tektite/parser"
-	store2 "github.com/spirit-labs/tektite/store"
 	"github.com/spirit-labs/tektite/testutils"
 	"github.com/spirit-labs/tektite/tppm"
 	"github.com/stretchr/testify/require"
