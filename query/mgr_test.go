@@ -1037,8 +1037,8 @@ func testDirectQuery(t *testing.T, tsl string, data [][]any, expected [][]any, c
 
 type mgrCtx struct {
 	qms  []*mgrPair
-	st   *store.Store
 	tnpp *tppm.TestNodePartitionProvider
+	st   tppm.Store
 }
 
 type mgrPair struct {
@@ -1055,8 +1055,6 @@ func (m *mgrCtx) tearDown(t *testing.T) {
 		require.True(t, ok)
 		pair.tm.stop()
 	}
-	err := m.st.Stop()
-	require.NoError(t, err)
 }
 
 func createStreamInfoProvider(streamName string, slabID int, schema *evbatch.EventSchema, numPartitions int,
@@ -1094,9 +1092,7 @@ func setupQueryManagersWithClusterVersionProvider(numMgrs int, numPartitions int
 		nodePartitions[mgr] = append(nodePartitions[mgr], i)
 	}
 	npp := tppm.NewTestNodePartitionProvider(nodePartitions)
-	st := store.TestStore()
-	//goland:noinspection GoUnhandledErrorResult
-	st.Start()
+	procMgr := tppm.NewTestProcessorManager()
 	pairs := make([]*mgrPair, numMgrs)
 	addresses := make([]string, numMgrs)
 	for i := range addresses {
@@ -1106,7 +1102,7 @@ func setupQueryManagersWithClusterVersionProvider(numMgrs int, numPartitions int
 	for i := range pairs {
 		tm := newTestRemoting()
 		tm.start()
-		mgr := NewManager(npp, clustVersionProvider, i, slInfoProvider, st, st, tm, addresses, maxBatchRows,
+		mgr := NewManager(npp, clustVersionProvider, i, slInfoProvider, nil, procMgr, tm, addresses, maxBatchRows,
 			&expr.ExpressionFactory{}, p)
 		pair := &mgrPair{
 			qm: mgr,
@@ -1125,7 +1121,7 @@ func setupQueryManagersWithClusterVersionProvider(numMgrs int, numPartitions int
 	}
 	return &mgrCtx{
 		qms:  pairs,
-		st:   st,
+		st:   procMgr.GetStore(),
 		tnpp: npp,
 	}
 }
@@ -1278,12 +1274,12 @@ func (t *testRemoting) Close() {
 }
 
 func writeDataToSlab(t *testing.T, mappingID string, slabID int, schema *evbatch.EventSchema, keyCols []int, numPartitions int, data [][]any,
-	st *store.Store) {
+	st tppm.Store) {
 	writeDataToSlabWithVersion(t, mappingID, slabID, schema, keyCols, numPartitions, data, st, 0)
 }
 
 func writeDataToSlabWithVersion(t *testing.T, mappingID string, slabID int, schema *evbatch.EventSchema, keyCols []int,
-	numPartitions int, data [][]any, st *store.Store, version uint64) {
+	numPartitions int, data [][]any, st tppm.Store, version uint64) {
 	mb := mem.NewBatch()
 	for _, row := range data {
 		var keyBuff []byte

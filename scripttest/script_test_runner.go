@@ -524,8 +524,8 @@ func (st *scriptTest) verifyRemainingData(require *require.Assertions) {
 	for procID := 0; procID < procCount; procID++ {
 		leaderNode, err := st.testSuite.tektiteCluster[0].GetProcessorManager().GetLeaderNode(procID)
 		require.NoError(err)
-		processor, ok := st.testSuite.tektiteCluster[leaderNode].GetProcessorManager().GetProcessor(procID)
-		require.True(ok)
+		processor := st.testSuite.tektiteCluster[leaderNode].GetProcessorManager().GetProcessor(procID)
+		require.NotNil(processor)
 		iter, err := processor.NewIterator(nil, nil, math.MaxUint64, false)
 		require.NoError(err)
 		for {
@@ -543,8 +543,8 @@ func (st *scriptTest) verifyRemainingData(require *require.Assertions) {
 				owningProcessorID := proc.CalcProcessorForHash(partitionHash, procCount)
 				processorNode, err := st.testSuite.tektiteCluster[0].GetProcessorManager().GetLeaderNode(owningProcessorID)
 				require.NoError(err)
-				processor, ok = st.testSuite.tektiteCluster[processorNode].GetProcessorManager().GetProcessor(owningProcessorID)
-				require.True(ok)
+				processor = st.testSuite.tektiteCluster[processorNode].GetProcessorManager().GetProcessor(owningProcessorID)
+				require.NotNil(processor)
 				// Then on this node there should be no data for this partition. The only reason we see data on
 				// other nodes is because tombstone hasn't been pushed to level manager yet, but when executed on
 				// the owning node, no data should be seen

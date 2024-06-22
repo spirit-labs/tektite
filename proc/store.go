@@ -23,6 +23,20 @@ import (
 	"time"
 )
 
+// FIXME change this type names!!
+
+type IStore interface {
+	Start()
+	Stop()
+	Get(key []byte) ([]byte, error)
+	Write(batch *mem.Batch) error
+	Flush(cb func(error)) error
+	MaybeReplaceMemtable() error
+	Clear() error
+	GetWithMaxVersion(key []byte, maxVersion uint64) ([]byte, error)
+	NewIterator(keyStart []byte, keyEnd []byte, highestVersion uint64, preserveTombstones bool) (iteration.Iterator, error)
+}
+
 type ProcessorStore struct {
 	s                      *Store
 	lock                   sync.RWMutex
@@ -62,7 +76,7 @@ type flushQueueEntry struct {
 	firstGoodSeq         uint64
 }
 
-func (ps *ProcessorStore) start() {
+func (ps *ProcessorStore) Start() {
 	ps.lock.Lock()
 	defer ps.lock.Unlock()
 	ps.stopWG.Add(1)
@@ -77,7 +91,7 @@ func (ps *ProcessorStore) isStarted() bool {
 	return ps.started
 }
 
-func (ps *ProcessorStore) stop() {
+func (ps *ProcessorStore) Stop() {
 	// Set stopping outside the lock - this unblocks the pushLoop if it is in a retry loop
 	// it then continues consuming any remaining entries from the push queue and discards them
 	// allowing any blocked push queue writer to unblock
@@ -117,7 +131,7 @@ func (ps *ProcessorStore) Write(batch *mem.Batch) error {
 	return ps.replaceMemtable(false)
 }
 
-func (ps *ProcessorStore) maybeFlushMemtable() error {
+func (ps *ProcessorStore) MaybeReplaceMemtable() error {
 	ps.lock.Lock()
 	defer ps.lock.Unlock()
 	if !ps.started {
@@ -143,7 +157,7 @@ func (ps *ProcessorStore) maybeFlushMemtable() error {
 	return nil
 }
 
-func (ps *ProcessorStore) flush(cb func(error)) error {
+func (ps *ProcessorStore) Flush(cb func(error)) error {
 	ps.lock.Lock()
 	defer ps.lock.Unlock()
 	if !ps.started {
@@ -171,7 +185,7 @@ func (ps *ProcessorStore) replaceMemtable(periodic bool) error {
 	return ps.updateIterators(ps.mt)
 }
 
-func (ps *ProcessorStore) clear() error {
+func (ps *ProcessorStore) Clear() error {
 	ps.lock.Lock()
 	defer ps.lock.Unlock()
 	if !ps.started {
@@ -638,7 +652,7 @@ func (s *Store) stop() {
 }
 
 func (s *Store) Flush(shutdown bool) error {
-	var procStores []*ProcessorStore
+	var procStores []IStore
 	s.pm.processors.Range(func(key, value any) bool {
 		proc := value.(*processor)
 		if proc.IsLeader() {
@@ -652,7 +666,7 @@ func (s *Store) Flush(shutdown bool) error {
 		ch <- err
 	})
 	for _, ps := range procStores {
-		if err := ps.flush(cf.CountDown); err != nil {
+		if err := ps.Flush(cf.CountDown); err != nil {
 			return err
 		}
 	}
@@ -666,7 +680,7 @@ func (s *Store) ClearUnflushedData() {
 	s.pm.processors.Range(func(key, value any) bool {
 		proc := value.(*processor)
 		if proc.IsLeader() {
-			if err := proc.store.clear(); err != nil {
+			if err := proc.store.Clear(); err != nil {
 				log.Errorf("failed to clear unflushed data: %v", err)
 			}
 		}
@@ -690,7 +704,7 @@ func (s *Store) maybeReplaceMemtables() error {
 	s.pm.processors.Range(func(key, value any) bool {
 		proc := value.(*processor)
 		if proc.IsLeader() {
-			if err = proc.store.maybeFlushMemtable(); err != nil {
+			if err = proc.store.MaybeReplaceMemtable(); err != nil {
 				return false
 			}
 		}
@@ -710,7 +724,7 @@ func (s *Store) lastCompletedUpdated() {
 		s.pm.processors.Range(func(key, value any) bool {
 			proc := value.(*processor)
 			if proc.IsLeader() {
-				if err := proc.store.flush(func(err error) {}); err != nil {
+				if err := proc.store.Flush(func(err error) {}); err != nil {
 					log.Errorf("failed to flush %v", err)
 				}
 			}
