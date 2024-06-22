@@ -52,8 +52,8 @@ func (m *ProcessorManager) ForwardBatch(batch *ProcessBatch, replicate bool, com
 
 	if leaderNode == m.cfg.NodeID {
 		// Processor is local
-		processor, ok := m.GetProcessor(batch.ProcessorID)
-		if !ok {
+		processor := m.GetProcessor(batch.ProcessorID)
+		if processor == nil {
 			completionFunc(errors.NewTektiteErrorf(errors.Unavailable, "processor not available locally"))
 			return
 		}

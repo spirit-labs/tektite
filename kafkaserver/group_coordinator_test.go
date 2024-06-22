@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"github.com/google/uuid"
 	"github.com/spirit-labs/tektite/conf"
+	"github.com/spirit-labs/tektite/opers"
 	"github.com/spirit-labs/tektite/types"
 	"github.com/stretchr/testify/require"
 	"math/rand"
@@ -1676,13 +1677,21 @@ func callJoinGroupSyncWithApiVersion(gc *GroupCoordinator, groupID string, clien
 	return res
 }
 
-type testConsumerInfoProvider struct {
-	slabID    int
-	mappingID string
+func newTestConsumerInfoProvider(slabID int, mappingID string, partitions int, numProcessors int) ConsumerInfoProvider {
+	partitionScheme := opers.NewPartitionScheme(mappingID, partitions, false, numProcessors)
+	return &testConsumerInfoProvider{
+		slabID:          slabID,
+		partitionScheme: &partitionScheme,
+	}
 }
 
-func (t *testConsumerInfoProvider) PartitionMapping() string {
-	return t.mappingID
+type testConsumerInfoProvider struct {
+	slabID          int
+	partitionScheme *opers.PartitionScheme
+}
+
+func (t *testConsumerInfoProvider) PartitionScheme() *opers.PartitionScheme {
+	return t.partitionScheme
 }
 
 func (t *testConsumerInfoProvider) SlabID() int {
@@ -1733,7 +1742,7 @@ func createCoordinatorsWithCfgSetter(t *testing.T, numNodes int, cfgSetter func(
 			cfgSetter(cfg)
 		}
 		var err error
-		gcs[i], err = NewGroupCoordinator(cfg, procProvider, streamMgr, metaProvider, nil, forwarder)
+		gcs[i], err = NewGroupCoordinator(cfg, procProvider, streamMgr, metaProvider, forwarder)
 		require.NoError(t, err)
 		err = gcs[i].Start()
 		require.NoError(t, err)

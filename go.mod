@@ -27,6 +27,7 @@ require (
 )
 
 require (
+	github.com/DataDog/sketches-go v1.2.1
 	github.com/apache/arrow/go/v11 v11.0.0
 	github.com/chzyer/readline v1.5.1
 	github.com/dgraph-io/ristretto v0.1.0

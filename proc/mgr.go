@@ -33,7 +33,7 @@ type Manager interface {
 	HandleVersionBroadcast(currentVersion int, completedVersion int, flushedVersion int)
 	GetGroupState(processorID int) (clustmgr.GroupState, bool)
 	GetLeaderNode(processorID int) (int, error)
-	GetProcessor(processorID int) (Processor, bool)
+	GetProcessor(processorID int) Processor
 	ClusterVersion() int
 	IsReadyAsOfVersion(clusterVersion int) bool
 	HandleClusterState(cs clustmgr.ClusterState) error
@@ -422,12 +422,12 @@ func (m *ProcessorManager) GetLeaderNode(processorID int) (int, error) {
 	panic("group has no leader")
 }
 
-func (m *ProcessorManager) GetProcessor(processorID int) (Processor, bool) {
+func (m *ProcessorManager) GetProcessor(processorID int) Processor {
 	o, ok := m.processors.Load(processorID)
 	if !ok {
-		return nil, false
+		return nil
 	}
-	return o.(Processor), true
+	return o.(Processor)
 }
 
 func (m *ProcessorManager) getInitialVersions() {

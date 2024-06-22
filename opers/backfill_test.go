@@ -12,6 +12,7 @@ import (
 	"github.com/spirit-labs/tektite/tppm"
 	"github.com/spirit-labs/tektite/types"
 	"github.com/stretchr/testify/require"
+	"math"
 	"testing"
 	"time"
 )
@@ -21,24 +22,21 @@ func TestLoadBackfill(t *testing.T) {
 	fromSlabID := 1234
 	offsetsSlabID := 1235
 	maxBackFillBatchSize := 50
-	fs, sinkOper, store, schema := setup(t, maxBackFillBatchSize, fromSlabID, offsetsSlabID, 9)
-	//goland:noinspection GoUnhandledErrorResult
-	defer store.Stop()
-	pm := tppm.NewTestProcessorManager(store)
+	fs, sinkOper, schema := setup(t, maxBackFillBatchSize, fromSlabID, offsetsSlabID, 9)
+	pm := tppm.NewTestProcessorManager()
 	numRowsPerPartition := 100
 
 	pm.SetBatchHandler(&operatorBatchHandler{
-		oper:  fs,
-		store: store,
+		oper: fs,
 	})
 
 	partitionProcessorMapping := fs.OutSchema().PartitionScheme.PartitionProcessorMapping
 
 	// Write some rows in partition 0
-	writeRowsToPartition(t, 0, numRowsPerPartition, fromSlabID, store, version)
+	writeRowsToPartition(t, 0, numRowsPerPartition, fromSlabID, pm.GetStore(), version)
 
 	// Write some rows in partition 5
-	writeRowsToPartition(t, 5, numRowsPerPartition, fromSlabID, store, version)
+	writeRowsToPartition(t, 5, numRowsPerPartition, fromSlabID, pm.GetStore(), version)
 
 	partition0Processor, ok := partitionProcessorMapping[0]
 	require.True(t, ok)
@@ -84,8 +82,8 @@ func TestLoadBackfill(t *testing.T) {
 
 	// Write some rows in partitions 1 and 4
 	sinkOper.Clear()
-	writeRowsToPartition(t, 1, numRowsPerPartition, fromSlabID, store, version)
-	writeRowsToPartition(t, 4, numRowsPerPartition, fromSlabID, store, version)
+	writeRowsToPartition(t, 1, numRowsPerPartition, fromSlabID, pm.GetStore(), version)
+	writeRowsToPartition(t, 4, numRowsPerPartition, fromSlabID, pm.GetStore(), version)
 
 	partition1Processor, ok := partitionProcessorMapping[1]
 	require.True(t, ok)
@@ -165,9 +163,9 @@ func TestBackfillStoreLoadOffsets(t *testing.T) {
 	maxBackFillBatchSize := 50
 	fromTableID := 1234
 	offsetsSlabID := 1235
-	fs, _, store, _ := setup(t, maxBackFillBatchSize, fromTableID, offsetsSlabID, 9)
-	//goland:noinspection GoUnhandledErrorResult
-	defer store.Stop()
+	fs, _, _ := setup(t, maxBackFillBatchSize, fromTableID, offsetsSlabID, 9)
+
+	store := tppm.NewTestStore()
 
 	for i := 0; i < 9; i++ {
 		ctx := newLoadExecCtx(i, store)
@@ -231,14 +229,14 @@ func TestBackfillStoreLoadOffsets(t *testing.T) {
 	}
 }
 
-func writeEntriesToStore(t *testing.T, mb *mem.Batch, store *store2.Store) {
+func writeEntriesToStore(t *testing.T, mb *mem.Batch, store tppm.Store) {
 	err := store.Write(mb)
 	require.NoError(t, err)
 }
 
 type loadExecCtx struct {
 	partID  int
-	store   *store2.Store
+	store   tppm.Store
 	entries *mem.Batch
 }
 
@@ -250,7 +248,7 @@ func (l *loadExecCtx) EventBatchBytes() []byte {
 	return nil
 }
 
-func newLoadExecCtx(partID int, store *store2.Store) *loadExecCtx {
+func newLoadExecCtx(partID int, store tppm.Store) *loadExecCtx {
 	return &loadExecCtx{
 		partID:  partID,
 		store:   store,
@@ -296,7 +294,7 @@ func (l *loadExecCtx) Processor() proc.Processor {
 }
 
 func (l *loadExecCtx) Get(key []byte) ([]byte, error) {
-	return l.Processor().Get(key)
+	return l.store.GetWithMaxVersion(key, math.MaxUint64)
 }
 
 func (l *loadExecCtx) BackFill() bool {
@@ -321,27 +319,23 @@ func createBatchForInjection(schema *evbatch.EventSchema, numRows int, offsetSta
 	return evbatch.NewBatchFromBuilders(schema, builders...)
 }
 
-func setup(t *testing.T, maxBackFillBatchSize int, fromSlabID int, offsetsSlabID int, partitionCount int) (*BackfillOperator, *testSinkOper, *store2.Store, *evbatch.EventSchema) {
+func setup(t *testing.T, maxBackFillBatchSize int, fromSlabID int, offsetsSlabID int, partitionCount int) (*BackfillOperator, *testSinkOper, *evbatch.EventSchema) {
 	schema := evbatch.NewEventSchema([]string{"offset", "event_time", "f1", "f2"},
 		[]types.ColumnType{types.ColumnTypeInt, types.ColumnTypeTimestamp, types.ColumnTypeString, types.ColumnTypeFloat})
 
-	store := store2.TestStore()
-	err := store.Start()
-	require.NoError(t, err)
 	receiverID := 1001
 	operSchema := &OperatorSchema{EventSchema: schema,
 		PartitionScheme: NewPartitionScheme("bar", partitionCount, false, 48)}
 	cfg := &conf.Config{}
 	cfg.ApplyDefaults()
-	fs := NewBackfillOperator(operSchema, store, cfg, fromSlabID, offsetsSlabID, maxBackFillBatchSize,
-		receiverID, false)
+	fs := NewBackfillOperator(operSchema, cfg, fromSlabID, offsetsSlabID, maxBackFillBatchSize, receiverID, false)
 	sinkOper := newTestSinkOper(operSchema)
 	fs.AddDownStreamOperator(sinkOper)
 
-	return fs, sinkOper, store, schema
+	return fs, sinkOper, schema
 }
 
-func writeRowsToPartition(t *testing.T, partID int, numRows int, tableID int, store *store2.Store, version int) {
+func writeRowsToPartition(t *testing.T, partID int, numRows int, tableID int, store tppm.Store, version int) {
 	mb := mem.NewBatch()
 	for j := 0; j < numRows; j++ {
 		partitionHash := proc.CalcPartitionHash("bar", uint64(partID))
@@ -373,6 +367,7 @@ func waitForRows(t *testing.T, expectedRows int, sinkOper *testSinkOper) {
 				numRows += batch.RowCount
 			}
 		}
+		//log.Infof("num rows %d expected %d", numRows, expectedRows)
 		return numRows == expectedRows, nil
 	}, 10*time.Second, 10*time.Millisecond)
 	require.NoError(t, err)
@@ -418,8 +413,7 @@ func (t *testStreamExecCtx) ProcessorManager() ProcessorManager {
 }
 
 type operatorBatchHandler struct {
-	oper  Operator
-	store store
+	oper Operator
 }
 
 func (o *operatorBatchHandler) GetInjectableReceiverIDs() []int {

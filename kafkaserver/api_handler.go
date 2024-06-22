@@ -120,8 +120,8 @@ func (c *connection) handleProduce(apiVersion int16, reqBuff []byte, respBuffHea
 			if !ok {
 				panic("no processor for partition")
 			}
-			processor, ok := c.s.procProvider.GetProcessor(processorID)
-			if !ok {
+			processor := c.s.procProvider.GetProcessor(processorID)
+			if processor == nil {
 				topicResult.partitionProduceComplete(j, ErrorCodeUnknownTopicOrPartition, 0, 0)
 				continue
 			}

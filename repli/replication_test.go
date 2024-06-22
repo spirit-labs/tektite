@@ -49,8 +49,8 @@ func TestReplicationSimple(t *testing.T) {
 
 	// leader is on node 1
 	procMgr := procMgrs[1]
-	processor, ok := procMgr.GetProcessor(0)
-	require.True(t, ok)
+	processor := procMgr.GetProcessor(0)
+	require.NotNil(t, processor)
 
 	var sentBatches []*proc.ProcessBatch
 
@@ -100,10 +100,10 @@ func TestReplicationSimple(t *testing.T) {
 
 	replLeader := processor.GetReplicator().(*replicator)
 
-	procRepl1, ok := procMgrs[0].GetProcessor(0)
-	require.True(t, ok)
-	procRepl2, ok := procMgrs[2].GetProcessor(0)
-	require.True(t, ok)
+	procRepl1 := procMgrs[0].GetProcessor(0)
+	require.NotNil(t, procRepl1)
+	procRepl2 := procMgrs[2].GetProcessor(0)
+	require.NotNil(t, procRepl2)
 	repl1 := procRepl1.GetReplicator().(*replicator)
 	repl2 := procRepl2.GetReplicator().(*replicator)
 
@@ -133,8 +133,8 @@ func TestInsufficientReplicas(t *testing.T) {
 	}
 	deployClusterState(t, cs, stateMgrs)
 
-	processor, ok := procMgrs[1].GetProcessor(0)
-	require.True(t, ok)
+	processor := procMgrs[1].GetProcessor(0)
+	require.NotNil(t, processor)
 
 	// Wait until initialised
 	ok, err := testutils.WaitUntilWithError(func() (bool, error) {
@@ -206,8 +206,8 @@ func TestSyncBatches(t *testing.T) {
 	}
 	deployClusterState(t, cs, stateMgrs)
 
-	processor, ok := procMgrs[1].GetProcessor(0)
-	require.True(t, ok)
+	processor := procMgrs[1].GetProcessor(0)
+	require.NotNil(t, processor)
 	repli := processor.GetReplicator()
 
 	// Replicate a bunch of batches
@@ -228,8 +228,8 @@ func TestSyncBatches(t *testing.T) {
 
 	replLeader := repli.(*replicator)
 
-	procRepl0, ok := procMgrs[0].GetProcessor(0)
-	require.True(t, ok)
+	procRepl0 := procMgrs[0].GetProcessor(0)
+	require.NotNil(t, procRepl0)
 	repl0 := procRepl0.GetReplicator().(*replicator)
 
 	// Make sure leader and replica have all the same batches
@@ -265,8 +265,8 @@ func TestSyncBatches(t *testing.T) {
 	require.Equal(t, 2, mgs[0].joinedVersion)
 
 	// All the replicas should have all the batches, including the newly synced one
-	procRepl2, ok := procMgrs[2].GetProcessor(0)
-	require.True(t, ok)
+	procRepl2 := procMgrs[2].GetProcessor(0)
+	require.NotNil(t, procRepl2)
 	repl2 := procRepl2.GetReplicator().(*replicator)
 
 	require.Equal(t, len(sentBatches), len(replLeader.replicatedBatches))
@@ -293,8 +293,8 @@ func TestBounceReplica(t *testing.T) {
 	}
 	deployClusterState(t, cs, stateMgrs)
 
-	processor, ok := procMgrs[1].GetProcessor(0)
-	require.True(t, ok)
+	processor := procMgrs[1].GetProcessor(0)
+	require.NotNil(t, processor)
 	repli := processor.GetReplicator()
 
 	// Replicate a bunch of batches
@@ -320,12 +320,12 @@ func TestBounceReplica(t *testing.T) {
 
 	replLeader := repli.(*replicator)
 
-	procRepl0, ok := procMgrs[0].GetProcessor(0)
-	require.True(t, ok)
+	procRepl0 := procMgrs[0].GetProcessor(0)
+	require.NotNil(t, procRepl0)
 	repl0 := procRepl0.GetReplicator().(*replicator)
 
-	procRepl2, ok := procMgrs[2].GetProcessor(0)
-	require.True(t, ok)
+	procRepl2 := procMgrs[2].GetProcessor(0)
+	require.NotNil(t, procRepl2)
 	repl2 := procRepl2.GetReplicator().(*replicator)
 
 	// Make sure leader and replica have all the same batches
@@ -346,8 +346,8 @@ func TestBounceReplica(t *testing.T) {
 	}
 	err := stateMgrs[2].sendClusterState(cs)
 	require.NoError(t, err)
-	_, ok = procMgrs[2].GetProcessor(0)
-	require.False(t, ok)
+	pr := procMgrs[2].GetProcessor(0)
+	require.Nil(t, pr)
 	// And recreate it
 	cs = clustmgr.ClusterState{
 		Version: 15,
@@ -401,8 +401,8 @@ func TestBounceReplica(t *testing.T) {
 
 	// All the replicas should have all the batches, including the newly synced one
 
-	procRepl2, ok = procMgrs[2].GetProcessor(0)
-	require.True(t, ok)
+	procRepl2 = procMgrs[2].GetProcessor(0)
+	require.NotNil(t, procRepl2)
 	repl2 = procRepl2.GetReplicator().(*replicator)
 
 	require.Equal(t, len(sentBatches), len(replLeader.replicatedBatches))
@@ -437,8 +437,8 @@ func testLeaderFailure(t *testing.T, leaderLastCommitted int, replicaLastCommitt
 	}
 	deployClusterState(t, cs, stateMgrs)
 
-	processor, ok := procMgrs[1].GetProcessor(0)
-	require.True(t, ok)
+	processor := procMgrs[1].GetProcessor(0)
+	require.NotNil(t, processor)
 	repli := processor.GetReplicator()
 
 	// Replicate a bunch of batches
@@ -452,12 +452,12 @@ func testLeaderFailure(t *testing.T, leaderLastCommitted int, replicaLastCommitt
 	}
 
 	replLeader := repli.(*replicator)
-	procRepl0, ok := procMgrs[0].GetProcessor(0)
-	require.True(t, ok)
+	procRepl0 := procMgrs[0].GetProcessor(0)
+	require.NotNil(t, procRepl0)
 	repl0 := procRepl0.GetReplicator().(*replicator)
 
-	procRepl2, ok := procMgrs[2].GetProcessor(0)
-	require.True(t, ok)
+	procRepl2 := procMgrs[2].GetProcessor(0)
+	require.NotNil(t, procRepl2)
 	repl2 := procRepl2.GetReplicator().(*replicator)
 
 	// Make sure leader and replica have all the same batches
@@ -503,7 +503,7 @@ func testLeaderFailure(t *testing.T, leaderLastCommitted int, replicaLastCommitt
 	}
 
 	// Wait until batches are received
-	ok, err = testutils.WaitUntilWithError(func() (bool, error) {
+	ok, err := testutils.WaitUntilWithError(func() (bool, error) {
 		reprocessed := handlers[0].getReceivedBatches()
 		return minLastCommitted+1 == len(reprocessed), nil
 	}, 5*time.Second, 1*time.Millisecond)
@@ -550,8 +550,8 @@ func TestFlushBatches(t *testing.T) {
 	}
 	deployClusterState(t, cs, stateMgrs)
 
-	processor, ok := procMgrs[1].GetProcessor(0)
-	require.True(t, ok)
+	processor := procMgrs[1].GetProcessor(0)
+	require.NotNil(t, processor)
 	repli := processor.GetReplicator()
 
 	numBatches := 1000
@@ -598,11 +598,11 @@ func TestFlushBatches(t *testing.T) {
 	require.Equal(t, checkpoint, lastFlushed)
 	checkReplicatedBatches(t, replLeader, checkpoint+1, numBatches, schema)
 
-	procRepl0, ok := procMgrs[0].GetProcessor(0)
-	require.True(t, ok)
+	procRepl0 := procMgrs[0].GetProcessor(0)
+	require.NotNil(t, procRepl0)
 	repl0 := procRepl0.GetReplicator().(*replicator)
-	procRepl2, ok := procMgrs[2].GetProcessor(0)
-	require.True(t, ok)
+	procRepl2 := procMgrs[2].GetProcessor(0)
+	require.NotNil(t, procRepl2)
 	repl2 := procRepl2.GetReplicator().(*replicator)
 
 	checkReplicatedBatches(t, repl0, checkpoint+1, numBatches, schema)
@@ -710,7 +710,6 @@ func setupClusterWithNumNodes(t *testing.T, numNodes int) ([]proc.Manager, []*te
 		remotingAddresses = append(remotingAddresses, address)
 	}
 
-	var stores []*store.Store
 	var stateMgrs []*testClustStateMgr
 	var procMgrs []proc.Manager
 	var remotingServers []remoting.Server
@@ -721,11 +720,6 @@ func setupClusterWithNumNodes(t *testing.T, numNodes int) ([]proc.Manager, []*te
 		stateMgr := &testClustStateMgr{}
 		stateMgrs = append(stateMgrs, stateMgr)
 
-		st := store.TestStore()
-		err := st.Start()
-		require.NoError(t, err)
-		stores = append(stores, st)
-
 		cfg := &conf.Config{}
 		cfg.ApplyDefaults()
 		cfg.NodeID = i
@@ -733,16 +727,16 @@ func setupClusterWithNumNodes(t *testing.T, numNodes int) ([]proc.Manager, []*te
 		cfg.BatchFlushCheckInterval = 1 * time.Hour // Effectively turn off periodic flushing in the tests
 
 		remotingServer := remoting.NewServer(remotingAddresses[i], conf.TLSConfig{})
-		err = remotingServer.Start()
+		err := remotingServer.Start()
 		require.NoError(t, err)
 		remotingServers = append(remotingServers, remotingServer)
 
 		batchHandler := &testBatchHandler{}
 		batchHandlers = append(batchHandlers, batchHandler)
-		mgr := proc.NewProcessorManagerWithFailure(stateMgr, &testReceiverInfoProvider{}, st, cfg,
+		mgr := proc.NewProcessorManagerWithFailure(stateMgr, &testReceiverInfoProvider{}, cfg,
 			NewReplicator, func(processorID int) proc.BatchHandler {
 				return batchHandler
-			}, nil, &testIngestNotifier{}, true)
+			}, nil, &testIngestNotifier{}, nil, nil, nil, false)
 		mgr.SetVersionManagerClient(&testVmgrClient{})
 		teeHandler := &remoting.TeeBlockingClusterMessageHandler{}
 		mgr.SetClusterMessageHandlers(remotingServer, teeHandler)
@@ -756,10 +750,6 @@ func setupClusterWithNumNodes(t *testing.T, numNodes int) ([]proc.Manager, []*te
 		procMgrs = append(procMgrs, mgr)
 	}
 	tearDown := func(t *testing.T) {
-		for _, st := range stores {
-			err := st.Stop()
-			require.NoError(t, err)
-		}
 		for _, rs := range remotingServers {
 			err := rs.Stop()
 			require.NoError(t, err)
@@ -791,7 +781,7 @@ func (t *testVmgrClient) IsFailureComplete(int) (bool, error) {
 	return true, nil
 }
 
-func (t *testVmgrClient) VersionFlushed(int, int, int, int) error {
+func (t *testVmgrClient) VersionFlushed(int, int, int) error {
 	return nil
 }
 

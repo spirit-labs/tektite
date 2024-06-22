@@ -19,6 +19,8 @@ type testSinkOper struct {
 	batchesByProcessor map[int][]*evbatch.Batch
 	batchesByPartition map[int][]*evbatch.Batch
 	parentOperator     Operator
+
+	totCount int
 }
 
 func (ts *testSinkOper) HandleQueryBatch(*evbatch.Batch, QueryExecContext) (*evbatch.Batch, error) {
@@ -28,6 +30,8 @@ func (ts *testSinkOper) HandleQueryBatch(*evbatch.Batch, QueryExecContext) (*evb
 func (ts *testSinkOper) HandleStreamBatch(batch *evbatch.Batch, execCtx StreamExecContext) (*evbatch.Batch, error) {
 	ts.lock.Lock()
 	defer ts.lock.Unlock()
+	ts.totCount += batch.RowCount
+	//log.Infof("sinkOper totcount is %d", ts.totCount)
 	batchesByProc := ts.batchesByProcessor[execCtx.Processor().ID()]
 	batchesByProc = append(batchesByProc, batch)
 	ts.batchesByProcessor[execCtx.Processor().ID()] = batchesByProc

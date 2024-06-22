@@ -65,8 +65,8 @@ func (f *fetcher) GetPartitionFetcher(topicInfo *TopicInfo, partitionID int32) (
 				if !ok {
 					panic("no processor for partition")
 				}
-				processor, ok := f.procProvider.GetProcessor(processorID)
-				if !ok {
+				processor := f.procProvider.GetProcessor(processorID)
+				if processor == nil {
 					return nil, errors.NewTektiteErrorf(errors.Unavailable, "processor not available")
 				}
 				fetchers[i] = NewPartitionFetcher(processor, i, allocator, topicInfo)

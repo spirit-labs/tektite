@@ -963,7 +963,7 @@ func (t *testProcessorManager) GetLeaderNode(int) (int, error) {
 	panic("not implemented")
 }
 
-func (t *testProcessorManager) GetProcessor(int) (proc.Processor, bool) {
+func (t *testProcessorManager) GetProcessor(int) proc.Processor {
 	panic("not implemented")
 }
 

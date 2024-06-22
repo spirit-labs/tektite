@@ -4,10 +4,13 @@ import (
 	"github.com/apache/arrow/go/v11/arrow/decimal128"
 	"github.com/spirit-labs/tektite/conf"
 	"github.com/spirit-labs/tektite/evbatch"
+	"github.com/spirit-labs/tektite/iteration"
 	"github.com/spirit-labs/tektite/parser"
 	"github.com/spirit-labs/tektite/proc"
+	"github.com/spirit-labs/tektite/tppm"
 	"github.com/spirit-labs/tektite/types"
 	"github.com/stretchr/testify/require"
+	"math"
 	"sync"
 	"testing"
 )
@@ -210,84 +213,97 @@ func (c *capturingOperator) GetStreamInfo() *StreamInfo {
 func (c *capturingOperator) Teardown(StreamManagerCtx, *sync.RWMutex) {
 }
 
-func (t testProcessor) SetLeader() {
+func (t *testProcessor) SetLeader() {
 }
 
-func (t testProcessor) SetReplicator(proc.Replicator) {
+func (t *testProcessor) SetReplicator(proc.Replicator) {
 }
 
-func (t testProcessor) GetReplicator() proc.Replicator {
+func (t *testProcessor) GetReplicator() proc.Replicator {
 	return nil
 }
 
-func (t testProcessor) SubmitAction(func() error) bool {
+func (t *testProcessor) SubmitAction(func() error) bool {
 	return false
 }
 
 type testProcessor struct {
 	id int
+	st tppm.Store
 }
 
-func (t testProcessor) LoadLastProcessedReplBatchSeq(int) (int64, error) {
+func (t *testProcessor) Get(key []byte) ([]byte, error) {
+	return t.st.GetWithMaxVersion(key, math.MaxUint64)
+}
+
+func (t *testProcessor) GetWithMaxVersion(key []byte, maxVersion uint64) ([]byte, error) {
+	return t.st.GetWithMaxVersion(key, maxVersion)
+}
+
+func (t *testProcessor) NewIterator(keyStart []byte, keyEnd []byte, highestVersion uint64, preserveTombstones bool) (iteration.Iterator, error) {
+	return t.st.NewIterator(keyStart, keyEnd, int64(highestVersion), preserveTombstones)
+}
+
+func (t *testProcessor) LoadLastProcessedReplBatchSeq(int) (int64, error) {
 	return 0, nil
 }
 
-func (t testProcessor) WriteCache() *proc.WriteCache {
+func (t *testProcessor) WriteCache() *proc.WriteCache {
 	return nil
 }
 
-func (t testProcessor) CloseVersion(int, []int) {
+func (t *testProcessor) CloseVersion(int, []int) {
 }
 
-func (t testProcessor) ProcessBatch(*proc.ProcessBatch, func(error)) {
+func (t *testProcessor) ProcessBatch(*proc.ProcessBatch, func(error)) {
 }
 
-func (t testProcessor) ReprocessBatch(*proc.ProcessBatch, func(error)) {
+func (t *testProcessor) ReprocessBatch(*proc.ProcessBatch, func(error)) {
 }
 
-func (t testProcessor) IsStopped() bool {
+func (t *testProcessor) IsStopped() bool {
 	return false
 }
 
-func (t testProcessor) SetBarriersInjected() {
+func (t *testProcessor) SetBarriersInjected() {
 }
 
-func (t testProcessor) SetNotIdleNotifier(func()) {
+func (t *testProcessor) SetNotIdleNotifier(func()) {
 }
 
-func (t testProcessor) IsIdle(int) bool {
+func (t *testProcessor) IsIdle(int) bool {
 	return false
 }
 
-func (t testProcessor) InvalidateCachedReceiverInfo() {
+func (t *testProcessor) InvalidateCachedReceiverInfo() {
 }
 
-func (t testProcessor) SetVersionCompleteHandler(proc.VersionCompleteHandler) {
+func (t *testProcessor) SetVersionCompleteHandler(proc.VersionCompleteHandler) {
 }
 
-func (t testProcessor) ID() int {
+func (t *testProcessor) ID() int {
 	return t.id
 }
 
-func (t testProcessor) IngestBatch(*proc.ProcessBatch, func(error)) {
+func (t *testProcessor) IngestBatch(*proc.ProcessBatch, func(error)) {
 }
 
-func (t testProcessor) IngestBatchSync(*proc.ProcessBatch) error {
+func (t *testProcessor) IngestBatchSync(*proc.ProcessBatch) error {
 	return nil
 }
 
-func (t testProcessor) IsLeader() bool {
+func (t *testProcessor) IsLeader() bool {
 	return true
 }
 
-func (t testProcessor) CheckInProcessorLoop() {
+func (t *testProcessor) CheckInProcessorLoop() {
 }
 
-func (t testProcessor) Pause() {
+func (t *testProcessor) Pause() {
 }
 
-func (t testProcessor) Unpause() {
+func (t *testProcessor) Unpause() {
 }
 
-func (t testProcessor) Stop() {
+func (t *testProcessor) Stop() {
 }

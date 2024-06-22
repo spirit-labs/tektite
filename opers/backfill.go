@@ -76,6 +76,22 @@ func NewBackfillOperator(schema *OperatorSchema, cfg *conf.Config, fromSlabID in
 	}
 }
 
+func (b *BackfillOperator) loadCommittedOffsetForPartition(execCtx StreamExecContext) (int64, bool, error) {
+	partitionHash := b.hashCache.getHash(execCtx.PartitionID())
+	key := encoding.EncodeEntryPrefix(partitionHash, uint64(b.offsetsSlabID), 24)
+	value, err := execCtx.Get(key)
+	if err != nil {
+		return 0, false, err
+	}
+	var offset int64
+	if value == nil {
+		return 0, false, nil
+	}
+	u := binary.LittleEndian.Uint64(value)
+	offset = int64(u)
+	return offset, true, nil
+}
+
 func (b *BackfillOperator) storeCommittedOffSetForPartition(offset int64, execCtx StreamExecContext) {
 	partitionHash := b.hashCache.getHash(execCtx.PartitionID())
 	key := encoding.EncodeEntryPrefix(partitionHash, uint64(b.offsetsSlabID), 32)
@@ -352,22 +368,6 @@ func (b *BackfillOperator) initialiseIteratorAtOffset(execCtx StreamExecContext,
 	info.partID = execCtx.PartitionID()
 	info.initialised = true
 	return nil
-}
-
-func (b *BackfillOperator) loadCommittedOffsetForPartition(execCtx StreamExecContext) (int64, bool, error) {
-	partitionHash := b.hashCache.getHash(execCtx.PartitionID())
-	key := encoding.EncodeEntryPrefix(partitionHash, uint64(b.offsetsSlabID), 24)
-	value, err := execCtx.Get(key)
-	if err != nil {
-		return 0, false, err
-	}
-	var offset int64
-	if value == nil {
-		return 0, false, nil
-	}
-	u := binary.LittleEndian.Uint64(value)
-	offset = int64(u)
-	return offset, true, nil
 }
 
 func (b *BackfillOperator) loadBatchForPartition(partID int) (*evbatch.Batch, error) {

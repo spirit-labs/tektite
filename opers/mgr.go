@@ -92,7 +92,7 @@ type ProcessorManager interface {
 	UnregisterListener(listenerName string)
 	AfterReceiverChange()
 	ForwardBatch(batch *proc.ProcessBatch, replicate bool, completionFunc func(error))
-	GetProcessor(processorID int) (proc.Processor, bool)
+	GetProcessor(processorID int) proc.Processor
 }
 
 // SlabInfo A Slab represents tabular storage. We don't call it table as we distinguish between table and stream in the mental

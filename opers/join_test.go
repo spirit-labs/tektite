@@ -2,9 +2,11 @@ package opers
 
 import (
 	"github.com/spirit-labs/tektite/evbatch"
+	"github.com/spirit-labs/tektite/iteration"
 	"github.com/spirit-labs/tektite/parser"
 	"github.com/spirit-labs/tektite/proc"
 	"github.com/spirit-labs/tektite/testutils"
+	"github.com/spirit-labs/tektite/tppm"
 	"github.com/spirit-labs/tektite/types"
 	"github.com/stretchr/testify/require"
 	"math"
@@ -46,8 +48,7 @@ func testInnerJoinSingleRowSingleJoinCol(t *testing.T, leftBeforeRight bool) {
 		RightCol: "customer_id",
 		JoinType: "=",
 	}}
-	join, out, left, right, st := setupJoinOperator(t, leftSchema, rightSchema, joinElements)
-	defer stopStore(t, st)
+	join, out, left, right := setupJoinOperator(t, leftSchema, rightSchema, joinElements)
 
 	leftBuilders := evbatch.CreateColBuilders(leftSchema.ColumnTypes())
 	leftBuilders[0].(*evbatch.TimestampColBuilder).Append(types.NewTimestamp(100000))
@@ -67,7 +68,7 @@ func testInnerJoinSingleRowSingleJoinCol(t *testing.T, leftBeforeRight bool) {
 
 	rightBatch := evbatch.NewBatchFromBuilders(rightSchema, rightBuilders...)
 
-	resBatch := injectBatchesAndWaitForResult(t, leftBatch, rightBatch, leftBeforeRight, left, right, join, st, out)
+	resBatch := injectBatchesAndWaitForResult(t, leftBatch, rightBatch, leftBeforeRight, left, right, join, out)
 
 	require.Equal(t, 1, resBatch.RowCount)
 	require.Equal(t, 11, len(resBatch.Columns))
@@ -76,7 +77,7 @@ func testInnerJoinSingleRowSingleJoinCol(t *testing.T, leftBeforeRight bool) {
 }
 
 func setupJoinOperator(t *testing.T, leftSchema *evbatch.EventSchema,
-	rightSchema *evbatch.EventSchema, joinElements []parser.JoinElement) (*JoinOperator, *testSinkOper, Operator, Operator, *store2.Store) {
+	rightSchema *evbatch.EventSchema, joinElements []parser.JoinElement) (*JoinOperator, *testSinkOper, Operator, Operator) {
 	mappingID := "test_mapping_id"
 	partitions := 10
 	processorCount := 48
@@ -99,35 +100,32 @@ func setupJoinOperator(t *testing.T, leftSchema *evbatch.EventSchema,
 	leftSlabID := 1000
 	rightSlabID := 1001
 	receiverID := 2000
-	st := store2.TestStore()
-	err := st.Start()
-	require.NoError(t, err)
 	within := 5 * time.Minute
 	join, err := NewJoinOperator(leftSlabID, rightSlabID, left, right, false, false,
 		nil, nil,
-		joinElements, within, st, 0, receiverID, &parser.JoinDesc{})
+		joinElements, within, 0, receiverID, &parser.JoinDesc{})
 	require.NoError(t, err)
 	left.AddDownStreamOperator(join.leftInput)
 	right.AddDownStreamOperator(join.rightInput)
 	out := newTestSinkOper(join.OutSchema())
 	join.AddDownStreamOperator(out)
-	return join, out, left, right, st
+	return join, out, left, right
 }
 
 func injectBatchesAndWaitForResult(t *testing.T, leftBatch *evbatch.Batch, rightBatch *evbatch.Batch, leftBeforeRight bool, left Operator, right Operator,
-	join *JoinOperator, st *store2.Store, out *testSinkOper) *evbatch.Batch {
-	procID := injectBatches(t, leftBatch, rightBatch, leftBeforeRight, left, right, join, st)
+	join *JoinOperator, out *testSinkOper) *evbatch.Batch {
+	procID := injectBatches(t, leftBatch, rightBatch, leftBeforeRight, left, right, join)
 	res := waitForBatchesOnProcessor(t, procID, 1, out)[0]
 	res.Dump()
 	return res
 }
 
 func injectBatches(t *testing.T, leftBatch *evbatch.Batch, rightBatch *evbatch.Batch, leftBeforeRight bool, left Operator, right Operator,
-	join *JoinOperator, st *store2.Store) int {
+	join *JoinOperator) int {
 	partitionScheme := join.outSchema.PartitionScheme
 	procID := partitionScheme.ProcessorIDs[0]
 	partitionID := partitionScheme.ProcessorPartitionMapping[procID][0]
-	processor := newJoinTestProcessor(procID, join.batchReceiver, st)
+	processor := newJoinTestProcessor(procID, join.batchReceiver)
 
 	execCtx := &testExecCtx{
 		version:               0,
@@ -191,11 +189,24 @@ type joinTestProcessor struct {
 	id         int
 	receiver   Receiver
 	writeCache *proc.WriteCache
-	st         store
+	st         tppm.Store
 	lock       sync.Mutex
 }
 
-func newJoinTestProcessor(id int, receiver Receiver, st store) *joinTestProcessor {
+func (j *joinTestProcessor) Get(key []byte) ([]byte, error) {
+	return j.st.GetWithMaxVersion(key, math.MaxUint64)
+}
+
+func (j *joinTestProcessor) GetWithMaxVersion(key []byte, maxVersion uint64) ([]byte, error) {
+	return j.st.GetWithMaxVersion(key, maxVersion)
+}
+
+func (j *joinTestProcessor) NewIterator(keyStart []byte, keyEnd []byte, highestVersion uint64, preserveTombstones bool) (iteration.Iterator, error) {
+	return j.st.NewIterator(keyStart, keyEnd, int64(highestVersion), preserveTombstones)
+}
+
+func newJoinTestProcessor(id int, receiver Receiver) *joinTestProcessor {
+	st := tppm.NewTestStore()
 	return &joinTestProcessor{
 		id:         id,
 		receiver:   receiver,

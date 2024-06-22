@@ -46,7 +46,7 @@ type Server struct {
 }
 
 type processorProvider interface {
-	GetProcessor(processorID int) (proc.Processor, bool)
+	GetProcessor(processorID int) proc.Processor
 	NodeForPartition(partitionID int, mappingID string, partitionCount int) int
 }
 

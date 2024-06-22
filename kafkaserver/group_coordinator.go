@@ -992,11 +992,11 @@ func (g *group) offsetCommit(memberID string, generationID int, topicNames []str
 	}
 	consumerOffsetsPartitionID := g.gc.calcConsumerOffsetsPartition(g.id)
 	processorID, ok := g.gc.consumerOffsetsPPM[consumerOffsetsPartitionID]
-	var processor proc.Processor
-	if ok {
-		processor, ok = g.gc.processorProvider.GetProcessor(processorID)
-	}
 	if !ok {
+		panic("no processor for partition")
+	}
+	processor := g.gc.processorProvider.GetProcessor(processorID)
+	if processor == nil {
 		return fillAllErrorCodes(ErrorCodeUnknownTopicOrPartition, errorCodes)
 	}
 	if !processor.IsLeader() {
@@ -1138,8 +1138,8 @@ func (g *group) loadOffset(topicInfo *TopicInfo, partitionID int32) (int64, bool
 	if !ok {
 		panic("no processor for partition")
 	}
-	processor, ok := g.gc.processorProvider.GetProcessor(processorID)
-	if !ok {
+	processor := g.gc.processorProvider.GetProcessor(processorID)
+	if processor == nil {
 		return 0, false, errors.NewTektiteErrorf(errors.Unavailable, "processor not available")
 	}
 	iter, err := processor.NewIterator(iterStart, iterEnd, math.MaxUint64, false)

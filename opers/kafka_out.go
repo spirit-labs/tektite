@@ -121,8 +121,8 @@ func (k *KafkaOutOperator) LatestOffset(partitionID int) (int64, int64, bool, er
 	// load from store
 	partitionHash := k.hashCache.getHash(partitionID)
 	processorID := k.schema.PartitionProcessorMapping[partitionID]
-	processor, ok := k.procMgr.GetProcessor(processorID)
-	if !ok {
+	processor := k.procMgr.GetProcessor(processorID)
+	if processor == nil {
 		return 0, 0, false, errors.NewTektiteErrorf(errors.Unavailable, "cannot find processor %d", processorID)
 	}
 	offset, err := loadOffset(partitionHash, k.offsetsSlabID, processor)

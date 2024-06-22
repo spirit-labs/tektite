@@ -21,8 +21,7 @@ import (
 )
 
 func TestDeployUndeployStream(t *testing.T) {
-	mgr, _, store := createManager()
-	defer stopStore(t, store)
+	mgr, _ := createManager()
 
 	tsl1 := `test_stream1 := (store stream)`
 	columnNames := []string{"event_time", "f1", "f2", "f3"}
@@ -81,8 +80,7 @@ func TestDeployUndeployStream(t *testing.T) {
 }
 
 func TestCannotDeleteStreamWithDownstream(t *testing.T) {
-	mgr, _, store := createManager()
-	defer stopStore(t, store)
+	mgr, _ := createManager()
 
 	tsl1 := `test_stream1 := (store stream)`
 	deployStream(t, tsl1, mgr, []string{"offset", "event_time", "f1", "f2", "f3"},
@@ -150,9 +148,8 @@ func createDeleteStreamDesc(t *testing.T, streamName string) parser.DeleteStream
 }
 
 func TestToStreamAlreadyHasOffset(t *testing.T) {
-	mgr, pm, store := createManager()
+	mgr, pm := createManager()
 	defer pm.Close()
-	defer stopStore(t, store)
 
 	pm.SetBatchHandler(mgr)
 
@@ -181,13 +178,12 @@ func TestToStreamAlreadyHasOffset(t *testing.T) {
 
 	verifyRowsInTablePartition(t, []types.ColumnType{types.ColumnTypeInt}, []int{0},
 		[]types.ColumnType{types.ColumnTypeInt, types.ColumnTypeFloat, types.ColumnTypeString}, []int{1, 2, 3},
-		expectedOut, "test_stream1", streamInfo.UserSlab.SlabID, 0, store)
+		expectedOut, "test_stream1", streamInfo.UserSlab.SlabID, 0, pm.GetStore())
 }
 
 func TestBackfillSinglePartition(t *testing.T) {
-	mgr, pm, store := createManager()
+	mgr, pm := createManager()
 	defer pm.Close()
-	defer stopStore(t, store)
 	pm.SetBatchHandler(mgr)
 
 	tsl := `test_stream1 := (filter by f2 >= 2.1f)-> (store stream)`
@@ -225,9 +221,8 @@ func TestBackfillSinglePartition(t *testing.T) {
 }
 
 func TestBackfillAllProcessorsAndPartitions(t *testing.T) {
-	mgr, pm, store := createManager()
+	mgr, pm := createManager()
 	defer pm.Close()
-	defer stopStore(t, store)
 	pm.SetBatchHandler(mgr)
 
 	tsl := `test_stream1 := (store stream)`
@@ -267,9 +262,8 @@ func TestBackfillAllProcessorsAndPartitions(t *testing.T) {
 }
 
 func TestBackfillDeployBeforeFillData(t *testing.T) {
-	mgr, pm, store := createManager()
+	mgr, pm := createManager()
 	defer pm.Close()
-	defer stopStore(t, store)
 	pm.SetBatchHandler(mgr)
 
 	tsl := `test_stream1 :=  (filter by f2 >= 2.1f) -> (store stream)`
@@ -312,8 +306,7 @@ func TestBackfillDeployBeforeFillData(t *testing.T) {
 }
 
 func TestTableSingleColKey(t *testing.T) {
-	mgr, pm, store := createManager()
-	defer stopStore(t, store)
+	mgr, pm := createManager()
 	defer pm.Close()
 	pm.SetBatchHandler(mgr)
 
@@ -344,7 +337,7 @@ func TestTableSingleColKey(t *testing.T) {
 
 	verifyRowsInTablePartition(t, []types.ColumnType{types.ColumnTypeInt}, []int{1},
 		[]types.ColumnType{types.ColumnTypeInt, types.ColumnTypeFloat, types.ColumnTypeString}, []int{0, 2, 3},
-		expectedOut, "test_stream1", streamInfo.UserSlab.SlabID, 0, store)
+		expectedOut, "test_stream1", streamInfo.UserSlab.SlabID, 0, pm.GetStore())
 
 	dataIn = [][]any{
 		{int64(0), int64(10), float64(1.1), "foo1"},
@@ -360,12 +353,11 @@ func TestTableSingleColKey(t *testing.T) {
 
 	verifyRowsInTablePartition(t, []types.ColumnType{types.ColumnTypeInt}, []int{1},
 		[]types.ColumnType{types.ColumnTypeInt, types.ColumnTypeFloat, types.ColumnTypeString}, []int{0, 2, 3},
-		expectedOut, "test_stream1", streamInfo.UserSlab.SlabID, 0, store)
+		expectedOut, "test_stream1", streamInfo.UserSlab.SlabID, 0, pm.GetStore())
 }
 
 func TestTableMultipleColKey(t *testing.T) {
-	mgr, pm, store := createManager()
-	defer stopStore(t, store)
+	mgr, pm := createManager()
 	defer pm.Close()
 	pm.SetBatchHandler(mgr)
 
@@ -395,7 +387,7 @@ func TestTableMultipleColKey(t *testing.T) {
 
 	verifyRowsInTablePartition(t, []types.ColumnType{types.ColumnTypeInt, types.ColumnTypeString}, []int{1, 3},
 		[]types.ColumnType{types.ColumnTypeInt, types.ColumnTypeFloat}, []int{0, 2},
-		expectedOut, "test_stream1", streamInfo.UserSlab.SlabID, 0, store)
+		expectedOut, "test_stream1", streamInfo.UserSlab.SlabID, 0, pm.GetStore())
 
 	dataIn = [][]any{
 		{int64(0), int64(10), float64(1.1), "foo1"},
@@ -410,12 +402,11 @@ func TestTableMultipleColKey(t *testing.T) {
 	}
 	verifyRowsInTablePartition(t, []types.ColumnType{types.ColumnTypeInt, types.ColumnTypeString}, []int{1, 3},
 		[]types.ColumnType{types.ColumnTypeInt, types.ColumnTypeFloat}, []int{0, 2},
-		expectedOut, "test_stream1", streamInfo.UserSlab.SlabID, 0, store)
+		expectedOut, "test_stream1", streamInfo.UserSlab.SlabID, 0, pm.GetStore())
 }
 
 func TestAggregate(t *testing.T) {
-	mgr, pm, store := createManager()
-	defer stopStore(t, store)
+	mgr, pm := createManager()
 	defer pm.Close()
 	pm.SetBatchHandler(mgr)
 
@@ -447,7 +438,7 @@ func TestAggregate(t *testing.T) {
 
 	verifyRowsInTablePartition(t, []types.ColumnType{types.ColumnTypeInt}, []int{1},
 		[]types.ColumnType{types.ColumnTypeTimestamp, types.ColumnTypeFloat, types.ColumnTypeInt}, []int{0, 2, 3},
-		expectedOut, "test_stream1", streamInfo.UserSlab.SlabID, 0, store)
+		expectedOut, "test_stream1", streamInfo.UserSlab.SlabID, 0, pm.GetStore())
 
 	dataIn = [][]any{
 		{types.NewTimestamp(1000), int64(5), int64(10), float64(3.3), "foo6"},
@@ -465,11 +456,11 @@ func TestAggregate(t *testing.T) {
 
 	verifyRowsInTablePartition(t, []types.ColumnType{types.ColumnTypeInt}, []int{1},
 		[]types.ColumnType{types.ColumnTypeTimestamp, types.ColumnTypeFloat, types.ColumnTypeInt}, []int{0, 2, 3},
-		expectedOut, "test_stream1", streamInfo.UserSlab.SlabID, 0, store)
+		expectedOut, "test_stream1", streamInfo.UserSlab.SlabID, 0, pm.GetStore())
 }
 
 func TestDeployStreamAlreadyExists(t *testing.T) {
-	mgr, _, _ := createManager()
+	mgr, _ := createManager()
 	tsl := `test_stream1 :=  (filter by f1 >= 2) -> (store stream)`
 	columnNames := []string{"f1", "f2", "f3"}
 	columnTypes := []types.ColumnType{types.ColumnTypeInt, types.ColumnTypeFloat, types.ColumnTypeString}
@@ -482,8 +473,7 @@ test_stream1 :=  (filter by f1 >= 2) -> (store stream)
 }
 
 func TestUndeployStreamDoesNotExist(t *testing.T) {
-	mgr, _, store := createManager()
-	defer stopStore(t, store)
+	mgr, _ := createManager()
 	err := mgr.UndeployStream(createDeleteStreamDesc(t, "does_not_exist"), 0)
 	require.Error(t, err)
 	require.Equal(t, `unknown stream 'does_not_exist' (line 1 column 8):
@@ -492,9 +482,7 @@ delete(does_not_exist)
 }
 
 func TestStreamStart(t *testing.T) {
-	mgr, _, st := createManager()
-	//goland:noinspection GoUnhandledErrorResult
-	defer st.Stop()
+	mgr, _ := createManager()
 	tsl := `test_stream1 := (filter by f1 >= 2)`
 	columnNames := []string{"f1", "f2", "f3"}
 	columnTypes := []types.ColumnType{types.ColumnTypeInt, types.ColumnTypeFloat, types.ColumnTypeString}
@@ -511,8 +499,7 @@ func TestStartStopIngest(t *testing.T) {
 	_, err := fakeKafka.CreateTopic("test_topic", numPartitions)
 	require.NoError(t, err)
 
-	mgr, tpm, store := createManagerWithFakeFafka(fakeKafka)
-	defer stopStore(t, store)
+	mgr, tpm := createManagerWithFakeFafka(fakeKafka)
 
 	require.Equal(t, false, mgr.ingestEnabled.Load())
 
@@ -576,8 +563,7 @@ func testDeployKafkaInWhenIngestEnabled(t *testing.T, enabled bool) {
 	_, err := fakeKafka.CreateTopic("test_topic", numPartitions)
 	require.NoError(t, err)
 
-	mgr, tpm, store := createManagerWithFakeFafka(fakeKafka)
-	defer stopStore(t, store)
+	mgr, tpm := createManagerWithFakeFafka(fakeKafka)
 
 	if enabled {
 		err := mgr.StartIngest(100)
@@ -610,29 +596,18 @@ func testDeployKafkaInWhenIngestEnabled(t *testing.T, enabled bool) {
 	}
 }
 
-func stopStore(t *testing.T, store *store2.Store) {
-	err := store.Stop()
-	require.NoError(t, err)
-}
-
-func createManager() (*streamManager, *tppm.TestProcessorManager, *store2.Store) {
+func createManager() (*streamManager, *tppm.TestProcessorManager) {
 	return createManagerWithFakeFafka(nil)
 }
 
-func createManagerWithFakeFafka(fk *fake.Kafka) (*streamManager, *tppm.TestProcessorManager, *store2.Store) {
-	store := store2.TestStore()
-	pm := tppm.NewTestProcessorManager(store)
-
-	if err := store.Start(); err != nil {
-		panic(err)
-	}
+func createManagerWithFakeFafka(fk *fake.Kafka) (*streamManager, *tppm.TestProcessorManager) {
+	pm := tppm.NewTestProcessorManager()
 	cfg := &conf.Config{}
 	cfg.ApplyDefaults()
-
-	plm := NewStreamManager(fake.NewFakeMessageClientFactory(fk), store, &dummySlabRetentions{}, &expr.ExpressionFactory{}, cfg, false)
+	plm := NewStreamManager(fake.NewFakeMessageClientFactory(fk), &dummySlabRetentions{}, &expr.ExpressionFactory{}, cfg, false)
 	plm.SetProcessorManager(pm)
 	plm.Loaded()
-	return plm.(*streamManager), pm, store
+	return plm.(*streamManager), pm
 }
 
 func deployStream(t *testing.T, tsl string, mgr StreamManager, injectedColumnNames []string, injectedColumnTypes []types.ColumnType,
@@ -717,7 +692,7 @@ func verifyReceivedData(t *testing.T, streamNameOut string, partitionID int, exp
 }
 
 func verifyRowsInTablePartition(t *testing.T, keyColumnTypes []types.ColumnType, outKeyColIndexes []int,
-	rowColumnTypes []types.ColumnType, outRowColIndexes []int, data [][]any, mappingID string, slabID int, partitionID int, store *store2.Store) {
+	rowColumnTypes []types.ColumnType, outRowColIndexes []int, data [][]any, mappingID string, slabID int, partitionID int, store tppm.Store) {
 	ok, err := testutils.WaitUntilWithError(func() (bool, error) {
 		actualOut := loadRowsFromPartition(t, keyColumnTypes, outKeyColIndexes, rowColumnTypes, outRowColIndexes,
 			mappingID, slabID, partitionID, store)
@@ -729,7 +704,7 @@ func verifyRowsInTablePartition(t *testing.T, keyColumnTypes []types.ColumnType,
 
 func loadRowsFromPartition(t *testing.T, keyColumnTypes []types.ColumnType, outKeyColIndexes []int,
 	rowColumnTypes []types.ColumnType, outRowColIndexes []int, mappingID string, slabID int,
-	partitionID int, store *store2.Store) [][]any {
+	partitionID int, store tppm.Store) [][]any {
 	partitionHash := proc.CalcPartitionHash(mappingID, uint64(partitionID))
 	keyStart := encoding.EncodeEntryPrefix(partitionHash, uint64(slabID), 24)
 	keyEnd := encoding.EncodeEntryPrefix(partitionHash, uint64(slabID)+1, 24)
