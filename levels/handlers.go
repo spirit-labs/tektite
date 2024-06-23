@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"github.com/spirit-labs/tektite/encoding"
 	"github.com/spirit-labs/tektite/errors"
+	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/protos/clustermsgs"
 	"github.com/spirit-labs/tektite/remoting"
 )
@@ -63,7 +64,9 @@ type l0AddHandler struct {
 func (l *l0AddHandler) HandleMessage(holder remoting.MessageHolder, completionFunc func(remoting.ClusterMessage, error)) {
 	l.ms.lock.RLock()
 	defer l.ms.lock.RUnlock()
+	log.Infof("got lmgr RegisterL0Tables request")
 	if l.ms.levelManager == nil {
+		log.Infof("got lmgr RegisterL0Tables request -not leader")
 		completionFunc(nil, createNotLeaderError(l.ms))
 		return
 	}

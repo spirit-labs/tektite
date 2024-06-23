@@ -281,7 +281,7 @@ func testWindowedAggEventsNotDropped(t *testing.T, latenessMs int, waterMark int
 		{types.NewTimestamp(105), "USA", int64(7)},
 		{types.NewTimestamp(105), "USA", int64(5)},
 	}
-	sendAggWindowBatch(t, inData, agg, tppm.NewTestStore(), version, partitionID)
+	sendAggWindowBatch(t, inData, agg, st, version, partitionID)
 
 	outData := [][]any{
 		{types.NewTimestamp(105), types.NewTimestamp(10), types.NewTimestamp(110), "UK", int64(11)},

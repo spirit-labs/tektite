@@ -548,7 +548,7 @@ func (m *ProcessorManager) setVersionForProcessors() {
 
 func (m *ProcessorManager) setVersionForProcessor(processor Processor) {
 	processorID := processor.ID()
-
+	
 	receiverIDs, ok := m.injectableReceiverIDs[processorID]
 	if !ok {
 		// Not cached - get it from the ReceiverInfoProvider

@@ -86,6 +86,7 @@ func createConfig(t *testing.T, objStoreAddress string, clusterName string) conf
 	cfg.LevelManagerEnabled = true
 	cfg.MinSnapshotInterval = 100 * time.Millisecond
 	cfg.MemtableMaxReplaceInterval = 1 * time.Second
+	cfg.CompactionWorkersEnabled = true
 
 	// In real life don't want to set this so low otherwise cluster state will be calculated when just one node
 	// is started with all leaders

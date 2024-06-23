@@ -60,10 +60,14 @@ func (t *TestStore) GetWithMaxVersion(key []byte, maxVersion uint64) ([]byte, er
 }
 
 func (t *TestStore) NewIterator(keyStart []byte, keyEnd []byte, maxVersion int64, preserveTombStones bool) (iteration.Iterator, error) {
+	pref := keyStart[:24]
 	var entries []common.KV
 	iter := t.data.Iterator()
 	for iter.Next() {
 		key := []byte(iter.Key().(string))
+		if !bytes.Equal(key[:24], pref) {
+			continue
+		}
 		keyNoVersion := key[:len(key)-8]
 		if bytes.Compare(keyNoVersion, keyStart) >= 0 && bytes.Compare(keyNoVersion, keyEnd) < 0 {
 			value := iter.Value().([]byte)
@@ -116,7 +120,7 @@ func (t *TestProcessorManager) AddActiveProcessor(id int) {
 	defer t.lock.Unlock()
 	_, ok := t.activeProcessors[id]
 	if ok {
-		panic("already a processor")
+		return
 	}
 	processor := newTestProcessor(id, t)
 	go processor.eventLoop()

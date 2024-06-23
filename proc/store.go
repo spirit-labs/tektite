@@ -719,17 +719,19 @@ func (s *Store) getClusterVersion() int {
 
 func (s *Store) lastCompletedUpdated() {
 	if s.shutdownFlushImmediate.Load() {
-		// After flush at shutdown we respond to each completed version by flushing each processor store,
-		// this enables versions to be flushed from each processor, without waiting for memtable timeout
-		s.pm.processors.Range(func(key, value any) bool {
-			proc := value.(*processor)
-			if proc.IsLeader() {
-				if err := proc.store.Flush(func(err error) {}); err != nil {
-					log.Errorf("failed to flush %v", err)
+		go func() {
+			// After flush at shutdown we respond to each completed version by flushing each processor store,
+			// this enables versions to be flushed from each processor, without waiting for memtable timeout
+			s.pm.processors.Range(func(key, value any) bool {
+				proc := value.(*processor)
+				if proc.IsLeader() {
+					if err := proc.store.Flush(func(err error) {}); err != nil {
+						log.Errorf("failed to flush %v", err)
+					}
 				}
-			}
-			return true
-		})
+				return true
+			})
+		}()
 	}
 }
 

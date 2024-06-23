@@ -5,10 +5,13 @@ import (
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/conf"
 	"github.com/spirit-labs/tektite/evbatch"
+	"github.com/spirit-labs/tektite/levels"
 	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/mem"
+	"github.com/spirit-labs/tektite/objstore/dev"
 	"github.com/spirit-labs/tektite/proc"
 	"github.com/spirit-labs/tektite/remoting"
+	"github.com/spirit-labs/tektite/tabcache"
 	"github.com/spirit-labs/tektite/testutils"
 	"github.com/spirit-labs/tektite/types"
 	"github.com/stretchr/testify/require"
@@ -493,6 +496,8 @@ func testLeaderFailure(t *testing.T, leaderLastCommitted int, replicaLastCommitt
 	require.Error(t, err)
 	require.Equal(t, "replicator is not initialised", err.Error())
 
+	log.Info("broadcasting version 101")
+
 	// So we increment version on manager which will cause barriers to be injected
 	procMgrs[0].HandleVersionBroadcast(101, 0, 0)
 
@@ -697,6 +702,19 @@ func checkLastCommitted(t *testing.T, replLeader *replicator, replicas ...*repli
 	}
 }
 
+type testCommandBatchIngestor struct {
+	lm *levels.LevelManager
+}
+
+func (tcbi *testCommandBatchIngestor) ingest(buff []byte, complFunc func(error)) {
+	regBatch := levels.RegistrationBatch{}
+	regBatch.Deserialize(buff, 1)
+	go func() {
+		err := tcbi.lm.ApplyChanges(regBatch, false, 0)
+		complFunc(err)
+	}()
+}
+
 func setupCluster(t *testing.T) ([]proc.Manager, []*testBatchHandler, []*testClustStateMgr, func(t *testing.T)) {
 	return setupClusterWithNumNodes(t, 3)
 }
@@ -714,6 +732,29 @@ func setupClusterWithNumNodes(t *testing.T, numNodes int) ([]proc.Manager, []*te
 	var procMgrs []proc.Manager
 	var remotingServers []remoting.Server
 	var batchHandlers []*testBatchHandler
+
+	objStore := dev.NewInMemStore(0)
+	cfg := &conf.Config{}
+	cfg.ApplyDefaults()
+	tc, err := tabcache.NewTableCache(objStore, cfg)
+	require.NoError(t, err)
+
+	lmClient := &levels.InMemClient{}
+	bi := testCommandBatchIngestor{}
+	tabCache, err := tabcache.NewTableCache(objStore, cfg)
+	if err != nil {
+		panic(err)
+	}
+	levelManager := levels.NewLevelManager(cfg, objStore, tabCache, bi.ingest, false, false, false)
+	lmClient.LevelManager = levelManager
+	bi.lm = levelManager
+	if err := levelManager.Start(true); err != nil {
+		panic(err)
+	}
+	err = levelManager.Activate()
+	if err != nil {
+		panic(err)
+	}
 
 	for i := 0; i < numNodes; i++ {
 
@@ -736,7 +777,7 @@ func setupClusterWithNumNodes(t *testing.T, numNodes int) ([]proc.Manager, []*te
 		mgr := proc.NewProcessorManagerWithFailure(stateMgr, &testReceiverInfoProvider{}, cfg,
 			NewReplicator, func(processorID int) proc.BatchHandler {
 				return batchHandler
-			}, nil, &testIngestNotifier{}, nil, nil, nil, false)
+			}, nil, &testIngestNotifier{}, objStore, lmClient, tc, true)
 		mgr.SetVersionManagerClient(&testVmgrClient{})
 		teeHandler := &remoting.TeeBlockingClusterMessageHandler{}
 		mgr.SetClusterMessageHandlers(remotingServer, teeHandler)

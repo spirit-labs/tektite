@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"github.com/emirpasic/gods/maps/treemap"
+	"github.com/spirit-labs/tektite/clustmgr"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/conf"
 	"github.com/spirit-labs/tektite/encoding"
@@ -12,7 +13,9 @@ import (
 	"github.com/spirit-labs/tektite/evbatch"
 	"github.com/spirit-labs/tektite/iteration"
 	"github.com/spirit-labs/tektite/mem"
+	"github.com/spirit-labs/tektite/remoting"
 	"github.com/spirit-labs/tektite/testutils"
+	"github.com/spirit-labs/tektite/vmgr"
 	"github.com/stretchr/testify/require"
 	"math"
 	"math/rand"
@@ -373,7 +376,7 @@ func TestForwardingMultipleReceiversAndProcessors(t *testing.T) {
 		}
 		batchHandlers = append(batchHandlers, batchHandler)
 
-		proc := NewProcessor(i, cfg, nil, batchForwarder, batchHandler, batchHandler, createDataKey(i)).(*processor)
+		proc := NewProcessor(i, cfg, &dummyStore{}, batchForwarder, batchHandler, batchHandler, createDataKey(i)).(*processor)
 
 		proc.SetVersionCompleteHandler(vHandler.versionComplete)
 
@@ -451,6 +454,44 @@ func TestForwardingMultipleReceiversAndProcessors(t *testing.T) {
 	verifyBatchesReceivedAtTerminalReceiver(t, receiver5SentBatches, receiver5, receiver5Processors, batchHandlers)
 }
 
+type dummyStore struct {
+}
+
+func (d *dummyStore) Start() {
+}
+
+func (d *dummyStore) Stop() {
+	panic("implement me")
+}
+
+func (d *dummyStore) Get(key []byte) ([]byte, error) {
+	panic("implement me")
+}
+
+func (d *dummyStore) Write(batch *mem.Batch) error {
+	return nil
+}
+
+func (d *dummyStore) Flush(cb func(error)) error {
+	panic("implement me")
+}
+
+func (d *dummyStore) MaybeReplaceMemtable() error {
+	panic("implement me")
+}
+
+func (d *dummyStore) Clear() error {
+	panic("implement me")
+}
+
+func (d *dummyStore) GetWithMaxVersion(key []byte, maxVersion uint64) ([]byte, error) {
+	panic("implement me")
+}
+
+func (d *dummyStore) NewIterator(keyStart []byte, keyEnd []byte, highestVersion uint64, preserveTombstones bool) (iteration.Iterator, error) {
+	panic("implement me")
+}
+
 func verifyBatchesReceivedAtTerminalReceiver(t *testing.T, sentBatches []*ProcessBatch, receiverID int, processorIDs []int,
 	batchHandlers []*forwardingBatchHandler) {
 
@@ -519,7 +560,7 @@ func TestBarrierNewerVersionOverridesVersionBeingCompleted(t *testing.T) {
 		}
 		batchHandlers = append(batchHandlers, batchHandler)
 
-		proc := NewProcessor(i, cfg, nil, batchForwarder, batchHandler, batchHandler, createDataKey(i)).(*processor)
+		proc := NewProcessor(i, cfg, &dummyStore{}, batchForwarder, batchHandler, batchHandler, createDataKey(i)).(*processor)
 
 		proc.SetVersionCompleteHandler(vHandler.versionComplete)
 
@@ -803,7 +844,7 @@ func TestBarriersWithForwarding(t *testing.T) {
 		}
 		batchHandlers = append(batchHandlers, batchHandler)
 
-		proc := NewProcessor(i, cfg, nil, batchForwarder, batchHandler, batchHandler, createDataKey(i)).(*processor)
+		proc := NewProcessor(i, cfg, &dummyStore{}, batchForwarder, batchHandler, batchHandler, createDataKey(i)).(*processor)
 
 		proc.SetVersionCompleteHandler(vHandler.versionComplete)
 
@@ -930,7 +971,7 @@ func TestForwardAfterUnavailability(t *testing.T) {
 		},
 	}
 
-	proc1 := NewProcessor(1, cfg, nil, forwarder, batchHandler1, batchHandler1, createDataKey(1)).(*processor)
+	proc1 := NewProcessor(1, cfg, &dummyStore{}, forwarder, batchHandler1, batchHandler1, createDataKey(1)).(*processor)
 	proc1.SetVersionCompleteHandler(vHandler.versionComplete)
 	proc1.SetLeader()
 
@@ -949,7 +990,7 @@ func TestForwardAfterUnavailability(t *testing.T) {
 			1001: 2,
 		},
 	}
-	proc2 := NewProcessor(2, cfg, nil, forwarder, batchHandler2, batchHandler2, createDataKey(2)).(*processor)
+	proc2 := NewProcessor(2, cfg, &dummyStore{}, forwarder, batchHandler2, batchHandler2, createDataKey(2)).(*processor)
 	proc2.SetVersionCompleteHandler(vHandler.versionComplete)
 	proc2.SetLeader()
 
@@ -1007,7 +1048,7 @@ func TestLoadStoreReplBatchSeq(t *testing.T) {
 	cfg := &conf.Config{}
 	cfg.ApplyDefaults()
 
-	st := &testStore{}
+	st := newTestStore()
 	proc1 := NewProcessor(1, cfg, st, nil, nil, nil, createDataKey(1)).(*processor)
 	proc1.SetLeader()
 
@@ -1172,7 +1213,10 @@ func closeVersion(proc Processor, receiverIDs []int, version int, cf func(error)
 func createProcessor(t *testing.T, id int, batchForwarder BatchForwarder, batchHandler BatchHandler, receiverInfoProvider ReceiverInfoProvider) *processor {
 	cfg := &conf.Config{}
 	cfg.ApplyDefaults()
-	procStore := NewProcessorStore(nil, id)
+	pm := &ProcessorManager{}
+	pm.cfg = cfg
+	s := newStore(pm, nil, nil, nil)
+	procStore := NewProcessorStore(s, id)
 	return NewProcessor(id, cfg, procStore, batchForwarder, batchHandler, receiverInfoProvider, createDataKey(id)).(*processor)
 }
 
@@ -1330,4 +1374,135 @@ func (t *testStore) NewIterator(keyStart []byte, keyEnd []byte, highestVersion u
 	}
 	si := iteration.NewStaticIterator(entries)
 	return iteration.NewMergingIterator([]iteration.Iterator{si}, preserveTombstones, highestVersion)
+}
+
+type testProcessorManager struct {
+}
+
+func (t *testProcessorManager) RegisterStateHandler(stateHandler clustmgr.ClusterStateHandler) {
+	panic("not implemented")
+}
+
+func (t *testProcessorManager) NodePartitions(mappingID string, partitionCount int) (map[int][]int, error) {
+	panic("not implemented")
+}
+
+func (t *testProcessorManager) NodeForPartition(partitionID int, mappingID string, partitionCount int) int {
+	panic("not implemented")
+}
+
+func (t *testProcessorManager) ForwardBatch(batch *ProcessBatch, replicate bool, completionFunc func(error)) {
+	panic("not implemented")
+}
+
+func (t *testProcessorManager) Start() error {
+	panic("not implemented")
+}
+
+func (t *testProcessorManager) Stop() error {
+	panic("not implemented")
+}
+
+func (t *testProcessorManager) RegisterListener(listenerName string, listener ProcessorListener) []Processor {
+	panic("not implemented")
+}
+
+func (t *testProcessorManager) UnregisterListener(listenerName string) {
+	panic("not implemented")
+}
+
+func (t *testProcessorManager) SetClusterMessageHandlers(remotingServer remoting.Server, vbHandler *remoting.TeeBlockingClusterMessageHandler) {
+	panic("not implemented")
+}
+
+func (t *testProcessorManager) MarkGroupAsValid(nodeID int, groupID int, joinedVersion int) (bool, error) {
+	panic("not implemented")
+}
+
+func (t *testProcessorManager) SetVersionManagerClient(client vmgr.Client) {
+	panic("not implemented")
+}
+
+func (t *testProcessorManager) HandleVersionBroadcast(currentVersion int, completedVersion int, flushedVersion int) {
+	panic("not implemented")
+}
+
+func (t *testProcessorManager) GetGroupState(processorID int) (clustmgr.GroupState, bool) {
+	panic("not implemented")
+}
+
+func (t *testProcessorManager) GetLeaderNode(processorID int) (int, error) {
+	panic("not implemented")
+}
+
+func (t *testProcessorManager) GetProcessor(processorID int) Processor {
+	panic("not implemented")
+}
+
+func (t *testProcessorManager) ClusterVersion() int {
+	panic("not implemented")
+}
+
+func (t *testProcessorManager) IsReadyAsOfVersion(clusterVersion int) bool {
+	panic("not implemented")
+}
+
+func (t *testProcessorManager) HandleClusterState(cs clustmgr.ClusterState) error {
+	panic("not implemented")
+}
+
+func (t *testProcessorManager) AfterReceiverChange() {
+	panic("not implemented")
+}
+
+func (t *testProcessorManager) GetCurrentVersion() int {
+	panic("not implemented")
+}
+
+func (t *testProcessorManager) PrepareForShutdown() {
+	panic("not implemented")
+}
+
+func (t *testProcessorManager) AcquiesceLevelManagerProcessor() error {
+	panic("not implemented")
+}
+
+func (t *testProcessorManager) WaitForProcessingToComplete() {
+	panic("not implemented")
+}
+
+func (t *testProcessorManager) Freeze() {
+	panic("not implemented")
+}
+
+func (t *testProcessorManager) FailoverOccurred() bool {
+	panic("not implemented")
+}
+
+func (t *testProcessorManager) VersionManagerClient() vmgr.Client {
+	panic("not implemented")
+}
+
+func (t *testProcessorManager) EnsureReplicatorsReady() error {
+	panic("not implemented")
+}
+
+func (t *testProcessorManager) SetLevelMgrProcessorInitialisedCallback(callback func() error) {
+	panic("not implemented")
+}
+
+func (t *testProcessorManager) ClearUnflushedData() {
+	panic("not implemented")
+}
+
+func (t *testProcessorManager) FlushAllProcessors(shutdown bool) error {
+	panic("not implemented")
+}
+
+func (t *testProcessorManager) GetLastCompletedVersion() int64 {
+	panic("not implemented")
+}
+
+func (t *testProcessorManager) GetLastFlushedVersion() int64 {
+	panic("not implemented")
 }

@@ -78,6 +78,7 @@ func createServer(t *testing.T, topic string, serverAddress string) (*Server, *t
 			Port:   port,
 		},
 	}
+	partitionSchema := opers.NewPartitionScheme("_default_", 1, true, 1)
 	meta.topicInfos = map[string]*TopicInfo{
 		topic: {
 			Name:           topic,
@@ -86,6 +87,7 @@ func createServer(t *testing.T, topic string, serverAddress string) (*Server, *t
 				receiverID:     10,
 				lastOffset:     1001,
 				lastAppendTime: 1000000,
+				ps:             &partitionSchema,
 			},
 			Partitions: []PartitionInfo{
 				{
@@ -156,7 +158,7 @@ type testProcessorProvider struct {
 }
 
 func (t *testProcessorProvider) GetProcessor(int) proc.Processor {
-	return nil
+	return t.processor
 }
 
 func (t *testProcessorProvider) NodeForPartition(partitionID int, _ string, _ int) int {
@@ -272,10 +274,11 @@ type testProduceInfoProvider struct {
 	receiverID     int
 	lastOffset     int64
 	lastAppendTime int64
+	ps             *opers.PartitionScheme
 }
 
 func (t *testProduceInfoProvider) PartitionScheme() *opers.PartitionScheme {
-	return nil
+	return t.ps
 }
 
 func (t *testProduceInfoProvider) IngestBatch(recordBatchBytes []byte, processor proc.Processor, partitionID int, complFunc func(err error)) {

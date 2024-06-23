@@ -1060,6 +1060,7 @@ func TestVersionFlushedAllSameVersion(t *testing.T) {
 func TestVersionFlushedTakeMinVersion(t *testing.T) {
 	cfg := &conf.Config{}
 	cfg.ApplyDefaults()
+	cfg.ProcessorCount = 3
 
 	cfg.VersionManagerStoreFlushedInterval = 10 * time.Millisecond
 	seqMgr := sequence.NewInMemSequenceManager()
@@ -1153,6 +1154,7 @@ func TestVersionFlushedTakeMinVersion(t *testing.T) {
 func TestVersionFlushedAllProcessorsCallIn(t *testing.T) {
 	cfg := &conf.Config{}
 	cfg.ApplyDefaults()
+	cfg.ProcessorCount = 3
 
 	cfg.VersionManagerStoreFlushedInterval = 10 * time.Millisecond
 	seqMgr := sequence.NewInMemSequenceManager()
@@ -1180,14 +1182,11 @@ func TestVersionFlushedAllProcessorsCallIn(t *testing.T) {
 	err = vmgr.VersionFlushed(1, 7, 1)
 	require.NoError(t, err)
 
-	err = vmgr.VersionFlushed(2, 7, 1)
+	err = vmgr.VersionFlushed(1, 7, 1)
 	require.NoError(t, err)
 
 	// not all processors called in
 	require.Equal(t, -1, vmgr.getLastVersionToFlush())
-
-	err = vmgr.VersionFlushed(0, 7, 1)
-	require.NoError(t, err)
 
 	err = vmgr.VersionFlushed(2, 7, 1)
 	require.NoError(t, err)
@@ -1202,6 +1201,7 @@ func TestVersionFlushedAllProcessorsCallIn(t *testing.T) {
 func TestShutdown(t *testing.T) {
 	cfg := &conf.Config{}
 	cfg.ApplyDefaults()
+	cfg.ProcessorCount = 3
 
 	seqMgr := sequence.NewInMemSequenceManager()
 	vmgr, remotingServer, _, lmgrClient := setupWithSeqMgrWithActivate(t, seqMgr, cfg, true)
