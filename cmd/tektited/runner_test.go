@@ -106,16 +106,18 @@ func createConfigWithAllFields() conf.Config {
 		MetricsBind:    "localhost:9102",
 		MetricsEnabled: false,
 
-		KafkaServerEnabled:      true,
-		KafkaServerAddresses:    []string{"kafka1:9301", "kafka2:9301", "kafka3:9301", "kafka4:9301", "kafka5:9301"},
-		KafkaUseServerTimestamp: true,
-		KafkaServerTLSConfig: conf.TLSConfig{
-			Enabled:         true,
-			KeyPath:         "kafka-key-path",
-			CertPath:        "kafka-cert-path",
-			ClientCertsPath: "kafka-client-certs-path",
-			ClientAuth:      "require-and-verify-client-cert",
+		KafkaServerEnabled: true,
+		KafkaServerListenerConfig: conf.ListenerConfig{
+			Addresses: []string{"kafka1:9301", "kafka2:9301", "kafka3:9301", "kafka4:9301", "kafka5:9301"},
+			TLSConfig: conf.TLSConfig{
+				Enabled:         true,
+				KeyPath:         "kafka-key-path",
+				CertPath:        "kafka-cert-path",
+				ClientCertsPath: "kafka-client-certs-path",
+				ClientAuth:      "require-and-verify-client-cert",
+			},
 		},
+		KafkaUseServerTimestamp:     true,
 		KafkaInitialJoinDelay:       2 * time.Second,
 		KafkaMinSessionTimeout:      7 * time.Second,
 		KafkaMaxSessionTimeout:      25 * time.Second,

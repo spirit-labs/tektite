@@ -52,7 +52,7 @@ func testFailoverReplicationQueues(t *testing.T, failLevelManager bool) {
 
 	producer, err := kafkago.NewProducer(&kafkago.ConfigMap{
 		"partitioner":       "murmur2_random", // This matches the default hash algorithm we use, and same as Java client
-		"bootstrap.servers": servers[0].GetConfig().KafkaServerAddresses[0],
+		"bootstrap.servers": servers[0].GetConfig().KafkaServerListenerConfig.Addresses[0],
 		"acks":              "all"})
 	require.NoError(t, err)
 	defer producer.Close()
@@ -230,7 +230,7 @@ func testFailoverReplicationQueuesWithAggregation(t *testing.T, failLevelManager
 
 	producer, err := kafkago.NewProducer(&kafkago.ConfigMap{
 		"partitioner":       "murmur2_random", // This matches the default hash algorithm we use, and same as Java client
-		"bootstrap.servers": servers[0].GetConfig().KafkaServerAddresses[0],
+		"bootstrap.servers": servers[0].GetConfig().KafkaServerListenerConfig.Addresses[0],
 		"acks":              "all"})
 	require.NoError(t, err)
 	defer producer.Close()
@@ -448,7 +448,7 @@ func setupServers(t *testing.T, fk *fake.Kafka) ([]*server.Server, func(t *testi
 			require.NoError(t, err)
 			kafkaListenAddresses = append(kafkaListenAddresses, address)
 		}
-		cfg.KafkaServerAddresses = kafkaListenAddresses
+		cfg.KafkaServerListenerConfig.Addresses = kafkaListenAddresses
 		cfg.MinSnapshotInterval = 1 * time.Second
 		// Make sure we push frequently to exercise logic on level manager with dead versions
 		cfg.MemtableMaxReplaceInterval = 1 * time.Second

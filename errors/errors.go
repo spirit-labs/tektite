@@ -7,12 +7,12 @@ import (
 type ErrorCode int
 
 const (
-	ParseError = iota + 1000
+	ParseError ErrorCode = iota + 1000
 	StatementError
 	PrepareQueryError
 	ExecuteQueryError
 	WasmError
-	Unavailable = iota + 2000
+	Unavailable ErrorCode = iota + 2000
 	ConnectionError
 	ShutdownError
 	CompactionPollTimeout
@@ -20,8 +20,8 @@ const (
 	LevelManagerNotLeaderNode
 	VersionManagerShutdown
 	FailureCancelled
-	InvalidConfiguration = iota + 3000
-	InternalError        = iota + 5000
+	InvalidConfiguration ErrorCode = iota + 3000
+	InternalError        ErrorCode = iota + 5000
 )
 
 func NewInternalError(errReference string) TektiteError {

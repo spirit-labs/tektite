@@ -45,7 +45,7 @@ func TestPollerTimeout(t *testing.T) {
 		var perr errors.TektiteError
 		isTektiteError := errors.As(err, &perr)
 		require.True(t, isTektiteError)
-		require.Equal(t, errors.CompactionPollTimeout, int(perr.Code))
+		require.Equal(t, errors.CompactionPollTimeout, perr.Code)
 	}
 }
 

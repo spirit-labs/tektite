@@ -78,7 +78,7 @@ func (s *Server) Activate() error {
 	s.fetcher.start()
 	s.acceptLoopExitGroup.Add(1)
 	common.Go(s.acceptLoop)
-	log.Debugf("started kafka Server on %s", s.cfg.KafkaServerAddresses[s.cfg.NodeID])
+	log.Debugf("started kafka Server on %s", s.cfg.KafkaServerListenerConfig.Addresses[s.cfg.NodeID])
 	return nil
 }
 
@@ -86,9 +86,9 @@ func (s *Server) createNetworkListener() (net.Listener, error) {
 	var list net.Listener
 	var err error
 	var tlsConfig *tls.Config
-	listenAddress := s.cfg.KafkaServerAddresses[s.cfg.NodeID]
-	if s.cfg.KafkaServerTLSConfig.Enabled {
-		tlsConfig, err = conf.CreateServerTLSConfig(s.cfg.KafkaServerTLSConfig)
+	listenAddress := s.cfg.KafkaServerListenerConfig.Addresses[s.cfg.NodeID]
+	if s.cfg.KafkaServerListenerConfig.TLSConfig.Enabled {
+		tlsConfig, err = conf.CreateServerTLSConfig(s.cfg.KafkaServerListenerConfig.TLSConfig)
 		if err != nil {
 			return nil, errors.WithStack(err)
 		}
@@ -144,7 +144,7 @@ func (s *Server) Stop() error {
 }
 
 func (s *Server) ListenAddress() string {
-	return s.cfg.KafkaServerAddresses[s.cfg.NodeID]
+	return s.cfg.KafkaServerListenerConfig.Addresses[s.cfg.NodeID]
 }
 
 func (s *Server) removeConnection(conn *connection) {

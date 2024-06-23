@@ -128,7 +128,7 @@ func TestResponseInternalError(t *testing.T) {
 
 	testResponseError(t, err, func(t *testing.T, perr errors.TektiteError) {
 		t.Helper()
-		require.Equal(t, errors.InternalError, int(perr.Code))
+		require.Equal(t, errors.InternalError, perr.Code)
 	})
 
 }
@@ -140,7 +140,7 @@ func TestResponseTektiteError(t *testing.T) {
 
 	testResponseError(t, err, func(t *testing.T, terr errors.TektiteError) {
 		t.Helper()
-		require.Equal(t, errors.ExecuteQueryError, int(terr.Code))
+		require.Equal(t, errors.ExecuteQueryError, terr.Code)
 		require.Equal(t, err.Msg, terr.Msg)
 	})
 }

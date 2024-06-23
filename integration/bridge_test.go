@@ -66,7 +66,7 @@ egest_stream := local_topic -> (bridge to remote_topic props = ("bootstrap.serve
 	ingest_stream := (bridge from remote_topic partitions = 10 props = ("bootstrap.servers" = "%s" "auto.offset.reset" = "earliest")) -> (store stream)`, kHolder.address))
 	require.NoError(t, err)
 
-	tektiteKafkaAddress := s.GetConfig().KafkaServerAddresses[0]
+	tektiteKafkaAddress := s.GetConfig().KafkaServerListenerConfig.Addresses[0]
 
 	producer, err := kafkago.NewProducer(&kafkago.ConfigMap{
 		"partitioner":       "murmur2_random", // This matches the default hash algorithm we use, and same as Java client
@@ -133,7 +133,7 @@ egest_stream := local_topic -> (bridge to remote_topic props = ("bootstrap.serve
 	ingest_stream := (bridge from remote_topic partitions = 10 props = ("bootstrap.servers" = "%s" "auto.offset.reset" = "earliest")) -> (store stream)`, kHolder.address))
 	require.NoError(t, err)
 
-	tektiteKafkaAddress := s.GetConfig().KafkaServerAddresses[0]
+	tektiteKafkaAddress := s.GetConfig().KafkaServerListenerConfig.Addresses[0]
 
 	producer, err := kafkago.NewProducer(&kafkago.ConfigMap{
 		"partitioner":       "murmur2_random", // This matches the default hash algorithm we use, and same as Java client
@@ -222,7 +222,7 @@ egest_stream := local_topic -> (bridge to remote_topic props = ("bootstrap.serve
 	ingest_stream := (bridge from remote_topic partitions = 10 props = ("bootstrap.servers" = "%s" "auto.offset.reset" = "earliest")) -> (store stream)`, kHolder.address))
 	require.NoError(t, err)
 
-	tektiteKafkaAddress := s.GetConfig().KafkaServerAddresses[0]
+	tektiteKafkaAddress := s.GetConfig().KafkaServerListenerConfig.Addresses[0]
 
 	producer, err := kafkago.NewProducer(&kafkago.ConfigMap{
 		"partitioner":       "murmur2_random", // This matches the default hash algorithm we use, and same as Java client
@@ -335,7 +335,7 @@ func startStandaloneServer(t *testing.T, objStoreAddress string, clusterName str
 	cfg.KafkaServerEnabled = true
 	kafkaAddress, err := common.AddressWithPort("localhost")
 	require.NoError(t, err)
-	cfg.KafkaServerAddresses = []string{kafkaAddress}
+	cfg.KafkaServerListenerConfig.Addresses = []string{kafkaAddress}
 	cfg.ClientType = conf.KafkaClientTypeConfluent
 	cfg.ObjectStoreType = conf.DevObjectStoreType
 	cfg.DevObjectStoreAddresses = []string{objStoreAddress}

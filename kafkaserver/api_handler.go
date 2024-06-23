@@ -527,7 +527,10 @@ func (c *connection) handleFindCoordinator(apiVersion int16, reqBuff []byte, res
 
 	key, _ := ReadStringFromBytes(reqBuff)
 	nodeID := c.s.groupCoordinator.FindCoordinator(key)
-	address := c.s.cfg.KafkaServerAddresses[nodeID]
+	address := c.s.cfg.KafkaServerListenerConfig.Addresses[nodeID]
+	if len(c.s.cfg.KafkaServerListenerConfig.AdvertisedAddresses) > 0 {
+		address = c.s.cfg.KafkaServerListenerConfig.AdvertisedAddresses[nodeID]
+	}
 	host, sPort, err := net.SplitHostPort(address)
 	var port int
 	if err == nil {

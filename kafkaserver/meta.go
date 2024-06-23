@@ -22,8 +22,12 @@ type metaDataProvider struct {
 }
 
 func NewMetaDataProvider(cfg *conf.Config, procMgr proc.Manager, streamMgr opers.StreamManager) (MetadataProvider, error) {
-	brokerInfos := make([]BrokerInfo, len(cfg.KafkaServerAddresses))
-	for nodeID, address := range cfg.KafkaServerAddresses {
+	advertisedAddresses := cfg.KafkaServerListenerConfig.Addresses
+	if len(cfg.KafkaServerListenerConfig.AdvertisedAddresses) > 0 {
+		advertisedAddresses = cfg.KafkaServerListenerConfig.AdvertisedAddresses
+	}
+	brokerInfos := make([]BrokerInfo, len(advertisedAddresses))
+	for nodeID, address := range advertisedAddresses {
 		host, sPort, err := net.SplitHostPort(address)
 		var port int
 		if err == nil {
