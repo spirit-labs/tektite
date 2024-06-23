@@ -2,7 +2,6 @@ package opers
 
 import (
 	"bytes"
-	"encoding/binary"
 	"fmt"
 	"github.com/alecthomas/participle/v2/lexer"
 	"github.com/emirpasic/gods/maps/treemap"
@@ -1385,10 +1384,6 @@ func (d *deleteSlabReceiver) ReceiveBatch(batch *evbatch.Batch, execCtx StreamEx
 			value = valCol.Get(i)
 		}
 		// Need to copy otherwise encoding version will overwrite original slice in batch and corrupt next entry
-		slabID := int(binary.BigEndian.Uint64(key[16:]))
-		if slabID == 1000 {
-			log.Infof("node %d processor %d writing delete slab for slab 1000 key: %v value: %v", d.sm.cfg.NodeID, execCtx.Processor().ID(), key, value)
-		}
 		execCtx.StoreEntry(common.KV{
 			Key:   key,
 			Value: value,

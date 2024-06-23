@@ -367,15 +367,15 @@ func (lm *LevelManager) RegisterL0Tables(registrationBatch RegistrationBatch, co
 	}
 	lm.clusterVersions[registrationBatch.ClusterName] = registrationBatch.ClusterVersion
 
-	log.Infof("in LevelManager RegisterL0Tables")
+	log.Debugf("in LevelManager RegisterL0Tables")
 	if lm.getL0FreeSpace() >= 1 {
 		lm.inflightAdds++
-		log.Infof("in LevelManager RegisterL0Tables - enough free space so applying now")
+		log.Debugf("in LevelManager RegisterL0Tables - enough free space so applying now")
 		lm.sendApplyChangesReliably(registrationBatch, completionFunc)
 		return
 	}
 	// queue the request
-	log.Infof("in LevelManager RegisterL0Tables - not enough free space so queuing- %d", lm.getL0FreeSpace())
+	log.Debugf("in LevelManager RegisterL0Tables - not enough free space so queuing- %d", lm.getL0FreeSpace())
 
 	lm.pendingAddsQueue = append(lm.pendingAddsQueue, pendingL0Add{
 		regBatch:       registrationBatch,

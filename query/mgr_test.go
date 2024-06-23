@@ -9,7 +9,6 @@ import (
 	"github.com/spirit-labs/tektite/encoding"
 	"github.com/spirit-labs/tektite/evbatch"
 	"github.com/spirit-labs/tektite/expr"
-	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/mem"
 	"github.com/spirit-labs/tektite/opers"
 	"github.com/spirit-labs/tektite/parser"
@@ -649,7 +648,6 @@ func TestQueryVersionsSnapshotIsolation(t *testing.T) {
 	slInfoProvider, slabID := createStreamInfoProvider("test_slab1", defaultSlabID, schema, defaultNumPartitions, keyCols)
 	ctx := setupQueryManagers(defaultNumManagers, defaultNumPartitions, defaultMaxBatchRows, slInfoProvider)
 	defer ctx.tearDown(t)
-	log.Info("writing first slab data")
 	writeDataToSlab(t, slabID, schema, keyCols, defaultNumPartitions, data, ctx.st)
 	tsl := `prepare test_query1 := (get $x:int from test_slab1)`
 	prepareQuery(t, tsl, ctx)
@@ -679,7 +677,6 @@ func TestQueryVersionsSnapshotIsolation(t *testing.T) {
 		{int64(3), "boo3"},
 		{int64(4), "boo4"},
 	}
-	log.Info("writing last boo data")
 	writeDataToSlabWithVersion(t, "_default_", slabID, schema, keyCols, defaultNumPartitions, data2, ctx.st, 13)
 	executeQueryFromMgr(t, "test_query1", schema, keyCols, expectedKeyVals, argVals, data, 1, mgr)
 
@@ -688,7 +685,6 @@ func TestQueryVersionsSnapshotIsolation(t *testing.T) {
 		mgrPair.qm.SetLastCompletedVersion(13)
 	}
 	// Data should now be seen
-	log.Info("last query")
 	executeQueryFromMgr(t, "test_query1", schema, keyCols, expectedKeyVals, argVals, data2, 1, mgr)
 }
 

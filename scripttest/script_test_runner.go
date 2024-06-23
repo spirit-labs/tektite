@@ -38,7 +38,7 @@ import (
 )
 
 const (
-	TestPrefixes           = "" // Set this to a prefix of a test if you want to only run those tests, e.g. during development
+	TestPrefixes           = "query" // Set this to a prefix of a test if you want to only run those tests, e.g. during development
 	ExcludedTestPrefixes   = ""
 	caSignedServerKeyPath  = "testdata/keys/casignedserverkey.pem"
 	caSignedServerCertPath = "testdata/keys/casignedservercert.pem"
@@ -503,6 +503,7 @@ func (st *scriptTest) runTestIteration(require *require.Assertions, commands []s
 
 func (st *scriptTest) verifyRemainingData(require *require.Assertions) {
 	// Now we verify that the test has left the cluster in a clean state
+	start := time.Now()
 	log.Infof("%s: verifying data at end of test", st.testName)
 	for _, s := range st.testSuite.tektiteCluster {
 
@@ -562,7 +563,7 @@ func (st *scriptTest) verifyRemainingData(require *require.Assertions) {
 						return false, err
 					}
 					if valid {
-						log.Infof("found data for prefix %v slabID %d on node %d processor id %d - key %v value %v", prefix,
+						log.Errorf("found data for prefix %v slabID %d on node %d processor id %d - key %v value %v", prefix,
 							slabID, processorNode, processor.ID(), iter2.Current().Key, iter2.Current().Value)
 					}
 					// We don't want to see any data
@@ -576,6 +577,7 @@ func (st *scriptTest) verifyRemainingData(require *require.Assertions) {
 		}
 		iter.Close()
 	}
+	log.Infof("verifying data at end of test took %d ms", time.Since(start).Milliseconds())
 }
 
 var prefixCompareLines = []string{"Internal error - reference:"}

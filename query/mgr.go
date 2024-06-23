@@ -710,7 +710,6 @@ func (m *manager) ExecuteRemoteQuery(msg *clustermsgs.QueryMessage) error {
 		}
 		processor := m.procProvider.GetProcessor(processorID)
 		if processor == nil {
-			log.Infof("node: %d processor %d not found", m.nodeID, processorID)
 			time.Sleep(500 * time.Millisecond)
 			return errors.NewTektiteErrorf(errors.Unavailable, "processor not available")
 		}

@@ -133,8 +133,6 @@ func (r *replicator) MaybeReprocessQueue(lastFlushedVersion int) error {
 	}
 	lastProcessedSeq := int(seq)
 
-	log.Infof("in maybe reprocess", lastProcessedSeq)
-
 	r.processor.SubmitAction(func() error {
 		if r.initialised {
 			// Already initialised so reprocess queue now

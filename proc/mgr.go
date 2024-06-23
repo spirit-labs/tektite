@@ -90,7 +90,6 @@ type ProcessorManager struct {
 	shutdownVersionChannel      chan struct{}
 	latestCommandID             int64
 	flushCallbacks              []flushCallbackEntry
-	prevFlushedVersion          int
 	failure                     *failureHandler
 	replBatchFlushDisabled      bool
 	replBatchFlushLock          sync.Mutex
@@ -186,7 +185,6 @@ func NewProcessorManagerWithVmgrClient(clustStateMgr clustStateManager, receiver
 		lastFlushedVersion:         -1,
 		lastBarrierInjectionTime:   -1,
 		lastInjectedBarrierVersion: -1,
-		prevFlushedVersion:         -1,
 		lastMarkedVersion:          -1,
 		shutdownVersion:            -1,
 	}
@@ -310,6 +308,7 @@ func (m *ProcessorManager) stop(halt bool) error {
 		return nil
 	}
 	m.stopped.Store(true)
+	m.st.stop()
 	m.lock.Lock()
 	m.failure.stop()
 	// We stop the timers without waiting for them to complete to avoid deadlock as some of the timers can hold the
@@ -356,7 +355,6 @@ func (m *ProcessorManager) stop(halt bool) error {
 			log.Warnf("failed to stop cluster state mgr %v", err)
 		}
 	}
-	m.st.stop()
 	var err error
 	m.processors.Range(func(key, value any) bool {
 		processor := value.(Processor) //nolint:forcetypeassert
@@ -548,7 +546,7 @@ func (m *ProcessorManager) setVersionForProcessors() {
 
 func (m *ProcessorManager) setVersionForProcessor(processor Processor) {
 	processorID := processor.ID()
-	
+
 	receiverIDs, ok := m.injectableReceiverIDs[processorID]
 	if !ok {
 		// Not cached - get it from the ReceiverInfoProvider
@@ -877,9 +875,11 @@ func (m *ProcessorManager) checkFlushLevelManagerBatches() {
 				m.lock.Lock()
 				defer m.lock.Unlock()
 				replicator := m.getLevelManagerReplicator()
-				log.Debugf("flushing all level manager replication batches")
-				replicator.FlushBatchesFromCheckpoint()
-				m.scheduleLevelManagerFlushCheck(false)
+				if err == nil {
+					log.Debugf("flushing all level manager replication batches")
+					replicator.FlushBatchesFromCheckpoint()
+					m.scheduleLevelManagerFlushCheck(false)
+				}
 			})
 		}
 	}
@@ -930,11 +930,11 @@ func (m *ProcessorManager) storeFlushed(processorID int, version int) {
 	// The processor has flushed all local data to the specified completed version. We can now tell version manager
 	// that this has occurred. When all processor managers report in with the same completed version for all processors
 	// then flushed version will be set to the specified value and broadcast.
+	//log.Infof("calling version flushed for processor %d version %d", processorID, version)
 	if err := m.vMgrClient.VersionFlushed(processorID, version, int(cv)); err != nil {
 		// Normal to fail during shutdown
 		log.Debugf("failed to call VersionFlushed %v", err)
 	}
-	m.prevFlushedVersion = version
 }
 
 func (m *ProcessorManager) liveProcessorCount() int {

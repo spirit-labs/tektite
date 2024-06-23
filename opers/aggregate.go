@@ -561,9 +561,6 @@ func (a *AggregateOperator) closeWindow(entry windowEntry, partitionID int, exec
 	if err != nil {
 		return false, err
 	}
-	if iter == nil {
-		log.Info("foo")
-	}
 	defer iter.Close()
 	colBuilders := evbatch.CreateColBuilders(a.outSchema.EventSchema.ColumnTypes())
 	hasData := false

@@ -367,7 +367,6 @@ func waitForRows(t *testing.T, expectedRows int, sinkOper *testSinkOper) {
 				numRows += batch.RowCount
 			}
 		}
-		//log.Infof("num rows %d expected %d", numRows, expectedRows)
 		return numRows == expectedRows, nil
 	}, 10*time.Second, 10*time.Millisecond)
 	require.NoError(t, err)

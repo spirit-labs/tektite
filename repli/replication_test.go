@@ -496,8 +496,6 @@ func testLeaderFailure(t *testing.T, leaderLastCommitted int, replicaLastCommitt
 	require.Error(t, err)
 	require.Equal(t, "replicator is not initialised", err.Error())
 
-	log.Info("broadcasting version 101")
-
 	// So we increment version on manager which will cause barriers to be injected
 	procMgrs[0].HandleVersionBroadcast(101, 0, 0)
 

@@ -26,6 +26,7 @@ type Store interface {
 }
 
 type TestStore struct {
+	lock sync.Mutex
 	data *treemap.Map
 }
 
@@ -36,6 +37,8 @@ func NewTestStore() *TestStore {
 }
 
 func (t *TestStore) Write(batch *mem.Batch) error {
+	t.lock.Lock()
+	defer t.lock.Unlock()
 	batch.Range(func(key []byte, value []byte) bool {
 		t.data.Put(string(key), value)
 		return true
@@ -44,6 +47,8 @@ func (t *TestStore) Write(batch *mem.Batch) error {
 }
 
 func (t *TestStore) GetWithMaxVersion(key []byte, maxVersion uint64) ([]byte, error) {
+	t.lock.Lock()
+	defer t.lock.Unlock()
 	iter := t.data.Iterator()
 	for iter.Next() {
 		dataKey := []byte(iter.Key().(string))
@@ -60,6 +65,8 @@ func (t *TestStore) GetWithMaxVersion(key []byte, maxVersion uint64) ([]byte, er
 }
 
 func (t *TestStore) NewIterator(keyStart []byte, keyEnd []byte, maxVersion int64, preserveTombStones bool) (iteration.Iterator, error) {
+	t.lock.Lock()
+	defer t.lock.Unlock()
 	pref := keyStart[:24]
 	var entries []common.KV
 	iter := t.data.Iterator()

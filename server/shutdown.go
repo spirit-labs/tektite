@@ -78,7 +78,7 @@ func (s *Server) executePhase(msg *clustermsgs.ShutdownMessage, completionFunc f
 
 		log.Debugf("node %d shutdown, store flush called, err: %v", s.conf.NodeID, err)
 	case 4:
-		// shutdown the version manager - this waits for specified version to be flushed and stores it in the
+		// shutdown the version manager - this waits for version to be flushed and stores it in the
 		// level manager
 		log.Debugf("node %d shutdown, calling vmgr shutdown", s.conf.NodeID)
 		versionManagerFlushed, err = s.versionManager.Shutdown()

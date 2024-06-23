@@ -125,7 +125,7 @@ func (g *GetOperator) CreateIterator(mappingID string, partID uint64, args *evba
 			end = encoding.EncodeEntryPrefix(partitionHash, uint64(g.slabID+1), 24)
 		}
 	}
-	log.Infof("node:%d processor:%d creating query iterator start:%v end:%v with max version:%d", g.nodeID, processor.ID(), start, end, highestVersion)
+	log.Debugf("node:%d processor:%d creating query iterator start:%v end:%v with max version:%d", g.nodeID, processor.ID(), start, end, highestVersion)
 	if g.streamMetaIterProvider != nil {
 		return g.streamMetaIterProvider.NewIterator(start, end, highestVersion, false)
 	} else {
