@@ -239,8 +239,7 @@ func TestSnapshotVersions(t *testing.T) {
 		leaderNode, err := mgr1.GetLeaderNode(procID)
 		require.NoError(t, err)
 		injectMgr := mgrs[leaderNode]
-		processor, ok := injectMgr.GetProcessor(procID)
-		require.True(t, ok)
+		processor := injectMgr.GetProcessor(procID)
 		require.NotNil(t, processor)
 
 		colBuilders := evbatch.CreateColBuilders(schema.ColumnTypes())
