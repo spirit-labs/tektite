@@ -951,7 +951,8 @@ func (nr *networkResultsOperator) GetStreamInfo() *opers.StreamInfo {
 	return nil
 }
 
-func (nr *networkResultsOperator) Teardown(opers.StreamManagerCtx, *sync.RWMutex) {
+func (nr *networkResultsOperator) Teardown(mgr opers.StreamManagerCtx, completeCB func(error)) {
+	completeCB(nil)
 }
 
 func serializePartitions(partitions []int) []byte {

@@ -705,7 +705,8 @@ func (g *gatheringWMOperator) GetStreamInfo() *opers.StreamInfo {
 	return nil
 }
 
-func (g *gatheringWMOperator) Teardown(opers.StreamManagerCtx, *sync.RWMutex) {
+func (g *gatheringWMOperator) Teardown(mgr opers.StreamManagerCtx, completeCB func(error)) {
+	completeCB(nil)
 }
 
 type testSlabRetentions struct {

@@ -5,7 +5,6 @@ import (
 	"github.com/spirit-labs/tektite/evbatch"
 	"github.com/spirit-labs/tektite/proc"
 	"github.com/spirit-labs/tektite/types"
-	"sync"
 	"time"
 )
 
@@ -194,8 +193,9 @@ func (k *KafkaInOperator) Setup(mgr StreamManagerCtx) error {
 	return nil
 }
 
-func (k *KafkaInOperator) Teardown(mgr StreamManagerCtx, _ *sync.RWMutex) {
+func (k *KafkaInOperator) Teardown(mgr StreamManagerCtx, completeCB func(error)) {
 	mgr.UnregisterReceiver(k.receiverID)
+	completeCB(nil)
 }
 
 func (k *KafkaInOperator) ReceiveBatch(batch *evbatch.Batch, execCtx StreamExecContext) (*evbatch.Batch, error) {

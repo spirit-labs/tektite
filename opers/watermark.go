@@ -3,7 +3,6 @@ package opers
 import (
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/evbatch"
-	"sync"
 	"time"
 )
 
@@ -132,7 +131,8 @@ func (w *WaterMarkOperator) Setup(StreamManagerCtx) error {
 	return nil
 }
 
-func (w *WaterMarkOperator) Teardown(StreamManagerCtx, *sync.RWMutex) {
+func (w *WaterMarkOperator) Teardown(StreamManagerCtx, completeCB func(error)) {
+	completeCB(nil)
 }
 
 // Receiver implementation is only used for injecting batches in testing

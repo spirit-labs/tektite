@@ -91,7 +91,8 @@ func (k *KafkaOutOperator) Setup(StreamManagerCtx) error {
 	return nil
 }
 
-func (k *KafkaOutOperator) Teardown(StreamManagerCtx, *sync.RWMutex) {
+func (k *KafkaOutOperator) Teardown(mgr StreamManagerCtx, completeCB func(error)) {
+	completeCB(nil)
 }
 
 func (k *KafkaOutOperator) SlabID() int {

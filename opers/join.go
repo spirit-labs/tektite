@@ -11,7 +11,6 @@ import (
 	"github.com/spirit-labs/tektite/parser"
 	"github.com/spirit-labs/tektite/proc"
 	"github.com/spirit-labs/tektite/types"
-	"sync"
 	"time"
 )
 
@@ -751,8 +750,9 @@ func (j *JoinOperator) Setup(mgr StreamManagerCtx) error {
 	return nil
 }
 
-func (j *JoinOperator) Teardown(mgr StreamManagerCtx, _ *sync.RWMutex) {
+func (j *JoinOperator) Teardown(mgr StreamManagerCtx, completeCB func(error)) {
 	mgr.UnregisterReceiver(j.receiverID)
+	completeCB(nil)
 }
 
 type inputOper struct {
@@ -809,7 +809,8 @@ func (r *inputOper) GetStreamInfo() *StreamInfo {
 	return nil
 }
 
-func (r *inputOper) Teardown(StreamManagerCtx, *sync.RWMutex) {
+func (r *inputOper) Teardown(mgr StreamManagerCtx, completeCB func(error)) {
+	completeCB(nil)
 }
 
 type batchReceiver struct {

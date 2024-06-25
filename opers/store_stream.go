@@ -4,7 +4,6 @@ import (
 	"github.com/spirit-labs/tektite/encoding"
 	"github.com/spirit-labs/tektite/evbatch"
 	"github.com/spirit-labs/tektite/types"
-	"sync"
 )
 
 type StoreStreamOperator struct {
@@ -118,5 +117,6 @@ func (ts *StoreStreamOperator) Setup(StreamManagerCtx) error {
 	return nil
 }
 
-func (ts *StoreStreamOperator) Teardown(StreamManagerCtx, *sync.RWMutex) {
+func (ts *StoreStreamOperator) Teardown(mgr StreamManagerCtx, completeCB func(error)) {
+	completeCB(nil)
 }

@@ -12,7 +12,6 @@ import (
 	"github.com/spirit-labs/tektite/types"
 	"math"
 	"sort"
-	"sync"
 	"time"
 )
 
@@ -938,8 +937,9 @@ func (a *AggregateOperator) Setup(mgr StreamManagerCtx) error {
 	return nil
 }
 
-func (a *AggregateOperator) Teardown(mgr StreamManagerCtx, _ *sync.RWMutex) {
+func (a *AggregateOperator) Teardown(mgr StreamManagerCtx, completeCB func(error)) {
 	mgr.UnregisterReceiver(a.closedWindowReceiverID)
+	completeCB(nil)
 }
 
 func (a *AggregateOperator) ReceiveBatch(batch *evbatch.Batch, execCtx StreamExecContext) (*evbatch.Batch, error) {

@@ -251,22 +251,25 @@ func (bf *BridgeFromOperator) Setup(mgr StreamManagerCtx) error {
 	return nil
 }
 
-func (bf *BridgeFromOperator) Teardown(mgr StreamManagerCtx, lock *sync.RWMutex) {
+func (bf *BridgeFromOperator) Teardown(mgr StreamManagerCtx, completeCB func(error)) {
 	bf.lock.Lock()
 	defer bf.lock.Unlock()
 	bf.stopped = true
 	if bf.consumerTimer != nil {
 		bf.consumerTimer.Stop()
 	}
-	lock.Unlock()
-	// consumers must be stopped without lock being held, as waiting for consumer to complete can involve
-	// batches being delivered into the stream manager which gets the lock
-	for pid, consumer := range bf.consumers {
-		delete(bf.consumers, pid)
-		// stop the consumer - this blocks, waiting for processing to complete.
-		consumer.stop(false)
-	}
-	lock.Lock()
+	// We must stop the consumers async as we can't hold the stream manager lock while they are being stopped, as
+	// stop blocks until complete and won't complete until consumers have finished processing and processing could
+	// be blocked waiting to get read lock on stream manager to handle batch
+	go func() {
+		for pid, consumer := range bf.consumers {
+			delete(bf.consumers, pid)
+			// stop the consumer - this blocks, waiting for processing to complete.
+			consumer.stop(false)
+		}
+		completeCB(nil)
+	}()
+
 	mgr.ProcessorManager().UnregisterListener(bf.id)
 	mgr.UnregisterReceiver(bf.receiverID)
 }

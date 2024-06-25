@@ -7,7 +7,6 @@ import (
 	"github.com/spirit-labs/tektite/evbatch"
 	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/parser"
-	"sync"
 )
 
 const initialKeyBufferSize = 16
@@ -146,8 +145,9 @@ func (po *PartitionOperator) Setup(mgr StreamManagerCtx) error {
 	return nil
 }
 
-func (po *PartitionOperator) Teardown(mgr StreamManagerCtx, _ *sync.RWMutex) {
+func (po *PartitionOperator) Teardown(mgr StreamManagerCtx, completeCB func(error)) {
 	mgr.UnregisterReceiver(po.forwardReceiverID)
+	completeCB(nil)
 }
 
 type partitionReceiver struct {

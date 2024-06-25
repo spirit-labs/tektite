@@ -4,7 +4,6 @@ import (
 	"errors"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/conf"
-	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/protos/clustermsgs"
 	"github.com/spirit-labs/tektite/remoting"
 	"github.com/spirit-labs/tektite/vmgr"
@@ -131,7 +130,6 @@ func (c *VersionManagerClient) sendMsg(msg remoting.ClusterMessage, retry bool) 
 			return nil, err
 		}
 		if common.IsUnavailableError(remoting.MaybeConvertError(err)) {
-			log.Errorf("failed to send version manager request and will retry: %v", err)
 			if c.stopped.Load() {
 				return nil, errors.New("version manager client is stopped")
 			}

@@ -78,9 +78,6 @@ func TestLevelManagerCluster(t *testing.T) {
 		}, nil, &testIngestNotifier{}, objStoreClient, lMgrClient, tableCache, false)
 
 		lMgrClient.SetProcessorManager(mgr)
-		
-		err = mgr.Start()
-		require.NoError(t, err)
 
 		levelManagerService := levels.NewLevelManagerService(mgr, cfg, cloudStore, tabCache,
 			proc.NewLevelManagerCommandIngestor(mgr), mgr)

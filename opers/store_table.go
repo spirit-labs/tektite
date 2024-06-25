@@ -5,7 +5,6 @@ import (
 	"github.com/spirit-labs/tektite/encoding"
 	"github.com/spirit-labs/tektite/evbatch"
 	"github.com/spirit-labs/tektite/proc"
-	"sync"
 )
 
 type StoreTableOperator struct {
@@ -143,7 +142,8 @@ func (s *StoreTableOperator) Setup(StreamManagerCtx) error {
 	return nil
 }
 
-func (s *StoreTableOperator) Teardown(StreamManagerCtx, *sync.RWMutex) {
+func (s *StoreTableOperator) Teardown(mgr StreamManagerCtx, completeCB func(error)) {
+	completeCB(nil)
 }
 
 func createTableKeyPrefix(mappingID string, slabID uint64, partID uint64, cap int) []byte {

@@ -13,7 +13,6 @@ import (
 	"github.com/spirit-labs/tektite/proc"
 	"github.com/spirit-labs/tektite/types"
 	"math"
-	"sync"
 )
 
 type GetOperator struct {
@@ -315,7 +314,8 @@ func (g *GetOperator) Setup(opers.StreamManagerCtx) error {
 	return nil
 }
 
-func (g *GetOperator) Teardown(opers.StreamManagerCtx, *sync.RWMutex) {
+func (g *GetOperator) Teardown(mgr opers.StreamManagerCtx, completeCB func(error)) {
+	completeCB(nil)
 }
 
 func (g *GetOperator) GetKeyColExprs() []expr.Expression {

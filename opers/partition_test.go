@@ -210,7 +210,8 @@ func (c *capturingOperator) GetStreamInfo() *StreamInfo {
 	return nil
 }
 
-func (c *capturingOperator) Teardown(StreamManagerCtx, *sync.RWMutex) {
+func (c *capturingOperator) Teardown(mgr StreamManagerCtx, completeCB func(error)) {
+	completeCB(nil)
 }
 
 func (t *testProcessor) SetLeader() {

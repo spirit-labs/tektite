@@ -259,7 +259,7 @@ func (b *BackfillOperator) Setup(mgr StreamManagerCtx) error {
 	return nil
 }
 
-func (b *BackfillOperator) Teardown(mgr StreamManagerCtx, _ *sync.RWMutex) {
+func (b *BackfillOperator) Teardown(mgr StreamManagerCtx, cb func(error)) {
 	b.stopLock.Lock()
 	defer b.stopLock.Unlock()
 	b.stopped = true
@@ -269,6 +269,7 @@ func (b *BackfillOperator) Teardown(mgr StreamManagerCtx, _ *sync.RWMutex) {
 		value.(*common.TimerHandle).Stop()
 		return true
 	})
+	cb(nil)
 }
 
 func (b *BackfillOperator) processorChange(processor proc.Processor, started bool, _ bool) {

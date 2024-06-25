@@ -5,7 +5,10 @@ package integration
 import (
 	"fmt"
 	"github.com/spirit-labs/tektite/command"
+	"github.com/spirit-labs/tektite/common"
+	"github.com/spirit-labs/tektite/conf"
 	"github.com/spirit-labs/tektite/kafka/fake"
+	"github.com/spirit-labs/tektite/objstore/dev"
 	"github.com/spirit-labs/tektite/server"
 	"github.com/spirit-labs/tektite/shutdown"
 	"github.com/spirit-labs/tektite/testutils"
@@ -59,8 +62,17 @@ func TestManagerMultipleCommands(t *testing.T) {
 }
 
 func TestManagersReload(t *testing.T) {
-	servers, tearDown := startCluster(t, 3, nil)
-	defer tearDown(t)
+	fk := &fake.Kafka{}
+	_, err := fk.CreateTopic("test_topic", 16)
+	require.NoError(t, err)
+
+	objStoreAddress, err := common.AddressWithPort("localhost")
+	require.NoError(t, err)
+	objStore := dev.NewDevStore(objStoreAddress)
+	err = objStore.Start()
+	require.NoError(t, err)
+
+	servers, _ := startClusterWithObjStore(t, objStoreAddress, 3, fk, func(cfg *conf.Config) {})
 	mgrs := getManagers(servers)
 
 	mgr := mgrs[0]
@@ -82,16 +94,12 @@ func TestManagersReload(t *testing.T) {
 
 	// Now shutdown
 	cfg := servers[0].GetConfig()
-	err := shutdown.PerformShutdown(&cfg, false)
+	err = shutdown.PerformShutdown(&cfg, false)
 	require.NoError(t, err)
 
 	// Restart
-	for i, s := range servers {
-		s, err := server.NewServerWithClientFactory(s.GetConfig(), nil)
-		require.NoError(t, err)
-		servers[i] = s
-	}
-	startServers(t, servers)
+	servers, tearDown := startClusterWithObjStore(t, objStoreAddress, 3, fk, func(cfg *conf.Config) {})
+	defer tearDown(t)
 	mgrs = getManagers(servers)
 
 	// Commands should all be loaded on start
@@ -108,7 +116,11 @@ func TestManagersReload(t *testing.T) {
 }
 
 func TestManagerStreamManagerErrors(t *testing.T) {
-	servers, tearDown := startCluster(t, 3, nil)
+	fk := &fake.Kafka{}
+	_, err := fk.CreateTopic("test_topic", 16)
+	require.NoError(t, err)
+
+	servers, tearDown := startCluster(t, 3, fk)
 	defer tearDown(t)
 	mgrs := getManagers(servers)
 
@@ -147,7 +159,11 @@ test_stream1 :=
 }
 
 func TestManagerDeployAndUndeployStreams(t *testing.T) {
-	servers, tearDown := startCluster(t, 3, nil)
+	fk := &fake.Kafka{}
+	_, err := fk.CreateTopic("test_topic", 16)
+	require.NoError(t, err)
+
+	servers, tearDown := startCluster(t, 3, fk)
 	defer tearDown(t)
 	mgrs := getManagers(servers)
 
@@ -180,7 +196,11 @@ func TestManagerDeployAndUndeployStreams(t *testing.T) {
 }
 
 func TestManagerPrepareQuery(t *testing.T) {
-	servers, tearDown := startCluster(t, 3, nil)
+	fk := &fake.Kafka{}
+	_, err := fk.CreateTopic("test_topic", 16)
+	require.NoError(t, err)
+
+	servers, tearDown := startCluster(t, 3, fk)
 	defer tearDown(t)
 	mgrs := getManagers(servers)
 
@@ -191,7 +211,7 @@ func TestManagerPrepareQuery(t *testing.T) {
     (project json_int("v0",val) as k0,json_float("v1",val) as k1,json_bool("v2",val) as k2,to_decimal(json_string("v3",val),14,3) as k3,
 			 json_string("v4",val) as k4,to_bytes(json_string("v5",val)) as k5,to_timestamp(json_int("v6",val)) as k6)->
 	(store table by k0,k1,k2,k3,k4,k5,k6)`
-	err := mgr.ExecuteCommand(command)
+	err = mgr.ExecuteCommand(command)
 	require.NoError(t, err)
 
 	tsl := "prepare test_query1 := (get $p1:int,$p2:float,$p3:bool,$p4:decimal(14,3),$p5:string,$p6:bytes,$p7:timestamp from test_stream)"
@@ -227,7 +247,11 @@ prepare foo := (scan $p1:fatint to $p2:varchar from test_stream)
 }
 
 func testManagerPrepareQueryError(t *testing.T, tsl string, expectedErr string) {
-	servers, tearDown := startCluster(t, 3, nil)
+	fk := &fake.Kafka{}
+	_, err := fk.CreateTopic("test_topic", 16)
+	require.NoError(t, err)
+
+	servers, tearDown := startCluster(t, 3, fk)
 	defer tearDown(t)
 	mgrs := getManagers(servers)
 
@@ -235,7 +259,7 @@ func testManagerPrepareQueryError(t *testing.T, tsl string, expectedErr string) 
 
 	command := `test_stream := 
 		(bridge from test_topic	partitions = 16) -> (store stream)`
-	err := mgr.ExecuteCommand(command)
+	err = mgr.ExecuteCommand(command)
 	require.NoError(t, err)
 
 	err = mgr.ExecuteCommand(tsl)
@@ -244,8 +268,17 @@ func testManagerPrepareQueryError(t *testing.T, tsl string, expectedErr string) 
 }
 
 func TestManagerCompaction(t *testing.T) {
-	servers, tearDown := startCluster(t, 3, nil)
-	defer tearDown(t)
+	fk := &fake.Kafka{}
+	_, err := fk.CreateTopic("test_topic", 16)
+	require.NoError(t, err)
+
+	objStoreAddress, err := common.AddressWithPort("localhost")
+	require.NoError(t, err)
+	objStore := dev.NewDevStore(objStoreAddress)
+	err = objStore.Start()
+	require.NoError(t, err)
+
+	servers, _ := startClusterWithObjStore(t, objStoreAddress, 3, fk, nil)
 	mgrs := getManagers(servers)
 
 	mgr := mgrs[0]
@@ -284,7 +317,6 @@ func TestManagerCompaction(t *testing.T) {
 	batch, err := mgr.LoadCommands(0)
 	require.NoError(t, err)
 	require.Equal(t, 2*numCommands-1, batch.RowCount)
-
 	mgr.SetClusterCompactor(true)
 	err = mgr.MaybeCompact()
 	require.NoError(t, err)
@@ -314,12 +346,8 @@ func TestManagerCompaction(t *testing.T) {
 	require.NoError(t, err)
 
 	// Restart
-	for i, s := range servers {
-		s, err := server.NewServerWithClientFactory(s.GetConfig(), nil)
-		require.NoError(t, err)
-		servers[i] = s
-	}
-	startServers(t, servers)
+	servers, tearDown := startClusterWithObjStore(t, objStoreAddress, 3, fk, nil)
+	defer tearDown(t)
 	mgrs = getManagers(servers)
 
 	// stream should be there

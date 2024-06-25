@@ -6,7 +6,6 @@ import (
 	"github.com/spirit-labs/tektite/evbatch"
 	"github.com/spirit-labs/tektite/proc"
 	"github.com/spirit-labs/tektite/types"
-	"sync"
 )
 
 type RowDeleteOperator struct {
@@ -95,5 +94,6 @@ func (rd *RowDeleteOperator) Setup(StreamManagerCtx) error {
 	return nil
 }
 
-func (rd *RowDeleteOperator) Teardown(StreamManagerCtx, *sync.RWMutex) {
+func (rd *RowDeleteOperator) Teardown(mgr StreamManagerCtx, completeCB func(error)) {
+	completeCB(nil)
 }

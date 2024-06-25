@@ -1215,7 +1215,12 @@ func (sm *streamManager) UndeployStream(deleteStreamDesc parser.DeleteStreamDesc
 		return errors.NewTektiteErrorf(errors.ShutdownError, "cluster is shutting down")
 	}
 	sm.lock.Lock()
-	defer sm.lock.Unlock()
+	unlocked := false
+	defer func() {
+		if !unlocked {
+			sm.lock.Unlock()
+		}
+	}()
 
 	log.Debugf("%s: node: %d undeploying stream %s", sm.cfg.LogScope, sm.cfg.NodeID, deleteStreamDesc.StreamName)
 
@@ -1239,12 +1244,16 @@ func (sm *streamManager) UndeployStream(deleteStreamDesc parser.DeleteStreamDesc
 	}
 	info.Undeploying = true
 
+	var tearDownChan chan error
 	if sm.loaded {
+		tearDownChan = make(chan error, 1)
+		cf := common.NewCountDownFuture(len(info.Operators), func(err error) {
+			tearDownChan <- err
+		})
 		for _, oper := range info.Operators {
-			oper.Teardown(sm, &sm.lock)
+			oper.Teardown(sm, cf.CountDown)
 		}
 	}
-
 	if len(info.DownstreamStreamNames) > 0 {
 		var dsNames []string
 		for dsName := range info.DownstreamStreamNames {
@@ -1297,6 +1306,12 @@ func (sm *streamManager) UndeployStream(deleteStreamDesc parser.DeleteStreamDesc
 		// the newly updated graph but barriers only injected in some of it. If the version then completed it would
 		// be invalid
 		sm.processorManager.AfterReceiverChange()
+	}
+	sm.lock.Unlock()
+	unlocked = true
+	if tearDownChan != nil {
+		// Wait for teardown to complete outside lock
+		return <-tearDownChan
 	}
 	return nil
 }
@@ -1474,15 +1489,23 @@ func (sm *streamManager) Start() error {
 
 func (sm *streamManager) Stop() error {
 	sm.lock.Lock()
-	defer sm.lock.Unlock()
+	var opers []Operator
 	for _, info := range sm.streams {
 		for _, oper := range info.Operators {
-			// Makes sure oper resources are cleaned up - e.g. kafka_in consumers are stopped
-			oper.Teardown(sm, &sm.lock)
+			opers = append(opers, oper)
 		}
 	}
 	delete(sm.streams, sysStreamName)
-	return nil
+	ch := make(chan error, 1)
+	cf := common.NewCountDownFuture(len(opers), func(err error) {
+		ch <- err
+	})
+	for _, oper := range opers {
+		oper.Teardown(sm, cf.CountDown)
+	}
+	sm.lock.Unlock()
+	// We must wait for tearDown completion outside lock
+	return <-ch
 }
 
 type sysTableReceiver struct {
