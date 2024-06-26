@@ -1247,17 +1247,15 @@ func TestMergeIntoMultipleTables(t *testing.T) {
 		iter, err := res[j].sst.NewIterator(nil, nil)
 		require.NoError(t, err)
 		for {
-			valid, err := iter.IsValid()
+			valid, curr, err := iter.Next()
 			require.NoError(t, err)
 			if !valid {
 				break
 			}
 			expectedKey := encoding.EncodeVersion([]byte(fmt.Sprintf("xxxxxxxxxxxxxxxxsssssssskey%05d", i)), 1)
 			expectedValue := []byte(fmt.Sprintf("val%05d", i))
-			require.Equal(t, expectedKey, iter.Current().Key)
-			require.Equal(t, expectedValue, iter.Current().Value)
-			err = iter.Next()
-			require.NoError(t, err)
+			require.Equal(t, expectedKey, curr.Key)
+			require.Equal(t, expectedValue, curr.Value)
 			i++
 		}
 	}
@@ -1300,17 +1298,15 @@ func TestMergeSameKeysDifferentVersions(t *testing.T) {
 	iter, err := res[0].sst.NewIterator(nil, nil)
 	require.NoError(t, err)
 	for {
-		valid, err := iter.IsValid()
+		valid, curr, err := iter.Next()
 		require.NoError(t, err)
 		if !valid {
 			break
 		}
 		expectedKey := encoding.EncodeVersion([]byte(key), uint64(i))
 		expectedValue := []byte(fmt.Sprintf("val%05d", i))
-		require.Equal(t, expectedKey, iter.Current().Key)
-		require.Equal(t, expectedValue, iter.Current().Value)
-		err = iter.Next()
-		require.NoError(t, err)
+		require.Equal(t, expectedKey, curr.Key)
+		require.Equal(t, expectedValue, curr.Value)
 		i--
 	}
 }
@@ -1423,12 +1419,11 @@ func TestMergeDeadVersions(t *testing.T) {
 	require.NoError(t, err)
 	i := 0
 	for i < 20 {
-		valid, err := iter.IsValid()
+		valid, entry, err := iter.Next()
 		require.NoError(t, err)
 		if !valid {
 			break
 		}
-		entry := iter.Current()
 		ver := math.MaxUint64 - binary.BigEndian.Uint64(entry.Key[len(entry.Key)-8:])
 		require.Equal(t, uint64(i), ver)
 
@@ -1444,12 +1439,8 @@ func TestMergeDeadVersions(t *testing.T) {
 		} else if i == 13 {
 			i = 18
 		}
-
-		err = iter.Next()
-		require.NoError(t, err)
 	}
-	valid, err := iter.IsValid()
-	require.NoError(t, err)
+	valid, _, _ := iter.Next()
 	require.False(t, valid)
 }
 
@@ -1500,12 +1491,11 @@ func TestRemoveDeadVersionsIterator(t *testing.T) {
 	me := NewRemoveDeadVersionsIterator(si, []VersionRange{deadRange1, deadRange2})
 	i := 0
 	for i < numEntries {
-		valid, err := me.IsValid()
+		valid, entry, err := me.Next()
 		require.NoError(t, err)
 		if !valid {
 			break
 		}
-		entry := me.Current()
 		ver := math.MaxUint64 - binary.BigEndian.Uint64(entry.Key[len(entry.Key)-8:])
 		require.Equal(t, uint64(i), ver)
 
@@ -1521,9 +1511,6 @@ func TestRemoveDeadVersionsIterator(t *testing.T) {
 		} else if i == 777 {
 			i = 889
 		}
-
-		err = me.Next()
-		require.NoError(t, err)
 	}
 }
 
@@ -1575,15 +1562,13 @@ func TestRemoveExpiredEntriesIterator(t *testing.T) {
 	iter := NewRemoveExpiredEntriesIterator(si, uint64(creationTime), uint64(now), retentions)
 	for i := 0; i < numSlabs; i++ {
 		for j := 0; j < entriesPerSlab; j++ {
-			valid, err := iter.IsValid()
+			valid, curr, err := iter.Next()
 			require.NoError(t, err)
 			require.True(t, valid)
 			expectedKey := createExpiredEntryKey(i, j)
 			expectedVal := createExpiredValue(i, j)
-			require.Equal(t, expectedKey, iter.Current().Key)
-			require.Equal(t, expectedVal, iter.Current().Value)
-			err = iter.Next()
-			require.NoError(t, err)
+			require.Equal(t, expectedKey, curr.Key)
+			require.Equal(t, expectedVal, curr.Value)
 		}
 	}
 
@@ -1596,15 +1581,13 @@ func TestRemoveExpiredEntriesIterator(t *testing.T) {
 			continue
 		}
 		for j := 0; j < entriesPerSlab; j++ {
-			valid, err := iter.IsValid()
+			valid, curr, err := iter.Next()
 			require.NoError(t, err)
 			require.True(t, valid)
 			expectedKey := createExpiredEntryKey(i, j)
 			expectedVal := createExpiredValue(i, j)
-			require.Equal(t, expectedKey, iter.Current().Key)
-			require.Equal(t, expectedVal, iter.Current().Value)
-			err = iter.Next()
-			require.NoError(t, err)
+			require.Equal(t, expectedKey, curr.Key)
+			require.Equal(t, expectedVal, curr.Value)
 		}
 	}
 
@@ -1612,8 +1595,7 @@ func TestRemoveExpiredEntriesIterator(t *testing.T) {
 	si.Reset()
 	now = creationTime + 5*time.Hour.Milliseconds()
 	iter = NewRemoveExpiredEntriesIterator(si, uint64(creationTime), uint64(now), retentions)
-	valid, err := iter.IsValid()
-	require.NoError(t, err)
+	valid, _, _ := iter.Next()
 	require.False(t, valid)
 }
 
@@ -1741,10 +1723,9 @@ func checkKVs(t *testing.T, sst *sst.SSTable, valPrefix string, keys ...int) {
 	for i := 0; i < len(keys); i += 2 {
 		k := keys[i]
 		v := keys[i+1]
-		valid, err := iter.IsValid()
+		valid, curr, err := iter.Next()
 		require.NoError(t, err)
 		require.True(t, valid)
-		curr := iter.Current()
 		require.Equal(t, fmt.Sprintf("key%05d", k), string(curr.Key[:len(curr.Key)-8]))
 		if v == -1 {
 			// tombstone
@@ -1752,8 +1733,6 @@ func checkKVs(t *testing.T, sst *sst.SSTable, valPrefix string, keys ...int) {
 		} else {
 			require.Equal(t, fmt.Sprintf("%s%05d", valPrefix, v), string(curr.Value))
 		}
-		err = iter.Next()
-		require.NoError(t, err)
 	}
 }
 

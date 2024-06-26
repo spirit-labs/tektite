@@ -123,14 +123,13 @@ func (lm *LevelManager) validateTable(te *TableEntry) error {
 	first := true
 	var prevKey []byte
 	for {
-		v, err := iter.IsValid()
+		v, curr, err := iter.Next()
 		if err != nil {
 			return err
 		}
 		if !v {
 			break
 		}
-		curr := iter.Current()
 		if first {
 			if !bytes.Equal(te.RangeStart, curr.Key) {
 				return errors.Errorf("table %v (%s) range start %s does not match first entry key %s",
@@ -146,10 +145,6 @@ func (lm *LevelManager) validateTable(te *TableEntry) error {
 			}
 		}
 		prevKey = curr.Key
-		err = iter.Next()
-		if err != nil {
-			return err
-		}
 	}
 	if prevKey == nil {
 		return errors.Errorf("table %v has no entries", te.SSTableID)
@@ -167,19 +162,14 @@ func dumpTable(tableID []byte, sst *sst.SSTable) {
 	}
 	log.Debugf("========== dumping table %v (%s)", tableID, string(tableID))
 	for {
-		valid, err := iter.IsValid()
+		valid, curr, err := iter.Next()
 		if err != nil {
 			panic(err)
 		}
 		if !valid {
 			break
 		}
-		curr := iter.Current()
 		log.Debugf("key: %v (%s) val: %v (%s)", curr.Key, string(curr.Key), curr.Value, string(curr.Value))
-		err = iter.Next()
-		if err != nil {
-			panic(err)
-		}
 	}
 	log.Debugf("========== end dumping table %v (%s)", tableID, string(tableID))
 }
