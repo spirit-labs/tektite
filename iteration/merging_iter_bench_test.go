@@ -18,13 +18,13 @@ func BenchmarkMergingIterator(b *testing.B) {
 	var expectedKeys [][]byte
 	var expectedVals [][]byte
 	for i := 0; i < numEntries; i++ {
-		key := []byte(fmt.Sprintf("someprefix/key-%010d", i))
-		val := []byte(fmt.Sprintf("someprefix/val-%010d", i))
-		expectedKeys = append(expectedKeys, key)
-		expectedVals = append(expectedVals, val)
+		skey := fmt.Sprintf("someprefix/key-%010d", i)
+		sval := fmt.Sprintf("someprefix/val-%010d", i)
+		expectedKeys = append(expectedKeys, []byte(skey))
+		expectedVals = append(expectedVals, []byte(sval))
 		r := rand.Intn(numIters)
 		sIter := iters[r].(*StaticIterator) //nolint:forcetypeassert
-		sIter.AddKV(key, val)
+		sIter.AddKVAsStringWithVersion(skey, sval, 0)
 	}
 
 	for i := 0; i < b.N; i++ {
@@ -47,7 +47,7 @@ func BenchmarkMergingIterator(b *testing.B) {
 			curr := mi.Current()
 			expectedKey := expectedKeys[j]
 			expectedVal := expectedVals[j]
-			if !bytes.Equal(expectedKey, curr.Key) {
+			if !bytes.Equal(expectedKey, curr.Key[:len(curr.Key)-8]) {
 				panic("key not equal")
 			}
 			if !bytes.Equal(expectedVal, curr.Value) {
