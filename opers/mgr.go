@@ -1890,7 +1890,7 @@ func (sm *streamManager) streamMetaIterator(startKey []byte, endKey []byte) iter
 			})
 		}
 	}
-	return iteration.NewStaticIterator(entries)
+	return iteration.NewIteratorAdapter(iteration.NewStaticIterator(entries))
 }
 
 func (sm *streamManager) StreamMetaIteratorProvider() *StreamMetaIteratorProvider {

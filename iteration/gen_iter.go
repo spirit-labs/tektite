@@ -50,29 +50,13 @@ func (s *StaticIterator) AddKV(k []byte, v []byte) {
 	})
 }
 
-func (s *StaticIterator) Current() common.KV {
-	if s.pos == -1 {
-		return common.KV{}
+func (s *StaticIterator) Next() (bool, common.KV, error) {
+	if (s.hasValidOverride && !s.validOverRideValue) || s.pos >= len(s.kvs) {
+		return false, common.KV{}, nil
 	}
-	return s.kvs[s.pos]
-}
-
-func (s *StaticIterator) Next() error {
+	v := s.kvs[s.pos]
 	s.pos++
-	if s.pos == len(s.kvs) {
-		s.pos = -1
-	}
-	return nil
-}
-
-func (s *StaticIterator) IsValid() (bool, error) {
-	if s.hasValidOverride {
-		return s.validOverRideValue, nil
-	}
-	if len(s.kvs) == 0 {
-		return false, nil
-	}
-	return s.pos != -1, nil
+	return true, v, nil
 }
 
 func (s *StaticIterator) Close() {
