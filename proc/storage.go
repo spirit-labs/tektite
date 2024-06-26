@@ -447,14 +447,13 @@ func findInMemtable(mt *mem.Memtable, key []byte, keyEnd []byte, maxVersion uint
 
 func getWithIterator(iter iteration.Iterator, key []byte, maxVersion uint64) ([]byte, error) {
 	for {
-		valid, err := iter.IsValid()
+		valid, kv, err := iter.Next()
 		if err != nil {
 			return nil, err
 		}
 		if !valid {
 			return nil, nil
 		}
-		kv := iter.Current()
 		ver := math.MaxUint64 - binary.BigEndian.Uint64(kv.Key[len(kv.Key)-8:])
 		// We skip past any versions which are too high. Note that iterator will always return highest versions first.
 		if ver <= maxVersion {
@@ -463,22 +462,17 @@ func getWithIterator(iter iteration.Iterator, key []byte, maxVersion uint64) ([]
 			}
 			return nil, nil
 		}
-		err = iter.Next()
-		if err != nil {
-			return nil, err
-		}
 	}
 }
 
 func getWithIteratorNoVersionCheck(iter iteration.Iterator, key []byte) ([]byte, error) {
-	valid, err := iter.IsValid()
+	valid, kv, err := iter.Next()
 	if err != nil {
 		return nil, err
 	}
 	if !valid {
 		return nil, nil
 	}
-	kv := iter.Current()
 	if bytes.Equal(key, kv.Key[:len(kv.Key)-8]) {
 		return kv.Value, nil
 	}
