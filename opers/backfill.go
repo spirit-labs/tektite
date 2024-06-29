@@ -92,8 +92,8 @@ func (b *BackfillOperator) loadCommittedOffsetForPartition(execCtx StreamExecCon
 	return offset, true, nil
 }
 
-func (b *BackfillOperator) storeCommittedOffSetForPartition(offset int64, execCtx StreamExecContext) {
-	partitionHash := b.hashCache.getHash(execCtx.PartitionID())
+func (b *BackfillOperator) storeCommittedOffSetForPartition(partitionID int, offset int64, execCtx StreamExecContext) {
+	partitionHash := b.hashCache.getHash(partitionID)
 	key := encoding.EncodeEntryPrefix(partitionHash, uint64(b.offsetsSlabID), 32)
 	key = encoding.EncodeVersion(key, uint64(execCtx.WriteVersion()))
 	value := make([]byte, 0, 8)
@@ -217,7 +217,7 @@ func (b *BackfillOperator) HandleStreamBatch(batch *evbatch.Batch, execCtx Strea
 func (b *BackfillOperator) handleStreamBatch(batch *evbatch.Batch, execCtx StreamExecContext) (*evbatch.Batch, error) {
 	if !b.storeCommittedAsync && batch != nil && batch.RowCount != 0 {
 		lastOffset := int(batch.GetIntColumn(0).Get(batch.RowCount - 1))
-		b.storeCommittedOffSetForPartition(int64(lastOffset), execCtx)
+		b.storeCommittedOffSetForPartition(execCtx.PartitionID(), int64(lastOffset), execCtx)
 	}
 	return batch, b.sendBatchDownStream(batch, execCtx)
 }

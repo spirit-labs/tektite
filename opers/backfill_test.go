@@ -181,7 +181,7 @@ func TestBackfillStoreLoadOffsets(t *testing.T) {
 		entries: mb,
 	}
 
-	fs.storeCommittedOffSetForPartition(2234, ctx1)
+	fs.storeCommittedOffSetForPartition(2, 2234, ctx1)
 	require.Equal(t, 1, mb.Len())
 	writeEntriesToStore(t, mb, store)
 
@@ -215,7 +215,7 @@ func TestBackfillStoreLoadOffsets(t *testing.T) {
 			store:   store,
 			entries: mb,
 		}
-		fs.storeCommittedOffSetForPartition(int64(i*1000+234), ctx)
+		fs.storeCommittedOffSetForPartition(i, int64(i*1000+234), ctx)
 		require.Equal(t, 1, mb.Len())
 		writeEntriesToStore(t, mb, store)
 	}

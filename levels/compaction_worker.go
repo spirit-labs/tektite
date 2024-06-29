@@ -141,31 +141,31 @@ func (c *compactionWorker) loop() {
 			log.Errorf("error in polling for compaction job: %v", err)
 			continue
 		}
-		registrations, deRegistrations, err := c.processJob(job)
-		if err != nil {
-			log.Errorf("failure in processing job: %v", err)
-			continue
-		}
-		regBatch := RegistrationBatch{
-			Compaction:      true,
-			JobID:           job.id,
-			Registrations:   registrations,
-			DeRegistrations: deRegistrations,
-		}
 		for c.started.Load() {
-			err := c.client.ApplyChanges(regBatch)
+			registrations, deRegistrations, err := c.processJob(job)
 			if err == nil {
-				break
+				regBatch := RegistrationBatch{
+					Compaction:      true,
+					JobID:           job.id,
+					Registrations:   registrations,
+					DeRegistrations: deRegistrations,
+				}
+				err = c.client.ApplyChanges(regBatch)
+				if err == nil {
+					// success
+					break
+				}
 			}
 			var tErr errors.TektiteError
 			if errors.As(err, &tErr) {
 				if tErr.Code == errors.Unavailable || tErr.Code == errors.LevelManagerNotLeaderNode {
 					// transient unavailability - retry after delay
+					log.Debugf("transient error in compaction. will retry: %v", err)
 					time.Sleep(workerRetryInterval)
 					continue
 				}
 			}
-			log.Warnf("failed to apply compaction changes:%v", err)
+			log.Warnf("failed to process compaction:%v", err)
 			break
 		}
 	}
@@ -244,7 +244,7 @@ func (c *compactionWorker) processJob(job *CompactionJob) ([]RegistrationEntry, 
 			if !common.IsUnavailableError(err) {
 				return nil, nil, err
 			}
-			log.Warnf("failed to push compacted table, will retry: %v", err)
+			log.Debugf("failed to push compacted table, will retry: %v", err)
 			time.Sleep(c.cws.cfg.SSTablePushRetryDelay)
 		}
 	}

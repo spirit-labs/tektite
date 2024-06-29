@@ -83,14 +83,20 @@ type Processor interface {
 	NewIterator(keyStart []byte, keyEnd []byte, highestVersion uint64, preserveTombstones bool) (iteration.Iterator, error)
 }
 
+type TestProcessor interface {
+	Processor
+
+	ValidateKeyRange(key []byte)
+}
+
 type VersionCompleteHandler func(version int, requiredCompletions int, commandID int, doom bool, completionFunc func(error))
 
 func NewProcessor(id int, cfg *conf.Config, store Store, batchForwarder BatchForwarder,
-	batchHandler BatchHandler, receiverInfoProvider ReceiverInfoProvider, dataKey []byte) Processor {
+	batchHandler BatchHandler, receiverInfoProvider ReceiverInfoProvider, keyRangeStart []byte, keyRangeEnd []byte) Processor {
 	// We choose cache max size to 25% of the available space in a newly created memtable
 	cacheMaxSize := int64(0.25 * float64(int64(cfg.MemtableMaxSizeBytes)-mem.MemtableSizeOverhead))
 	levelManagerProcessor := cfg.LevelManagerEnabled && id == cfg.ProcessorCount
-	replSeqKey := encoding.EncodeEntryPrefix(dataKey, common.ReplSeqSlabID, 24)
+	replSeqKey := encoding.EncodeEntryPrefix(keyRangeStart, common.ReplSeqSlabID, 24)
 	proc := &processor{
 		id:                        id,
 		cfg:                       cfg,
@@ -107,6 +113,8 @@ func NewProcessor(id int, cfg *conf.Config, store Store, batchForwarder BatchFor
 		currentVersion:            -1,
 		levelManagerProcessor:     levelManagerProcessor,
 		replSeqKey:                replSeqKey,
+		keyRangeStart:             keyRangeStart,
+		keyRangeEnd:               keyRangeEnd,
 	}
 	procCount := cfg.ProcessorCount
 	if cfg.LevelManagerEnabled {
@@ -148,6 +156,8 @@ type processor struct {
 	notIdleNotifier           func()
 	levelManagerProcessor     bool
 	replSeqKey                []byte
+	keyRangeStart             []byte
+	keyRangeEnd               []byte
 }
 
 type barrierInfo struct {
@@ -586,6 +596,13 @@ func (p *processor) processBatch(batch *ProcessBatch, reprocess bool) error {
 	}
 
 	if localBatch != nil {
+		if debug.SanityChecks {
+			// Sanity check - verify ranges match those allowed for the processor
+			localBatch.Range(func(key []byte, value []byte) bool {
+				p.ValidateKeyRange(key)
+				return true
+			})
+		}
 		// Write the data to the store
 		if err := p.store.Write(localBatch); err != nil {
 			return err

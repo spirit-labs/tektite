@@ -770,9 +770,13 @@ func (m *ProcessorManager) processGroupState(processorID int, gs []clustmgr.Grou
 			if !ok {
 				// create the processor
 				batchHandler := m.batchHandlerFactory(processorID)
-				dataKey := m.processorDataKeys[processorID]
+				keyRangeStart := m.processorDataKeys[processorID]
+				var keyRangeEnd []byte
+				if processorID != m.cfg.ProcessorCount-1 {
+					keyRangeEnd = m.processorDataKeys[processorID+1]
+				}
 				ps := NewProcessorStore(m, processorID)
-				proc = NewProcessor(processorID, m.cfg, ps, m, batchHandler, m.receiverInfoProvider, dataKey)
+				proc = NewProcessor(processorID, m.cfg, ps, m, batchHandler, m.receiverInfoProvider, keyRangeStart, keyRangeEnd)
 				log.Debugf("%s: node %d created new processor %d", m.cfg.LogScope, m.cfg.NodeID, processorID)
 				proc.SetVersionCompleteHandler(func(version int, requiredCompletions int, commandID int, doom bool, cf func(error)) {
 					m.vMgrClient.VersionComplete(version, requiredCompletions, commandID, doom, cf)

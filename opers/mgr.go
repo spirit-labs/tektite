@@ -7,6 +7,7 @@ import (
 	"github.com/emirpasic/gods/maps/treemap"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/conf"
+	"github.com/spirit-labs/tektite/debug"
 	"github.com/spirit-labs/tektite/encoding"
 	"github.com/spirit-labs/tektite/errors"
 	"github.com/spirit-labs/tektite/evbatch"
@@ -1459,7 +1460,7 @@ func (sm *streamManager) RegisterSystemSlab(slabName string, persistorReceiverID
 const sysStreamName = "sys.streams"
 
 var sysStreamsPartitionScheme = PartitionScheme{
-	MappingID:                 sysStreamName,
+	MappingID:                 "_default_",
 	Partitions:                1,
 	ProcessorIDs:              []int{0},
 	PartitionProcessorMapping: map[int]int{0: 0},
@@ -1987,6 +1988,12 @@ func (e *execContext) Get(key []byte) ([]byte, error) {
 }
 
 func (e *execContext) StoreEntry(kv common.KV, noCache bool) {
+	if debug.SanityChecks {
+		tp, ok := e.Processor().(proc.TestProcessor)
+		if ok {
+			tp.ValidateKeyRange(kv.Key)
+		}
+	}
 	if noCache {
 		if e.entries == nil {
 			e.entries = mem.NewBatch()
@@ -2060,6 +2067,9 @@ func (e *execContext) WriteVersion() int {
 }
 
 func (e *execContext) PartitionID() int {
+	if e.processBatch.Barrier {
+		panic("partitionID not usable for barrier")
+	}
 	return e.processBatch.PartitionID
 }
 

@@ -53,29 +53,53 @@ func (lm *LevelManager) maybeScheduleCompaction() error {
 	return err
 }
 
-func (lm *LevelManager) scheduleCompaction(level int, tables []*TableEntry, deadVersionRanges []VersionRange,
-	completionFunc func(error)) (int, bool, error) {
+func (lm *LevelManager) chooseL0TablesToCompact() ([][]*TableEntry, bool) {
+	if lm.compactingStartupL0Group {
+		// If we're already compacting startup L0 group (processor id = -1) then we cannot compact any more L0 tables
+		// until that is complete. That's because the startup L0 group can have key overlap with other groups so
+		// if we processed a compaction for a non startup L0 group before the startup compaction completed it could result
+		// in moves to L1 with overlapping keys.
+		return nil, false
+	}
+	// If we have table entries for processor -1, these are ones added on startup where we do not know the processor id.
+	// So we must compact this in a single job, before compact any others.
+	startupEntries, ok := lm.level0Groups[-1]
+	if ok {
+		return [][]*TableEntry{startupEntries}, true
+	}
+	// We currently compact the whole level - a job for each group
+	var tableSlices [][]*TableEntry
+	for _, g := range lm.level0Groups {
+		tableSlices = append(tableSlices, g)
+	}
+	return tableSlices, true
+}
 
+func (lm *LevelManager) scheduleCompaction(level int, tableSlices [][]*TableEntry, deadVersionRanges []VersionRange,
+	completionFunc func(error)) (int, bool, error) {
 	// If we are compacting into the last level, then we delete tombstones
 	destLevel := level + 1
 	preserveTombstones := lm.getLastLevel() > destLevel
 
 	var jobs []CompactionJob
 
-	// For level = 0, we compact all the tables in a single job, as there is likely to be overlap between the key ranges
-	// For level > 0, we compact each table in its own job, this allows for parallelism - there won't necessarily be
-	// overlap on tables in the next level.
-	levelEntries := lm.getLevelSegmentEntries(level + 1)
-	segmentEntries := levelEntries.segmentEntries
+	destLevelEntries := lm.getLevelSegmentEntries(level + 1)
+	segmentEntries := destLevelEntries.segmentEntries
 	destLevelExists := len(segmentEntries) > 0
 	hasLocked := false
-	if level == 0 {
+	now := uint64(time.Now().UTC().UnixMilli())
+
+outer:
+	for _, tables := range tableSlices {
+
+		// We compact each slice in its own job
 		var tablesToCompact [][]tableToCompact
 		for _, table := range tables {
 			_, locked := lm.lockedTables[string(table.SSTableID)]
 			if locked {
-				// there's already a job that includes this table - we can't compact
-				return 0, true, nil
+				// there's already a job that includes this table - we can't compact this slice
+				hasLocked = true
+				continue outer
 			}
 		}
 
@@ -99,15 +123,18 @@ func (lm *LevelManager) scheduleCompaction(level int, tables []*TableEntry, dead
 		for _, overlap := range overlapping {
 			_, locked := lm.lockedTables[string(overlap.SSTableID)]
 			if locked {
-				// there's already a job that includes this table - we can't compact
-				return 0, true, nil
+				// there's already a job that includes this table - we can't compact this slice
+				hasLocked = true
+				continue outer
 			}
 		}
 		// create the job
 		var tableIDs []sst.SSTableID
-		// Note that L0 tables must be added in order from newest to earliest - this is critical as the exact same key
+		// Note that tables in a slice must be added in order from newest to earliest - this is critical as the exact same key
 		// can be in different tables, and when a compaction merging iterator is created and finds same keys it will
 		// take the leftmost one - this must be the latest one!
+		hasPotentialExpiredEntries := false
+		hasDeletes := false
 		for i := len(tables) - 1; i >= 0; i-- {
 			st := tables[i]
 			tablesToCompact = append(tablesToCompact, []tableToCompact{{
@@ -116,6 +143,12 @@ func (lm *LevelManager) scheduleCompaction(level int, tables []*TableEntry, dead
 				deadVersionRanges: deadVersionRanges,
 			}})
 			tableIDs = append(tableIDs, st.SSTableID)
+			if !hasPotentialExpiredEntries {
+				hasPotentialExpiredEntries = lm.hasPotentialExpiredEntries(st, now)
+			}
+			if !hasDeletes {
+				hasDeletes = st.DeleteRatio > 0
+			}
 		}
 		if len(overlapping) > 0 {
 			var nextLevelTables []tableToCompact
@@ -127,108 +160,36 @@ func (lm *LevelManager) scheduleCompaction(level int, tables []*TableEntry, dead
 			}
 			tablesToCompact = append(tablesToCompact, nextLevelTables)
 		}
+
+		// We move tables directly if all the following are true:
+		// 1. There's only a single source table in the job (otherwise there could be overlap between source tables)
+		// 2. There are definitely no expired entries that would need removing
+		// 3. There are no dead version ranges to remove
+		// 4. There is no overlap with tables in the next level
+		// 5. We're not moving to the last level or there are no deletes in the table (we want to remove deletes on the last
+		// level, so we can't move in that case)
+		move := len(tables) == 1 && !hasPotentialExpiredEntries && deadVersionRanges == nil && len(overlapping) == 0 &&
+			(level+1 != lm.getLastLevel() || !hasDeletes)
+
 		id := uuid.New().String()
+
 		job := CompactionJob{
 			id:                 id,
 			levelFrom:          level,
 			tables:             tablesToCompact,
-			isMove:             false, // always false as source tables are likely overlapping, so need merging
+			isMove:             move,
 			preserveTombstones: preserveTombstones,
 			scheduleTime:       common.NanoTime(),
 			serverTime:         uint64(time.Now().UTC().UnixMilli()),
 			lastFlushedVersion: lm.masterRecord.lastFlushedVersion,
 		}
+
 		log.Debugf("created compaction job %s from level %d last level is %d, preserve tombstones is %t",
 			id, level, lm.getLastLevel(), preserveTombstones)
 		jobs = append(jobs, job)
 
 		lm.lockTablesForJob(job)
-	} else {
-		// level > 0
-		now := uint64(time.Now().UTC().UnixMilli())
-	table:
-		for _, table := range tables {
-			_, locked := lm.lockedTables[string(table.SSTableID)]
-			if locked {
-				// there's already a job that includes this table - we can't compact this table
-				hasLocked = true
-				continue table
-			}
-
-			hasDeletes := table.DeleteRatio > 0
-
-			// find overlap with next level
-			var overlapping []*TableEntry
-			if destLevelExists {
-				// it's critical we calculate the overlap to exclude versions so we make
-				// sure we capture overlapping keys of any version
-				rangeStartNoVersion := table.RangeStart[:len(table.RangeStart)-8]
-				// rangeEnd param to getOverlappingTables is exclusive, so we need to increment
-				rangeEndNoVersion := table.RangeEnd[:len(table.RangeEnd)-8]
-				rangeEndNoVersion = common.IncrementBytesBigEndian(rangeEndNoVersion)
-				var err error
-				overlapping, err = lm.getOverlappingTables(rangeStartNoVersion, rangeEndNoVersion, level+1, segmentEntries)
-				if err != nil {
-					return 0, false, err
-				}
-			}
-			for _, overlap := range overlapping {
-				_, locked := lm.lockedTables[string(overlap.SSTableID)]
-				if locked {
-					// there's already a job that includes this table - we can't compact ths table
-					hasLocked = true
-					continue table
-				}
-			}
-			// create the job
-			var tablesToCompact [][]tableToCompact
-
-			tablesToCompact = append(tablesToCompact, []tableToCompact{{
-				level:             level,
-				table:             table,
-				deadVersionRanges: deadVersionRanges,
-			}})
-
-			var nextLevelTables []tableToCompact
-			for _, st := range overlapping {
-				nextLevelTables = append(nextLevelTables, tableToCompact{
-					level: level + 1,
-					table: st,
-				})
-			}
-			if len(nextLevelTables) > 0 {
-				tablesToCompact = append(tablesToCompact, nextLevelTables)
-			}
-
-			// We move tables directly if there is no overlap with next level, but if moving to last level
-			// there is extra constraint there can't be any deletes, as we need to removed deletes on the last level
-			// and, it needs a merge to do that
-			// Also we don't move if there are any dead version ranges as these will need to be filtered out
-			// And we don't move is if there any potential expired entries in the table as they will need to be
-			// filtered out too
-			hasPotentialExpiredEntries := lm.hasPotentialExpiredEntries(table, now)
-
-			move := !hasPotentialExpiredEntries && deadVersionRanges == nil && (len(overlapping) == 0 && (level+1 != lm.getLastLevel() || !hasDeletes))
-
-			id := uuid.New().String()
-			job := CompactionJob{
-				id:                 id,
-				levelFrom:          level,
-				tables:             tablesToCompact,
-				isMove:             move,
-				preserveTombstones: preserveTombstones,
-				scheduleTime:       common.NanoTime(),
-				serverTime:         uint64(time.Now().UTC().UnixMilli()),
-				lastFlushedVersion: lm.masterRecord.lastFlushedVersion,
-			}
-			log.Debugf("created compaction job %s from level %d last level is %d, preserve tombstones is %t",
-				id, level, lm.getLastLevel(), preserveTombstones)
-			jobs = append(jobs, job)
-			// lock the tables
-			lm.lockTablesForJob(job)
-		}
 	}
-
 	var complFunc func(error)
 	if completionFunc != nil {
 		complFunc = common.NewCountDownFuture(len(jobs), completionFunc).CountDown
@@ -347,7 +308,7 @@ func (lm *LevelManager) calculateOverallRange(tables []*TableEntry) ([]byte, []b
 func (lm *LevelManager) chooseLevelToCompact() (int, int) {
 	// We choose a level to compact based on ratio of number of tables / max tables trigger
 	toCompact := -1
-	var max float64
+	var maxRatio float64
 	var numTables int
 	for level := range lm.masterRecord.levelTableCounts {
 		trigger := lm.levelMaxTablesTrigger(level)
@@ -357,8 +318,8 @@ func (lm *LevelManager) chooseLevelToCompact() (int, int) {
 		availableTables := tableCount - pending
 		if availableTables > trigger {
 			ratio := float64(availableTables) / float64(trigger)
-			if ratio > max {
-				max = ratio
+			if ratio > maxRatio {
+				maxRatio = ratio
 				toCompact = level
 				numTables = availableTables - trigger
 			}
@@ -371,23 +332,29 @@ func (lm *LevelManager) tableCount(level int) int {
 	return lm.masterRecord.levelTableCounts[level]
 }
 
-func (lm *LevelManager) chooseTablesToCompact(level int, maxTables int) ([]*TableEntry, error) {
+func (lm *LevelManager) chooseTablesToCompact(level int, maxTables int) ([][]*TableEntry, error) {
 	if level == 0 {
-		// We choose all tables
-		entries := lm.getLevelSegmentEntries(0)
-		l0SegmentEntry := entries.segmentEntries[0]
-		l0Seg, err := lm.getSegment(l0SegmentEntry.segmentID)
-		if err != nil {
-			return nil, err
+		tables, ok := lm.chooseL0TablesToCompact()
+		if !ok {
+			// L0 startup group compaction in progress
+			return nil, nil
 		}
-		return l0Seg.tableEntries, nil
+		return tables, nil
 	}
-
 	iter, err := lm.levelIterator(level)
 	if err != nil {
 		return nil, err
 	}
-	return chooseTablesToCompactFromLevel(iter, maxTables)
+	// convert to one job per table
+	tables, err := chooseTablesToCompactFromLevel(iter, maxTables)
+	if err != nil {
+		return nil, err
+	}
+	tableSlices := make([][]*TableEntry, len(tables))
+	for i, table := range tables {
+		tableSlices[i] = []*TableEntry{table}
+	}
+	return tableSlices, nil
 }
 
 func chooseTablesToCompactFromLevel(iter LevelIterator, maxTables int) ([]*TableEntry, error) {
@@ -628,20 +595,22 @@ func (lm *LevelManager) maybeScheduleRemoveDeadVersionEntries() error {
 		// Scan for any tables that potentially have data that needs to be compacted out
 		type compactInfo struct {
 			level        int
-			tableEntries []*TableEntry
+			tableEntries [][]*TableEntry
 		}
+		scheduledAll := true
 		var infos []compactInfo
 		for level, entries := range lm.masterRecord.levelSegmentEntries {
 			if entries.maxVersion < versionRange.VersionStart {
 				continue
 			}
-			var tableEntries []*TableEntry
+			var tableEntries [][]*TableEntry
 			iter, err := lm.levelIterator(level)
 			if err != nil {
 				return err
 			}
 			if level == 0 {
 				// We compact the entire level, if at least one table matches dead version
+				hasMatch := false
 				entries := lm.getLevelSegmentEntries(0)
 				if len(entries.segmentEntries) > 0 {
 					l0SegmentEntry := entries.segmentEntries[0]
@@ -650,18 +619,20 @@ func (lm *LevelManager) maybeScheduleRemoveDeadVersionEntries() error {
 						return err
 					}
 					tables := l0Seg.tableEntries
-					// tables must be traversed from newest to oldest to ensure if there is the same key in two different
-					// tables the newest one gets chosen by merging iterator
-					hasMatch := false
-					for i := len(tables) - 1; i >= 0; i-- {
-						tableEntry := tables[i]
-						tableEntries = append(tableEntries, tableEntry)
+					for _, tableEntry := range tables {
 						if tableEntry.MaxVersion >= versionRange.VersionStart && tableEntry.MinVersion <= versionRange.VersionEnd {
 							hasMatch = true
+							break
 						}
 					}
-					if !hasMatch {
-						tableEntries = nil
+				}
+				if hasMatch {
+					var ok bool
+					tableEntries, ok = lm.chooseL0TablesToCompact()
+					if !ok {
+						// We can't choose any L0 tables as there is a startup L0 compaction in progress, this doesn't
+						// mean there are no dead version entries, so we won't remove the entry on completion
+						scheduledAll = false
 					}
 				}
 			} else {
@@ -675,7 +646,7 @@ func (lm *LevelManager) maybeScheduleRemoveDeadVersionEntries() error {
 					}
 					// Only add the tables that match
 					if te.MaxVersion >= versionRange.VersionStart && te.MinVersion <= versionRange.VersionEnd {
-						tableEntries = append(tableEntries, te)
+						tableEntries = append(tableEntries, []*TableEntry{te})
 					}
 				}
 			}
@@ -698,8 +669,6 @@ func (lm *LevelManager) maybeScheduleRemoveDeadVersionEntries() error {
 			}
 			return nil
 		}
-
-		scheduledAll := true
 
 		cf := common.NewCountDownFuture(0, func(err error) {
 

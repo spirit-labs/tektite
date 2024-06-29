@@ -7,6 +7,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/conf"
+	"github.com/spirit-labs/tektite/debug"
 	"github.com/spirit-labs/tektite/errors"
 	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/objstore"
@@ -70,6 +71,9 @@ type LevelManager struct {
 	stats                          CompactionStats
 	removeDeadVersionsInProgress   bool
 	enableDedup                    bool
+	level0Groups                   map[int][]*TableEntry
+	sstProcessorMap                map[string]int
+	compactingStartupL0Group       bool
 }
 
 type levelManagerState int
@@ -114,6 +118,8 @@ func NewLevelManager(conf *conf.Config, cloudStore objstore.Client, tabCache *ta
 		pendingCompactions:        map[int]int{},
 		enableDedup:               enableDedup,
 		state:                     stateCreated,
+		level0Groups:              map[int][]*TableEntry{},
+		sstProcessorMap:           map[string]int{},
 	}
 	return lm
 }
@@ -198,16 +204,22 @@ func (lm *LevelManager) Start(block bool) error {
 			lm.scheduleFlushNoLock(lm.conf.LevelManagerFlushInterval, true)
 		}
 		lm.scheduleTableDeleteTimer(true)
+		if err := lm.buildInitialL0Groups(); err != nil {
+			log.Errorf("failed to build l0groups on lmgr start: %v", err)
+			return
+		}
 		lm.state = stateLoaded
 		if len(lm.masterRecord.deadVersionRanges) > 0 {
 			if err := lm.maybeScheduleRemoveDeadVersionEntries(); err != nil {
 				log.Errorf("failed to schedule remove dead version entries on lmgr start: %v", err)
+				return
 			}
 		}
 		log.Debugf("level manager loaded on node %d", lm.conf.NodeID)
 		// Maybe trigger a compaction as levels could be full
 		if err := lm.maybeScheduleCompaction(); err != nil {
 			log.Errorf("failed to trigger compaction: %v", err)
+			return
 		}
 		ch <- struct{}{}
 	})
@@ -367,7 +379,6 @@ func (lm *LevelManager) RegisterL0Tables(registrationBatch RegistrationBatch, co
 	}
 	lm.clusterVersions[registrationBatch.ClusterName] = registrationBatch.ClusterVersion
 
-	log.Debugf("in LevelManager RegisterL0Tables")
 	if lm.getL0FreeSpace() >= 1 {
 		lm.inflightAdds++
 		log.Debugf("in LevelManager RegisterL0Tables - enough free space so applying now")
@@ -404,10 +415,10 @@ func (lm *LevelManager) getL0FreeSpace() int {
 	return lm.conf.L0MaxTablesBeforeBlocking - lm.masterRecord.levelTableCounts[0] - lm.inflightAdds
 }
 
-func (lm *LevelManager) ApplyChangesNoCheck(registrationBatch RegistrationBatch) error {
+func (lm *LevelManager) ApplyChangesNoCheck(regBatch RegistrationBatch) error {
 	lm.lock.Lock()
 	defer lm.lock.Unlock()
-	return lm.doApplyChanges(registrationBatch.Registrations, registrationBatch.DeRegistrations)
+	return lm.doApplyChanges(regBatch)
 }
 
 func (lm *LevelManager) checkDuplicate(replSeq int, reprocess bool) bool {
@@ -450,7 +461,7 @@ func (lm *LevelManager) checkStateForCommand(reprocess bool) error {
 	return nil
 }
 
-func (lm *LevelManager) ApplyChanges(registrationBatch RegistrationBatch, reprocess bool, replSeq int) error {
+func (lm *LevelManager) ApplyChanges(regBatch RegistrationBatch, reprocess bool, replSeq int) error {
 	lm.lock.Lock()
 	defer lm.lock.Unlock()
 	if err := lm.checkStateForCommand(reprocess); err != nil {
@@ -461,19 +472,19 @@ func (lm *LevelManager) ApplyChanges(registrationBatch RegistrationBatch, reproc
 		return nil
 	}
 	defer lm.updateReplSeq(replSeq)
-	if registrationBatch.Compaction {
-		return lm.applyCompactionChanges(registrationBatch, reprocess)
+	if regBatch.Compaction {
+		return lm.applyCompactionChanges(regBatch, reprocess)
 	}
 	if !reprocess {
 		lm.inflightAdds--
 	}
 	log.Debugf("in LevelManager ApplyChanges for L0")
 
-	if err := lm.doApplyChanges(registrationBatch.Registrations, registrationBatch.DeRegistrations); err != nil {
+	if err := lm.doApplyChanges(regBatch); err != nil {
 		return err
 	}
 
-	log.Debugf("registered l0 table: %v now dumping, reprocess? %t", registrationBatch.Registrations[0].TableID, reprocess)
+	log.Debugf("registered l0 table: %v now dumping, reprocess? %t", regBatch.Registrations[0].TableID, reprocess)
 	if log.DebugEnabled {
 		lm.dump()
 	}
@@ -483,8 +494,8 @@ func (lm *LevelManager) ApplyChanges(registrationBatch RegistrationBatch, reproc
 	return nil
 }
 
-func (lm *LevelManager) applyCompactionChanges(registrationBatch RegistrationBatch, reprocess bool) error {
-	jobExists := lm.jobInProgress(registrationBatch.JobID)
+func (lm *LevelManager) applyCompactionChanges(regBatch RegistrationBatch, reprocess bool) error {
+	jobExists := lm.jobInProgress(regBatch.JobID)
 	if !jobExists {
 		// level manager might have failed over so job can't be found. In this case we don't apply the batch
 		// as it might result in an inconsistent state as tables won't be locked and other jobs could be running
@@ -493,23 +504,23 @@ func (lm *LevelManager) applyCompactionChanges(registrationBatch RegistrationBat
 		if reprocess {
 			return nil
 		}
-		return errors.NewTektiteErrorf(errors.CompactionJobNotFound, "job not found %s. possible level manager failover", registrationBatch.JobID)
+		return errors.NewTektiteErrorf(errors.CompactionJobNotFound, "job not found %s. possible level manager failover", regBatch.JobID)
 	}
-	if err := lm.doApplyChanges(registrationBatch.Registrations, registrationBatch.DeRegistrations); err != nil {
+	if err := lm.doApplyChanges(regBatch); err != nil {
 		return err
 	}
 
-	registeredTables := make(map[string]struct{}, len(registrationBatch.Registrations))
-	for _, registration := range registrationBatch.Registrations {
+	registeredTables := make(map[string]struct{}, len(regBatch.Registrations))
+	for _, registration := range regBatch.Registrations {
 		registeredTables[string(registration.TableID)] = struct{}{}
 	}
-	tablesToDelete := make([]deleteTableEntry, 0, len(registrationBatch.DeRegistrations))
+	tablesToDelete := make([]deleteTableEntry, 0, len(regBatch.DeRegistrations))
 	now := common.NanoTime()
 	// For each deRegistration we add the table id to the tables to delete UNLESS the same table has also been
 	// registered in the batch - this can happen when a table is moved from one level to the next - we do not want to
 	// delete it then.
 	l0DeRegs := 0
-	for _, deRegistration := range registrationBatch.DeRegistrations {
+	for _, deRegistration := range regBatch.DeRegistrations {
 		if deRegistration.Level == 0 {
 			l0DeRegs++
 		}
@@ -525,7 +536,7 @@ func (lm *LevelManager) applyCompactionChanges(registrationBatch RegistrationBat
 	// ss-tables are deleted after a delay - this allows any queries currently in execution some time
 	lm.tablesToDelete = append(lm.tablesToDelete, tablesToDelete...)
 	if !reprocess {
-		if err := lm.compactionComplete(registrationBatch.JobID); err != nil {
+		if err := lm.compactionComplete(regBatch.JobID); err != nil {
 			return err
 		}
 		lm.maybeDespatchPendingL0Adds()
@@ -676,16 +687,16 @@ func (l *levelIter) Next() (*TableEntry, error) {
 	return entry, nil
 }
 
-func (lm *LevelManager) doApplyChanges(registrations []RegistrationEntry, deRegistrations []RegistrationEntry) error {
+func (lm *LevelManager) doApplyChanges(regBatch RegistrationBatch) error {
 
 	if log.DebugEnabled {
 		var dsb strings.Builder
-		for _, dereg := range deRegistrations {
+		for _, dereg := range regBatch.DeRegistrations {
 			dsb.WriteString(fmt.Sprintf("%v", []byte(dereg.TableID)))
 			dsb.WriteRune(',')
 		}
 		var rsb strings.Builder
-		for _, reg := range registrations {
+		for _, reg := range regBatch.Registrations {
 			rsb.WriteString(fmt.Sprintf("%v", []byte(reg.TableID)))
 			rsb.WriteRune(',')
 		}
@@ -704,15 +715,19 @@ func (lm *LevelManager) doApplyChanges(registrations []RegistrationEntry, deRegi
 	}
 
 	// We must process the de-registrations before registrations, or we can temporarily have overlapping keys
-	err := lm.applyDeRegistrations(deRegistrations)
+	err := lm.applyDeRegistrations(regBatch.DeRegistrations)
 	if err == nil {
-		err = lm.applyRegistrations(registrations)
+		err = lm.applyRegistrations(regBatch.Registrations)
 	}
 	if err != nil {
 		// Rollback to the previous state
 		lm.masterRecord = mrCopy
 		lm.segmentsToAdd = segsToAddCopy
 		lm.segmentsToDelete = segsToDeleteCopy
+		return err
+	}
+
+	if err := lm.updateL0Groups(regBatch); err != nil {
 		return err
 	}
 
@@ -725,6 +740,92 @@ func (lm *LevelManager) doApplyChanges(registrations []RegistrationEntry, deRegi
 	lm.masterRecord.version++
 	lm.hasChanges = true
 	return nil
+}
+
+func (lm *LevelManager) updateL0Groups(regBatch RegistrationBatch) error {
+	for _, reg := range regBatch.Registrations {
+		if reg.Level == 0 {
+			lm.level0Groups[regBatch.ProcessorID] = append(lm.level0Groups[regBatch.ProcessorID], &TableEntry{
+				SSTableID:        reg.TableID,
+				RangeStart:       reg.KeyStart,
+				RangeEnd:         reg.KeyEnd,
+				MinVersion:       reg.MinVersion,
+				MaxVersion:       reg.MaxVersion,
+				DeleteRatio:      reg.DeleteRatio,
+				AddedTime:        reg.AddedTime,
+				NumEntries:       reg.NumEntries,
+				Size:             reg.TableSize,
+				NumPrefixDeletes: reg.NumPrefixDeletes,
+			})
+			lm.sstProcessorMap[string(reg.TableID)] = regBatch.ProcessorID
+		}
+	}
+	for _, deReg := range regBatch.DeRegistrations {
+		if deReg.Level == 0 {
+			sTableID := string(deReg.TableID)
+			processorID, ok := lm.sstProcessorMap[sTableID]
+			if !ok {
+				// must be idempotent  - dereges can be retried by the caller after temporary network error
+				continue
+			}
+			delete(lm.sstProcessorMap, sTableID)
+			group, ok := lm.level0Groups[processorID]
+			if !ok {
+				// this can occur if unregister is replayed, so we ignore (idempotency)
+				continue
+			}
+			for i, te := range group {
+				if bytes.Equal(te.SSTableID, deReg.TableID) {
+					// truncate
+					group = group[i+1:]
+					break
+				}
+			}
+			if len(group) == 0 {
+				delete(lm.level0Groups, processorID)
+			} else {
+				lm.level0Groups[processorID] = group
+			}
+		}
+	}
+	if lm.compactingStartupL0Group {
+		_, ok := lm.level0Groups[-1]
+		if !ok {
+			// We were compacting L0 Groups and now they are compacted so set flag to false
+			lm.compactingStartupL0Group = false
+		}
+	}
+	if debug.SanityChecks {
+		lm.validateNoOverlappingL0Groups()
+	}
+	return nil
+}
+
+type keyRange struct {
+	processorID int
+	start       []byte
+	end         []byte
+}
+
+func (lm *LevelManager) validateNoOverlappingL0Groups() {
+	var ranges []keyRange
+	for processorID, g := range lm.level0Groups {
+		start, end := lm.calculateOverallRange(g)
+		ranges = append(ranges, keyRange{processorID: processorID, start: start, end: end})
+		log.Debugf("group %d has range %v to %v", processorID, start, end)
+	}
+	for _, r1 := range ranges {
+		for _, r2 := range ranges {
+			if (r1.processorID == r2.processorID) || r1.processorID == -1 || r2.processorID == -1 {
+				// startup groups (processor id = -1) have overlap
+				continue
+			}
+			if (bytes.Compare(r2.start, r1.start) >= 0 && bytes.Compare(r2.start, r1.end) <= 0) ||
+				(bytes.Compare(r2.end, r1.start) >= 0 && bytes.Compare(r2.end, r1.end) <= 0) {
+				panic(fmt.Sprintf("group %d [%v, %v] overlaps with group %d [%v, %v]", r1.processorID, r1.start, r1.end, r2.processorID, r2.start, r2.end))
+			}
+		}
+	}
 }
 
 func (lm *LevelManager) applyDeRegistrations(deRegistrations []RegistrationEntry) error { //nolint:gocyclo
@@ -904,6 +1005,7 @@ func (lm *LevelManager) applyRegistrations(registrations []RegistrationEntry) er
 			maxVersion = registration.MaxVersion
 		}
 		if registration.Level == 0 {
+
 			// We have overlapping keys in L0, so we just append to the last segment
 			var seg *segment
 			var segRangeStart, segRangeEnd []byte
@@ -915,6 +1017,9 @@ func (lm *LevelManager) applyRegistrations(registrations []RegistrationEntry) er
 				segCurr, err := lm.getSegment(l0SegmentEntry.segmentID)
 				if err != nil {
 					return err
+				}
+				if segCurr == nil {
+					return errors.Errorf("cannot find l0 segment %v", l0SegmentEntry.segmentID)
 				}
 				if containsTable(segCurr, registration.TableID) {
 					// Already added - this con occur on recovery or if client resubmits request after
@@ -992,6 +1097,9 @@ func (lm *LevelManager) applyRegistrations(registrations []RegistrationEntry) er
 				seg, err := lm.getSegment(segEntry.segmentID)
 				if err != nil {
 					return err
+				}
+				if seg == nil {
+					return errors.Errorf("cannot find segment %v", segEntry.segmentID)
 				}
 				if containsTable(seg, registration.TableID) {
 					// Already added - this con occur on recovery or if client resubmits request after a previous
@@ -1462,6 +1570,28 @@ func (lm *LevelManager) GetLastProcessedReplSeq() int {
 	lm.lock.Lock()
 	defer lm.lock.Unlock()
 	return lm.masterRecord.lastProcessedReplSeq
+}
+
+func (lm *LevelManager) buildInitialL0Groups() error {
+	if len(lm.masterRecord.levelSegmentEntries) == 0 {
+		return nil
+	}
+	entries := lm.masterRecord.levelSegmentEntries[0]
+	if len(entries.segmentEntries) == 0 {
+		return nil
+	}
+	l0SegmentEntry := entries.segmentEntries[0]
+	l0Seg, err := lm.getSegment(l0SegmentEntry.segmentID)
+	if err != nil {
+		return err
+	}
+	l0Entries := make([]*TableEntry, len(l0Seg.tableEntries))
+	copy(l0Entries, l0Seg.tableEntries)
+	lm.level0Groups[-1] = l0Entries
+	for _, te := range l0Entries {
+		lm.sstProcessorMap[string(te.SSTableID)] = -1
+	}
+	return nil
 }
 
 func (lm *LevelManager) DumpLevelInfo() {
