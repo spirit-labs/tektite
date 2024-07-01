@@ -254,15 +254,13 @@ func TestUpdatableIterator(t *testing.T) {
 	require.NoError(t, err)
 
 	for i := 0; i < 10; i++ {
-		valid, err := ua.IsValid()
+		valid, curr, err := ua.Next()
 		require.NoError(t, err)
 		require.True(t, valid)
 		expectedKey := encoding.EncodeVersion([]byte(fmt.Sprintf("key%05d", i)), 0)
 		expectedValue := []byte(fmt.Sprintf("val%05d", i))
-		require.Equal(t, expectedKey, ua.Current().Key)
-		require.Equal(t, expectedValue, ua.Current().Value)
-		err = ua.Next()
-		require.NoError(t, err)
+		require.Equal(t, expectedKey, curr.Key)
+		require.Equal(t, expectedValue, curr.Value)
 	}
 
 	// Now add more data
@@ -281,18 +279,16 @@ func TestUpdatableIterator(t *testing.T) {
 	// Data should be seen
 
 	for i := 10; i < 20; i++ {
-		valid, err := ua.IsValid()
+		valid, curr, err := ua.Next()
 		require.NoError(t, err)
 		require.True(t, valid)
 		expectedKey := encoding.EncodeVersion([]byte(fmt.Sprintf("key%05d", i)), 0)
 		expectedValue := []byte(fmt.Sprintf("val%05d", i))
-		require.Equal(t, expectedKey, ua.Current().Key)
-		require.Equal(t, expectedValue, ua.Current().Value)
-		err = ua.Next()
-		require.NoError(t, err)
+		require.Equal(t, expectedKey, curr.Key)
+		require.Equal(t, expectedValue, curr.Value)
 	}
 
-	valid, err := ua.IsValid()
+	valid, _, err := ua.Next()
 	require.NoError(t, err)
 	require.False(t, valid)
 }

@@ -383,7 +383,7 @@ func (b *BackfillOperator) loadBatchForPartition(partID int) (*evbatch.Batch, er
 	rowCount := 0
 	var lastLoadedOffset = int64(-1)
 	for rowCount < b.maxBackfillBatchSize {
-		valid, err := info.iter.IsValid()
+		valid, curr, err := info.iter.Next()
 		if err != nil {
 			return nil, err
 		}
@@ -394,7 +394,6 @@ func (b *BackfillOperator) loadBatchForPartition(partID int) (*evbatch.Batch, er
 			lastLoadedOffset = -1
 			break
 		}
-		curr := info.iter.Current()
 		k, _ := encoding.KeyDecodeInt(curr.Key, 25) // 17 as 1 byte null marker before offset
 		lastLoadedOffset = k
 		colBuilders[0].(*evbatch.IntColBuilder).Append(k)
@@ -446,10 +445,6 @@ func (b *BackfillOperator) loadBatchForPartition(partID int) (*evbatch.Batch, er
 			}
 		}
 		rowCount++
-		err = info.iter.Next()
-		if err != nil {
-			return nil, err
-		}
 	}
 	info.lastLoadedOffset = lastLoadedOffset
 	batch := evbatch.NewBatchFromBuilders(b.schema.EventSchema, colBuilders...)
@@ -478,23 +473,14 @@ type updatableIterator struct {
 	iterFactory func(keyStart []byte, keyEnd []byte) (iteration.Iterator, error)
 }
 
-func (u *updatableIterator) Current() common.KV {
-	curr := u.iter.Current()
-	u.lastKey = curr.Key
-	return curr
-}
-
-func (u *updatableIterator) Next() error {
-	return u.iter.Next()
-}
-
-func (u *updatableIterator) IsValid() (bool, error) {
-	valid, err := u.iter.IsValid()
+func (u *updatableIterator) Next() (bool, common.KV, error) {
+	valid, kv, err := u.iter.Next()
 	if err != nil {
-		return false, err
+		return valid, kv, err
 	}
 	if valid {
-		return true, nil
+		u.lastKey = kv.Key
+		return true, kv, nil
 	}
 	// If not valid we recreate the iterator and call IsValid() again.
 	// This means we will pick up newly added data
@@ -505,9 +491,13 @@ func (u *updatableIterator) IsValid() (bool, error) {
 	}
 	u.iter, err = u.iterFactory(start, u.keyEnd)
 	if err != nil {
-		return false, err
+		return false, common.KV{}, err
 	}
-	return u.iter.IsValid()
+	valid, kv, err = u.iter.Next()
+	if valid {
+		u.lastKey = kv.Key
+	}
+	return valid, kv, err
 }
 
 func (u *updatableIterator) Close() {
