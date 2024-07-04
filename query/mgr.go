@@ -41,6 +41,10 @@ type Manager interface {
 	Stop() error
 }
 
+type iteratorProvider interface {
+	NewIterator(keyStart []byte, keyEnd []byte, _ uint64, _ bool) (iteration.Iterator, error)
+}
+
 type manager struct {
 	lock                       sync.RWMutex
 	active                     bool
@@ -52,18 +56,14 @@ type manager struct {
 	partitionMapper            proc.PartitionMapper
 	clustVersionProvider       clusterVersionProvider
 	streamInfoProvider         StreamInfoProvider
-	storeIteratorProvider      iteratorProvider
 	streamMetaIteratorProvider iteratorProvider
+	procProvider               processorProvider
 	expressionFactory          *expr.ExpressionFactory
 	parser                     *parser.Parser
 	maxBatchRows               int
 	lastCompletedVersion       int64
 	lastFlushedVersion         int64
 	nodeID                     int
-}
-
-type iteratorProvider interface {
-	NewIterator(keyStart []byte, keyEnd []byte, highestVersion uint64, preserveTombstones bool) (iteration.Iterator, error)
 }
 
 type QInfo struct {
@@ -97,7 +97,7 @@ type queryRemoting interface {
 }
 
 func NewManager(partitionMapper proc.PartitionMapper, clustVersionProvider clusterVersionProvider, nodeID int,
-	streamInfoProvider StreamInfoProvider, storeIterProvider iteratorProvider, streamMetaIterProvider iteratorProvider,
+	streamInfoProvider StreamInfoProvider, streamMetaIterProvider iteratorProvider, procProvider processorProvider,
 	remoting queryRemoting, remotingListenAddresses []string, maxBatchRows int, expressionFactory *expr.ExpressionFactory,
 	parser *parser.Parser) Manager {
 	return &manager{
@@ -105,8 +105,8 @@ func NewManager(partitionMapper proc.PartitionMapper, clustVersionProvider clust
 		partitionMapper:            partitionMapper,
 		clustVersionProvider:       clustVersionProvider,
 		streamInfoProvider:         streamInfoProvider,
-		storeIteratorProvider:      storeIterProvider,
 		streamMetaIteratorProvider: streamMetaIterProvider,
+		procProvider:               procProvider,
 		remoting:                   remoting,
 		remotingListenAddresses:    remotingListenAddresses,
 		remotingAddress:            remotingListenAddresses[nodeID],
@@ -258,11 +258,9 @@ loop:
 			var iterProvider iteratorProvider
 			if streamInfo.StreamMeta {
 				iterProvider = m.streamMetaIteratorProvider
-			} else {
-				iterProvider = m.storeIteratorProvider
 			}
 			oper = NewGetOperator(false, colExprs, nil, true, false, streamInfo.UserSlab.SlabID,
-				streamInfo.UserSlab.KeyColIndexes, streamInfo.UserSlab.Schema, iterProvider, m.nodeID)
+				streamInfo.UserSlab.KeyColIndexes, streamInfo.UserSlab.Schema, m.nodeID, iterProvider)
 		case *parser.ScanDesc:
 			streamInfo = m.streamInfoProvider.GetStream(desc.TableName)
 			isFullKeyLookup = false
@@ -295,12 +293,10 @@ loop:
 			var iterProvider iteratorProvider
 			if streamInfo.StreamMeta {
 				iterProvider = m.streamMetaIteratorProvider
-			} else {
-				iterProvider = m.storeIteratorProvider
 			}
 			oper = NewGetOperator(true, rangeStartExprs, rangeEndExprs, desc.FromIncl,
 				desc.ToIncl, streamInfo.UserSlab.SlabID,
-				streamInfo.UserSlab.KeyColIndexes, streamInfo.UserSlab.Schema, iterProvider, m.nodeID)
+				streamInfo.UserSlab.KeyColIndexes, streamInfo.UserSlab.Schema, m.nodeID, iterProvider)
 		case *parser.FilterDesc:
 			oper, err = opers.NewFilterOperator(prevOperator.OutSchema(), desc.Expr, m.expressionFactory)
 		case *parser.ProjectDesc:
@@ -708,6 +704,15 @@ func (m *manager) ExecuteRemoteQuery(msg *clustermsgs.QueryMessage) error {
 	// For now, we just have one loader per partition but, we should experiment to see if it's more efficient to have
 	// multiple sharing the same loader - also for Kafka consumers we will have multiple paritions on the same loader
 	for _, partID := range partitionIDs {
+		processorID, ok := info.SlabInfo.Schema.PartitionProcessorMapping[int(partID)]
+		if !ok {
+			panic("no processor for partition")
+		}
+		processor := m.procProvider.GetProcessor(processorID)
+		if processor == nil {
+			time.Sleep(500 * time.Millisecond)
+			return errors.NewTektiteErrorf(errors.Unavailable, "processor not available")
+		}
 		ql := &queryLoader{
 			info:           info,
 			partitionIDs:   []uint64{partID},
@@ -720,6 +725,7 @@ func (m *manager) ExecuteRemoteQuery(msg *clustermsgs.QueryMessage) error {
 			resultAddress:  msg.SenderAddress,
 			maxRows:        m.maxBatchRows,
 			nodeID:         m.nodeID,
+			processor:      processor,
 		}
 		common.Go(func() {
 			if err := ql.start(); err != nil {
@@ -756,12 +762,17 @@ type queryLoader struct {
 	execID         string
 	resultAddress  string
 	nodeID         int
+	processor      proc.Processor
+}
+
+type processorProvider interface {
+	GetProcessor(processorID int) proc.Processor
 }
 
 func (ql *queryLoader) start() error {
 	mappingID := ql.info.SlabInfo.Schema.MappingID
 	for i, partID := range ql.partitionIDs {
-		iter, err := ql.getOperator.CreateIterator(mappingID, partID, ql.args, ql.highestVersion)
+		iter, err := ql.getOperator.CreateIterator(mappingID, partID, ql.args, ql.highestVersion, ql.processor)
 		if err != nil {
 			return err
 		}
@@ -940,7 +951,8 @@ func (nr *networkResultsOperator) GetStreamInfo() *opers.StreamInfo {
 	return nil
 }
 
-func (nr *networkResultsOperator) Teardown(opers.StreamManagerCtx, *sync.RWMutex) {
+func (nr *networkResultsOperator) Teardown(mgr opers.StreamManagerCtx, completeCB func(error)) {
+	completeCB(nil)
 }
 
 func serializePartitions(partitions []int) []byte {

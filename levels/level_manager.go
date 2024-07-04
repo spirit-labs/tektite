@@ -875,6 +875,8 @@ func (lm *LevelManager) maybeResizeLevelSegmentEntries(level int) {
 func (lm *LevelManager) applyRegistrations(registrations []RegistrationEntry) error { //nolint:gocyclo
 	for _, registration := range registrations {
 
+		log.Debugf("got reg keystart %v keyend %v", registration.KeyStart, registration.KeyEnd)
+
 		if len(registration.KeyStart) == 0 || len(registration.KeyEnd) <= 8 {
 			return errors.Errorf("registration, key start/end does not have a version: %v", registration)
 		}

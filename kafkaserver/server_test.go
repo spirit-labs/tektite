@@ -6,9 +6,9 @@ import (
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/conf"
 	"github.com/spirit-labs/tektite/evbatch"
+	"github.com/spirit-labs/tektite/iteration"
 	"github.com/spirit-labs/tektite/opers"
 	"github.com/spirit-labs/tektite/proc"
-	store2 "github.com/spirit-labs/tektite/store"
 	"github.com/stretchr/testify/require"
 	"net"
 	"strconv"
@@ -109,6 +109,7 @@ func createServer(t *testing.T, topic string, serverAddress string, serverAdvert
 			Port:   port,
 		},
 	}
+	partitionSchema := opers.NewPartitionScheme("_default_", 1, true, 1)
 	meta.topicInfos = map[string]*TopicInfo{
 		topic: {
 			Name:           topic,
@@ -117,6 +118,7 @@ func createServer(t *testing.T, topic string, serverAddress string, serverAdvert
 				receiverID:     10,
 				lastOffset:     1001,
 				lastAppendTime: 1000000,
+				ps:             &partitionSchema,
 			},
 			Partitions: []PartitionInfo{
 				{
@@ -140,11 +142,9 @@ func createServer(t *testing.T, topic string, serverAddress string, serverAdvert
 		cfg.KafkaServerListenerConfig.AdvertisedAddresses = []string{serverAdvertisedAddress}
 	}
 
-	st := store2.TestStore()
-
-	gc, err := NewGroupCoordinator(cfg, procProvider, &testStreamMgr{}, meta, st, &testBatchForwarder{})
+	gc, err := NewGroupCoordinator(cfg, procProvider, &testStreamMgr{}, meta, &testBatchForwarder{})
 	require.NoError(t, err)
-	server := NewServer(cfg, meta, procProvider, gc, st, &testStreamMgr{})
+	server := NewServer(cfg, meta, procProvider, gc, &testStreamMgr{})
 	err = server.Activate()
 	require.NoError(t, err)
 	return server, processor
@@ -154,16 +154,6 @@ type testBatchForwarder struct {
 }
 
 func (t testBatchForwarder) ForwardBatch(*proc.ProcessBatch, bool, func(error)) {
-}
-
-type testStreamMgr struct {
-}
-
-func (t testStreamMgr) RegisterSystemSlab(string, int, int, int, *opers.OperatorSchema, []string, bool) error {
-	return nil
-}
-
-func (t testStreamMgr) RegisterChangeListener(func(streamName string, deployed bool)) {
 }
 
 type testMetadataProvider struct {
@@ -201,8 +191,8 @@ type testProcessorProvider struct {
 	partitionNodeMap map[int]int
 }
 
-func (t *testProcessorProvider) GetProcessor(int) (proc.Processor, bool) {
-	return nil, false
+func (t *testProcessorProvider) GetProcessor(int) proc.Processor {
+	return t.processor
 }
 
 func (t *testProcessorProvider) NodeForPartition(partitionID int, _ string, _ int) int {
@@ -217,6 +207,18 @@ type testProcessor struct {
 	id    int
 	lock  sync.Mutex
 	batch *proc.ProcessBatch
+}
+
+func (t *testProcessor) Get(key []byte) ([]byte, error) {
+	return nil, nil
+}
+
+func (t *testProcessor) GetWithMaxVersion(key []byte, maxVersion uint64) ([]byte, error) {
+	return nil, nil
+}
+
+func (t *testProcessor) NewIterator(keyStart []byte, keyEnd []byte, highestVersion uint64, preserveTombstones bool) (iteration.Iterator, error) {
+	return nil, nil
 }
 
 func (t *testProcessor) GetCurrentVersion() int {
@@ -306,6 +308,11 @@ type testProduceInfoProvider struct {
 	receiverID     int
 	lastOffset     int64
 	lastAppendTime int64
+	ps             *opers.PartitionScheme
+}
+
+func (t *testProduceInfoProvider) PartitionScheme() *opers.PartitionScheme {
+	return t.ps
 }
 
 func (t *testProduceInfoProvider) IngestBatch(recordBatchBytes []byte, processor proc.Processor, partitionID int, complFunc func(err error)) {

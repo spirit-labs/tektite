@@ -15,7 +15,7 @@ const (
 	DefaultMaxProcessorBatchesInProgress  = 1000
 	DefaultMemtableMaxSizeBytes           = 16 * 1024 * 1024
 	DefaultMemtableMaxReplaceInterval     = 30 * time.Second
-	DefaultMemtableFlushQueueMaxSize      = 10
+	DefaultMemtableFlushQueueMaxSize      = 4
 	DefaultStoreWriteBlockedRetryInterval = 250 * time.Millisecond
 	DefaultMinReplicas                    = 2
 	DefaultMaxReplicas                    = 3

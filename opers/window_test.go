@@ -5,7 +5,7 @@ import (
 	"github.com/spirit-labs/tektite/evbatch"
 	"github.com/spirit-labs/tektite/expr"
 	"github.com/spirit-labs/tektite/parser"
-	store2 "github.com/spirit-labs/tektite/store"
+	"github.com/spirit-labs/tektite/tppm"
 	"github.com/spirit-labs/tektite/types"
 	"github.com/stretchr/testify/require"
 	"testing"
@@ -13,13 +13,8 @@ import (
 )
 
 func TestAugmentWithWindows(t *testing.T) {
-
 	size := 100
 	hop := 10
-	st := store2.TestStore()
-	err := st.Start()
-	require.NoError(t, err)
-	defer stopStore(t, st)
 	aggExprStr := "count(val)"
 	aggExprs, err := toExprs(aggExprStr)
 	require.NoError(t, err)
@@ -43,7 +38,7 @@ func TestAugmentWithWindows(t *testing.T) {
 		PartitionScheme: NewPartitionScheme("foo", 10, false, 48)},
 		aggDesc, 0,
 		-1, -1, -1, time.Duration(size)*time.Millisecond,
-		time.Duration(hop)*time.Millisecond, st, 0, false, false, &expr.ExpressionFactory{})
+		time.Duration(hop)*time.Millisecond, 0, false, false, &expr.ExpressionFactory{})
 	require.NoError(t, err)
 
 	eventTimes := []int{100, 101, 105, 107, 109}
@@ -71,7 +66,7 @@ func TestAugmentWithWindows(t *testing.T) {
 
 func augmentBatch(t *testing.T, agg *AggregateOperator, eventTimes ...int) *evbatch.Batch {
 	batch := createBatchWithEventTimes(0, eventTimes...)
-	batchRes, err := agg.augmentWithWindows(batch, &testExecCtx{partitionID: 1, processor: &testProcessor{id: 1}})
+	batchRes, err := agg.augmentWithWindows(batch, &testExecCtx{partitionID: 1, processor: &testProcessor{id: 1, st: tppm.NewTestStore()}})
 	require.NoError(t, err)
 	return batchRes
 }

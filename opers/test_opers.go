@@ -107,7 +107,8 @@ func (ts *testSinkOper) Setup(StreamManagerCtx) error {
 	return nil
 }
 
-func (ts *testSinkOper) Teardown(StreamManagerCtx, *sync.RWMutex) {
+func (ts *testSinkOper) Teardown(mgr StreamManagerCtx, completeCB func(error)) {
+	completeCB(nil)
 }
 
 type testSourceOper struct {
@@ -186,6 +187,7 @@ func (t *testSourceOper) Setup(mgr StreamManagerCtx) error {
 	return nil
 }
 
-func (t *testSourceOper) Teardown(mgr StreamManagerCtx, _ *sync.RWMutex) {
+func (t *testSourceOper) Teardown(mgr StreamManagerCtx, completeCB func(error)) {
 	mgr.UnregisterReceiver(t.receiverID)
+	completeCB(nil)
 }

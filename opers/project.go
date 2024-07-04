@@ -6,7 +6,6 @@ import (
 	"github.com/spirit-labs/tektite/expr"
 	"github.com/spirit-labs/tektite/parser"
 	"github.com/spirit-labs/tektite/types"
-	"sync"
 )
 
 type ProjectOperator struct {
@@ -129,5 +128,6 @@ func (f *ProjectOperator) Setup(StreamManagerCtx) error {
 	return nil
 }
 
-func (f *ProjectOperator) Teardown(StreamManagerCtx, *sync.RWMutex) {
+func (f *ProjectOperator) Teardown(mgr StreamManagerCtx, completeCB func(error)) {
+	completeCB(nil)
 }

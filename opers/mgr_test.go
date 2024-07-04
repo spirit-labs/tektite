@@ -6,7 +6,6 @@ import (
 	"github.com/spirit-labs/tektite/expr"
 	"github.com/spirit-labs/tektite/kafka"
 	"github.com/spirit-labs/tektite/parser"
-	store2 "github.com/spirit-labs/tektite/store"
 	"github.com/spirit-labs/tektite/testutils"
 	"github.com/spirit-labs/tektite/tppm"
 	"github.com/stretchr/testify/require"
@@ -111,24 +110,17 @@ func TestBridgeFromOperMultipleProcessorsMultiplePartitionsFailureOnCreate(t *te
 
 func testBridgeFromOper(t *testing.T, msgs [][]*kafka.Message, numFailuresToCreate int) {
 
-	store := store2.TestStore()
-	err := store.Start()
-	require.NoError(t, err)
-	defer func() {
-		err := store.Stop()
-		require.NoError(t, err)
-	}()
-	pm := tppm.NewTestProcessorManager(store)
+	pm := tppm.NewTestProcessorManager()
 	cfg := &conf.Config{}
 	cfg.ApplyDefaults()
 
 	fact := msgClientFact{msgs: msgs,
 		numFailuresToCreate: numFailuresToCreate}
-	mgr := NewStreamManager(fact.createTestMessageClient, store, &dummySlabRetentions{}, &expr.ExpressionFactory{}, cfg, false)
+	mgr := NewStreamManager(fact.createTestMessageClient, &dummySlabRetentions{}, &expr.ExpressionFactory{}, cfg, false)
 	mgr.SetProcessorManager(pm)
 	mgr.Loaded()
 	pm.SetBatchHandler(mgr)
-	err = mgr.StartIngest(0)
+	err := mgr.StartIngest(0)
 	require.NoError(t, err)
 
 	topicName := "test_topic"
@@ -214,12 +206,8 @@ func testBridgeFromOper(t *testing.T, msgs [][]*kafka.Message, numFailuresToCrea
 }
 
 func TestAddRemoveProcessors(t *testing.T) {
-	st := store2.TestStore()
-	pm := tppm.NewTestProcessorManager(st)
+	pm := tppm.NewTestProcessorManager()
 	defer pm.Close()
-	err := st.Start()
-	require.NoError(t, err)
-	defer stopStore(t, st)
 
 	msgs := [][]*kafka.Message{
 		{createKafkaMessage(0, 0, "key1_1", "val1_1", 1001)},
@@ -235,7 +223,7 @@ func TestAddRemoveProcessors(t *testing.T) {
 	cfg := &conf.Config{}
 	cfg.ApplyDefaults()
 	fact := msgClientFact{msgs: msgs}
-	mgr := NewStreamManager(fact.createTestMessageClient, st, &dummySlabRetentions{}, &expr.ExpressionFactory{}, cfg, false)
+	mgr := NewStreamManager(fact.createTestMessageClient, &dummySlabRetentions{}, &expr.ExpressionFactory{}, cfg, false)
 	mgr.SetProcessorManager(pm)
 	mgr.Loaded()
 	pm.SetBatchHandler(mgr)
@@ -258,7 +246,7 @@ func TestAddRemoveProcessors(t *testing.T) {
 
 	commandID := int64(23)
 	receiverID := 1001
-	err = mgr.DeployStream(stream, []int{receiverID}, []int{2001}, "", commandID)
+	err := mgr.DeployStream(stream, []int{receiverID}, []int{2001}, "", commandID)
 	require.NoError(t, err)
 
 	pi := mgr.GetStream("test_stream")
@@ -293,17 +281,12 @@ func TestAddRemoveProcessors(t *testing.T) {
 }
 
 func TestGetInjectableReceivers(t *testing.T) {
-	st := store2.TestStore()
-	pm := tppm.NewTestProcessorManager(st)
+	pm := tppm.NewTestProcessorManager()
 	defer pm.Close()
-	//goland:noinspection GoUnhandledErrorResult
-	st.Start()
-	//goland:noinspection GoUnhandledErrorResult
-	defer st.Stop()
 
 	cfg := &conf.Config{}
 	cfg.ApplyDefaults()
-	mgr := NewStreamManager(nil, st, &dummySlabRetentions{}, &expr.ExpressionFactory{}, cfg, false).(*streamManager)
+	mgr := NewStreamManager(nil, &dummySlabRetentions{}, &expr.ExpressionFactory{}, cfg, false).(*streamManager)
 	mgr.SetProcessorManager(pm)
 	mgr.Loaded()
 	pm.SetBatchHandler(mgr)
@@ -415,17 +398,12 @@ func TestGetInjectableReceivers(t *testing.T) {
 }
 
 func TestGetForwardingProcessorCountKafkaIn(t *testing.T) {
-	st := store2.TestStore()
-	pm := tppm.NewTestProcessorManager(st)
+	pm := tppm.NewTestProcessorManager()
 	defer pm.Close()
-	//goland:noinspection GoUnhandledErrorResult
-	st.Start()
-	//goland:noinspection GoUnhandledErrorResult
-	defer st.Stop()
 
 	cfg := &conf.Config{}
 	cfg.ApplyDefaults()
-	mgr := NewStreamManager(nil, st, &dummySlabRetentions{}, &expr.ExpressionFactory{}, cfg, true).(*streamManager)
+	mgr := NewStreamManager(nil, &dummySlabRetentions{}, &expr.ExpressionFactory{}, cfg, true).(*streamManager)
 	mgr.SetProcessorManager(pm)
 	mgr.Loaded()
 	pm.SetBatchHandler(mgr)
@@ -477,17 +455,12 @@ func TestGetForwardingProcessorCountKafkaIn(t *testing.T) {
 }
 
 func TestGetForwardingProcessorCountMultiplePartitions(t *testing.T) {
-	st := store2.TestStore()
-	pm := tppm.NewTestProcessorManager(st)
+	pm := tppm.NewTestProcessorManager()
 	defer pm.Close()
-	//goland:noinspection GoUnhandledErrorResult
-	st.Start()
-	//goland:noinspection GoUnhandledErrorResult
-	defer st.Stop()
 
 	cfg := &conf.Config{}
 	cfg.ApplyDefaults()
-	mgr := NewStreamManager(nil, st, &dummySlabRetentions{}, &expr.ExpressionFactory{}, cfg, true).(*streamManager)
+	mgr := NewStreamManager(nil, &dummySlabRetentions{}, &expr.ExpressionFactory{}, cfg, true).(*streamManager)
 	mgr.SetProcessorManager(pm)
 	mgr.Loaded()
 	pm.SetBatchHandler(mgr)
@@ -550,17 +523,12 @@ func TestGetForwardingProcessorCountMultiplePartitions(t *testing.T) {
 }
 
 func TestGetRequiredCompletions(t *testing.T) {
-	st := store2.TestStore()
-	pm := tppm.NewTestProcessorManager(st)
+	pm := tppm.NewTestProcessorManager()
 	defer pm.Close()
-	//goland:noinspection GoUnhandledErrorResult
-	st.Start()
-	//goland:noinspection GoUnhandledErrorResult
-	defer st.Stop()
 
 	cfg := &conf.Config{}
 	cfg.ApplyDefaults()
-	mgr := NewStreamManager(nil, st, &dummySlabRetentions{}, &expr.ExpressionFactory{}, cfg, false).(*streamManager)
+	mgr := NewStreamManager(nil, &dummySlabRetentions{}, &expr.ExpressionFactory{}, cfg, false).(*streamManager)
 	mgr.SetProcessorManager(pm)
 	mgr.Loaded()
 	pm.SetBatchHandler(mgr)
@@ -677,19 +645,14 @@ func (t *testSlabRetentions) getRetention(slabID int) (time.Duration, bool) {
 }
 
 func TestRegisterUnregisterSlabRetentions(t *testing.T) {
-	st := store2.TestStore()
-	pm := tppm.NewTestProcessorManager(st)
+	pm := tppm.NewTestProcessorManager()
 	defer pm.Close()
-	//goland:noinspection GoUnhandledErrorResult
-	st.Start()
-	//goland:noinspection GoUnhandledErrorResult
-	defer st.Stop()
 
 	retentions := &testSlabRetentions{retentions: map[int]time.Duration{}}
 
 	cfg := &conf.Config{}
 	cfg.ApplyDefaults()
-	mgr := NewStreamManager(nil, st, retentions, &expr.ExpressionFactory{}, cfg, false).(*streamManager)
+	mgr := NewStreamManager(nil, retentions, &expr.ExpressionFactory{}, cfg, false).(*streamManager)
 	mgr.SetProcessorManager(pm)
 	mgr.Loaded()
 	pm.SetBatchHandler(mgr)

@@ -13,26 +13,25 @@ import (
 	"github.com/spirit-labs/tektite/proc"
 	"github.com/spirit-labs/tektite/types"
 	"math"
-	"sync"
 )
 
 type GetOperator struct {
 	opers.BaseOperator
-	schema          *opers.OperatorSchema
-	isRange         bool
-	rangeStartExprs []expr.Expression
-	rangeEndExprs   []expr.Expression
-	startInclusive  bool
-	endInclusive    bool
-	keyColIndexes   []int
-	rowColIndexes   []int
-	keyColumnTypes  []types.ColumnType
-	rowColumnTypes  []types.ColumnType
-	slabID          int
-	store           iteratorProvider
-	emptyBatch      *evbatch.Batch
-	nodeID          int
-	keySchema       *evbatch.EventSchema
+	schema                 *opers.OperatorSchema
+	isRange                bool
+	rangeStartExprs        []expr.Expression
+	rangeEndExprs          []expr.Expression
+	startInclusive         bool
+	endInclusive           bool
+	keyColIndexes          []int
+	rowColIndexes          []int
+	keyColumnTypes         []types.ColumnType
+	rowColumnTypes         []types.ColumnType
+	slabID                 int
+	emptyBatch             *evbatch.Batch
+	nodeID                 int
+	keySchema              *evbatch.EventSchema
+	streamMetaIterProvider iteratorProvider
 }
 
 type KeyColExpr interface {
@@ -40,7 +39,7 @@ type KeyColExpr interface {
 }
 
 func NewGetOperator(isRange bool, rangeStartExprs []expr.Expression, rangeEndExprs []expr.Expression, startInclusive bool, endInclusive bool,
-	slabID int, keyColIndexes []int, tableSchema *opers.OperatorSchema, store iteratorProvider, nodeID int) *GetOperator {
+	slabID int, keyColIndexes []int, tableSchema *opers.OperatorSchema, nodeID int, streamMetaIterProvider iteratorProvider) *GetOperator {
 
 	keyColsSet := map[int]struct{}{}
 	var keyColumnTypes []types.ColumnType
@@ -61,26 +60,26 @@ func NewGetOperator(isRange bool, rangeStartExprs []expr.Expression, rangeEndExp
 	}
 	keySchema := evbatch.NewEventSchema(keyColNames, keyColumnTypes)
 	return &GetOperator{
-		isRange:         isRange,
-		rangeStartExprs: rangeStartExprs,
-		rangeEndExprs:   rangeEndExprs,
-		startInclusive:  startInclusive,
-		endInclusive:    endInclusive,
-		schema:          tableSchema,
-		keyColIndexes:   keyColIndexes,
-		rowColIndexes:   rowColIndexes,
-		keyColumnTypes:  keyColumnTypes,
-		rowColumnTypes:  rowColumnTypes,
-		slabID:          slabID,
-		//keyPrefix:       encoding.AppendUint64ToBufferBE(nil, uint64(slabID)),
-		store:      store,
-		emptyBatch: evbatch.CreateEmptyBatch(tableSchema.EventSchema),
-		nodeID:     nodeID,
-		keySchema:  keySchema,
+		isRange:                isRange,
+		rangeStartExprs:        rangeStartExprs,
+		rangeEndExprs:          rangeEndExprs,
+		startInclusive:         startInclusive,
+		endInclusive:           endInclusive,
+		schema:                 tableSchema,
+		keyColIndexes:          keyColIndexes,
+		rowColIndexes:          rowColIndexes,
+		keyColumnTypes:         keyColumnTypes,
+		rowColumnTypes:         rowColumnTypes,
+		slabID:                 slabID,
+		emptyBatch:             evbatch.CreateEmptyBatch(tableSchema.EventSchema),
+		nodeID:                 nodeID,
+		keySchema:              keySchema,
+		streamMetaIterProvider: streamMetaIterProvider,
 	}
 }
 
-func (g *GetOperator) CreateIterator(mappingID string, partID uint64, args *evbatch.Batch, highestVersion uint64) (iteration.Iterator, error) {
+func (g *GetOperator) CreateIterator(mappingID string, partID uint64, args *evbatch.Batch, highestVersion uint64,
+	processor proc.Processor) (iteration.Iterator, error) {
 	partitionHash := proc.CalcPartitionHash(mappingID, partID)
 	var start, end []byte
 	if !g.isRange {
@@ -125,8 +124,12 @@ func (g *GetOperator) CreateIterator(mappingID string, partID uint64, args *evba
 			end = encoding.EncodeEntryPrefix(partitionHash, uint64(g.slabID+1), 24)
 		}
 	}
-	log.Debugf("node:%d creating query iterator start:%v end:%v with max version:%d", g.nodeID, start, end, highestVersion)
-	return g.store.NewIterator(start, end, highestVersion, false)
+	log.Debugf("node:%d processor:%d creating query iterator start:%v end:%v with max version:%d", g.nodeID, processor.ID(), start, end, highestVersion)
+	if g.streamMetaIterProvider != nil {
+		return g.streamMetaIterProvider.NewIterator(start, end, highestVersion, false)
+	} else {
+		return processor.NewIterator(start, end, highestVersion, false)
+	}
 }
 
 func (g *GetOperator) CreateRangeStartKey(args *evbatch.Batch) ([]byte, error) {
@@ -311,7 +314,8 @@ func (g *GetOperator) Setup(opers.StreamManagerCtx) error {
 	return nil
 }
 
-func (g *GetOperator) Teardown(opers.StreamManagerCtx, *sync.RWMutex) {
+func (g *GetOperator) Teardown(mgr opers.StreamManagerCtx, completeCB func(error)) {
+	completeCB(nil)
 }
 
 func (g *GetOperator) GetKeyColExprs() []expr.Expression {

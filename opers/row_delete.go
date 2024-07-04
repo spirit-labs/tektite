@@ -6,7 +6,6 @@ import (
 	"github.com/spirit-labs/tektite/evbatch"
 	"github.com/spirit-labs/tektite/proc"
 	"github.com/spirit-labs/tektite/types"
-	"sync"
 )
 
 type RowDeleteOperator struct {
@@ -14,10 +13,9 @@ type RowDeleteOperator struct {
 	slabID  uint64
 	keyCols []int
 	rowCols []int
-	store   store
 }
 
-func NewRowDeleteOperator(schema *OperatorSchema, slabID int, store store, keyCols []int) (*RowDeleteOperator, error) {
+func NewRowDeleteOperator(schema *OperatorSchema, slabID int, keyCols []int) (*RowDeleteOperator, error) {
 	// We create a schema with just the key cols
 	var columnNames []string
 	var columnTypes []types.ColumnType
@@ -32,7 +30,6 @@ func NewRowDeleteOperator(schema *OperatorSchema, slabID int, store store, keyCo
 			PartitionScheme: schema.PartitionScheme,
 		},
 		slabID:  uint64(slabID),
-		store:   store,
 		keyCols: keyCols,
 	}, nil
 }
@@ -97,5 +94,6 @@ func (rd *RowDeleteOperator) Setup(StreamManagerCtx) error {
 	return nil
 }
 
-func (rd *RowDeleteOperator) Teardown(StreamManagerCtx, *sync.RWMutex) {
+func (rd *RowDeleteOperator) Teardown(mgr StreamManagerCtx, completeCB func(error)) {
+	completeCB(nil)
 }

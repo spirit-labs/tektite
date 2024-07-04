@@ -106,13 +106,12 @@ func (c *VersionManagerClient) IsFailureComplete(clusterVersion int) (bool, erro
 	return resp.Complete, nil
 }
 
-func (c *VersionManagerClient) VersionFlushed(nodeID int, version int, liveProcessorCount int, clusterVersion int) error {
+func (c *VersionManagerClient) VersionFlushed(processorID int, version int, clusterVersion int) error {
 	_, err := c.sendMsg(&clustermsgs.VersionFlushedMessage{
-		NodeId:         uint32(nodeID),
+		ProcessorId:    uint32(processorID),
 		Version:        uint64(version),
-		ProcessorCount: uint64(liveProcessorCount),
 		ClusterVersion: uint64(clusterVersion),
-	}, true)
+	}, false)
 	return err
 }
 
@@ -132,7 +131,7 @@ func (c *VersionManagerClient) sendMsg(msg remoting.ClusterMessage, retry bool) 
 		}
 		if common.IsUnavailableError(remoting.MaybeConvertError(err)) {
 			if c.stopped.Load() {
-				return nil, errors.New("version manager clients is stopped")
+				return nil, errors.New("version manager client is stopped")
 			}
 			// We retry after delay
 			time.Sleep(unavailabilityRetryInterval)

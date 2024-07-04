@@ -1,7 +1,8 @@
-package store
+package proc
 
 import (
 	"fmt"
+	"github.com/spirit-labs/tektite/clustmgr"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/conf"
 	"github.com/spirit-labs/tektite/encoding"
@@ -12,13 +13,73 @@ import (
 	"github.com/spirit-labs/tektite/objstore/dev"
 	"github.com/spirit-labs/tektite/tabcache"
 	"github.com/spirit-labs/tektite/testutils"
+	"math/rand"
+
 	"github.com/stretchr/testify/require"
 	"math"
-	"math/rand"
 	"sync/atomic"
 	"testing"
 	"time"
 )
+
+func init() {
+	common.EnableTestPorts()
+}
+
+func SetupProcessorStoreWithConfig(t testing.TB, conf conf.Config) (*ProcessorStore, *ProcessorManager) {
+	t.Helper()
+	conf.L0MaxTablesBeforeBlocking = math.MaxInt
+	cloudStore := dev.NewInMemStore(0)
+	lmClient := &levels.InMemClient{}
+	bi := &testCommandBatchIngestor{}
+	tabCache, err := tabcache.NewTableCache(cloudStore, &conf)
+	require.NoError(t, err)
+	levelManager := levels.NewLevelManager(&conf, cloudStore, tabCache, bi.ingest, false, false, false)
+	bi.lm = levelManager
+	lmClient.LevelManager = levelManager
+	err = levelManager.Start(true)
+	require.NoError(t, err)
+	err = levelManager.Activate()
+	require.NoError(t, err)
+	stateMgr := &testClustStateMgr{}
+	vmgrClient := &testVmgrClient{}
+	mgr := NewProcessorManagerWithVmgrClient(stateMgr, &testReceiverInfoProvider{}, &conf, nil,
+		createTestBatchHandler, nil, &testIngestNotifier{}, vmgrClient, cloudStore, lmClient,
+		tabCache, false)
+	require.NoError(t, err)
+	err = mgr.Start()
+	require.NoError(t, err)
+	cs := clustmgr.ClusterState{
+		Version: 0,
+		GroupStates: [][]clustmgr.GroupNode{
+			{clustmgr.GroupNode{
+				NodeID:        0,
+				Leader:        true,
+				Valid:         true,
+				JoinedVersion: 0,
+			}},
+		},
+	}
+	err = mgr.HandleClusterState(cs)
+	require.NoError(t, err)
+	proc := mgr.GetProcessor(0)
+	require.NotNil(t, proc)
+	processorStore := proc.(*processor).store.(*ProcessorStore)
+	return processorStore, mgr
+}
+
+type testCommandBatchIngestor struct {
+	lm *levels.LevelManager
+}
+
+func (tc *testCommandBatchIngestor) ingest(buff []byte, complFunc func(error)) {
+	regBatch := levels.RegistrationBatch{}
+	regBatch.Deserialize(buff, 1)
+	go func() {
+		err := tc.lm.ApplyChanges(regBatch, false, 0)
+		complFunc(err)
+	}()
+}
 
 func TestGet(t *testing.T) {
 	cfg := conf.Config{}
@@ -26,42 +87,44 @@ func TestGet(t *testing.T) {
 	cfg.MemtableMaxSizeBytes = 5 * 1024 * 1024
 	cfg.MemtableFlushQueueMaxSize = 10
 	cfg.MemtableMaxReplaceInterval = 10 * time.Minute
-
-	store := SetupStoreWithConfig(t, cfg)
-	defer stopStore(t, store)
+	procStore, mgr := SetupProcessorStoreWithConfig(t, cfg)
+	defer func() {
+		err := mgr.Stop()
+		require.NoError(t, err)
+	}()
 
 	// We pretend all versions are complete so memtables get pushed to cloud straight away
-	store.updateLastCompletedVersion(math.MaxInt64)
+	atomic.StoreInt64(&mgr.lastCompletedVersion, math.MaxInt64)
 
-	cs := store.cloudStoreClient.(*dev.InMemStore) //nolint:forcetypeassert
+	cs := mgr.cloudStoreClient.(*dev.InMemStore) //nolint:forcetypeassert
 	sizeStart := cs.Size()
 	batchSize := 100
 	numSSTables := 4
 	ks := 0
 	// Write data until numSSTables sstables have been flushed to the object store
 	for cs.Size() < sizeStart+numSSTables {
-		writeKVs(t, store, ks, batchSize)
+		writeKVs(t, procStore, ks, batchSize)
 		ks += batchSize
 	}
 
 	// Now we get each key - some will come from active memtable, others flush queue, others sstable
 	for i := 0; i < ks; i++ {
 		k := []byte(fmt.Sprintf("prefix/key-%010d", i))
-		v, err := store.Get(k)
+		v, err := procStore.Get(k)
 		require.NoError(t, err)
 		expectedV := []byte(fmt.Sprintf("prefix/value-%010d", i))
 		require.Equal(t, expectedV, v)
 	}
 
 	// Now get some non-existent keys
-	v, err := store.Get([]byte("foobar"))
+	v, err := procStore.Get([]byte("foobar"))
 	require.NoError(t, err)
 	require.Nil(t, v)
 
-	v, err = store.Get([]byte(fmt.Sprintf("prefix/key-%010d", ks)))
+	v, err = procStore.Get([]byte(fmt.Sprintf("prefix/key-%010d", ks)))
 	require.NoError(t, err)
 	require.Nil(t, v)
-	v, err = store.Get([]byte("prefix/key-"))
+	v, err = procStore.Get([]byte("prefix/key-"))
 	require.NoError(t, err)
 	require.Nil(t, v)
 }
@@ -75,10 +138,15 @@ func TestNewerEntriesOverrideOlderOnesAfterPush(t *testing.T) {
 	cfg.MemtableFlushQueueMaxSize = 10
 	cfg.MemtableMaxReplaceInterval = 10 * time.Minute
 
-	store := SetupStoreWithConfig(t, cfg)
-	defer stopStore(t, store)
-	store.updateLastCompletedVersion(math.MaxInt64) // Let table be flushed immediately
-	cs := store.cloudStoreClient.(*dev.InMemStore)  //nolint:forcetypeassert
+	procStore, mgr := SetupProcessorStoreWithConfig(t, cfg)
+	defer func() {
+		err := mgr.Stop()
+		require.NoError(t, err)
+	}()
+
+	atomic.StoreInt64(&mgr.lastCompletedVersion, math.MaxInt64)
+
+	cs := mgr.cloudStoreClient.(*dev.InMemStore) //nolint:forcetypeassert
 	sizeStart := cs.Size()
 	batch := mem.NewBatch()
 	batch.AddEntry(common.KV{
@@ -89,7 +157,7 @@ func TestNewerEntriesOverrideOlderOnesAfterPush(t *testing.T) {
 		Key:   encoding.EncodeVersion([]byte("key2"), 0),
 		Value: []byte("val2"),
 	})
-	writeBatchInSSTable(t, store, batch)
+	writeBatchInSSTable(t, procStore, batch)
 	require.Equal(t, sizeStart+1, cs.Size())
 	batch = mem.NewBatch()
 	batch.AddEntry(common.KV{
@@ -99,10 +167,10 @@ func TestNewerEntriesOverrideOlderOnesAfterPush(t *testing.T) {
 	batch.AddEntry(common.KV{
 		Key: encoding.EncodeVersion([]byte("key2"), 0),
 	})
-	writeBatchInSSTable(t, store, batch)
+	writeBatchInSSTable(t, procStore, batch)
 	require.Equal(t, sizeStart+2, cs.Size())
 
-	iter, err := store.NewIterator(nil, nil, math.MaxUint64, false)
+	iter, err := procStore.NewIterator(nil, nil, math.MaxUint64, false)
 	require.NoError(t, err)
 	requireIterValid(t, iter, true)
 	curr := iter.Current()
@@ -114,11 +182,17 @@ func TestNewerEntriesOverrideOlderOnesAfterPush(t *testing.T) {
 	requireIterValid(t, iter, false)
 }
 
-func writeBatchInSSTable(t *testing.T, store *Store, batch *mem.Batch) {
+func writeBatchInSSTable(t *testing.T, store *ProcessorStore, batch *mem.Batch) {
 	var errVal atomic.Value
 	err := store.Write(batch)
 	require.NoError(t, err)
-	err = store.Flush(true, false)
+	ch := make(chan error, 1)
+	cb := func(err error) {
+		ch <- err
+	}
+	err = store.flush(cb)
+	require.NoError(t, err)
+	err = <-ch
 	require.NoError(t, err)
 	ev := errVal.Load()
 	if ev != nil {
@@ -129,14 +203,19 @@ func writeBatchInSSTable(t *testing.T, store *Store, batch *mem.Batch) {
 }
 
 func TestSimpleIterate(t *testing.T) {
-	store := SetupStore(t)
-	defer stopStore(t, store)
+	cfg := conf.Config{}
+	cfg.ApplyDefaults()
+	procStore, mgr := SetupProcessorStoreWithConfig(t, cfg)
+	defer func() {
+		err := mgr.Stop()
+		require.NoError(t, err)
+	}()
 
-	iter, err := store.NewIterator(nil, nil, math.MaxUint64, false)
+	iter, err := procStore.NewIterator(nil, nil, math.MaxUint64, false)
 	require.NoError(t, err)
 	requireIterValid(t, iter, false)
 
-	writeKVs(t, store, 0, 10)
+	writeKVs(t, procStore, 0, 10)
 	iteratePairs(t, iter, 0, 10)
 
 	err = iter.Next()
@@ -145,44 +224,54 @@ func TestSimpleIterate(t *testing.T) {
 }
 
 func TestIterateAllThenAddMore(t *testing.T) {
-	store := SetupStore(t)
-	defer stopStore(t, store)
+	cfg := conf.Config{}
+	cfg.ApplyDefaults()
+	procStore, mgr := SetupProcessorStoreWithConfig(t, cfg)
+	defer func() {
+		err := mgr.Stop()
+		require.NoError(t, err)
+	}()
 
-	iter, err := store.NewIterator(nil, nil, math.MaxUint64, false)
+	iter, err := procStore.NewIterator(nil, nil, math.MaxUint64, false)
 	require.NoError(t, err)
 	requireIterValid(t, iter, false)
 
-	writeKVs(t, store, 0, 10)
+	writeKVs(t, procStore, 0, 10)
 	iteratePairs(t, iter, 0, 10)
 
 	err = iter.Next()
 	require.NoError(t, err)
 	requireIterValid(t, iter, false)
 
-	writeKVs(t, store, 10, 10)
+	writeKVs(t, procStore, 10, 10)
 	iteratePairs(t, iter, 10, 10)
 }
 
 func TestIteratorPicksUpAddedDataAfterDataWithGreaterKeyAlreadyExists(t *testing.T) {
-	store := SetupStore(t)
-	defer stopStore(t, store)
+	cfg := conf.Config{}
+	cfg.ApplyDefaults()
+	procStore, mgr := SetupProcessorStoreWithConfig(t, cfg)
+	defer func() {
+		err := mgr.Stop()
+		require.NoError(t, err)
+	}()
 
 	// Test case where data already exists with greater key before iter is created
 	// Then iter is created, and it's not valid
 	// Then add data in range
 	// And it picks up new data
 
-	writeKVs(t, store, 5, 1)
+	writeKVs(t, procStore, 5, 1)
 
 	ks := []byte(fmt.Sprintf("prefix/key-%010d", 4))
 	ke := []byte(fmt.Sprintf("prefix/key-%010d", 5))
 
-	iter, err := store.NewIterator(ks, ke, math.MaxUint64, false)
+	iter, err := procStore.NewIterator(ks, ke, math.MaxUint64, false)
 	require.NoError(t, err)
 
 	requireIterValid(t, iter, false)
 
-	writeKVs(t, store, 4, 1)
+	writeKVs(t, procStore, 4, 1)
 
 	requireIterValid(t, iter, true)
 
@@ -193,17 +282,22 @@ func TestIteratorPicksUpAddedDataAfterDataWithGreaterKeyAlreadyExists(t *testing
 }
 
 func TestIterateInRange(t *testing.T) {
-	store := SetupStore(t)
-	defer stopStore(t, store)
+	cfg := conf.Config{}
+	cfg.ApplyDefaults()
+	procStore, mgr := SetupProcessorStoreWithConfig(t, cfg)
+	defer func() {
+		err := mgr.Stop()
+		require.NoError(t, err)
+	}()
 
 	ks := []byte(fmt.Sprintf("prefix/key-%010d", 3))
 	ke := []byte(fmt.Sprintf("prefix/key-%010d", 7))
 
-	iter, err := store.NewIterator(ks, ke, math.MaxUint64, false)
+	iter, err := procStore.NewIterator(ks, ke, math.MaxUint64, false)
 	require.NoError(t, err)
 	requireIterValid(t, iter, false)
 
-	writeKVs(t, store, 0, 10)
+	writeKVs(t, procStore, 0, 10)
 	iteratePairs(t, iter, 3, 4)
 
 	err = iter.Next()
@@ -212,16 +306,21 @@ func TestIterateInRange(t *testing.T) {
 }
 
 func TestIterateInRangeNoEndRange(t *testing.T) {
-	store := SetupStore(t)
-	defer stopStore(t, store)
+	cfg := conf.Config{}
+	cfg.ApplyDefaults()
+	procStore, mgr := SetupProcessorStoreWithConfig(t, cfg)
+	defer func() {
+		err := mgr.Stop()
+		require.NoError(t, err)
+	}()
 
 	ks := []byte(fmt.Sprintf("prefix/key-%010d", 3))
 
-	iter, err := store.NewIterator(ks, nil, math.MaxUint64, false)
+	iter, err := procStore.NewIterator(ks, nil, math.MaxUint64, false)
 	require.NoError(t, err)
 	requireIterValid(t, iter, false)
 
-	writeKVs(t, store, 0, 10)
+	writeKVs(t, procStore, 0, 10)
 	iteratePairs(t, iter, 3, 7)
 
 	err = iter.Next()
@@ -230,8 +329,13 @@ func TestIterateInRangeNoEndRange(t *testing.T) {
 }
 
 func TestIterateThenDelete(t *testing.T) {
-	store := SetupStore(t)
-	defer stopStore(t, store)
+	cfg := conf.Config{}
+	cfg.ApplyDefaults()
+	store, mgr := SetupProcessorStoreWithConfig(t, cfg)
+	defer func() {
+		err := mgr.Stop()
+		require.NoError(t, err)
+	}()
 
 	iter, err := store.NewIterator(nil, nil, math.MaxUint64, false)
 	require.NoError(t, err)
@@ -251,8 +355,13 @@ func TestIterateThenDelete(t *testing.T) {
 }
 
 func TestIterateThenReplaceThenDelete(t *testing.T) {
-	store := SetupStore(t)
-	defer stopStore(t, store)
+	cfg := conf.Config{}
+	cfg.ApplyDefaults()
+	store, mgr := SetupProcessorStoreWithConfig(t, cfg)
+	defer func() {
+		err := mgr.Stop()
+		require.NoError(t, err)
+	}()
 
 	iter, err := store.NewIterator(nil, nil, math.MaxUint64, false)
 	require.NoError(t, err)
@@ -262,7 +371,7 @@ func TestIterateThenReplaceThenDelete(t *testing.T) {
 	iteratePairs(t, iter, 0, 5)
 	requireIterValid(t, iter, true)
 
-	err = store.forceReplaceMemtable()
+	err = store.flush(nil)
 	require.NoError(t, err)
 	requireIterValid(t, iter, true)
 
@@ -274,9 +383,13 @@ func TestIterateThenReplaceThenDelete(t *testing.T) {
 }
 
 func TestIterateAllMemtableThenReplace(t *testing.T) {
-	store := SetupStore(t)
-	//goland:noinspection GoUnhandledErrorResult
-	defer store.Stop()
+	cfg := conf.Config{}
+	cfg.ApplyDefaults()
+	store, mgr := SetupProcessorStoreWithConfig(t, cfg)
+	defer func() {
+		err := mgr.Stop()
+		require.NoError(t, err)
+	}()
 
 	iter, err := store.NewIterator(nil, nil, math.MaxUint64, false)
 	require.NoError(t, err)
@@ -292,15 +405,20 @@ func TestIterateAllMemtableThenReplace(t *testing.T) {
 		require.NoError(t, err)
 		requireIterValid(t, iter, false)
 
-		err = store.forceReplaceMemtable()
+		err = store.flush(nil)
 		require.NoError(t, err)
 		ks += 10
 	}
 }
 
 func TestIterateSomeMemtableThenReplace(t *testing.T) {
-	store := SetupStore(t)
-	defer stopStore(t, store)
+	cfg := conf.Config{}
+	cfg.ApplyDefaults()
+	store, mgr := SetupProcessorStoreWithConfig(t, cfg)
+	defer func() {
+		err := mgr.Stop()
+		require.NoError(t, err)
+	}()
 
 	iter, err := store.NewIterator(nil, nil, math.MaxUint64, false)
 	require.NoError(t, err)
@@ -316,7 +434,7 @@ func TestIterateSomeMemtableThenReplace(t *testing.T) {
 		iteratePairs(t, iter, ks, 5)
 		requireIterValid(t, iter, true)
 
-		err = store.forceReplaceMemtable()
+		err = store.flush(nil)
 		require.NoError(t, err)
 
 		ks += 5
@@ -334,8 +452,13 @@ func TestIterateSomeMemtableThenReplace(t *testing.T) {
 }
 
 func TestIterateThenReplaceThenAddWithSmallerKey(t *testing.T) {
-	store := SetupStore(t)
-	defer stopStore(t, store)
+	cfg := conf.Config{}
+	cfg.ApplyDefaults()
+	store, mgr := SetupProcessorStoreWithConfig(t, cfg)
+	defer func() {
+		err := mgr.Stop()
+		require.NoError(t, err)
+	}()
 
 	iter, err := store.NewIterator(nil, nil, math.MaxUint64, false)
 	require.NoError(t, err)
@@ -348,7 +471,7 @@ func TestIterateThenReplaceThenAddWithSmallerKey(t *testing.T) {
 	require.NoError(t, err)
 	requireIterValid(t, iter, false)
 
-	err = store.forceReplaceMemtable()
+	err = store.flush(nil)
 	require.NoError(t, err)
 
 	// Now add some more but with smaller keys we've already seen, and different values
@@ -368,9 +491,12 @@ func TestIterateThenReplaceThenAddWithSmallerKey(t *testing.T) {
 func TestIterateShuffledKeys(t *testing.T) {
 	cfg := conf.Config{}
 	cfg.ApplyDefaults()
-	cfg.MemtableFlushQueueMaxSize = 1000
-	store := SetupStoreWithConfig(t, cfg)
-	defer stopStore(t, store)
+	cfg.MemtableFlushQueueMaxSize = 10
+	store, mgr := SetupProcessorStoreWithConfig(t, cfg)
+	defer func() {
+		err := mgr.Stop()
+		require.NoError(t, err)
+	}()
 
 	// Add a bunch of entries in random order, and add in small batches, replacing memtable each time
 	// Then iterate through them and verify in order and all correct
@@ -393,7 +519,7 @@ func TestIterateShuffledKeys(t *testing.T) {
 			err := store.Write(batch)
 			require.NoError(t, err)
 			batch = nil
-			err = store.forceReplaceMemtable()
+			err = store.flush(nil)
 			require.NoError(t, err)
 		}
 	}
@@ -405,16 +531,17 @@ func TestIterateShuffledKeys(t *testing.T) {
 
 func TestPeriodicMemtableReplace(t *testing.T) {
 	// Make sure that the memtable is periodically replaced
-	maxReplaceTime := 250 * time.Millisecond
 	cfg := conf.Config{}
 	cfg.ApplyDefaults()
+	maxReplaceTime := 250 * time.Millisecond
 	cfg.MemtableMaxReplaceInterval = maxReplaceTime
+	store, mgr := SetupProcessorStoreWithConfig(t, cfg)
+	defer func() {
+		err := mgr.Stop()
+		require.NoError(t, err)
+	}()
 
-	store := SetupStoreWithConfig(t, cfg)
-	store.updateLastCompletedVersion(math.MaxInt64)
-	defer stopStore(t, store)
-
-	cs := store.cloudStoreClient.(*dev.InMemStore) //nolint:forcetypeassert
+	cs := mgr.cloudStoreClient.(*dev.InMemStore) //nolint:forcetypeassert
 
 	numIters := 3
 	ks := 0
@@ -424,15 +551,12 @@ func TestPeriodicMemtableReplace(t *testing.T) {
 
 		writeKVs(t, store, ks, 10)
 
-		log.Debugf("store size is currently %d", storeSize)
-
 		testutils.WaitUntil(t, func() (bool, error) {
 			// Wait until the SSTable should has been pushed to the cloud store
 			return cs.Size() == storeSize+1, nil
 		})
 
 		// Make sure all the data is there
-		log.Debug("creating iterator....")
 		iter, err := store.NewIterator(nil, nil, math.MaxUint64, false)
 		require.NoError(t, err)
 		iteratePairs(t, iter, 0, 10*(i+1))
@@ -452,13 +576,15 @@ func TestMemtableReplaceWhenMaxSizeReached(t *testing.T) {
 	cfg.MemtableMaxSizeBytes = 16 * 1024 * 1024
 	cfg.MemtableFlushQueueMaxSize = 10
 	cfg.MemtableMaxReplaceInterval = 10 * time.Minute
+	store, mgr := SetupProcessorStoreWithConfig(t, cfg)
+	defer func() {
+		err := mgr.Stop()
+		require.NoError(t, err)
+	}()
 
-	store := SetupStoreWithConfig(t, cfg)
-	store.updateLastCompletedVersion(math.MaxInt64)
+	atomic.StoreInt64(&mgr.lastCompletedVersion, math.MaxInt64)
 
-	defer stopStore(t, store)
-
-	cs := store.cloudStoreClient.(*dev.InMemStore) //nolint:forcetypeassert
+	cs := mgr.cloudStoreClient.(*dev.InMemStore) //nolint:forcetypeassert
 
 	// Add entries until several SSTables have been flushed to cloud store
 	numSSTables := 10
@@ -479,43 +605,6 @@ func TestMemtableReplaceWhenMaxSizeReached(t *testing.T) {
 	iteratePairsWithParams(t, iter, 0, ks, string(vs))
 }
 
-func SetupStore(t *testing.T) *Store {
-	t.Helper()
-	cfg := conf.Config{}
-	cfg.ApplyDefaults()
-	return SetupStoreWithConfig(t, cfg)
-}
-
-func SetupStoreWithConfig(t testing.TB, conf conf.Config) *Store {
-	t.Helper()
-	conf.L0MaxTablesBeforeBlocking = math.MaxInt
-	cloudStore := dev.NewInMemStore(100 * time.Millisecond)
-	lmClient := &levels.InMemClient{}
-	bi := &testCommandBatchIngestor{}
-	tabCache, err := tabcache.NewTableCache(cloudStore, &conf)
-	require.NoError(t, err)
-	levelManager := levels.NewLevelManager(&conf, cloudStore, tabCache, bi.ingest, false, false, false)
-	bi.lm = levelManager
-	lmClient.LevelManager = levelManager
-	err = levelManager.Start(true)
-	require.NoError(t, err)
-	err = levelManager.Activate()
-	require.NoError(t, err)
-	tableCache, err := tabcache.NewTableCache(cloudStore, &conf)
-	require.NoError(t, err)
-	err = tableCache.Start()
-	require.NoError(t, err)
-	store := NewStore(cloudStore, lmClient, tableCache, conf)
-	err = store.Start()
-	require.NoError(t, err)
-	return store
-}
-
-func stopStore(t testing.TB, store *Store) {
-	err := store.Stop()
-	require.NoError(t, err)
-}
-
 func iteratePairs(t *testing.T, iter iteration.Iterator, keyStart int, numPairs int) {
 	iteratePairsWithParams(t, iter, keyStart, numPairs, "")
 }
@@ -525,8 +614,9 @@ func iteratePairsWithParams(t *testing.T, iter iteration.Iterator, keyStart int,
 	for i := 0; i < numPairs; i++ {
 		requireIterValid(t, iter, true)
 		curr := iter.Current()
-		curr.Key = curr.Key[:len(curr.Key)-8] // strip version
-		require.Equal(t, []byte(fmt.Sprintf("prefix/key-%010d", keyStart+i)), curr.Key)
+		key := curr.Key[:len(curr.Key)-8] // strip version
+		log.Debugf("got key %s value %s", string(key), string(iter.Current().Value))
+		require.Equal(t, []byte(fmt.Sprintf("prefix/key-%010d", keyStart+i)), key)
 		require.Equal(t, []byte(fmt.Sprintf("prefix/value-%010d%s", keyStart+i, valueSuffix)), curr.Value)
 		if i != numPairs-1 {
 			err := iter.Next()
@@ -542,22 +632,22 @@ func requireIterValid(t *testing.T, iter iteration.Iterator, valid bool) {
 	require.Equal(t, valid, v)
 }
 
-func writeKVs(t *testing.T, store *Store, keyStart int, numPairs int) { //nolint:unparam
+func writeKVs(t *testing.T, store Store, keyStart int, numPairs int) { //nolint:unparam
 	t.Helper()
 	writeKVsWithParams(t, store, keyStart, numPairs, "", false)
 }
 
-func writeKVsWithTombstones(t *testing.T, store *Store, keyStart int, numPairs int) {
+func writeKVsWithTombstones(t *testing.T, store Store, keyStart int, numPairs int) {
 	t.Helper()
 	writeKVsWithParams(t, store, keyStart, numPairs, "", true)
 }
 
-func writeKVsWithValueSuffix(t *testing.T, store *Store, keyStart int, numPairs int, valueSuffix string) {
+func writeKVsWithValueSuffix(t *testing.T, store Store, keyStart int, numPairs int, valueSuffix string) {
 	t.Helper()
 	writeKVsWithParams(t, store, keyStart, numPairs, valueSuffix, false)
 }
 
-func writeKVsWithParams(t testing.TB, store *Store, keyStart int, numPairs int, valueSuffix string,
+func writeKVsWithParams(t testing.TB, store Store, keyStart int, numPairs int, valueSuffix string,
 	tombstones bool) {
 	t.Helper()
 	batch := mem.NewBatch()

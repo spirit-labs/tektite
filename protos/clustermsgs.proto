@@ -217,10 +217,9 @@ message IsFailureCompleteResponse {
 }
 
 message VersionFlushedMessage {
-  uint32 node_id = 1;
+  uint32 processor_id = 1;
   uint64 version = 2;
-  uint64 processor_count = 3;
-  uint64 cluster_version = 4;
+  uint64 cluster_version = 3;
 }
 
 // Command manager messages

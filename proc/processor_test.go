@@ -1,16 +1,23 @@
 package proc
 
 import (
+	"bytes"
+	"encoding/binary"
 	"fmt"
+	"github.com/emirpasic/gods/maps/treemap"
+	"github.com/spirit-labs/tektite/clustmgr"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/conf"
 	"github.com/spirit-labs/tektite/encoding"
 	"github.com/spirit-labs/tektite/errors"
 	"github.com/spirit-labs/tektite/evbatch"
+	"github.com/spirit-labs/tektite/iteration"
 	"github.com/spirit-labs/tektite/mem"
-	"github.com/spirit-labs/tektite/store"
+	"github.com/spirit-labs/tektite/remoting"
 	"github.com/spirit-labs/tektite/testutils"
+	"github.com/spirit-labs/tektite/vmgr"
 	"github.com/stretchr/testify/require"
+	"math"
 	"math/rand"
 	"sync"
 	"sync/atomic"
@@ -19,25 +26,14 @@ import (
 )
 
 func TestCreateProcessor(t *testing.T) {
-
 	id := 1234
-	proc, st := createProcessor(t, id, &testForwarder{}, &testBatchHandler{}, &testReceiverInfoProvider{})
-	defer func() {
-		err := st.Stop()
-		require.NoError(t, err)
-	}()
-
+	proc := createProcessor(t, id, &testForwarder{}, &testBatchHandler{}, &testReceiverInfoProvider{})
 	require.Equal(t, id, proc.ID())
 }
 
 func TestProcessBatchNotLeader(t *testing.T) {
 	id := 1234
-	proc, st := createProcessor(t, id, &testForwarder{}, &testBatchHandler{}, &testReceiverInfoProvider{})
-	defer func() {
-		err := st.Stop()
-		require.NoError(t, err)
-	}()
-
+	proc := createProcessor(t, id, &testForwarder{}, &testBatchHandler{}, &testReceiverInfoProvider{})
 	batch := NewProcessBatch(id, nil, 1, 1, -1)
 	ch := make(chan error, 1)
 	proc.IngestBatch(batch, func(err error) {
@@ -62,12 +58,7 @@ func TestProcessBatch(t *testing.T) {
 		memBatch: memBatch,
 	}
 
-	proc, st := createProcessor(t, processorID, &testForwarder{}, batchHandler, &testReceiverInfoProvider{})
-	defer func() {
-		err := st.Stop()
-		require.NoError(t, err)
-	}()
-
+	proc := createProcessor(t, processorID, &testForwarder{}, batchHandler, &testReceiverInfoProvider{})
 	proc.SetLeader()
 
 	proc.CloseVersion(0, nil)
@@ -84,7 +75,7 @@ func TestProcessBatch(t *testing.T) {
 	require.Equal(t, batch, batchHandler.receivedBatches[0].processBatch)
 	require.Equal(t, proc, batchHandler.receivedBatches[0].processor)
 
-	v, err := st.Get([]byte("key1"))
+	v, err := proc.Get([]byte("key1"))
 	require.NoError(t, err)
 	require.Equal(t, []byte("val1"), v)
 }
@@ -94,11 +85,7 @@ func TestActionsAfterStopNotRun(t *testing.T) {
 	batchHandler := &testBatchHandler{}
 	receiverInfoProvider := &testReceiverInfoProvider{}
 
-	proc, st := createProcessor(t, 1234, &testForwarder{}, batchHandler, receiverInfoProvider)
-	defer func() {
-		err := st.Stop()
-		require.NoError(t, err)
-	}()
+	proc := createProcessor(t, 1234, &testForwarder{}, batchHandler, receiverInfoProvider)
 
 	proc.SetLeader()
 
@@ -141,11 +128,7 @@ func TestForwardBatches(t *testing.T) {
 
 	forwarder := &testForwarder{}
 
-	proc, st := createProcessor(t, processorID, forwarder, batchHandler, &testReceiverInfoProvider{})
-	defer func() {
-		err := st.Stop()
-		require.NoError(t, err)
-	}()
+	proc := createProcessor(t, processorID, forwarder, batchHandler, &testReceiverInfoProvider{})
 
 	proc.SetLeader()
 
@@ -165,7 +148,7 @@ func TestForwardBatches(t *testing.T) {
 
 	require.Equal(t, forwardBatches, batchHandler.forwardedBatches)
 
-	v, err := st.Get([]byte("key1"))
+	v, err := proc.Get([]byte("key1"))
 	require.NoError(t, err)
 	require.Equal(t, []byte("val1"), v)
 }
@@ -231,11 +214,7 @@ func TestBarrierWithSameVersionAfterVersionComplete(t *testing.T) {
 	batchHandler := newForwardingBatchHandler()
 	batchHandler.requiredCompletions = 1
 
-	proc, st := createProcessor(t, processorID, &testForwarder{}, batchHandler, batchHandler)
-	defer func() {
-		err := st.Stop()
-		require.NoError(t, err)
-	}()
+	proc := createProcessor(t, processorID, &testForwarder{}, batchHandler, batchHandler)
 
 	vHandler := newVcHandler()
 	proc.SetVersionCompleteHandler(vHandler.versionComplete)
@@ -268,11 +247,7 @@ func TestBarrierWithOlderVersionAfterVersionComplete(t *testing.T) {
 	batchHandler := newForwardingBatchHandler()
 	batchHandler.requiredCompletions = 1
 
-	proc, st := createProcessor(t, processorID, &testForwarder{}, batchHandler, batchHandler)
-	defer func() {
-		err := st.Stop()
-		require.NoError(t, err)
-	}()
+	proc := createProcessor(t, processorID, &testForwarder{}, batchHandler, batchHandler)
 
 	vHandler := newVcHandler()
 	proc.SetVersionCompleteHandler(vHandler.versionComplete)
@@ -327,13 +302,7 @@ func TestForwardingMultipleReceiversAndProcessors(t *testing.T) {
 	cfg := &conf.Config{}
 	cfg.ApplyDefaults()
 	cfg.ProcessorCount = numProcessors
-	st := store.TestStore()
-	err := st.Start()
-	require.NoError(t, err)
-	defer func() {
-		err := st.Stop()
-		require.NoError(t, err)
-	}()
+
 	var batchHandlers []*forwardingBatchHandler
 	batchForwarder := &testBatchForwarder{}
 
@@ -407,7 +376,7 @@ func TestForwardingMultipleReceiversAndProcessors(t *testing.T) {
 		}
 		batchHandlers = append(batchHandlers, batchHandler)
 
-		proc := NewProcessor(i, cfg, st, batchForwarder, batchHandler, batchHandler, createDataKey(i)).(*processor)
+		proc := NewProcessor(i, cfg, &dummyStore{}, batchForwarder, batchHandler, batchHandler, createDataKey(i)).(*processor)
 
 		proc.SetVersionCompleteHandler(vHandler.versionComplete)
 
@@ -473,7 +442,7 @@ func TestForwardingMultipleReceiversAndProcessors(t *testing.T) {
 			vHandler.waitForVersionToComplete(t, version)
 		}
 	}
-	err = <-ch
+	err := <-ch
 	require.NoError(t, err)
 
 	// Wait for last version to complete
@@ -483,6 +452,44 @@ func TestForwardingMultipleReceiversAndProcessors(t *testing.T) {
 	verifyBatchesReceivedAtTerminalReceiver(t, receiver1SentBatches, receiver3, receiver3Processors, batchHandlers)
 	verifyBatchesReceivedAtTerminalReceiver(t, receiver1SentBatches, receiver4, receiver4Processors, batchHandlers)
 	verifyBatchesReceivedAtTerminalReceiver(t, receiver5SentBatches, receiver5, receiver5Processors, batchHandlers)
+}
+
+type dummyStore struct {
+}
+
+func (d *dummyStore) Start() {
+}
+
+func (d *dummyStore) Stop() {
+	panic("implement me")
+}
+
+func (d *dummyStore) Get(key []byte) ([]byte, error) {
+	panic("implement me")
+}
+
+func (d *dummyStore) Write(batch *mem.Batch) error {
+	return nil
+}
+
+func (d *dummyStore) Flush(cb func(error)) error {
+	panic("implement me")
+}
+
+func (d *dummyStore) MaybeReplaceMemtable() error {
+	panic("implement me")
+}
+
+func (d *dummyStore) Clear() error {
+	panic("implement me")
+}
+
+func (d *dummyStore) GetWithMaxVersion(key []byte, maxVersion uint64) ([]byte, error) {
+	panic("implement me")
+}
+
+func (d *dummyStore) NewIterator(keyStart []byte, keyEnd []byte, highestVersion uint64, preserveTombstones bool) (iteration.Iterator, error) {
+	panic("implement me")
 }
 
 func verifyBatchesReceivedAtTerminalReceiver(t *testing.T, sentBatches []*ProcessBatch, receiverID int, processorIDs []int,
@@ -527,13 +534,7 @@ func TestBarrierNewerVersionOverridesVersionBeingCompleted(t *testing.T) {
 	cfg := &conf.Config{}
 	cfg.ApplyDefaults()
 	cfg.ProcessorCount = numProcessors
-	st := store.TestStore()
-	err := st.Start()
-	require.NoError(t, err)
-	defer func() {
-		err := st.Stop()
-		require.NoError(t, err)
-	}()
+
 	var batchHandlers []*forwardingBatchHandler
 	batchForwarder := &testBatchForwarder{}
 
@@ -559,7 +560,7 @@ func TestBarrierNewerVersionOverridesVersionBeingCompleted(t *testing.T) {
 		}
 		batchHandlers = append(batchHandlers, batchHandler)
 
-		proc := NewProcessor(i, cfg, st, batchForwarder, batchHandler, batchHandler, createDataKey(i)).(*processor)
+		proc := NewProcessor(i, cfg, &dummyStore{}, batchForwarder, batchHandler, batchHandler, createDataKey(i)).(*processor)
 
 		proc.SetVersionCompleteHandler(vHandler.versionComplete)
 
@@ -638,11 +639,7 @@ func TestInvalidateCachedReceiverInfo(t *testing.T) {
 
 	forwarder := &testBatchForwarder{}
 
-	proc, st := createProcessor(t, 0, forwarder, batchHandler, batchHandler)
-	defer func() {
-		err := st.Stop()
-		require.NoError(t, err)
-	}()
+	proc := createProcessor(t, 0, forwarder, batchHandler, batchHandler)
 
 	forwarder.processors = []*processor{proc}
 
@@ -714,11 +711,7 @@ func TestForwardFromSingleProcessor(t *testing.T) {
 
 	forwarder := &testBatchForwarder{}
 
-	proc, st := createProcessor(t, 0, forwarder, batchHandler, batchHandler)
-	defer func() {
-		err := st.Stop()
-		require.NoError(t, err)
-	}()
+	proc := createProcessor(t, 0, forwarder, batchHandler, batchHandler)
 
 	forwarder.processors = []*processor{proc}
 
@@ -757,12 +750,9 @@ func TestBarriersNoForwarding(t *testing.T) {
 	batchHandler := newForwardingBatchHandler()
 
 	vHandler := newVcHandler()
-	proc, st := createProcessor(t, processorID, &testForwarder{}, batchHandler, batchHandler)
+	proc := createProcessor(t, processorID, &testForwarder{}, batchHandler, batchHandler)
 	proc.SetVersionCompleteHandler(vHandler.versionComplete)
-	defer func() {
-		err := st.Stop()
-		require.NoError(t, err)
-	}()
+
 	proc.SetLeader()
 
 	numReceivers := 10
@@ -826,13 +816,7 @@ func TestBarriersWithForwarding(t *testing.T) {
 	cfg := &conf.Config{}
 	cfg.ApplyDefaults()
 	cfg.ProcessorCount = numProcessors
-	st := store.TestStore()
-	err := st.Start()
-	require.NoError(t, err)
-	defer func() {
-		err := st.Stop()
-		require.NoError(t, err)
-	}()
+
 	var batchHandlers []*forwardingBatchHandler
 	batchForwarder := &testBatchForwarder{}
 
@@ -860,7 +844,7 @@ func TestBarriersWithForwarding(t *testing.T) {
 		}
 		batchHandlers = append(batchHandlers, batchHandler)
 
-		proc := NewProcessor(i, cfg, st, batchForwarder, batchHandler, batchHandler, createDataKey(i)).(*processor)
+		proc := NewProcessor(i, cfg, &dummyStore{}, batchForwarder, batchHandler, batchHandler, createDataKey(i)).(*processor)
 
 		proc.SetVersionCompleteHandler(vHandler.versionComplete)
 
@@ -895,7 +879,7 @@ func TestBarriersWithForwarding(t *testing.T) {
 		// We will block waiting for version to complete before going to next version
 		vHandler.waitForVersionToComplete(t, version)
 	}
-	err = <-ch
+	err := <-ch
 	require.NoError(t, err)
 
 	for procIndex, proc := range processors {
@@ -962,16 +946,8 @@ func TestBarriersWithForwarding(t *testing.T) {
 }
 
 func TestForwardAfterUnavailability(t *testing.T) {
-
 	forwarder := &testBatchForwarder{}
 
-	st := store.TestStore()
-	err := st.Start()
-	require.NoError(t, err)
-	defer func() {
-		err := st.Stop()
-		require.NoError(t, err)
-	}()
 	cfg := &conf.Config{}
 	cfg.ApplyDefaults()
 	cfg.ProcessorCount = 2
@@ -995,7 +971,7 @@ func TestForwardAfterUnavailability(t *testing.T) {
 		},
 	}
 
-	proc1 := NewProcessor(1, cfg, st, forwarder, batchHandler1, batchHandler1, createDataKey(1)).(*processor)
+	proc1 := NewProcessor(1, cfg, &dummyStore{}, forwarder, batchHandler1, batchHandler1, createDataKey(1)).(*processor)
 	proc1.SetVersionCompleteHandler(vHandler.versionComplete)
 	proc1.SetLeader()
 
@@ -1014,7 +990,7 @@ func TestForwardAfterUnavailability(t *testing.T) {
 			1001: 2,
 		},
 	}
-	proc2 := NewProcessor(2, cfg, st, forwarder, batchHandler2, batchHandler2, createDataKey(2)).(*processor)
+	proc2 := NewProcessor(2, cfg, &dummyStore{}, forwarder, batchHandler2, batchHandler2, createDataKey(2)).(*processor)
 	proc2.SetVersionCompleteHandler(vHandler.versionComplete)
 	proc2.SetLeader()
 
@@ -1030,7 +1006,7 @@ func TestForwardAfterUnavailability(t *testing.T) {
 	proc1.IngestBatch(batch, func(err error) {
 		ch <- err
 	})
-	err = <-ch
+	err := <-ch
 	require.NoError(t, err)
 
 	// Send barriers to complete version
@@ -1072,14 +1048,7 @@ func TestLoadStoreReplBatchSeq(t *testing.T) {
 	cfg := &conf.Config{}
 	cfg.ApplyDefaults()
 
-	st := store.TestStore()
-	err := st.Start()
-	require.NoError(t, err)
-	defer func() {
-		err := st.Stop()
-		require.NoError(t, err)
-	}()
-
+	st := newTestStore()
 	proc1 := NewProcessor(1, cfg, st, nil, nil, nil, createDataKey(1)).(*processor)
 	proc1.SetLeader()
 
@@ -1241,13 +1210,13 @@ func closeVersion(proc Processor, receiverIDs []int, version int, cf func(error)
 	})
 }
 
-func createProcessor(t *testing.T, id int, batchForwarder BatchForwarder, batchHandler BatchHandler, receiverInfoProvider ReceiverInfoProvider) (*processor, *store.Store) {
+func createProcessor(t *testing.T, id int, batchForwarder BatchForwarder, batchHandler BatchHandler, receiverInfoProvider ReceiverInfoProvider) *processor {
 	cfg := &conf.Config{}
 	cfg.ApplyDefaults()
-	st := store.TestStore()
-	err := st.Start()
-	require.NoError(t, err)
-	return NewProcessor(id, cfg, st, batchForwarder, batchHandler, receiverInfoProvider, createDataKey(id)).(*processor), st
+	pm := &ProcessorManager{}
+	pm.cfg = cfg
+	procStore := NewProcessorStore(pm, id)
+	return NewProcessor(id, cfg, procStore, batchForwarder, batchHandler, receiverInfoProvider, createDataKey(id)).(*processor)
 }
 
 func createDataKey(processorID int) []byte {
@@ -1332,4 +1301,194 @@ func (t *testReceiverInfoProvider) GetRequiredCompletions() int {
 
 func (t *testReceiverInfoProvider) GetTerminalReceiverCount() int {
 	return 0
+}
+
+func newTestStore() *testStore {
+	return &testStore{data: treemap.NewWithStringComparator()}
+}
+
+type testStore struct {
+	data *treemap.Map
+}
+
+func (t *testStore) Start() {
+}
+
+func (t *testStore) Stop() {
+}
+
+func (t *testStore) Get(key []byte) ([]byte, error) {
+	return t.GetWithMaxVersion(key, math.MaxUint)
+}
+
+func (t *testStore) Write(batch *mem.Batch) error {
+	batch.Range(func(key []byte, value []byte) bool {
+		t.data.Put(string(key), value)
+		return true
+	})
+	return nil
+}
+func (t *testStore) GetWithMaxVersion(key []byte, maxVersion uint64) ([]byte, error) {
+	iter := t.data.Iterator()
+	for iter.Next() {
+		dataKey := []byte(iter.Key().(string))
+		value := iter.Value().([]byte)
+		dataKeyNoVersion := dataKey[:len(dataKey)-8]
+		if bytes.Equal(key, dataKeyNoVersion) {
+			ver := math.MaxUint64 - binary.BigEndian.Uint64(dataKey[len(dataKey)-8:])
+			if ver <= maxVersion {
+				return value, nil
+			}
+		}
+	}
+	return nil, nil
+}
+
+func (t *testStore) NewIterator(keyStart []byte, keyEnd []byte, highestVersion uint64, preserveTombstones bool) (iteration.Iterator, error) {
+	var entries []common.KV
+	iter := t.data.Iterator()
+	for iter.Next() {
+		key := []byte(iter.Key().(string))
+		keyNoVersion := key[:len(key)-8]
+		if bytes.Compare(keyNoVersion, keyStart) >= 0 && bytes.Compare(keyNoVersion, keyEnd) < 0 {
+			value := iter.Value().([]byte)
+			entries = append(entries, common.KV{
+				Key:   key,
+				Value: value,
+			})
+		}
+	}
+	si := iteration.NewStaticIterator(entries)
+	return iteration.NewMergingIterator([]iteration.Iterator{si}, preserveTombstones, highestVersion)
+}
+
+type testProcessorManager struct {
+}
+
+func (t *testProcessorManager) RegisterStateHandler(stateHandler clustmgr.ClusterStateHandler) {
+	panic("not implemented")
+}
+
+func (t *testProcessorManager) NodePartitions(mappingID string, partitionCount int) (map[int][]int, error) {
+	panic("not implemented")
+}
+
+func (t *testProcessorManager) NodeForPartition(partitionID int, mappingID string, partitionCount int) int {
+	panic("not implemented")
+}
+
+func (t *testProcessorManager) ForwardBatch(batch *ProcessBatch, replicate bool, completionFunc func(error)) {
+	panic("not implemented")
+}
+
+func (t *testProcessorManager) Start() error {
+	panic("not implemented")
+}
+
+func (t *testProcessorManager) Stop() error {
+	panic("not implemented")
+}
+
+func (t *testProcessorManager) RegisterListener(listenerName string, listener ProcessorListener) []Processor {
+	panic("not implemented")
+}
+
+func (t *testProcessorManager) UnregisterListener(listenerName string) {
+	panic("not implemented")
+}
+
+func (t *testProcessorManager) SetClusterMessageHandlers(remotingServer remoting.Server, vbHandler *remoting.TeeBlockingClusterMessageHandler) {
+	panic("not implemented")
+}
+
+func (t *testProcessorManager) MarkGroupAsValid(nodeID int, groupID int, joinedVersion int) (bool, error) {
+	panic("not implemented")
+}
+
+func (t *testProcessorManager) SetVersionManagerClient(client vmgr.Client) {
+	panic("not implemented")
+}
+
+func (t *testProcessorManager) HandleVersionBroadcast(currentVersion int, completedVersion int, flushedVersion int) {
+	panic("not implemented")
+}
+
+func (t *testProcessorManager) GetGroupState(processorID int) (clustmgr.GroupState, bool) {
+	panic("not implemented")
+}
+
+func (t *testProcessorManager) GetLeaderNode(processorID int) (int, error) {
+	panic("not implemented")
+}
+
+func (t *testProcessorManager) GetProcessor(processorID int) Processor {
+	panic("not implemented")
+}
+
+func (t *testProcessorManager) ClusterVersion() int {
+	panic("not implemented")
+}
+
+func (t *testProcessorManager) IsReadyAsOfVersion(clusterVersion int) bool {
+	panic("not implemented")
+}
+
+func (t *testProcessorManager) HandleClusterState(cs clustmgr.ClusterState) error {
+	panic("not implemented")
+}
+
+func (t *testProcessorManager) AfterReceiverChange() {
+	panic("not implemented")
+}
+
+func (t *testProcessorManager) GetCurrentVersion() int {
+	panic("not implemented")
+}
+
+func (t *testProcessorManager) PrepareForShutdown() {
+	panic("not implemented")
+}
+
+func (t *testProcessorManager) AcquiesceLevelManagerProcessor() error {
+	panic("not implemented")
+}
+
+func (t *testProcessorManager) WaitForProcessingToComplete() {
+	panic("not implemented")
+}
+
+func (t *testProcessorManager) Freeze() {
+	panic("not implemented")
+}
+
+func (t *testProcessorManager) FailoverOccurred() bool {
+	panic("not implemented")
+}
+
+func (t *testProcessorManager) VersionManagerClient() vmgr.Client {
+	panic("not implemented")
+}
+
+func (t *testProcessorManager) EnsureReplicatorsReady() error {
+	panic("not implemented")
+}
+
+func (t *testProcessorManager) SetLevelMgrProcessorInitialisedCallback(callback func() error) {
+	panic("not implemented")
+}
+
+func (t *testProcessorManager) ClearUnflushedData() {
+	panic("not implemented")
+}
+
+func (t *testProcessorManager) FlushAllProcessors(shutdown bool) error {
+	panic("not implemented")
+}
+
+func (t *testProcessorManager) GetLastCompletedVersion() int64 {
+	panic("not implemented")
+}
+
+func (t *testProcessorManager) GetLastFlushedVersion() int64 {
+	panic("not implemented")
 }

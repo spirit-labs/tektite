@@ -4,7 +4,6 @@ import (
 	"github.com/spirit-labs/tektite/evbatch"
 	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/proc"
-	"sync"
 )
 
 func NewUnionOperator(receiverID int, inputs []Operator) *UnionOperator {
@@ -116,8 +115,9 @@ func (u *UnionOperator) Setup(mgr StreamManagerCtx) error {
 	return nil
 }
 
-func (u *UnionOperator) Teardown(mgr StreamManagerCtx, _ *sync.RWMutex) {
+func (u *UnionOperator) Teardown(mgr StreamManagerCtx, completeCB func(error)) {
 	mgr.UnregisterReceiver(u.receiverID)
+	completeCB(nil)
 }
 
 func (u *UnionOperator) ForwardingProcessorCount() int {

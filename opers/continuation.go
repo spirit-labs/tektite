@@ -2,7 +2,6 @@ package opers
 
 import (
 	"github.com/spirit-labs/tektite/evbatch"
-	"sync"
 )
 
 type ContinuationOperator struct {
@@ -34,5 +33,6 @@ func (c *ContinuationOperator) Setup(StreamManagerCtx) error {
 	return nil
 }
 
-func (c *ContinuationOperator) Teardown(StreamManagerCtx, *sync.RWMutex) {
+func (c *ContinuationOperator) Teardown(mgr StreamManagerCtx, completeCB func(error)) {
+	completeCB(nil)
 }

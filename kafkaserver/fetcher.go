@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/encoding"
+	"github.com/spirit-labs/tektite/errors"
 	"github.com/spirit-labs/tektite/kafkaencoding"
 	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/proc"
@@ -18,17 +19,17 @@ import (
 )
 
 type fetcher struct {
-	store             store
 	lock              sync.RWMutex
+	procProvider      processorProvider
 	topicFetchers     map[string][]*PartitionFetcher
 	allocator         Allocator
 	evictBatchesTimer *time.Timer
 	stopped           bool
 }
 
-func newFetcher(store store, streamMgr streamMgr, maxFetchCacheSize int) *fetcher {
+func newFetcher(provider processorProvider, streamMgr streamMgr, maxFetchCacheSize int) *fetcher {
 	f := &fetcher{
-		store:         store,
+		procProvider:  provider,
 		topicFetchers: map[string][]*PartitionFetcher{},
 		allocator:     newDefaultAllocator(maxFetchCacheSize),
 	}
@@ -43,7 +44,7 @@ func (f *fetcher) streamChanged(streamName string, _ bool) {
 	delete(f.topicFetchers, streamName)
 }
 
-func (f *fetcher) GetPartitionFetcher(topicInfo *TopicInfo, partitionID int32) *PartitionFetcher {
+func (f *fetcher) GetPartitionFetcher(topicInfo *TopicInfo, partitionID int32) (*PartitionFetcher, error) {
 	lock := lockWrapper{mut: &f.lock}
 	lock.RLock()
 	defer lock.Unlock()
@@ -60,12 +61,20 @@ func (f *fetcher) GetPartitionFetcher(topicInfo *TopicInfo, partitionID int32) *
 		if !ok {
 			fetchers = make([]*PartitionFetcher, len(topicInfo.Partitions))
 			for i := 0; i < len(topicInfo.Partitions); i++ {
-				fetchers[i] = NewPartitionFetcher(f.store, i, allocator, topicInfo)
+				processorID, ok := topicInfo.ConsumerInfoProvider.PartitionScheme().PartitionProcessorMapping[i]
+				if !ok {
+					panic("no processor for partition")
+				}
+				processor := f.procProvider.GetProcessor(processorID)
+				if processor == nil {
+					return nil, errors.NewTektiteErrorf(errors.Unavailable, "processor not available")
+				}
+				fetchers[i] = NewPartitionFetcher(processor, i, allocator, topicInfo)
 			}
 			f.topicFetchers[topicInfo.Name] = fetchers
 		}
 	}
-	return fetchers[partitionID]
+	return fetchers[partitionID], nil
 }
 
 func (f *fetcher) checkEvictBatches() {
@@ -113,13 +122,13 @@ type PartitionFetcher struct {
 	loadedHwm         bool
 	batches           []entry
 	waiter            *Waiter
-	store             store
 	partitionID       uint64
 	topicInfo         *TopicInfo
 	crc32             hash.Hash32
 	allocator         Allocator
 	evictCount        int64
 	partitionHash     []byte
+	processor         proc.Processor
 }
 
 type Waiter struct {
@@ -139,18 +148,18 @@ func (w *Waiter) complete() {
 	w.pf.completeWaiter(w)
 }
 
-func NewPartitionFetcher(store store, partitionID int, allocator Allocator, topicInfo *TopicInfo) *PartitionFetcher {
-	partitionHash := proc.CalcPartitionHash(topicInfo.ConsumerInfoProvider.PartitionMapping(), uint64(partitionID))
+func NewPartitionFetcher(processor proc.Processor, partitionID int, allocator Allocator, topicInfo *TopicInfo) *PartitionFetcher {
+	partitionHash := proc.CalcPartitionHash(topicInfo.ConsumerInfoProvider.PartitionScheme().MappingID, uint64(partitionID))
 	return &PartitionFetcher{
 		firstCachedOffset: -1,
 		lastCachedOffset:  -1,
 		highWaterMark:     -1,
 		crc32:             crc32.NewIEEE(),
-		store:             store,
 		partitionID:       uint64(partitionID),
 		allocator:         allocator,
 		topicInfo:         topicInfo,
 		partitionHash:     partitionHash,
+		processor:         processor,
 	}
 }
 
@@ -351,7 +360,7 @@ func (f *PartitionFetcher) fetchFromStore(fetchOffset int64, maxBytes int) ([]by
 	iterStart = append(iterStart, 1) // not null
 	iterStart = encoding.KeyEncodeInt(iterStart, fetchOffset)
 	iterEnd := encoding.EncodeEntryPrefix(f.partitionHash, slabId+1, 24)
-	iter, err := f.store.NewIterator(iterStart, iterEnd, math.MaxUint64, false)
+	iter, err := f.processor.NewIterator(iterStart, iterEnd, math.MaxUint64, false)
 	if err != nil {
 		return nil, err
 	}

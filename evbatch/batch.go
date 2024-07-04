@@ -792,7 +792,7 @@ func (b *Batch) Dump() {
 			builder.WriteString(", ")
 		}
 	}
-	log.Debug(builder.String())
+	log.Info(builder.String())
 	for i := 0; i < b.RowCount; i++ {
 		builder := strings.Builder{}
 		for j, col := range b.Columns {
@@ -817,6 +817,6 @@ func (b *Batch) Dump() {
 				builder.WriteString(", ")
 			}
 		}
-		log.Debug(builder.String())
+		log.Info(builder.String())
 	}
 }

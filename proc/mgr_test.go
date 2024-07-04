@@ -5,7 +5,6 @@ import (
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/conf"
 	"github.com/spirit-labs/tektite/remoting"
-	"github.com/spirit-labs/tektite/store"
 	"github.com/spirit-labs/tektite/testutils"
 	"github.com/stretchr/testify/require"
 	"sync"
@@ -18,21 +17,15 @@ func TestManagerHandleClusterState(t *testing.T) {
 
 	stateMgr := &testClustStateMgr{}
 
-	st := store.TestStore()
-	err := st.Start()
-	require.NoError(t, err)
-	defer func() {
-		err := st.Stop()
-		require.NoError(t, err)
-	}()
 	cfg := &conf.Config{}
 	cfg.ApplyDefaults()
 	cfg.NodeID = 1
 
-	mgr := NewProcessorManager(stateMgr, &testReceiverInfoProvider{}, st, cfg, nil,
-		createTestBatchHandler, nil, &testIngestNotifier{}).(*ProcessorManager)
+	mgr := NewProcessorManagerWithFailure(stateMgr, &testReceiverInfoProvider{}, cfg, nil,
+		createTestBatchHandler, nil, &testIngestNotifier{}, nil, nil,
+		nil, false).(*ProcessorManager)
 	mgr.SetVersionManagerClient(&testVmgrClient{})
-	err = mgr.Start()
+	err := mgr.Start()
 	require.NoError(t, err)
 	stateMgr.SetClusterStateHandler(mgr.HandleClusterState)
 
@@ -153,22 +146,16 @@ func TestPartitionMappings(t *testing.T) {
 
 	stateMgr := &testClustStateMgr{}
 
-	st := store.TestStore()
-	err := st.Start()
-	require.NoError(t, err)
-	defer func() {
-		err := st.Stop()
-		require.NoError(t, err)
-	}()
 	cfg := &conf.Config{}
 	cfg.ApplyDefaults()
 	cfg.NodeID = 1
 	cfg.ProcessorCount = 3
 
-	mgr := NewProcessorManager(stateMgr, &testReceiverInfoProvider{}, st, cfg, nil,
-		createTestBatchHandler, nil, &testIngestNotifier{}).(*ProcessorManager)
+	mgr := NewProcessorManagerWithFailure(stateMgr, &testReceiverInfoProvider{}, cfg, nil,
+		createTestBatchHandler, nil, &testIngestNotifier{}, nil, nil,
+		nil, false).(*ProcessorManager)
 	mgr.SetVersionManagerClient(&testVmgrClient{})
-	err = mgr.Start()
+	err := mgr.Start()
 	require.NoError(t, err)
 	stateMgr.SetClusterStateHandler(mgr.HandleClusterState)
 
@@ -293,21 +280,15 @@ func (t *testClustStateMgr) Halt() error {
 func TestGetLeaderNodeForProcessor(t *testing.T) {
 	stateMgr := &testClustStateMgr{}
 
-	st := store.TestStore()
-	err := st.Start()
-	require.NoError(t, err)
-	defer func() {
-		err := st.Stop()
-		require.NoError(t, err)
-	}()
 	cfg := &conf.Config{}
 	cfg.ApplyDefaults()
 	cfg.NodeID = 1
 
-	mgr := NewProcessorManager(stateMgr, &testReceiverInfoProvider{}, st, cfg, nil, createTestBatchHandler,
-		nil, &testIngestNotifier{}).(*ProcessorManager)
+	mgr := NewProcessorManagerWithFailure(stateMgr, &testReceiverInfoProvider{}, cfg, nil, createTestBatchHandler,
+		nil, &testIngestNotifier{}, nil, nil,
+		nil, false).(*ProcessorManager)
 	mgr.SetVersionManagerClient(&testVmgrClient{})
-	err = mgr.Start()
+	err := mgr.Start()
 	require.NoError(t, err)
 	stateMgr.SetClusterStateHandler(mgr.HandleClusterState)
 
@@ -342,21 +323,15 @@ func TestGetLeaderNodeForProcessor(t *testing.T) {
 func TestStateHandlers(t *testing.T) {
 	stateMgr := &testClustStateMgr{}
 
-	st := store.TestStore()
-	err := st.Start()
-	require.NoError(t, err)
-	defer func() {
-		err := st.Stop()
-		require.NoError(t, err)
-	}()
 	cfg := &conf.Config{}
 	cfg.ApplyDefaults()
 	cfg.NodeID = 1
 
-	mgr := NewProcessorManager(stateMgr, &testReceiverInfoProvider{}, st, cfg, nil,
-		createTestBatchHandler, nil, &testIngestNotifier{}).(*ProcessorManager)
+	mgr := NewProcessorManagerWithFailure(stateMgr, &testReceiverInfoProvider{}, cfg, nil,
+		createTestBatchHandler, nil, &testIngestNotifier{}, nil, nil,
+		nil, false).(*ProcessorManager)
 	mgr.SetVersionManagerClient(&testVmgrClient{})
-	err = mgr.Start()
+	err := mgr.Start()
 	require.NoError(t, err)
 	stateMgr.SetClusterStateHandler(mgr.HandleClusterState)
 
@@ -392,13 +367,6 @@ func TestStateHandlers(t *testing.T) {
 func TestVersionInjection(t *testing.T) {
 	stateMgr := &testClustStateMgr{}
 
-	st := store.TestStore()
-	err := st.Start()
-	require.NoError(t, err)
-	defer func() {
-		err := st.Stop()
-		require.NoError(t, err)
-	}()
 	cfg := &conf.Config{}
 	cfg.ApplyDefaults()
 	cfg.NodeID = 1
@@ -415,10 +383,11 @@ func TestVersionInjection(t *testing.T) {
 		requiredCompletions: 3,
 	}
 
-	mgr := NewProcessorManager(stateMgr, receiverProvider, st, cfg, nil, createTestBatchHandler,
-		nil, &testIngestNotifier{}).(*ProcessorManager)
+	mgr := NewProcessorManagerWithFailure(stateMgr, receiverProvider, cfg, nil, createTestBatchHandler,
+		nil, &testIngestNotifier{}, nil, nil,
+		nil, false).(*ProcessorManager)
 	mgr.SetVersionManagerClient(vmgrClient)
-	err = mgr.Start()
+	err := mgr.Start()
 	stateMgr.SetClusterStateHandler(mgr.HandleClusterState)
 
 	cs := clustmgr.ClusterState{
@@ -514,13 +483,6 @@ func TestVersionDelayWhenCompletedDoesNotIncrease(t *testing.T) {
 func testVersionDelay(t *testing.T, increaseCompletedVersion bool) {
 	stateMgr := &testClustStateMgr{}
 
-	st := store.TestStore()
-	err := st.Start()
-	require.NoError(t, err)
-	defer func() {
-		err := st.Stop()
-		require.NoError(t, err)
-	}()
 	cfg := &conf.Config{}
 	cfg.ApplyDefaults()
 	cfg.NodeID = 1
@@ -538,10 +500,11 @@ func testVersionDelay(t *testing.T, increaseCompletedVersion bool) {
 		requiredCompletions: 3,
 	}
 
-	mgr := NewProcessorManager(stateMgr, receiverProvider, st, cfg, nil, createTestBatchHandler,
-		nil, &testIngestNotifier{}).(*ProcessorManager)
+	mgr := NewProcessorManagerWithFailure(stateMgr, receiverProvider, cfg, nil, createTestBatchHandler,
+		nil, &testIngestNotifier{}, nil, nil,
+		nil, false).(*ProcessorManager)
 	mgr.SetVersionManagerClient(vmgrClient)
-	err = mgr.Start()
+	err := mgr.Start()
 	stateMgr.SetClusterStateHandler(mgr.HandleClusterState)
 
 	cs := clustmgr.ClusterState{
@@ -590,112 +553,9 @@ func testVersionDelay(t *testing.T, increaseCompletedVersion bool) {
 	}
 }
 
-//func TestIdleProcessors(t *testing.T) {
-//	stateMgr := &testClustStateMgr{}
-//
-//	st := store.TestStore()
-//	err := st.Start()
-//	require.NoError(t, err)
-//	defer func() {
-//		err := st.Stop()
-//		require.NoError(t, err)
-//	}()
-//	cfg := &conf.Config{}
-//	cfg.ApplyDefaults()
-//	cfg.NodeID = 1
-//	minSnapshotInterval := 100 * time.Millisecond
-//	cfg.MinSnapshotInterval = minSnapshotInterval
-//	cfg.IdleProcessorCheckInterval = 500 * time.Millisecond
-//
-//	vmgrClient := &testVmgrClient{currentVersion: 100, vHandler: newVcHandler()}
-//
-//	receiverProvider := &testReceiverInfoProvider{
-//		injectableReceiverIDs: map[int][]int{
-//			0: {1000},
-//			1: {1000},
-//			2: {1000},
-//		},
-//		requiredCompletions: 3,
-//	}
-//
-//	mgr := NewProcessorManager(stateMgr, &testBatchHandler{}, receiverProvider, st, cfg, nil).(*manager)
-//	mgr.SetVersionManagerClient(vmgrClient)
-//	err = mgr.Start()
-//	stateMgr.SetClusterStateHandler(mgr.HandleClusterState)
-//
-//	cs := clustmgr.ClusterState{
-//		Version: 13,
-//		GroupStates: [][]clustmgr.GroupNode{
-//			{
-//				clustmgr.GroupNode{NodeID: 0, Leader: false, Valid: true, JoinedVersion: 1},
-//				clustmgr.GroupNode{NodeID: 1, Leader: true, Valid: false, JoinedVersion: 2},
-//				clustmgr.GroupNode{NodeID: 2, Leader: false, Valid: true, JoinedVersion: 3},
-//			},
-//			{
-//				clustmgr.GroupNode{NodeID: 0, Leader: false, Valid: false, JoinedVersion: 2},
-//				clustmgr.GroupNode{NodeID: 1, Leader: true, Valid: true, JoinedVersion: 1},
-//				clustmgr.GroupNode{NodeID: 2, Leader: false, Valid: true, JoinedVersion: 3},
-//			},
-//			{
-//				clustmgr.GroupNode{NodeID: 0, Leader: false, Valid: false, JoinedVersion: 2},
-//				clustmgr.GroupNode{NodeID: 1, Leader: true, Valid: true, JoinedVersion: 1},
-//				clustmgr.GroupNode{NodeID: 2, Leader: false, Valid: true, JoinedVersion: 3},
-//			},
-//		},
-//	}
-//
-//	err = stateMgr.sendClusterState(cs)
-//	require.NoError(t, err)
-//
-//	vmgrClient.vHandler.waitForVersionToComplete(t, 100)
-//
-//	// A few versions will complete but the processors are not processing standard batches
-//	// so after a while versions will stop completing.
-//	version := 101
-//	for ; version < 200; version++ {
-//		mgr.HandleVersionBroadcast(version, 0)
-//
-//		ok, err := testutils.WaitUntilWithError(func() (bool, error) {
-//			return vmgrClient.vHandler.getCompletedVersion() == version, nil
-//		}, 400*time.Millisecond, 1*time.Millisecond)
-//		require.NoError(t, err)
-//		if !ok {
-//			// timed out waiting to complete
-//			// make sure we completed more than one version
-//			require.Greater(t, version, 101)
-//			break
-//		}
-//	}
-//
-//	// Now inject a batch, this should cause versions to start completing straight away
-//	p, ok := mgr.processors.Load(0)
-//	require.True(t, ok)
-//	proc := p.(*processor)
-//	ch := make(chan error, 1)
-//
-//	pb := NewProcessBatch(0, nil, 1000, 0, -1)
-//	start := common.NanoTime()
-//	proc.IngestBatch(pb, func(err error) {
-//		ch <- err
-//	})
-//	require.NoError(t, <-ch)
-//
-//	vmgrClient.vHandler.waitForVersionToComplete(t, version)
-//	dur := common.NanoTime() - start
-//	// Should be very quick, likely much quicker than this
-//	require.Less(t, int(dur), int(10*time.Millisecond))
-//}
-
 func TestInjectableReceivers(t *testing.T) {
 	stateMgr := &testClustStateMgr{}
 
-	st := store.TestStore()
-	err := st.Start()
-	require.NoError(t, err)
-	defer func() {
-		err := st.Stop()
-		require.NoError(t, err)
-	}()
 	cfg := &conf.Config{}
 	cfg.ApplyDefaults()
 	cfg.NodeID = 1
@@ -711,11 +571,12 @@ func TestInjectableReceivers(t *testing.T) {
 		requiredCompletions: 4,
 	}
 
-	mgr := NewProcessorManager(stateMgr, receiverProvider, st, cfg, nil, createTestBatchHandler,
-		nil, &testIngestNotifier{}).(*ProcessorManager)
+	mgr := NewProcessorManagerWithFailure(stateMgr, receiverProvider, cfg, nil, createTestBatchHandler,
+		nil, &testIngestNotifier{}, nil, nil,
+		nil, false).(*ProcessorManager)
 	mgr.SetVersionManagerClient(vmgrClient)
 	stateMgr.SetClusterStateHandler(mgr.HandleClusterState)
-	err = mgr.Start()
+	err := mgr.Start()
 
 	// Deploy 3 processors
 	cs := clustmgr.ClusterState{
@@ -785,18 +646,16 @@ func TestInjectableReceivers(t *testing.T) {
 func TestBarrierForwarding(t *testing.T) {
 	stateMgr := &testClustStateMgr{}
 
-	st := store.TestStore()
-	err := st.Start()
-	require.NoError(t, err)
-	defer func() {
-		err := st.Stop()
-		require.NoError(t, err)
-	}()
 	cfg := &conf.Config{}
 	cfg.ApplyDefaults()
 	cfg.NodeID = 1
 
-	cfg.ClusterAddresses = []string{"localhost:7887", "localhost:7888"}
+	address1, err := common.AddressWithPort("localhost")
+	require.NoError(t, err)
+	address2, err := common.AddressWithPort("localhost")
+	require.NoError(t, err)
+
+	cfg.ClusterAddresses = []string{address1, address2}
 	serverAddress := cfg.ClusterAddresses[1]
 
 	vmgrClient := &testVmgrClient{currentVersion: 100, vHandler: newVcHandler()}
@@ -825,9 +684,10 @@ func TestBarrierForwarding(t *testing.T) {
 		require.NoError(t, err)
 	}()
 
-	mgr := NewProcessorManager(stateMgr, batchHandler, st, cfg, nil, func(processorID int) BatchHandler {
+	mgr := NewProcessorManagerWithFailure(stateMgr, batchHandler, cfg, nil, func(processorID int) BatchHandler {
 		return batchHandler
-	}, nil, &testIngestNotifier{}).(*ProcessorManager)
+	}, nil, &testIngestNotifier{}, nil, nil,
+		nil, false).(*ProcessorManager)
 	mgr.SetVersionManagerClient(vmgrClient)
 	stateMgr.SetClusterStateHandler(mgr.HandleClusterState)
 	err = mgr.Start()
@@ -901,7 +761,7 @@ func (t *testVmgrClient) IsFailureComplete(int) (bool, error) {
 	panic("not implemented")
 }
 
-func (t *testVmgrClient) VersionFlushed(int, int, int, int) error {
+func (t *testVmgrClient) VersionFlushed(int, int, int) error {
 	return nil
 }
 

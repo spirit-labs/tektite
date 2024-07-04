@@ -41,7 +41,7 @@ type VersionManager struct {
 	lastVersionToFlush     int // This is the last version all processors have called in as flushed
 	lastFlushedVersion     int // This is the last version that has been reliably flushed to the level manager
 	flushingClusterVersion int
-	flushedEntries         map[int]flushedEntry
+	flushedEntries         map[int]int
 	seqMgr                 sequence.Manager
 	broadcastVersionsTimer *common.TimerHandle
 	hasBroadcast           bool
@@ -53,11 +53,6 @@ type VersionManager struct {
 	failureInfo
 }
 
-type flushedEntry struct {
-	flushedVersion int
-	processorCount int
-}
-
 type Client interface {
 	// GetVersions returns the versions (current, lastCompleted, lastFlushed), from the version manager.
 	// This must block until the version manager is available
@@ -65,7 +60,7 @@ type Client interface {
 	// VersionComplete notifies the version manager about a version completion from a processor and terminal receiver
 	VersionComplete(version int, requiredCompletions int, commandID int, doom bool, completionFunc func(error))
 	FailureDetected(liveProcessorCount int, clusterVersion int) error
-	VersionFlushed(nodeID int, version int, liveProcessorCount int, clusterVersion int) error
+	VersionFlushed(processorID int, version int, clusterVersion int) error
 	GetLastFailureFlushedVersion(clusterVersion int) (int, error)
 	FailureComplete(liveProcessorCount int, clusterVersion int) error
 	IsFailureComplete(clusterVersion int) (bool, error)
@@ -83,7 +78,7 @@ func NewVersionManager(seqMgr sequence.Manager, levelMgrClient levels.Client, cf
 		levelMgrClient:         levelMgrClient,
 		cfg:                    cfg,
 		serverAddresses:        serverAddresses,
-		flushedEntries:         map[int]flushedEntry{},
+		flushedEntries:         map[int]int{},
 		seqMgr:                 seqMgr,
 		currentVersion:         0,
 		lastCompletedVersion:   -1,
@@ -274,7 +269,7 @@ func (v *VersionManager) Shutdown() (bool, error) {
 
 	// If the version is not flushed yet, we wait
 	if v.lastVersionToFlush < shutdownVersion {
-		log.Debugf("node %d vmgr shutdown - waiting for version %d to be flushed, last %d",
+		log.Infof("node %d vmgr shutdown - waiting for version %d to be flushed, last %d",
 			v.cfg.NodeID, shutdownVersion, v.lastVersionToFlush)
 
 		v.shutdownFlushVersion = shutdownVersion
@@ -449,11 +444,10 @@ func (v *VersionManager) broadcastVersionsAsync() {
 	})
 }
 
-func (v *VersionManager) VersionFlushed(nodeID int, version int, liveProcessorCount int, clusterVersion int) error {
+func (v *VersionManager) VersionFlushed(processorID int, version int, clusterVersion int) error {
 	v.lock.Lock()
 	defer v.lock.Unlock()
-	log.Debugf("version flushed called node id %d version %d pcount %d cv %d",
-		nodeID, version, liveProcessorCount, clusterVersion)
+	log.Debugf("version flushed called processor id %d version %d cv %d", processorID, version, clusterVersion)
 	if err := v.checkActive(); err != nil {
 		return err
 	}
@@ -466,40 +460,38 @@ func (v *VersionManager) VersionFlushed(nodeID int, version int, liveProcessorCo
 		return nil
 	}
 	if clusterVersion < v.flushingClusterVersion {
-		log.Debugf("flush version from node %d rejected as cluster version too low", nodeID)
+		log.Debugf("flush version from processor %d rejected as cluster version too low", processorID)
 		// Ignore
 		return nil
 	}
 	if clusterVersion > v.flushingClusterVersion {
-		log.Debugf("flush version from node %d has increased so resetting entries", nodeID)
-		// all entries must be at the same cluster version
+		// all entries must be at the same cluster version - a cluster change has occurred so reset
+		log.Debugf("flush version from processor %d has increased so resetting entries", processorID)
 		v.flushingClusterVersion = clusterVersion
-		v.flushedEntries = map[int]flushedEntry{}
+		v.flushedEntries = map[int]int{}
 	}
-	v.flushedEntries[nodeID] = flushedEntry{
-		flushedVersion: version,
-		processorCount: liveProcessorCount,
-	}
-	minVersion := math.MaxInt64
-	count := 0
-	for _, entry := range v.flushedEntries {
-		count += entry.processorCount
-		// We take the min version that all processors have flushed at. This gives us the overall flushed
-		// version across the cluster
-		if entry.flushedVersion < minVersion {
-			minVersion = entry.flushedVersion
+	// For each processor we keep track of the last flushed version it called in with
+	v.flushedEntries[processorID] = version
+	if len(v.flushedEntries) == v.requiredProcessorCount {
+		// All processors have called in, find the min flushed version
+		minFlushedVersion := math.MaxInt
+		for _, flushedVersion := range v.flushedEntries {
+			if flushedVersion < minFlushedVersion {
+				minFlushedVersion = flushedVersion
+			}
 		}
-	}
-	if count == v.requiredProcessorCount && minVersion > v.lastVersionToFlush {
-		log.Debugf("version %d has been flushed to version manager", minVersion)
-		v.lastVersionToFlush = minVersion
-		if v.shutdownWg != nil && v.lastVersionToFlush >= v.shutdownFlushVersion {
-			v.shutdownFlushVersion = -1
-			v.shutdownWg.Done()
-			v.disableFlush = true
-			v.shutdownWg = nil
+		if minFlushedVersion > v.lastVersionToFlush {
+			// Min flushed version has increased
+			log.Debugf("version %d has been flushed to version manager", minFlushedVersion)
+			v.lastVersionToFlush = minFlushedVersion
+			if v.shutdownWg != nil && v.lastVersionToFlush >= v.shutdownFlushVersion {
+				v.shutdownFlushVersion = -1
+				v.shutdownWg.Done()
+				v.disableFlush = true
+				v.shutdownWg = nil
+			}
+			v.broadcastVersions()
 		}
-		v.broadcastVersions()
 	}
 	return nil
 }
@@ -774,5 +766,5 @@ type versionFlushedHandler struct {
 
 func (v *versionFlushedHandler) HandleMessage(messageHolder remoting.MessageHolder, completionFunc func(remoting.ClusterMessage, error)) {
 	msg := messageHolder.Message.(*clustermsgs.VersionFlushedMessage)
-	completionFunc(nil, v.v.VersionFlushed(int(msg.NodeId), int(msg.Version), int(msg.ProcessorCount), int(msg.ClusterVersion)))
+	completionFunc(nil, v.v.VersionFlushed(int(msg.ProcessorId), int(msg.Version), int(msg.ClusterVersion)))
 }

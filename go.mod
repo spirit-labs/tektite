@@ -42,6 +42,7 @@ require (
 	github.com/tidwall/gjson v1.14.4
 	github.com/timandy/routine v1.1.1
 	go.etcd.io/etcd/client/v3 v3.5.9
+	golang.org/x/sync v0.5.0
 )
 
 require (
@@ -57,7 +58,6 @@ require (
 	github.com/apparentlymart/go-textseg v1.0.0 // indirect
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
-	github.com/bmatcuk/doublestar/v4 v4.0.2 // indirect
 	github.com/cenkalti/backoff/v4 v4.2.1 // indirect
 	github.com/cespare/xxhash/v2 v2.2.0 // indirect
 	github.com/charmbracelet/x/ansi v0.1.1 // indirect
@@ -78,7 +78,6 @@ require (
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang/glog v1.1.2 // indirect
 	github.com/golang/snappy v0.0.4 // indirect
-	github.com/google/addlicense v1.1.1 // indirect
 	github.com/google/flatbuffers v2.0.8+incompatible // indirect
 	github.com/google/go-cmp v0.6.0 // indirect
 	github.com/google/pprof v0.0.0-20230912144702-c363fe2c2ed8 // indirect
@@ -139,7 +138,6 @@ require (
 	golang.org/x/crypto v0.19.0 // indirect
 	golang.org/x/exp v0.0.0-20231219180239-dc181d75b848 // indirect
 	golang.org/x/mod v0.16.0 // indirect
-	golang.org/x/sync v0.5.0 // indirect
 	golang.org/x/sys v0.19.0 // indirect
 	golang.org/x/time v0.5.0 // indirect
 	golang.org/x/xerrors v0.0.0-20220609144429-65e65417b02f // indirect

@@ -232,12 +232,12 @@ func (b *BridgeToOperator) Setup(mgr StreamManagerCtx) error {
 	return b.backFillOperator.Setup(mgr)
 }
 
-func (b *BridgeToOperator) Teardown(mgr StreamManagerCtx, _ *sync.RWMutex) {
+func (b *BridgeToOperator) Teardown(mgr StreamManagerCtx, completeCB func(error)) {
 	b.timers.Range(func(_, value any) bool {
 		value.(*common.TimerHandle).Stop()
 		return true
 	})
-	b.backFillOperator.Teardown(mgr, nil)
+	b.backFillOperator.Teardown(mgr, func(err error) {})
 	for _, producer := range b.producers {
 		if producer != nil {
 			if err := producer.Stop(); err != nil {
@@ -245,6 +245,7 @@ func (b *BridgeToOperator) Teardown(mgr StreamManagerCtx, _ *sync.RWMutex) {
 			}
 		}
 	}
+	completeCB(nil)
 }
 
 func (b *BridgeToOperator) HandleQueryBatch(*evbatch.Batch, QueryExecContext) (*evbatch.Batch, error) {
@@ -304,5 +305,6 @@ func (s *backfillSink) Setup(StreamManagerCtx) error {
 	return nil
 }
 
-func (s *backfillSink) Teardown(StreamManagerCtx, *sync.RWMutex) {
+func (s *backfillSink) Teardown(mgr StreamManagerCtx, completeCB func(error)) {
+	completeCB(nil)
 }

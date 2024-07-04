@@ -16,7 +16,8 @@ type MergingIterator struct {
 	currIndex                int
 	minNonCompactableVersion uint64
 	noDropOnNext             bool
-	prefixTombstone          []byte
+	currentTombstone         []byte
+	isPrefixTombstone        bool
 }
 
 func NewMergingIterator(iters []Iterator, preserveTombstones bool, highestVersion uint64) (*MergingIterator, error) {
@@ -156,27 +157,31 @@ func (m *MergingIterator) IsValid() (bool, error) {
 			return false, nil
 		}
 
-		if m.prefixTombstone != nil {
-			lpt := len(m.prefixTombstone)
-			lck := len(chosenKey)
-			if lck >= lpt && bytes.Compare(m.prefixTombstone, chosenKey[:lpt]) == 0 {
-				// The key matches current prefix tombstone
-				// skip past it
-				if err := m.iters[smallestIndex].Next(); err != nil {
-					return false, err
+		if m.currentTombstone != nil {
+			if bytes.Compare(m.currentTombstone, chosenKey[:len(m.currentTombstone)]) == 0 {
+				if m.isPrefixTombstone || chosenKeyVersion < m.minNonCompactableVersion {
+					// The key matches current prefix tombstone
+					// skip past it if it is compactable - for prefixes we alwqays delete even if non compactable
+					if err := m.iters[smallestIndex].Next(); err != nil {
+						return false, err
+					}
+					continue
 				}
-				continue
 			} else {
 				// does not match - reset the prefix tombstone
-				m.prefixTombstone = nil
+				m.currentTombstone = nil
+				m.isPrefixTombstone = false
 			}
 		}
 
 		isTombstone := len(chosenValue) == 0
-		if isTombstone && chosenKeyVersion == math.MaxUint64 {
+		if isTombstone {
 			// We have a tombstone, keep track of it. Prefix tombstones (used for deletes of partitions)
 			// are identified by having a version of math.MaxUint64
-			m.prefixTombstone = chosenKeyNoVersion
+			m.currentTombstone = chosenKeyNoVersion
+			if chosenKeyVersion == math.MaxUint64 {
+				m.isPrefixTombstone = true
+			}
 		}
 		if !m.preserveTombstones && (isTombstone || chosenKeyVersion == math.MaxUint64) {
 			// We have a tombstone or a prefix tombstone end marker - skip past it

@@ -5,7 +5,6 @@ import (
 	"github.com/spirit-labs/tektite/encoding"
 	"github.com/spirit-labs/tektite/evbatch"
 	"github.com/spirit-labs/tektite/proc"
-	"sync"
 )
 
 type StoreTableOperator struct {
@@ -17,7 +16,6 @@ type StoreTableOperator struct {
 	rowCols    []int
 	outRowCols []int
 	keyPrecfix []byte
-	store      store
 	nodeID     int
 	noCache    bool
 	hasKey     bool
@@ -26,7 +24,7 @@ type StoreTableOperator struct {
 	hashCache  *partitionHashCache
 }
 
-func NewStoreTableOperator(schema *OperatorSchema, slabID int, store store, keyCols []string, nodeID int, noCache bool,
+func NewStoreTableOperator(schema *OperatorSchema, slabID int, keyCols []string, nodeID int, noCache bool,
 	desc errMsgAtPositionProvider) (*StoreTableOperator, error) {
 	var inKeyCols []int
 	var outKeyCols []int
@@ -78,7 +76,6 @@ func NewStoreTableOperator(schema *OperatorSchema, slabID int, store store, keyC
 	return &StoreTableOperator{
 		inSchema:   schema,
 		outSchema:  outSchema,
-		store:      store,
 		inKeyCols:  inKeyCols,
 		outKeyCols: outKeyCols,
 		rowCols:    rowCols,
@@ -145,7 +142,8 @@ func (s *StoreTableOperator) Setup(StreamManagerCtx) error {
 	return nil
 }
 
-func (s *StoreTableOperator) Teardown(StreamManagerCtx, *sync.RWMutex) {
+func (s *StoreTableOperator) Teardown(mgr StreamManagerCtx, completeCB func(error)) {
+	completeCB(nil)
 }
 
 func createTableKeyPrefix(mappingID string, slabID uint64, partID uint64, cap int) []byte {
