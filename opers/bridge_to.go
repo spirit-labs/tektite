@@ -207,7 +207,7 @@ func (b *BridgeToOperator) flushLastCommitted(execCtx StreamExecContext) {
 	for _, partitionID := range partitionIDs {
 		offsetToCommit := b.offsetsToCommit[partitionID]
 		if offsetToCommit != -1 {
-			b.backFillOperator.storeCommittedOffSetForPartition(offsetToCommit, execCtx)
+			b.backFillOperator.storeCommittedOffSetForPartition(partitionID, offsetToCommit, execCtx)
 			b.offsetsToCommit[partitionID] = -1
 		}
 	}

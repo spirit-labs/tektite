@@ -1841,6 +1841,7 @@ func TestRemoveDeadVersionsL0(t *testing.T) {
 	}
 	err := lm.ApplyChangesNoCheck(regBatch)
 	require.NoError(t, err)
+
 	rng := VersionRange{
 		VersionStart: 25,
 		VersionEnd:   33,
@@ -1857,10 +1858,10 @@ func TestRemoveDeadVersionsL0(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, job.isMove)
 
-	require.Equal(t, "sst1", string(job.tables[0][0].table.SSTableID))
+	require.Equal(t, "sst2", string(job.tables[0][0].table.SSTableID))
 	require.Equal(t, []VersionRange{rng}, job.tables[0][0].deadVersionRanges)
 
-	require.Equal(t, "sst2", string(job.tables[1][0].table.SSTableID))
+	require.Equal(t, "sst1", string(job.tables[1][0].table.SSTableID))
 	require.Equal(t, []VersionRange{rng}, job.tables[1][0].deadVersionRanges)
 }
 

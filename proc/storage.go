@@ -112,6 +112,13 @@ func (ps *ProcessorStore) createNewMemtable() {
 	ps.mt = mem.NewMemtable(arena, ps.pm.cfg.NodeID, int(ps.pm.cfg.MemtableMaxSizeBytes))
 }
 
+func (p *processor) ValidateKeyRange(key []byte) {
+	inRange := bytes.Compare(key, p.keyRangeStart) >= 0 && (p.keyRangeEnd == nil || bytes.Compare(key, p.keyRangeEnd) < 0)
+	if !inRange {
+		panic(fmt.Sprintf("processor %d writing key %v, but range start %v range end %v", p.id, key, p.keyRangeStart, p.keyRangeEnd))
+	}
+}
+
 func (ps *ProcessorStore) Write(batch *mem.Batch) error {
 	ps.lock.Lock() // Note, largely uncontended so minimal overhead
 	defer ps.lock.Unlock()
@@ -321,9 +328,11 @@ func (ps *ProcessorStore) buildAndPushTable(entry *flushQueueEntry) error {
 				panic("cluster version not set")
 			}
 			// register with level-manager
+			log.Debugf("node %d processor %d registering memtable %s", ps.pm.cfg.NodeID, ps.processorID, entry.mt.Uuid)
 			if err := ps.pm.levelManagerClient.RegisterL0Tables(levels.RegistrationBatch{
 				ClusterName:    ps.pm.cfg.ClusterName,
 				ClusterVersion: clusterVersion,
+				ProcessorID:    ps.processorID,
 				Registrations: []levels.RegistrationEntry{{
 					Level:            0,
 					TableID:          id,
@@ -354,8 +363,8 @@ func (ps *ProcessorStore) buildAndPushTable(entry *flushQueueEntry) error {
 				}
 				return err
 			}
-			log.Debugf("node %d registered memtable %s with levelManager sstableid %v- max version %d %p",
-				ps.pm.cfg.NodeID, entry.mt.Uuid, id, maxVersion, entry.mt)
+			log.Debugf("node %d processor %d registered memtable %s with levelManager sstableid %v- max version %d %p",
+				ps.pm.cfg.NodeID, ps.processorID, entry.mt.Uuid, id, maxVersion, entry.mt)
 			break
 		}
 	} else {
@@ -567,7 +576,9 @@ func (ps *ProcessorStore) NewIterator(keyStart []byte, keyEnd []byte, highestVer
 	ps.queueLock.RLock()
 	for i := len(ps.queue) - 1; i >= 0; i-- {
 		entry := ps.queue[i]
-		iters = append(iters, entry.mt.NewIterator(keyStart, keyEnd))
+		if entry.mt != nil {
+			iters = append(iters, entry.mt.NewIterator(keyStart, keyEnd))
+		}
 	}
 	// We unlock before creating sstable iterator
 	ps.queueLock.RUnlock()
