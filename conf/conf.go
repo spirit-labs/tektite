@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	DefaultProcessorCount                 = 48
+	DefaultProcessorCount                 = 12
 	DefaultMaxProcessorBatchesInProgress  = 1000
 	DefaultMemtableMaxSizeBytes           = 16 * 1024 * 1024
 	DefaultMemtableMaxReplaceInterval     = 30 * time.Second
