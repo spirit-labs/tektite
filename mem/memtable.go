@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"github.com/google/uuid"
 	"github.com/spirit-labs/tektite/arenaskl"
-	"github.com/spirit-labs/tektite/common"
 	log "github.com/spirit-labs/tektite/logger"
 	"math"
+	"sync"
 	"sync/atomic"
 )
 
@@ -22,10 +22,9 @@ type Memtable struct {
 	maxSizeBytes         int
 	arena                *arenaskl.Arena
 	sl                   *arenaskl.Skiplist
-	flushedCallbacksLock common.SpinLock
+	flushedCallbacksLock sync.Mutex
 	flushedCallbacks     []func(error)
 	hasWrites            atomic.Bool
-	reservedSpace        int64
 }
 
 var MemtableSizeOverhead int64
@@ -54,10 +53,6 @@ func NewMemtable(arena *arenaskl.Arena, nodeID int, maxSizeBytes int) *Memtable 
 		sl:           sl,
 	}
 
-	// The skiplist takes up a certain amount of space for head and tail nodes etc, we need to take this into account
-	// in the reserved space
-	mt.reservedSpace = MemtableSizeOverhead
-
 	return mt
 }
 
@@ -83,9 +78,7 @@ func (m *Memtable) Write(batch writeBatch) (bool, error) {
 	// retry.
 	batchMemSize := batch.MemTableBytes()
 
-	reserved := atomic.AddInt64(&m.reservedSpace, batchMemSize)
-	if reserved > int64(m.arena.Cap()) {
-		atomic.AddInt64(&m.reservedSpace, -batchMemSize)
+	if batchMemSize+MemtableSizeOverhead > int64(m.arena.Cap()) {
 		// Not enough room
 		return false, nil
 	}
@@ -131,8 +124,8 @@ func (m *Memtable) HasWrites() bool {
 
 func (m *Memtable) AddFlushedCallback(flushedCallback func(error)) {
 	m.flushedCallbacksLock.Lock()
+	defer m.flushedCallbacksLock.Unlock()
 	m.flushedCallbacks = append(m.flushedCallbacks, flushedCallback)
-	m.flushedCallbacksLock.Unlock()
 }
 
 func (m *Memtable) Flushed(err error) {
@@ -145,14 +138,4 @@ func (m *Memtable) Flushed(err error) {
 		cb(err)
 	}
 	m.flushedCallbacks = nil
-}
-
-func (m *Memtable) GetLastKey() []byte {
-	iterLast := arenaskl.Iterator{}
-	iterLast.Init(m.sl)
-	iterLast.SeekToLast()
-	if !iterLast.Valid() {
-		panic("no data in table")
-	}
-	return iterLast.Key()
 }
