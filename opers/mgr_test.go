@@ -113,6 +113,7 @@ func testBridgeFromOper(t *testing.T, msgs [][]*kafka.Message, numFailuresToCrea
 	pm := tppm.NewTestProcessorManager()
 	cfg := &conf.Config{}
 	cfg.ApplyDefaults()
+	cfg.ProcessorCount = 48
 
 	fact := msgClientFact{msgs: msgs,
 		numFailuresToCreate: numFailuresToCreate}

@@ -109,7 +109,7 @@ func TestForwardBatches(t *testing.T) {
 		Value: []byte("val1"),
 	})
 
-	processorID := 23
+	processorID := 10
 
 	var forwardBatches []*ProcessBatch
 	numParts := 10

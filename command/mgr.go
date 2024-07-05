@@ -28,7 +28,6 @@ const (
 	LoadCommandsQueryName             = "sys.load_commands"
 	ExecuteCommandLockName            = "exec_command"
 	CommandsVersion                   = 1
-	commandManagerProcessorID         = 1
 	slabAndReceiverSequencesBatchSize = 10
 )
 
@@ -328,7 +327,7 @@ func (m *manager) ExecuteCommand(command string) error {
 		colBuilders[3].(*evbatch.BytesColBuilder).Append(extraData)
 	}
 	commandBatch := evbatch.NewBatchFromBuilders(m.commandsOpSchema.EventSchema, colBuilders...)
-	processorID := m.commandsOpSchema.ProcessorIDs[0]
+	processorID := m.commandsOpSchema.PartitionProcessorMapping[0]
 	pBatch := proc.NewProcessBatch(processorID, commandBatch, common.CommandsReceiverID, 0, -1)
 	if err := m.ingestCommandBatch(pBatch); err != nil {
 		return err
@@ -348,9 +347,7 @@ func (m *manager) ExecuteCommand(command string) error {
 			m.commandIDsToClear = append(m.commandIDsToClear, commandID, pi.CommandID)
 		}
 	} else if ast.PrepareQuery != nil {
-		if err == nil {
-			err = m.queryManager.PrepareQuery(*ast.PrepareQuery)
-		}
+		err = m.queryManager.PrepareQuery(*ast.PrepareQuery)
 	} else {
 		panic("invalid command")
 	}
@@ -395,7 +392,8 @@ func (m *manager) MaybeCompact() error {
 	}
 	// We create a batch with just the key cols
 	batch := evbatch.NewBatchFromBuilders(schema, colBuilders...)
-	pBatch := proc.NewProcessBatch(commandManagerProcessorID, batch, common.CommandsDeleteReceiverID, 0, -1)
+	processorID := m.commandsOpSchema.PartitionProcessorMapping[0]
+	pBatch := proc.NewProcessBatch(processorID, batch, common.CommandsDeleteReceiverID, 0, -1)
 	// best effort, no need to replicate
 	m.batchForwarder.ForwardBatch(pBatch, false, func(err error) {
 		if err != nil {

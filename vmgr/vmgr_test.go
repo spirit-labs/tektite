@@ -652,6 +652,7 @@ func TestActivateThenDeactivateWithClusterStateWhileStillActivating(t *testing.T
 func TestFailure(t *testing.T) {
 	cfg := &conf.Config{}
 	cfg.ApplyDefaults()
+	cfg.ProcessorCount = 48
 
 	seqMgr := sequence.NewInMemSequenceManager()
 	vmgr, remotingServer, _, lmgrClient := setupWithSeqMgrWithActivate(t, seqMgr, cfg, true)
@@ -800,6 +801,7 @@ func TestFailureDetectionNotCompletedWithNotAllProcessors(t *testing.T) {
 func TestSecondFailureAtHigherClusterVersion(t *testing.T) {
 	cfg := &conf.Config{}
 	cfg.ApplyDefaults()
+	cfg.ProcessorCount = 48
 
 	seqMgr := sequence.NewInMemSequenceManager()
 	vmgr, remotingServer, _, _ := setupWithSeqMgrWithActivate(t, seqMgr, cfg, true)
@@ -894,6 +896,7 @@ func TestGetLastFailureFlushedVersionWrongClusterVersion(t *testing.T) {
 func TestFailureCompleteWrongClusterVersion(t *testing.T) {
 	cfg := &conf.Config{}
 	cfg.ApplyDefaults()
+	cfg.ProcessorCount = 48
 
 	seqMgr := sequence.NewInMemSequenceManager()
 	vmgr, remotingServer, _, _ := setupWithSeqMgrWithActivate(t, seqMgr, cfg, true)
@@ -950,6 +953,7 @@ func TestFailureCompleteWrongClusterVersion(t *testing.T) {
 func TestIsFailureCompleteWrongClusterVersion(t *testing.T) {
 	cfg := &conf.Config{}
 	cfg.ApplyDefaults()
+	cfg.ProcessorCount = 48
 
 	seqMgr := sequence.NewInMemSequenceManager()
 	vmgr, remotingServer, _, _ := setupWithSeqMgrWithActivate(t, seqMgr, cfg, true)
