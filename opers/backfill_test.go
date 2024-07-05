@@ -2,10 +2,12 @@ package opers
 
 import (
 	"fmt"
+	"github.com/spirit-labs/tektite/arenaskl"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/conf"
 	"github.com/spirit-labs/tektite/encoding"
 	"github.com/spirit-labs/tektite/evbatch"
+	"github.com/spirit-labs/tektite/iteration"
 	"github.com/spirit-labs/tektite/mem"
 	"github.com/spirit-labs/tektite/proc"
 	"github.com/spirit-labs/tektite/testutils"
@@ -227,6 +229,72 @@ func TestBackfillStoreLoadOffsets(t *testing.T) {
 		require.True(t, ok)
 		require.Equal(t, int64(i*1000+234), off)
 	}
+}
+
+func TestUpdatableIterator(t *testing.T) {
+	arena := arenaskl.NewArena(10000)
+	mt := mem.NewMemtable(arena, 0, 10000)
+
+	// add some data
+	mb := mem.NewBatch()
+	for i := 0; i < 10; i++ {
+		mb.AddEntry(common.KV{
+			Key:   encoding.EncodeVersion([]byte(fmt.Sprintf("key%05d", i)), 0),
+			Value: []byte(fmt.Sprintf("val%05d", i)),
+		})
+	}
+	ok, err := mt.Write(mb)
+	require.NoError(t, err)
+	require.True(t, ok)
+
+	fact := func(ks []byte, ke []byte) (iteration.Iterator, error) {
+		return mt.NewIterator(ks, ke), nil
+	}
+	ua, err := newUpdatableIterator(nil, nil, fact)
+	require.NoError(t, err)
+
+	for i := 0; i < 10; i++ {
+		valid, err := ua.IsValid()
+		require.NoError(t, err)
+		require.True(t, valid)
+		expectedKey := encoding.EncodeVersion([]byte(fmt.Sprintf("key%05d", i)), 0)
+		expectedValue := []byte(fmt.Sprintf("val%05d", i))
+		require.Equal(t, expectedKey, ua.Current().Key)
+		require.Equal(t, expectedValue, ua.Current().Value)
+		err = ua.Next()
+		require.NoError(t, err)
+	}
+
+	// Now add more data
+
+	mb = mem.NewBatch()
+	for i := 10; i < 20; i++ {
+		mb.AddEntry(common.KV{
+			Key:   encoding.EncodeVersion([]byte(fmt.Sprintf("key%05d", i)), 0),
+			Value: []byte(fmt.Sprintf("val%05d", i)),
+		})
+	}
+	ok, err = mt.Write(mb)
+	require.NoError(t, err)
+	require.True(t, ok)
+
+	// Data should be seen
+
+	for i := 10; i < 20; i++ {
+		valid, err := ua.IsValid()
+		require.NoError(t, err)
+		require.True(t, valid)
+		expectedKey := encoding.EncodeVersion([]byte(fmt.Sprintf("key%05d", i)), 0)
+		expectedValue := []byte(fmt.Sprintf("val%05d", i))
+		require.Equal(t, expectedKey, ua.Current().Key)
+		require.Equal(t, expectedValue, ua.Current().Value)
+		err = ua.Next()
+		require.NoError(t, err)
+	}
+
+	valid, err := ua.IsValid()
+	require.NoError(t, err)
+	require.False(t, valid)
 }
 
 func writeEntriesToStore(t *testing.T, mb *mem.Batch, store tppm.Store) {

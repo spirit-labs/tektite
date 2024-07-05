@@ -13,8 +13,6 @@ import (
 	"github.com/spirit-labs/tektite/objstore/dev"
 	"github.com/spirit-labs/tektite/tabcache"
 	"github.com/spirit-labs/tektite/testutils"
-	"math/rand"
-
 	"github.com/stretchr/testify/require"
 	"math"
 	"sync/atomic"
@@ -211,40 +209,16 @@ func TestSimpleIterate(t *testing.T) {
 		require.NoError(t, err)
 	}()
 
+	writeKVs(t, procStore, 0, 10)
+
 	iter, err := procStore.NewIterator(nil, nil, math.MaxUint64, false)
 	require.NoError(t, err)
-	requireIterValid(t, iter, false)
 
-	writeKVs(t, procStore, 0, 10)
 	iteratePairs(t, iter, 0, 10)
 
 	err = iter.Next()
 	require.NoError(t, err)
 	requireIterValid(t, iter, false)
-}
-
-func TestIterateAllThenAddMore(t *testing.T) {
-	cfg := conf.Config{}
-	cfg.ApplyDefaults()
-	procStore, mgr := SetupProcessorStoreWithConfig(t, cfg)
-	defer func() {
-		err := mgr.Stop()
-		require.NoError(t, err)
-	}()
-
-	iter, err := procStore.NewIterator(nil, nil, math.MaxUint64, false)
-	require.NoError(t, err)
-	requireIterValid(t, iter, false)
-
-	writeKVs(t, procStore, 0, 10)
-	iteratePairs(t, iter, 0, 10)
-
-	err = iter.Next()
-	require.NoError(t, err)
-	requireIterValid(t, iter, false)
-
-	writeKVs(t, procStore, 10, 10)
-	iteratePairs(t, iter, 10, 10)
 }
 
 func TestIteratorPicksUpAddedDataAfterDataWithGreaterKeyAlreadyExists(t *testing.T) {
@@ -293,11 +267,11 @@ func TestIterateInRange(t *testing.T) {
 	ks := []byte(fmt.Sprintf("prefix/key-%010d", 3))
 	ke := []byte(fmt.Sprintf("prefix/key-%010d", 7))
 
+	writeKVs(t, procStore, 0, 10)
+
 	iter, err := procStore.NewIterator(ks, ke, math.MaxUint64, false)
 	require.NoError(t, err)
-	requireIterValid(t, iter, false)
 
-	writeKVs(t, procStore, 0, 10)
 	iteratePairs(t, iter, 3, 4)
 
 	err = iter.Next()
@@ -316,11 +290,11 @@ func TestIterateInRangeNoEndRange(t *testing.T) {
 
 	ks := []byte(fmt.Sprintf("prefix/key-%010d", 3))
 
+	writeKVs(t, procStore, 0, 10)
+
 	iter, err := procStore.NewIterator(ks, nil, math.MaxUint64, false)
 	require.NoError(t, err)
-	requireIterValid(t, iter, false)
 
-	writeKVs(t, procStore, 0, 10)
 	iteratePairs(t, iter, 3, 7)
 
 	err = iter.Next()
@@ -337,11 +311,11 @@ func TestIterateThenDelete(t *testing.T) {
 		require.NoError(t, err)
 	}()
 
+	writeKVs(t, store, 0, 10)
+
 	iter, err := store.NewIterator(nil, nil, math.MaxUint64, false)
 	require.NoError(t, err)
-	requireIterValid(t, iter, false)
 
-	writeKVs(t, store, 0, 10)
 	iteratePairs(t, iter, 0, 5)
 
 	requireIterValid(t, iter, true)
@@ -352,181 +326,6 @@ func TestIterateThenDelete(t *testing.T) {
 	err = iter.Next()
 	require.NoError(t, err)
 	requireIterValid(t, iter, false)
-}
-
-func TestIterateThenReplaceThenDelete(t *testing.T) {
-	cfg := conf.Config{}
-	cfg.ApplyDefaults()
-	store, mgr := SetupProcessorStoreWithConfig(t, cfg)
-	defer func() {
-		err := mgr.Stop()
-		require.NoError(t, err)
-	}()
-
-	iter, err := store.NewIterator(nil, nil, math.MaxUint64, false)
-	require.NoError(t, err)
-	requireIterValid(t, iter, false)
-
-	writeKVs(t, store, 0, 10)
-	iteratePairs(t, iter, 0, 5)
-	requireIterValid(t, iter, true)
-
-	err = store.flush(nil)
-	require.NoError(t, err)
-	requireIterValid(t, iter, true)
-
-	// Then we delete the rest of them from the memtable
-	writeKVsWithTombstones(t, store, 5, 5)
-	err = iter.Next()
-	require.NoError(t, err)
-	requireIterValid(t, iter, false)
-}
-
-func TestIterateAllMemtableThenReplace(t *testing.T) {
-	cfg := conf.Config{}
-	cfg.ApplyDefaults()
-	store, mgr := SetupProcessorStoreWithConfig(t, cfg)
-	defer func() {
-		err := mgr.Stop()
-		require.NoError(t, err)
-	}()
-
-	iter, err := store.NewIterator(nil, nil, math.MaxUint64, false)
-	require.NoError(t, err)
-	requireIterValid(t, iter, false)
-
-	// fully iterate through the memtable, then force a replace then fully iterate again. and repeat
-
-	ks := 0
-	for i := 0; i < 10; i++ {
-		writeKVs(t, store, ks, 10)
-		iteratePairs(t, iter, ks, 10)
-		err = iter.Next()
-		require.NoError(t, err)
-		requireIterValid(t, iter, false)
-
-		err = store.flush(nil)
-		require.NoError(t, err)
-		ks += 10
-	}
-}
-
-func TestIterateSomeMemtableThenReplace(t *testing.T) {
-	cfg := conf.Config{}
-	cfg.ApplyDefaults()
-	store, mgr := SetupProcessorStoreWithConfig(t, cfg)
-	defer func() {
-		err := mgr.Stop()
-		require.NoError(t, err)
-	}()
-
-	iter, err := store.NewIterator(nil, nil, math.MaxUint64, false)
-	require.NoError(t, err)
-	requireIterValid(t, iter, false)
-
-	// partially iterate through the memtable, then force a replace then fully iterate again. and repeat
-
-	ks := 0
-	for i := 0; i < 10; i++ {
-		writeKVs(t, store, ks, 10)
-
-		// Only iterate through some of them
-		iteratePairs(t, iter, ks, 5)
-		requireIterValid(t, iter, true)
-
-		err = store.flush(nil)
-		require.NoError(t, err)
-
-		ks += 5
-
-		// Then iterate through the rest
-		err = iter.Next()
-		require.NoError(t, err)
-		iteratePairs(t, iter, ks, 5)
-		err = iter.Next()
-		require.NoError(t, err)
-		requireIterValid(t, iter, false)
-
-		ks += 5
-	}
-}
-
-func TestIterateThenReplaceThenAddWithSmallerKey(t *testing.T) {
-	cfg := conf.Config{}
-	cfg.ApplyDefaults()
-	store, mgr := SetupProcessorStoreWithConfig(t, cfg)
-	defer func() {
-		err := mgr.Stop()
-		require.NoError(t, err)
-	}()
-
-	iter, err := store.NewIterator(nil, nil, math.MaxUint64, false)
-	require.NoError(t, err)
-	requireIterValid(t, iter, false)
-
-	writeKVs(t, store, 0, 10)
-	iteratePairs(t, iter, 0, 10)
-
-	err = iter.Next()
-	require.NoError(t, err)
-	requireIterValid(t, iter, false)
-
-	err = store.flush(nil)
-	require.NoError(t, err)
-
-	// Now add some more but with smaller keys we've already seen, and different values
-	writeKVsWithValueSuffix(t, store, 0, 10, "suf")
-
-	// We shouldn't see these
-	requireIterValid(t, iter, false)
-
-	// Add some more - we should see these
-	writeKVs(t, store, 10, 10)
-	iteratePairs(t, iter, 10, 10)
-	err = iter.Next()
-	require.NoError(t, err)
-	requireIterValid(t, iter, false)
-}
-
-func TestIterateShuffledKeys(t *testing.T) {
-	cfg := conf.Config{}
-	cfg.ApplyDefaults()
-	cfg.MemtableFlushQueueMaxSize = 10
-	store, mgr := SetupProcessorStoreWithConfig(t, cfg)
-	defer func() {
-		err := mgr.Stop()
-		require.NoError(t, err)
-	}()
-
-	// Add a bunch of entries in random order, and add in small batches, replacing memtable each time
-	// Then iterate through them and verify in order and all correct
-
-	numEntries := 10000
-	entries := prepareRanges(numEntries, 1, 0)
-	rand.Shuffle(len(entries), func(i, j int) { entries[i], entries[j] = entries[j], entries[i] })
-
-	batchSize := 10
-	var batch *mem.Batch
-	for _, entry := range entries {
-		if batch == nil {
-			batch = mem.NewBatch()
-		}
-		batch.AddEntry(common.KV{
-			Key:   encoding.EncodeVersion(entry.keyStart, 0),
-			Value: entry.keyEnd,
-		})
-		if batch.Len() == batchSize {
-			err := store.Write(batch)
-			require.NoError(t, err)
-			batch = nil
-			err = store.flush(nil)
-			require.NoError(t, err)
-		}
-	}
-
-	iter, err := store.NewIterator(nil, nil, math.MaxUint64, false)
-	require.NoError(t, err)
-	iteratePairs(t, iter, 0, numEntries)
 }
 
 func TestPeriodicMemtableReplace(t *testing.T) {

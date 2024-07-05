@@ -40,15 +40,6 @@ func NewCompactionMergingIterator(iters []Iterator, preserveTombstones bool, min
 	return mi, nil
 }
 
-func (m *MergingIterator) PrependIterator(iter Iterator) error {
-	iters := make([]Iterator, 0, len(m.iters)+1)
-	iters = append(iters, iter)
-	iters = append(iters, m.iters...)
-	m.iters = iters
-	_, err := m.IsValid()
-	return err
-}
-
 func (m *MergingIterator) IsValid() (bool, error) {
 	repeat := true
 	for repeat {
