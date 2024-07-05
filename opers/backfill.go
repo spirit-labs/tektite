@@ -360,7 +360,10 @@ func (b *BackfillOperator) initialiseIteratorAtOffset(execCtx StreamExecContext,
 	keyStart = append(keyStart, 1) // not null
 	keyStart = encoding.KeyEncodeInt(keyStart, offset)
 	keyEnd := encoding.EncodeEntryPrefix(partitionHash, uint64(b.fromSlabID)+1, 24)
-	iter, err := execCtx.Processor().NewIterator(keyStart, keyEnd, math.MaxInt64, false)
+	fact := func(ks []byte, ke []byte) (iteration.Iterator, error) {
+		return execCtx.Processor().NewIterator(ks, ke, math.MaxInt64, false)
+	}
+	iter, err := newUpdatableIterator(keyStart, keyEnd, fact)
 	if err != nil {
 		return err
 	}
@@ -451,4 +454,62 @@ func (b *BackfillOperator) loadBatchForPartition(partID int) (*evbatch.Batch, er
 	info.lastLoadedOffset = lastLoadedOffset
 	batch := evbatch.NewBatchFromBuilders(b.schema.EventSchema, colBuilders...)
 	return batch, nil
+}
+
+// updatableIterator ensures data that was added since creation gets seen
+func newUpdatableIterator(keyStart []byte, keyEnd []byte, iterFactory func(keyStart []byte, keyEnd []byte) (iteration.Iterator, error)) (iteration.Iterator, error) {
+	iter, err := iterFactory(keyStart, keyEnd)
+	if err != nil {
+		return nil, err
+	}
+	return &updatableIterator{
+		keyStart:    keyStart,
+		keyEnd:      keyEnd,
+		iter:        iter,
+		iterFactory: iterFactory,
+	}, nil
+}
+
+type updatableIterator struct {
+	lastKey     []byte
+	keyStart    []byte
+	keyEnd      []byte
+	iter        iteration.Iterator
+	iterFactory func(keyStart []byte, keyEnd []byte) (iteration.Iterator, error)
+}
+
+func (u *updatableIterator) Current() common.KV {
+	curr := u.iter.Current()
+	u.lastKey = curr.Key
+	return curr
+}
+
+func (u *updatableIterator) Next() error {
+	return u.iter.Next()
+}
+
+func (u *updatableIterator) IsValid() (bool, error) {
+	valid, err := u.iter.IsValid()
+	if err != nil {
+		return false, err
+	}
+	if valid {
+		return true, nil
+	}
+	// If not valid we recreate the iterator and call IsValid() again.
+	// This means we will pick up newly added data
+	u.iter.Close()
+	start := u.keyStart
+	if u.lastKey != nil {
+		start = common.IncrementBytesBigEndian(u.lastKey)
+	}
+	u.iter, err = u.iterFactory(start, u.keyEnd)
+	if err != nil {
+		return false, err
+	}
+	return u.iter.IsValid()
+}
+
+func (u *updatableIterator) Close() {
+	u.iter.Close()
 }

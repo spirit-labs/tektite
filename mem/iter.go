@@ -9,7 +9,6 @@ import (
 
 type MemtableIterator struct {
 	it          *arenaskl.Iterator
-	prevIt      *arenaskl.Iterator
 	keyStart    []byte
 	keyEnd      []byte
 	curr        common.KV
@@ -37,11 +36,7 @@ func (m *MemtableIterator) Current() common.KV {
 }
 
 func (m *MemtableIterator) Next() error {
-	// we make a copy of the iter before advancing in case we advance off the end (invalid) and later
-	// more records arrive
-	prevCopy := *m.it
 	m.it.Next()
-	m.prevIt = &prevCopy
 	return nil
 }
 
@@ -64,33 +59,10 @@ func (m *MemtableIterator) IsValid() (bool, error) {
 	if !m.initialSeek {
 		m.doInitialSeek()
 	}
-
 	if !m.it.Valid() {
-		// Check the previous iter in case new entries were added
-		if m.prevIt != nil {
-			cp := *m.prevIt
-			m.prevIt.Next()
-			if m.prevIt.Valid() && (m.keyEnd == nil || bytes.Compare(m.prevIt.Key(), m.keyEnd) < 0) {
-				// There are new entries - reset the iterator to prev.next
-				m.it = m.prevIt
-				m.prevIt = nil
-				m.valid = true
-				m.curr = common.KV{
-					Key:   m.it.Key(),
-					Value: m.it.Value(),
-				}
-				return true, nil
-			} else {
-				// Put the prevIter back - still not valid
-				m.prevIt = &cp
-				m.valid = false
-				return false, nil
-			}
-		}
 		m.valid = false
 		return false, nil
 	}
-
 	if m.keyEnd == nil || bytes.Compare(m.it.Key(), m.keyEnd) < 0 {
 		m.valid = true
 		m.curr = common.KV{
@@ -106,5 +78,4 @@ func (m *MemtableIterator) IsValid() (bool, error) {
 
 func (m *MemtableIterator) Close() {
 	m.it = nil
-	m.prevIt = nil
 }

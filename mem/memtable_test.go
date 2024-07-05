@@ -5,51 +5,10 @@ import (
 	"github.com/spirit-labs/tektite/arenaskl"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/encoding"
-	"github.com/spirit-labs/tektite/errors"
 	"github.com/spirit-labs/tektite/iteration"
 	"github.com/stretchr/testify/require"
 	"testing"
-	"time"
 )
-
-func TestMTIteratorPicksUpNewRecords(t *testing.T) {
-	memTable := NewMemtable(arenaskl.NewArena(1024*1024), 0, 1024*1024)
-
-	iter := memTable.NewIterator(nil, nil)
-	requireIterValid(t, iter, false)
-
-	addToMemtable(t, memTable, "key0", "val0")
-	addToMemtable(t, memTable, "key1", "val1")
-	addToMemtable(t, memTable, "key2", "val2")
-	addToMemtable(t, memTable, "key3", "val3")
-	addToMemtable(t, memTable, "key4", "val4")
-
-	// Iter won't see elements added after writeIter's reached the end
-	requireIterValid(t, iter, true)
-
-	for i := 0; i < 5; i++ {
-		requireIterValid(t, iter, true)
-		curr := iter.Current()
-		require.Equal(t, fmt.Sprintf("key%d", i), string(curr.Key))
-		require.Equal(t, fmt.Sprintf("val%d", i), string(curr.Value))
-		err := iter.Next()
-		require.NoError(t, err)
-	}
-
-	// Call it twice to make sure isValid doesn't change state
-	requireIterValid(t, iter, false)
-	requireIterValid(t, iter, false)
-	addToMemtable(t, memTable, "key5", "val5")
-	requireIterValid(t, iter, true)
-	requireIterValid(t, iter, true)
-
-	curr := iter.Current()
-	require.Equal(t, "key5", string(curr.Key))
-	require.Equal(t, "val5", string(curr.Value))
-	err := iter.Next()
-	require.NoError(t, err)
-	requireIterValid(t, iter, false)
-}
 
 func TestMTIteratorPicksUpNewRecordsGreaterKeyAlreadyExists(t *testing.T) {
 	memTable := NewMemtable(arenaskl.NewArena(1024*1024), 0, 1024*1024)
@@ -174,70 +133,6 @@ func TestMTIteratorTombstones(t *testing.T) {
 			require.Equal(t, fmt.Sprintf("val%d", i), string(curr.Value))
 		}
 		err := iter.Next()
-		require.NoError(t, err)
-	}
-}
-
-func TestMTIteratorMultipleIterators(t *testing.T) {
-	memTable := NewMemtable(arenaskl.NewArena(1024*1024), 0, 1024*1024)
-
-	numEntries := 1000
-
-	go func() {
-		for i := 0; i < numEntries; i++ {
-			addToMemtable(t, memTable, fmt.Sprintf("key%010d", i), fmt.Sprintf("val%010d", i))
-			time.Sleep(1 * time.Millisecond)
-		}
-	}()
-
-	numIters := 10
-
-	chans := make([]chan error, numIters)
-	for i := 0; i < numIters; i++ {
-		ch := make(chan error)
-		chans[i] = ch
-		go func() {
-			iter := memTable.NewIterator(nil, nil)
-			for i := 0; i < numEntries; i++ {
-				for {
-					v, err := iter.IsValid()
-					if err != nil {
-						ch <- err
-						return
-					}
-					if v {
-						break
-					}
-					// Wait for producer to catch up
-					time.Sleep(100 * time.Microsecond)
-				}
-				curr := iter.Current()
-				if fmt.Sprintf("key%010d", i) != string(curr.Key) {
-					ch <- errors.New("key not expected")
-				}
-				if fmt.Sprintf("val%010d", i) != string(curr.Value) {
-					ch <- errors.New("val not expected")
-				}
-				err := iter.Next()
-				if err != nil {
-					ch <- err
-				}
-			}
-			v, err := iter.IsValid()
-			if err != nil {
-				ch <- err
-				return
-			}
-			if v {
-				ch <- errors.New("iter should not be valid")
-				return
-			}
-			ch <- nil
-		}()
-	}
-
-	for _, ch := range chans {
-		err := <-ch
 		require.NoError(t, err)
 	}
 }

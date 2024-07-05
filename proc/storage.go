@@ -46,7 +46,6 @@ type ProcessorStore struct {
 	periodicReplaceInQueue atomic.Bool
 	writeSeq               uint64
 	firstGoodSequence      uint64
-	iterators              sync.Map
 }
 
 func NewProcessorStore(pm *ProcessorManager, processorID int) *ProcessorStore {
@@ -100,7 +99,6 @@ func (ps *ProcessorStore) Stop() {
 	ps.stopWG.Wait()
 	ps.lock.Lock()
 	defer ps.lock.Unlock()
-	ps.iterators = sync.Map{}
 	if ps.mt != nil {
 		ps.mt.Close()
 		ps.mt = nil
@@ -125,19 +123,14 @@ func (ps *ProcessorStore) Write(batch *mem.Batch) error {
 	if !ps.started {
 		return errors.New("processor store not started")
 	}
-	createdMemtable := false
 	if ps.mt == nil {
 		ps.createNewMemtable()
-		createdMemtable = true
 	}
 	ok, err := ps.mt.Write(batch)
 	if err != nil {
 		return err
 	}
 	if ok {
-		if createdMemtable {
-			return ps.updateIterators(ps.mt)
-		}
 		return nil
 	}
 	// Memtable is full - add it to the push queue
@@ -147,7 +140,6 @@ func (ps *ProcessorStore) Write(batch *mem.Batch) error {
 		return err
 	}
 	ps.createNewMemtable()
-
 	ok, err = ps.mt.Write(batch)
 	if err != nil {
 		return err
@@ -155,8 +147,7 @@ func (ps *ProcessorStore) Write(batch *mem.Batch) error {
 	if !ok {
 		return errors.Errorf("batch is too large to be written in memtable")
 	}
-	return ps.updateIterators(ps.mt)
-
+	return nil
 }
 
 func (ps *ProcessorStore) maybeReplaceMemtable() error {
@@ -546,15 +537,6 @@ func (ps *ProcessorStore) iterFactoryFunc() func(sst *sst2.SSTable, keyStart []b
 	}
 }
 
-type Iterator struct {
-	s          *ProcessorStore
-	lock       *sync.RWMutex
-	rangeStart []byte
-	rangeEnd   []byte
-	lastKey    []byte
-	iter       *iteration.MergingIterator
-}
-
 func (ps *ProcessorStore) NewIterator(keyStart []byte, keyEnd []byte, highestVersion uint64, preserveTombstones bool) (iteration.Iterator, error) {
 	log.Debugf("creating store iterator from keystart %v to keyend %v", keyStart, keyEnd)
 	ps.lock.RLock() // Note, largely uncontended so minimal overhead
@@ -589,83 +571,5 @@ func (ps *ProcessorStore) NewIterator(keyStart []byte, keyEnd []byte, highestVer
 		return nil, err
 	}
 	iters = append(iters, ssTableIters...)
-	si, err := ps.newStoreIterator(keyStart, keyEnd, iters, &ps.lock, highestVersion, preserveTombstones)
-	if err != nil {
-		return nil, err
-	}
-	ps.iterators.Store(si, nil)
-	return si, nil
-}
-
-func (ps *ProcessorStore) newStoreIterator(rangeStart []byte, rangeEnd []byte, iters []iteration.Iterator, lock *sync.RWMutex,
-	highestVersion uint64, preserveTombstones bool) (*Iterator, error) {
-	mi, err := iteration.NewMergingIterator(iters, preserveTombstones, highestVersion)
-	if err != nil {
-		return nil, err
-	}
-	si := &Iterator{
-		s:          ps,
-		lock:       lock,
-		rangeStart: rangeStart,
-		rangeEnd:   rangeEnd,
-		iter:       mi,
-	}
-	return si, nil
-}
-
-func (ps *ProcessorStore) removeIterator(iter *Iterator) {
-	ps.iterators.Delete(iter)
-}
-
-func (ps *ProcessorStore) updateIterators(mt *mem.Memtable) error {
-	var err error
-	ps.iterators.Range(func(key, value any) bool {
-		iter := key.(*Iterator) //nolint:forcetypeassert
-		rs, re, lastKey := iter.getRange()
-		if lastKey != nil {
-			// lastKey includes the version
-			lk := lastKey[:len(lastKey)-8]
-			rs = common.IncrementBytesBigEndian(lk)
-			rs = append(rs, lastKey[len(lastKey)-8:]...) // put version back on
-		}
-		mtIter := mt.NewIterator(rs, re)
-		if err = iter.addNewMemtableIterator(mtIter); err != nil {
-			return false
-		}
-		return true
-	})
-	return err
-}
-
-func (it *Iterator) getRange() ([]byte, []byte, []byte) {
-	return it.rangeStart, it.rangeEnd, it.lastKey
-}
-
-func (it *Iterator) addNewMemtableIterator(iter iteration.Iterator) error {
-	return it.iter.PrependIterator(iter)
-}
-
-func (it *Iterator) Close() {
-	it.s.removeIterator(it)
-	it.iter.Close()
-}
-
-func (it *Iterator) Current() common.KV {
-	it.lock.RLock()
-	defer it.lock.RUnlock()
-	curr := it.iter.Current()
-	it.lastKey = curr.Key
-	return curr
-}
-
-func (it *Iterator) Next() error {
-	it.lock.RLock()
-	defer it.lock.RUnlock()
-	return it.iter.Next()
-}
-
-func (it *Iterator) IsValid() (bool, error) {
-	it.lock.RLock()
-	defer it.lock.RUnlock()
-	return it.iter.IsValid()
+	return iteration.NewMergingIterator(iters, preserveTombstones, highestVersion)
 }
