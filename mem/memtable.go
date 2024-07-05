@@ -25,6 +25,7 @@ type Memtable struct {
 	flushedCallbacksLock sync.Mutex
 	flushedCallbacks     []func(error)
 	hasWrites            atomic.Bool
+	usedSpace            int64
 }
 
 var MemtableSizeOverhead int64
@@ -53,6 +54,10 @@ func NewMemtable(arena *arenaskl.Arena, nodeID int, maxSizeBytes int) *Memtable 
 		sl:           sl,
 	}
 
+	// The skiplist takes up a certain amount of space for head and tail nodes etc, we need to take this into account
+	// in the reserved space
+	mt.usedSpace = MemtableSizeOverhead
+
 	return mt
 }
 
@@ -78,10 +83,12 @@ func (m *Memtable) Write(batch writeBatch) (bool, error) {
 	// retry.
 	batchMemSize := batch.MemTableBytes()
 
-	if batchMemSize+MemtableSizeOverhead > int64(m.arena.Cap()) {
+	used := m.usedSpace + batchMemSize
+	if used > int64(m.arena.Cap()) {
 		// Not enough room
 		return false, nil
 	}
+	m.usedSpace = used
 
 	var err error
 	batch.Range(func(key []byte, value []byte) bool {
