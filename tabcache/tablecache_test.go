@@ -9,6 +9,7 @@ import (
 	"github.com/spirit-labs/tektite/sst"
 	"github.com/stretchr/testify/require"
 	"testing"
+	"time"
 )
 
 func TestTableCache(t *testing.T) {
@@ -58,6 +59,26 @@ func TestTableCache(t *testing.T) {
 
 	tc.DeleteSSTable([]byte("sst2"))
 	res, err = tc.GetSSTable([]byte("sst2"))
+	require.NoError(t, err)
+	require.Nil(t, res)
+
+	tcMaxAge, err := NewTableCacheWithMaxAge(objStoreClient, &cfg, time.Second)
+	require.NoError(t, err)
+
+	table1MaxAge := createSSTable(t)
+	err = tcMaxAge.AddSSTableWithMaxAge([]byte("sst1"), table1MaxAge)
+	require.NoError(t, err)
+
+	res, err = tcMaxAge.GetSSTable([]byte("sst1"))
+	require.NoError(t, err)
+	require.Equal(t, table1MaxAge, res)
+
+	table2MaxAge := createSSTable(t)
+	time.Sleep(time.Second)
+	err = tcMaxAge.AddSSTableWithMaxAge([]byte("sst2"), table2MaxAge)
+	require.NoError(t, err)
+
+	res, err = tcMaxAge.GetSSTable([]byte("sst2"))
 	require.NoError(t, err)
 	require.Nil(t, res)
 }

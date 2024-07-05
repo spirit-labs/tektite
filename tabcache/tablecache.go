@@ -7,6 +7,7 @@ import (
 	"github.com/spirit-labs/tektite/objstore"
 	"github.com/spirit-labs/tektite/sst"
 	"sync"
+	"time"
 )
 
 type Cache struct {
@@ -14,7 +15,8 @@ type Cache struct {
 	cloudStore objstore.Client
 	// We only have this to prevent golang race detector flagging issue in ristretto cache
 	// as the ristretto cache `isClosed` flag is mutated without locking
-	lock sync.RWMutex
+	lock   sync.RWMutex
+	maxAge time.Duration
 }
 
 func NewTableCache(cloudStore objstore.Client, cfg *conf.Config) (*Cache, error) {
@@ -30,7 +32,17 @@ func NewTableCache(cloudStore objstore.Client, cfg *conf.Config) (*Cache, error)
 	return &Cache{
 		cache:      cache,
 		cloudStore: cloudStore,
+		maxAge:     cfg.TableCacheSSTableMaxAge,
 	}, nil
+}
+
+func NewTableCacheWithMaxAge(cloudStore objstore.Client, cfg *conf.Config, maxAge time.Duration) (*Cache, error) {
+	cache, err := NewTableCache(cloudStore, cfg)
+	if err != nil {
+		return nil, err
+	}
+	cache.maxAge = maxAge
+	return cache, nil
 }
 
 func (tc *Cache) Start() error {
@@ -70,6 +82,13 @@ func (tc *Cache) AddSSTable(tableID sst.SSTableID, table *sst.SSTable) error {
 	defer tc.lock.RUnlock()
 	tc.cache.Set(string(tableID), table, int64(table.SizeBytes()))
 	tc.cache.Wait()
+	return nil
+}
+
+func (tc *Cache) AddSSTableWithMaxAge(tableID sst.SSTableID, table *sst.SSTable) error {
+	if uint64(time.Now().UTC().UnixMilli())-table.CreationTime() <= uint64(tc.maxAge.Milliseconds()) {
+		return tc.AddSSTable(tableID, table)
+	}
 	return nil
 }
 

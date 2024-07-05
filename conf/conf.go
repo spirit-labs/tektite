@@ -57,7 +57,8 @@ const (
 
 	DefaultEtcdCallTimeout = 5 * time.Second
 
-	DefaultTableCacheMaxSizeBytes = 128 * 1024 * 1024
+	DefaultTableCacheMaxSizeBytes  = 128 * 1024 * 1024
+	DefaultTableCacheSSTableMaxAge = 7 * 24 * time.Hour
 
 	DefaultClusterManagerLockTimeout  = 2 * time.Minute
 	DefaultClusterManagerKeyPrefix    = "tektite_clust_data/"
@@ -124,7 +125,8 @@ type Config struct {
 	CompactionMaxSSTableSize           int
 
 	// Table-cache config
-	TableCacheMaxSizeBytes parseableInt
+	TableCacheMaxSizeBytes  parseableInt
+	TableCacheSSTableMaxAge time.Duration
 
 	// Compaction worker config
 	CompactionWorkersEnabled bool
