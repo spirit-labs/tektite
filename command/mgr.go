@@ -140,7 +140,7 @@ func (m *manager) Activate() error {
 	}
 	m.streamManager.Loaded()
 	// Force a compaction if necessary
-	if err := m.MaybeCompact(); err != nil {
+	if err := m.maybeCompact(); err != nil {
 		return err
 	}
 	m.scheduleCheckCompaction(true)
@@ -151,7 +151,7 @@ func (m *manager) scheduleCheckCompaction(first bool) {
 	m.compactionTimer = common.ScheduleTimer(m.cfg.CommandCompactionInterval, first, func() {
 		m.lock.Lock()
 		defer m.lock.Unlock()
-		if err := m.MaybeCompact(); err != nil {
+		if err := m.maybeCompact(); err != nil {
 			log.Errorf("failed to create snapshot %v", err)
 		}
 		m.scheduleCheckCompaction(false)
@@ -376,6 +376,12 @@ func (m *manager) ExecuteCommand(command string) error {
 }
 
 func (m *manager) MaybeCompact() error {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+	return m.maybeCompact()
+}
+
+func (m *manager) maybeCompact() error {
 	if !m.isClusterCompactor() {
 		return nil
 	}
