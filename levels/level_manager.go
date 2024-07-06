@@ -15,6 +15,7 @@ import (
 	"github.com/spirit-labs/tektite/tabcache"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -41,7 +42,7 @@ Changed segments are periodically flushed to cloud storage.
 type LevelManager struct {
 	lock                           sync.RWMutex
 	flushLock                      sync.Mutex
-	state                          levelManagerState
+	st                             int32
 	format                         common.MetadataFormat
 	objStore                       objstore.Client
 	tabCache                       *tabcache.Cache
@@ -74,16 +75,21 @@ type LevelManager struct {
 	level0Groups                   map[int][]*TableEntry
 	sstProcessorMap                map[string]int
 	compactingStartupL0Group       bool
+
+	readable atomic.Pointer[readableState]
 }
 
-type levelManagerState int
+type readableState struct {
+	levelSegmentEntries []levelEntries
+	deadVersionRanges   []VersionRange
+}
 
 const (
-	stateCreated  = levelManagerState(1)
-	stateLoaded   = levelManagerState(2)
-	stateActive   = levelManagerState(3)
-	stateShutdown = levelManagerState(4)
-	stateStopped  = levelManagerState(5)
+	stateCreated  = 1
+	stateLoaded   = 2
+	stateActive   = 3
+	stateShutdown = 4
+	stateStopped  = 5
 )
 
 type pendingL0Add struct {
@@ -117,11 +123,19 @@ func NewLevelManager(conf *conf.Config, cloudStore objstore.Client, tabCache *ta
 		lockedTables:              map[string]struct{}{},
 		pendingCompactions:        map[int]int{},
 		enableDedup:               enableDedup,
-		state:                     stateCreated,
+		st:                        stateCreated,
 		level0Groups:              map[int][]*TableEntry{},
 		sstProcessorMap:           map[string]int{},
 	}
 	return lm
+}
+
+func (lm *LevelManager) setState(state int32) {
+	atomic.StoreInt32(&lm.st, state)
+}
+
+func (lm *LevelManager) getState() int32 {
+	return atomic.LoadInt32(&lm.st)
 }
 
 func (lm *LevelManager) levelMaxTablesTrigger(level int) int {
@@ -183,8 +197,8 @@ func (lm *LevelManager) Start(block bool) error {
 			lm.lock.Unlock()
 		}
 	}()
-	if lm.state != stateCreated {
-		panic(fmt.Sprintf("invalid state:%d", lm.state))
+	if lm.getState() != stateCreated {
+		panic(fmt.Sprintf("invalid state:%d", lm.getState()))
 	}
 	ch := make(chan struct{}, 1)
 	log.Debugf("level manager starting on node %d", lm.conf.NodeID)
@@ -208,7 +222,8 @@ func (lm *LevelManager) Start(block bool) error {
 			log.Errorf("failed to build l0groups on lmgr start: %v", err)
 			return
 		}
-		lm.state = stateLoaded
+		lm.updateReadableState()
+		lm.setState(stateLoaded)
 		if len(lm.masterRecord.deadVersionRanges) > 0 {
 			if err := lm.maybeScheduleRemoveDeadVersionEntries(); err != nil {
 				log.Errorf("failed to schedule remove dead version entries on lmgr start: %v", err)
@@ -258,17 +273,17 @@ func (lm *LevelManager) Stop() error {
 			timers = append(timers, inProg.timer)
 		}
 	}
-	lm.state = stateStopped
+	lm.setState(stateStopped)
 	return nil
 }
 
 func (lm *LevelManager) Activate() error {
 	lm.lock.Lock()
 	defer lm.lock.Unlock()
-	if lm.state != stateLoaded {
+	if lm.getState() != stateLoaded {
 		return errors.NewTektiteErrorf(errors.Unavailable, "levelManager not loaded")
 	}
-	lm.state = stateActive
+	lm.setState(stateActive)
 	log.Debugf("level manager activated on node %d", lm.conf.NodeID)
 	return nil
 }
@@ -277,7 +292,7 @@ func (lm *LevelManager) Activate() error {
 func (lm *LevelManager) reset() {
 	lm.lock.Lock()
 	defer lm.lock.Unlock()
-	lm.state = stateCreated
+	lm.setState(stateCreated)
 	lm.segmentsToAdd = map[string]*segment{}
 	lm.segmentsToDelete = map[string]struct{}{}
 	lm.clusterVersions = map[string]int{}
@@ -327,13 +342,14 @@ func (lm *LevelManager) getOverlappingTables(keyStart []byte, keyEnd []byte, lev
 }
 
 func (lm *LevelManager) GetTableIDsForRange(keyStart []byte, keyEnd []byte) (OverlappingTableIDs, []VersionRange, error) {
-	lm.lock.RLock()
-	defer lm.lock.RUnlock()
-	if lm.state != stateActive {
+	if lm.getState() != stateActive {
 		return nil, nil, errors.NewTektiteErrorf(errors.Unavailable, "levelManager not active")
 	}
+	// We load the readable state from an atomic pointer, this state is updated atomically after apply changes have
+	// been applied to the LSM, this allows us to reduce contention between the read path and the write path.
+	readable := lm.readable.Load()
 	var overlapping OverlappingTableIDs
-	for level, entries := range lm.masterRecord.levelSegmentEntries {
+	for level, entries := range readable.levelSegmentEntries {
 		tables, err := lm.getOverlappingTables(keyStart, keyEnd, level, entries.segmentEntries)
 		if err != nil {
 			return nil, nil, err
@@ -353,15 +369,13 @@ func (lm *LevelManager) GetTableIDsForRange(keyStart []byte, keyEnd []byte) (Ove
 		}
 	}
 	// And we return any dead version ranges, so the data for those versions can be filtered out
-	deadRanges := make([]VersionRange, len(lm.masterRecord.deadVersionRanges))
-	copy(deadRanges, lm.masterRecord.deadVersionRanges)
-	return overlapping, deadRanges, nil
+	return overlapping, readable.deadVersionRanges, nil
 }
 
 func (lm *LevelManager) RegisterL0Tables(registrationBatch RegistrationBatch, completionFunc func(error)) {
 	lm.lock.Lock()
 	defer lm.lock.Unlock()
-	if lm.state != stateActive {
+	if lm.getState() != stateActive {
 		completionFunc(errors.NewTektiteErrorf(errors.Unavailable, "levelManager not active"))
 		return
 	}
@@ -450,12 +464,12 @@ func (lm *LevelManager) updateReplSeq(replSeq int) {
 func (lm *LevelManager) checkStateForCommand(reprocess bool) error {
 	if reprocess {
 		// reprocess batches must be received after loaded and before active
-		if lm.state != stateLoaded {
-			return errors.NewTektiteErrorf(errors.Unavailable, fmt.Sprintf("invalid state:%d", lm.state))
+		if lm.getState() != stateLoaded {
+			return errors.NewTektiteErrorf(errors.Unavailable, fmt.Sprintf("invalid state:%d", lm.getState()))
 		}
 	} else {
-		if lm.state != stateActive {
-			return errors.NewTektiteErrorf(errors.Unavailable, fmt.Sprintf("invalid state:%d", lm.state))
+		if lm.getState() != stateActive {
+			return errors.NewTektiteErrorf(errors.Unavailable, fmt.Sprintf("invalid state:%d", lm.getState()))
 		}
 	}
 	return nil
@@ -568,7 +582,8 @@ func (lm *LevelManager) maybeDespatchPendingL0Adds() {
 func (lm *LevelManager) MaybeScheduleCompaction() error {
 	lm.lock.Lock()
 	defer lm.lock.Unlock()
-	if lm.state != stateLoaded && lm.state != stateActive {
+	st := lm.getState()
+	if st != stateLoaded && st != stateActive {
 		return nil
 	}
 	return lm.maybeScheduleCompaction()
@@ -615,6 +630,9 @@ func (lm *LevelManager) RegisterDeadVersionRange(versionRange VersionRange, clus
 	lm.clusterVersions[clusterName] = clusterVersion
 	lm.masterRecord.deadVersionRanges = append(lm.masterRecord.deadVersionRanges, versionRange)
 	lm.hasChanges = true
+
+	lm.updateReadableState()
+
 	// We will try and prompt a compaction to remove entries for this version range
 	if err := lm.maybeScheduleRemoveDeadVersionEntries(); err != nil {
 		return err
@@ -739,7 +757,18 @@ func (lm *LevelManager) doApplyChanges(regBatch RegistrationBatch) error {
 
 	lm.masterRecord.version++
 	lm.hasChanges = true
+
+	lm.updateReadableState()
 	return nil
+}
+
+func (lm *LevelManager) updateReadableState() {
+	// The readable state is accessed by queries that call GetTableIDsInRange
+	// We use a copy-on-write approach to reduce contention between updating the LSM and querying it
+	levelSegmentEntries := copyLevelSegmentEntries(lm.masterRecord.levelSegmentEntries)
+	deadRanges := make([]VersionRange, len(lm.masterRecord.deadVersionRanges))
+	copy(deadRanges, lm.masterRecord.deadVersionRanges)
+	lm.readable.Store(&readableState{levelSegmentEntries: levelSegmentEntries, deadVersionRanges: deadRanges})
 }
 
 func (lm *LevelManager) updateL0Groups(regBatch RegistrationBatch) error {
@@ -1308,7 +1337,8 @@ func (lm *LevelManager) segmentToRemove(segID segmentID) {
 func (lm *LevelManager) scheduleFlush(delay time.Duration, first bool) {
 	lm.lock.Lock()
 	defer lm.lock.Unlock()
-	if lm.state == stateShutdown || lm.state == stateStopped {
+	st := lm.getState()
+	if st == stateShutdown || st == stateStopped {
 		return
 	}
 	lm.scheduleFlushNoLock(delay, first)
@@ -1339,7 +1369,8 @@ func (lm *LevelManager) scheduleTableDeleteTimer(first bool) {
 func (lm *LevelManager) maybeDeleteTables() {
 	lm.lock.Lock()
 	defer lm.lock.Unlock()
-	if lm.state == stateShutdown || lm.state == stateStopped {
+	st := lm.getState()
+	if st == stateShutdown || st == stateStopped {
 		return
 	}
 	pos := -1
@@ -1366,7 +1397,8 @@ func (lm *LevelManager) maybeDeleteTables() {
 func (lm *LevelManager) AddFlushedCallback(callback func(err error)) {
 	lm.lock.Lock()
 	defer lm.lock.Unlock()
-	if lm.state == stateShutdown || lm.state == stateStopped {
+	st := lm.getState()
+	if st == stateShutdown || st == stateStopped {
 		return
 	}
 	lm.flushedCallback = callback
@@ -1383,10 +1415,10 @@ func (lm *LevelManager) Flush(shutdown bool) (int, int, error) {
 		// reset the replseq - on restart of the cluster all batch repl seqs in replicators will restart with zero.
 		lm.masterRecord.lastProcessedReplSeq = -1
 		lm.hasChanges = true
-		lm.state = stateShutdown
+		lm.setState(stateShutdown)
 	}
 
-	if lm.state == stateStopped || !lm.hasChanges {
+	if lm.getState() == stateStopped || !lm.hasChanges {
 		lm.lock.Unlock()
 		return 0, 0, nil
 	}
@@ -1488,7 +1520,7 @@ func hasOverlap(keyStart []byte, keyEnd []byte, blockKeyStart []byte, blockKeyEn
 func (lm *LevelManager) GetSlabRetention(slabID int) (time.Duration, error) {
 	lm.lock.Lock()
 	defer lm.lock.Unlock()
-	if lm.state != stateActive {
+	if lm.getState() != stateActive {
 		return 0, errors.NewTektiteErrorf(errors.Unavailable, "levelManager not active")
 	}
 	ret := time.Duration(lm.masterRecord.slabRetentions[uint64(slabID)])
@@ -1559,7 +1591,7 @@ func (lm *LevelManager) StoreLastFlushedVersion(version int64, reprocess bool, r
 func (lm *LevelManager) LoadLastFlushedVersion() (int64, error) {
 	lm.lock.Lock()
 	defer lm.lock.Unlock()
-	if lm.state != stateActive {
+	if lm.getState() != stateActive {
 		return 0, errors.NewTektiteErrorf(errors.Unavailable, "levelManager not active")
 	}
 	log.Debugf("levelManager LoadLastFlushedVersion: %d", lm.masterRecord.lastFlushedVersion)

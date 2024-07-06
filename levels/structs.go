@@ -376,9 +376,9 @@ type masterRecord struct {
 	stats                *Stats
 }
 
-func (mr *masterRecord) copy() *masterRecord {
-	lseCopy := make([]levelEntries, len(mr.levelSegmentEntries))
-	for i, entries := range mr.levelSegmentEntries {
+func copyLevelSegmentEntries(levEntries []levelEntries) []levelEntries {
+	lseCopy := make([]levelEntries, len(levEntries))
+	for i, entries := range levEntries {
 		copiedEntries := make([]segmentEntry, len(entries.segmentEntries))
 		copy(copiedEntries, entries.segmentEntries)
 		lseCopy[i] = levelEntries{
@@ -386,6 +386,11 @@ func (mr *masterRecord) copy() *masterRecord {
 			maxVersion:     entries.maxVersion,
 		}
 	}
+	return lseCopy
+}
+
+func (mr *masterRecord) copy() *masterRecord {
+	lseCopy := copyLevelSegmentEntries(mr.levelSegmentEntries)
 
 	prefixRetentionsCopy := make(map[uint64]uint64, len(mr.slabRetentions))
 	for slabID, retention := range mr.slabRetentions {
