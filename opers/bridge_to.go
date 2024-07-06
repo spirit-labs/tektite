@@ -77,7 +77,7 @@ func NewBridgeToOperator(desc *parser.BridgeToDesc, storeStreamOperator *StoreSt
 		storeStreamOperator: storeStreamOperator,
 		backFillOperator:    backFillOperator,
 		offsetsToCommit:     offsetsToCommit,
-		storeMode:           make([]bool, maxProcessorID+1),
+		pausedMode:          make([]bool, maxProcessorID+1),
 		producers:           producers,
 		msgClient:           msgClient,
 		initialRetryDelay:   initialRetryDelay,
@@ -105,7 +105,7 @@ type BridgeToOperator struct {
 	backFillOperator    *BackfillOperator
 	offsetsToCommit     []int64
 	msgClient           kafka.MessageClient
-	storeMode           []bool
+	pausedMode          []bool
 	producers           []kafka.MessageProducer
 	timers              sync.Map
 	lastRetryDuration   []time.Duration
@@ -114,42 +114,94 @@ type BridgeToOperator struct {
 }
 
 func (b *BridgeToOperator) HandleStreamBatch(batch *evbatch.Batch, execCtx StreamExecContext) (*evbatch.Batch, error) {
-	if b.storeMode[execCtx.Processor().ID()] || !b.backFillOperator.IsLive(execCtx.PartitionID()) {
-		// We are either in store mode as previous send/connect to kafka timed out - or the backfill is not initialised
-		// yet or still loading after startup - we therefore just store the batch, and it will be loaded either by backfill
-		// or when the operator exits store mode on a timer
-		_, err := b.storeStreamOperator.HandleStreamBatch(batch, execCtx)
+	_, err := b.backFillOperator.HandleStreamBatch(batch, execCtx)
+	if err != nil && err != sfe {
+		// sfe is a special error that is sent back when the batch goes through the backfill operator directly
+		// but fails to be sent to Kafka due to an error. In that case we fall through and persist the batch
 		return nil, err
 	}
-	return b.backFillOperator.HandleStreamBatch(batch, execCtx)
+	live := b.backFillOperator.IsLive(execCtx.PartitionID())
+	inStoreMode := b.pausedMode[execCtx.Processor().ID()]
+	sentOk := err == nil && live && !inStoreMode
+	if !sentOk {
+		// If the message wasn't directly sent successfully, so we must store it
+		if _, err := b.storeStreamOperator.HandleStreamBatch(batch, execCtx); err != nil {
+			return nil, err
+		}
+	}
+	return nil, nil
 }
 
-func (b *BridgeToOperator) enterStoreMode(execCtx StreamExecContext, batch *evbatch.Batch) error {
-	execCtx.Processor().CheckInProcessorLoop()
+func (b *BridgeToOperator) sendBatch(batch *evbatch.Batch, execCtx StreamExecContext) error {
+	partitionID := execCtx.PartitionID()
+	if b.pausedMode[execCtx.Processor().ID()] {
+		// Ignore. If batches are already queued when we go into paused mode then when they get processed we ignore them.
+		return nil
+	}
+	producer := b.producers[partitionID]
+	if err := producer.SendBatch(batch); err != nil {
+		// failed to send batch. we will go into "paused mode" which means we won't attempt to
+		// send messages, we will store them. after a delay we will exit "pause mode" and start backfilling
+		if err := b.enterPausedMode(execCtx); err != nil {
+			return err
+		}
+		log.Warnf("'bridge to' operator failed to send to topic %s. Will backoff and retry send after delay - error: %v",
+			b.desc.TopicName, err)
+		// We return an error which is caught in HandleStreamBatch to signify that the send failed
+		return sfe
+	}
+	// Successfully sent batch
+	lastOffset := batch.GetIntColumn(0).Get(batch.RowCount - 1)
+	b.offsetsToCommit[partitionID] = lastOffset
+	return nil
+}
+
+func (b *BridgeToOperator) enterPausedMode(execCtx StreamExecContext) error {
 	processor := execCtx.Processor()
 	processorID := processor.ID()
 	log.Debugf("bridge to entering store mode for processor %d", processorID)
 	processor.CheckInProcessorLoop()
-	// store the batch
-	if _, err := b.storeStreamOperator.HandleStreamBatch(batch, execCtx); err != nil {
-		return err
-	}
-	b.storeMode[processor.ID()] = true
+	b.pausedMode[processor.ID()] = true
 	partIDs, ok := b.schema.ProcessorPartitionMapping[processorID]
 	if !ok {
 		panic("cannot find partitions for processor")
 	}
+	// We must flush here as when the backfill restarts it must have correct last committed
 	b.flushLastCommitted(execCtx)
 	for _, partID := range partIDs {
+		// Pause the backfill
 		b.backFillOperator.pauseBackfill(partID)
 	}
-	// We set a timer to exit store mode and reload after a timeout
+	// We set a timer to exit paused mode and reload after a timeout
 	delay := b.getRetryDelay(processorID)
 	tz := common.ScheduleTimer(delay, true, func() {
-		b.exitStoreMode(processor, partIDs)
+		b.exitPausedMode(processor, partIDs)
 	})
 	b.timers.Store(processorID, tz)
 	return nil
+}
+
+func (b *BridgeToOperator) exitPausedMode(processor proc.Processor, partIDs []int) {
+	processor.SubmitAction(func() error {
+		processor.CheckInProcessorLoop()
+		procID := processor.ID()
+		// Note that we exit store mode on a processor action, this ensures any batches already queued on the processor
+		// when we went into store mode get processed, and ignored, before this.
+		b.timers.Delete(procID)
+		b.pausedMode[procID] = false
+		b.lastRetryDuration[procID] = 0 // reset retry delay
+		// We must flush write cache before loading as version might not have completed and data could still be in cache
+		if err := processor.WriteCache().MaybeWriteToStore(); err != nil {
+			return err
+		}
+		for _, partID := range partIDs {
+			// Tell the backfill operator to start back-filling from last committed offset.
+			if err := b.backFillOperator.restartBackfill(partID, processor); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 func (b *BridgeToOperator) getRetryDelay(processorID int) time.Duration {
@@ -169,30 +221,6 @@ func (b *BridgeToOperator) getRetryDelay(processorID int) time.Duration {
 	b.lastRetryDuration[processorID] = delay
 	log.Debugf("bridge to retrying after delay of %d ms", delay.Milliseconds())
 	return delay
-}
-
-func (b *BridgeToOperator) exitStoreMode(processor proc.Processor, partIDs []int) {
-	processor.SubmitAction(func() error {
-		processor.CheckInProcessorLoop()
-		procID := processor.ID()
-		// Note that we exit store mode on a processor action, this ensures any batches already queued on the processor
-		// when we went into store mode get processed, and ignored, before this.
-		b.timers.Delete(procID)
-		b.storeMode[procID] = false
-		b.lastRetryDuration[procID] = 0 // reset retry delay
-		// We must flush write cache before loading as version might not have completed and data could still be in cache
-		if err := processor.WriteCache().MaybeWriteToStore(); err != nil {
-			return err
-		}
-		for _, partID := range partIDs {
-			log.Debugf("bridge to exiting store mode for partition %d - reloading", partID)
-			// Tell the backfill operator to start back-filling from last committed offset.
-			if err := b.backFillOperator.restartBackfill(partID, processor); err != nil {
-				return err
-			}
-		}
-		return nil
-	})
 }
 
 func (b *BridgeToOperator) HandleBarrier(execCtx StreamExecContext) error {
@@ -252,30 +280,6 @@ func (b *BridgeToOperator) HandleQueryBatch(*evbatch.Batch, QueryExecContext) (*
 	panic("not supported")
 }
 
-func (b *BridgeToOperator) sendBatch(batch *evbatch.Batch, execCtx StreamExecContext) error {
-	partitionID := execCtx.PartitionID()
-	if b.storeMode[execCtx.Processor().ID()] {
-		// Ignore. If batches are already queued when we go into store mode then when they get processed we ignore them.
-		return nil
-	}
-	producer := b.producers[partitionID]
-	if err := producer.SendBatch(batch); err != nil {
-		// failed to send batch. we will go into "store mode" which means we won't attempt to
-		// send messages, we will store them. after a delay we will exit "store mode" and attempt delivery again.
-		if err := b.enterStoreMode(execCtx, batch); err != nil {
-			return err
-		}
-		log.Warnf("'bridge to' operator failed to send to topic %s. Will backoff and retry send after delay - error: %v",
-			b.desc.TopicName, err)
-		return nil
-	}
-	// Successfully sent batch
-	lastOffset := batch.GetIntColumn(0).Get(batch.RowCount - 1)
-	b.offsetsToCommit[partitionID] = lastOffset
-	log.Debugf("bridge to, message batch delivered ok on partition %d", partitionID)
-	return nil
-}
-
 type backfillSink struct {
 	BaseOperator
 	b *BridgeToOperator
@@ -308,3 +312,12 @@ func (s *backfillSink) Setup(StreamManagerCtx) error {
 func (s *backfillSink) Teardown(mgr StreamManagerCtx, completeCB func(error)) {
 	completeCB(nil)
 }
+
+type sendFailedError struct {
+}
+
+func (s sendFailedError) Error() string {
+	return "send failed"
+}
+
+var sfe = sendFailedError{}

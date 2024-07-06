@@ -27,7 +27,6 @@ func init() {
 }
 
 func TestBridgeKafkaInitiallyUnavailable(t *testing.T) {
-	t.Skip("flaky test")
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
 	}
@@ -77,7 +76,7 @@ egest_stream := local_topic -> (bridge to remote_topic props = ("bootstrap.serve
 
 	start := time.Now()
 
-	_, err = sendMessages(10, 0, "local_topic", producer)
+	_, err = sendMessages(2, 10, 0, "local_topic", producer)
 	require.NoError(t, err)
 
 	// Messages should have been stored
@@ -87,17 +86,16 @@ egest_stream := local_topic -> (bridge to remote_topic props = ("bootstrap.serve
 
 	// Rows should arrive via the bridge from
 
-	waitForRows(t, "ingest_stream", 10, cli, start)
+	waitForRows(t, "ingest_stream", 20, cli, start)
 
 	// Now send some more messages
-	_, err = sendMessages(10, 10, "local_topic", producer)
+	_, err = sendMessages(2, 10, 20, "local_topic", producer)
 	require.NoError(t, err)
 
-	waitForRows(t, "ingest_stream", 20, cli, start)
+	waitForRows(t, "ingest_stream", 40, cli, start)
 }
 
 func TestBridgeSimulateNetworkFailure(t *testing.T) {
-	t.Skip("flaky test")
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
 	}
@@ -146,14 +144,14 @@ egest_stream := local_topic -> (bridge to remote_topic props = ("bootstrap.serve
 
 	log.Debug("sending messages")
 
-	_, err = sendMessages(10, 0, "local_topic", producer)
+	_, err = sendMessages(2, 10, 0, "local_topic", producer)
 	require.NoError(t, err)
 
 	log.Debug("sent messages")
 
 	// Rows should arrive via the bridge from
 
-	waitForRows(t, "ingest_stream", 10, cli, start)
+	waitForRows(t, "ingest_stream", 20, cli, start)
 
 	log.Debug("got initial rows")
 
@@ -163,7 +161,7 @@ egest_stream := local_topic -> (bridge to remote_topic props = ("bootstrap.serve
 	log.Debug("sending more messages")
 
 	// Now send some more messages
-	_, err = sendMessages(10, 10, "local_topic", producer)
+	_, err = sendMessages(2, 10, 20, "local_topic", producer)
 	require.NoError(t, err)
 
 	log.Debug("sent more messages")
@@ -183,7 +181,7 @@ egest_stream := local_topic -> (bridge to remote_topic props = ("bootstrap.serve
 	// specific to the Tektite bridge - in general with any RPC you do not know whether it succeeded or failed in
 	// case of time-out of response. Usually you will then retry as you prefer duplicates to lost messages
 	// i.e. you prefer ("at least once", as opposed to "at most once", delivery guarantee).
-	waitForRowsIgnoreDups(t, "ingest_stream", 20, cli, start, true)
+	waitForRowsIgnoreDups(t, "ingest_stream", 40, cli, start, true)
 }
 
 func TestRestartBridgeMessagesStored(t *testing.T) {
@@ -236,7 +234,7 @@ egest_stream := local_topic -> (bridge to remote_topic props = ("bootstrap.serve
 	// pause the kafka container so messages don't get bridged out
 	kHolder.pauseResumeKafka(t, true)
 
-	_, err = sendMessages(10, 0, "local_topic", producer)
+	_, err = sendMessages(2, 10, 0, "local_topic", producer)
 	require.NoError(t, err)
 
 	log.Debug("sent initial messages")
@@ -267,34 +265,37 @@ egest_stream := local_topic -> (bridge to remote_topic props = ("bootstrap.serve
 	defer cli.Close()
 
 	// rows should appear
-	waitForRows(t, "ingest_stream", 10, cli, start)
+	waitForRows(t, "ingest_stream", 20, cli, start)
 }
 
-func sendMessages(numMessages int, startIndex int, topicName string, producer *kafkago.Producer) ([]*kafkago.Message, error) {
-	deliveryChan := make(chan kafkago.Event, numMessages)
-
+func sendMessages(numBatches int, batchSize int, startIndex int, topicName string, producer *kafkago.Producer) ([]*kafkago.Message, error) {
 	var msgs []*kafkago.Message
-	for i := 0; i < numMessages; i++ {
-		key := []byte(fmt.Sprintf("key%05d", i+startIndex))
-		value := []byte(fmt.Sprintf("value%05d", i+startIndex))
-		err := producer.Produce(&kafkago.Message{
-			TopicPartition: kafkago.TopicPartition{Topic: &topicName, Partition: kafkago.PartitionAny},
-			Key:            key,
-			Value:          value},
-			deliveryChan,
-		)
-		if err != nil {
-			return nil, err
+	msgID := startIndex
+	for i := 0; i < numBatches; i++ {
+		deliveryChan := make(chan kafkago.Event, batchSize)
+		for j := 0; j < batchSize; j++ {
+			key := []byte(fmt.Sprintf("key%05d", msgID))
+			value := []byte(fmt.Sprintf("value%05d", msgID))
+			err := producer.Produce(&kafkago.Message{
+				TopicPartition: kafkago.TopicPartition{Topic: &topicName, Partition: kafkago.PartitionAny},
+				Key:            key,
+				Value:          value},
+				deliveryChan,
+			)
+			if err != nil {
+				return nil, err
+			}
+			msgID++
 		}
-		// Note, we send messages one by one and wait for receipt on each one. Yes, this is slow, but it means it creates
-		// lots of batches on the server which exercises the replication and failover/replay logic better
-		e := <-deliveryChan
-		m := e.(*kafkago.Message)
-		if m.TopicPartition.Error != nil {
-			return nil, m.TopicPartition.Error
+		for j := 0; j < batchSize; j++ {
+			e := <-deliveryChan
+			m := e.(*kafkago.Message)
+			if m.TopicPartition.Error != nil {
+				return nil, m.TopicPartition.Error
+			}
+			log.Debugf("sent message %d", i)
+			msgs = append(msgs, m)
 		}
-		log.Debugf("sent message %d", i)
-		msgs = append(msgs, m)
 	}
 	return msgs, nil
 }
