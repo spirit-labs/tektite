@@ -1,0 +1,11 @@
+set max_line_width 200;
+
+topic1 := (kafka in partitions = 10)
+-> (filter by in(json_int("v0", val), 1, 2, 3))
+-> (store stream);
+
+--produce data dataset_1;
+
+(scan all from topic1) -> (sort by key);
+
+delete(topic1);
