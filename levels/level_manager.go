@@ -1317,7 +1317,7 @@ func (lm *LevelManager) segmentToAdd(seg *segment) ([]byte, error) {
 	sid := fmt.Sprintf("lmgr-seg-%s", uuid.New().String())
 	lm.segmentCache.put(sid, seg)
 	lm.segmentsToAdd[sid] = seg
-	log.Debugf("LevelManager added segment with id %s to segmentsToAdd", sid)
+	log.Infof("LevelManager added segment with id %s to segmentsToAdd", sid)
 	return []byte(sid), nil
 }
 
@@ -1326,10 +1326,10 @@ func (lm *LevelManager) segmentToRemove(segID segmentID) {
 	lm.segmentCache.delete(sid)
 	if _, exists := lm.segmentsToAdd[sid]; exists {
 		// The seg was created after last Flush so just delete it from segmentsToAdd
-		log.Debugf("LevelManager deleting with id %v from segmentsToAdd", segID)
+		log.Infof("LevelManager deleting with id %v from segmentsToAdd", segID)
 		delete(lm.segmentsToAdd, sid)
 	} else {
-		log.Debugf("LevelManager adding segment with id %v to segmentsToDelete", segID)
+		log.Infof("LevelManager adding segment with id %v to segmentsToDelete", segID)
 		lm.segmentsToDelete[sid] = struct{}{}
 	}
 }
