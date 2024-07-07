@@ -1,0 +1,11 @@
+set max_line_width 200;
+
+toLowerTopic := (kafka in partitions = 10)
+-> (filter by to_lower(json_string("v4", val)) == "bar")
+-> (store stream);
+
+--produce data dataset_toLower;
+
+(scan all from toLowerTopic) -> (sort by key);
+
+delete(toLowerTopic);
