@@ -153,7 +153,7 @@ func waitForRowsIgnoreDups(t *testing.T, tableName string, numMessages int, clie
 			}
 			require.Equal(t, expectedValue, value)
 			now := time.Now().UTC()
-			require.GreaterOrEqual(t, eventTime.Val, startTime.UnixMilli())
+			require.GreaterOrEqual(t, eventTime.Val, startTime.UTC().UnixMilli())
 			require.Less(t, eventTime.Val, now.UnixMilli()+1000)
 			numUniqueRows++
 			lastKey = key

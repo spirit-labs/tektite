@@ -46,6 +46,9 @@ func (lm *LevelManager) validateSegment(segEntry segmentEntry, level int, valida
 	if err != nil {
 		return err
 	}
+	if seg == nil {
+		return errors.Errorf("segment with id %s not found", string(segEntry.segmentID))
+	}
 	if len(seg.tableEntries) == 0 {
 		return errors.Errorf("inconsistency. level %d. segment %v has zero table entries", level, segEntry.segmentID)
 	}

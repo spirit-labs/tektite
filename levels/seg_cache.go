@@ -2,15 +2,17 @@ package levels
 
 import (
 	lru "github.com/hashicorp/golang-lru"
+	log "github.com/spirit-labs/tektite/logger"
 	"sync"
 )
 
 type segmentCache struct {
 	// Entries are also stored in a pre-flush cache before flush occurs - as there is a possibility could be evicted
 	// from the lru before flush.
-	preFlushCache map[string]*segment
-	lruCache      *lru.Cache
-	lock          sync.Mutex
+	livePreflushCache   map[string]*segment
+	sealedPreflushCache map[string]*segment
+	lruCache            *lru.Cache
+	lock                sync.RWMutex
 }
 
 const preFlushCacheInitialSize = 100
@@ -25,15 +27,19 @@ func newSegmentCache(maxSize int) *segmentCache {
 		}
 	}
 	return &segmentCache{
-		preFlushCache: make(map[string]*segment, preFlushCacheInitialSize),
-		lruCache:      lruCache,
+		livePreflushCache: createPreflushCache(),
+		lruCache:          lruCache,
 	}
 }
 
+func createPreflushCache() map[string]*segment {
+	return make(map[string]*segment, preFlushCacheInitialSize)
+}
+
 func (s *segmentCache) get(segmentID string) *segment {
-	s.lock.Lock()
-	defer s.lock.Unlock()
-	seg, ok := s.preFlushCache[segmentID]
+	s.lock.RLock()
+	defer s.lock.RUnlock()
+	seg, ok := s.lookInPreflushCaches(segmentID)
 	if ok {
 		return seg
 	}
@@ -47,28 +53,49 @@ func (s *segmentCache) get(segmentID string) *segment {
 	return o.(*segment)
 }
 
+func (s *segmentCache) lookInPreflushCaches(segmentID string) (*segment, bool) {
+	if s.sealedPreflushCache != nil {
+		seg, ok := s.sealedPreflushCache[segmentID]
+		if ok {
+			return seg, true
+		}
+	}
+	seg, ok := s.livePreflushCache[segmentID]
+	if ok {
+		return seg, true
+	}
+	return nil, false
+}
+
 func (s *segmentCache) put(segmentID string, segment *segment) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
-	s.preFlushCache[segmentID] = segment
+	s.livePreflushCache[segmentID] = segment
 	if s.lruCache != nil {
 		s.lruCache.Add(segmentID, segment)
+		log.Debugf("%p segment %s added to lru cache", s, segmentID)
 	}
 }
 
 func (s *segmentCache) delete(segmentID string) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
-	// Until they are flushed, segments cannot go in the LRU as there is a possibility they could get evicted before
-	// flush occurred and then data-loss could occur.
-	delete(s.preFlushCache, segmentID)
+	delete(s.livePreflushCache, segmentID)
 	if s.lruCache != nil {
 		s.lruCache.Remove(segmentID)
+		log.Debugf("%p segment %s deleted from lru cache", s, segmentID)
 	}
 }
 
-func (s *segmentCache) flush() {
+func (s *segmentCache) sealPreflushCache() {
 	s.lock.Lock()
 	defer s.lock.Unlock()
-	s.preFlushCache = make(map[string]*segment, preFlushCacheInitialSize)
+	s.sealedPreflushCache = s.livePreflushCache
+	s.livePreflushCache = createPreflushCache()
+}
+
+func (s *segmentCache) flushSealedCache() {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+	s.sealedPreflushCache = nil
 }

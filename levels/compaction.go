@@ -115,9 +115,14 @@ outer:
 			rangeEndNoVersion := rangeEnd[:len(rangeEnd)-8]
 			rangeEndNoVersion = common.IncrementBytesBigEndian(rangeEndNoVersion)
 			var err error
-			overlapping, err = lm.getOverlappingTables(rangeStartNoVersion, rangeEndNoVersion, level+1, segmentEntries)
+			var ok bool
+			ok, overlapping, err = lm.getOverlappingTables(rangeStartNoVersion, rangeEndNoVersion, level+1, segmentEntries)
 			if err != nil {
 				return 0, false, err
+			}
+			if !ok {
+				// should never happen in compaction
+				panic("failed to find segment")
 			}
 		}
 		for _, overlap := range overlapping {
