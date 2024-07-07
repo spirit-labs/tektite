@@ -1,0 +1,46 @@
+set max_line_width 200;
+
+toIntTopic := (kafka in partitions = 10)
+-> (project key, to_int(json_string("v3",val)) as summary)
+-> (store stream);
+
+toFloatTopic := (kafka in partitions = 10)
+-> (project key, to_float(json_string("v3",val)) as summary)
+-> (store stream);
+
+toStringTopic := (kafka in partitions = 10)
+-> (project key, to_string(json_float("v3",val)) as summary)
+-> (store stream);
+
+toDecimalTopic := (kafka in partitions = 10)
+-> (project key, to_decimal(json_float("v1",val),4,2) as summary)
+-> (store stream);
+
+toBytesTopic := (kafka in partitions = 10)
+-> (project key, to_bytes(json_string("v0",val)) as summary)
+-> (store stream);
+
+toTimestampTopic := (kafka in partitions = 10)
+-> (project key, to_timestamp(json_int("v0",val)) as summary)
+-> (store stream);
+
+--produce data dataset_toInt;
+--produce data dataset_toFloat;
+--produce data dataset_toString;
+--produce data dataset_toDecimal;
+--produce data dataset_toBytes;
+--produce data dataset_toTimestamp;
+
+(scan all from toIntTopic) -> (sort by key);
+(scan all from toFloatTopic) -> (sort by key);
+(scan all from toStringTopic) -> (sort by key);
+(scan all from toDecimalTopic) -> (sort by key);
+(scan all from toBytesTopic) -> (sort by key);
+(scan all from toTimestampTopic) -> (sort by key);
+
+delete(toIntTopic);
+delete(toFloatTopic);
+delete(toStringTopic);
+delete(toDecimalTopic);
+delete(toBytesTopic);
+delete(toTimestampTopic);

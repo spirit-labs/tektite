@@ -1,0 +1,11 @@
+set max_line_width 200;
+
+substrTopic := (kafka in partitions = 10)
+-> (filter by sub_str(json_string("v4", val), 0, 3) == "foo")
+-> (store stream);
+
+--produce data dataset_substr;
+
+(scan all from substrTopic) -> (sort by key);
+
+delete(substrTopic);
