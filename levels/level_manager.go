@@ -317,7 +317,7 @@ func (lm *LevelManager) getOverlappingTables(keyStart []byte, keyEnd []byte, lev
 				return nil, err
 			}
 			if seg == nil {
-				panic("level manager segment not found")
+				panic(fmt.Sprintf("level manager segment %v level %d not found", segEntry.segmentID, level))
 			}
 			if level == 0 {
 				// We must add the overlapping entries from newest to oldest
@@ -1478,15 +1478,17 @@ func (lm *LevelManager) pushSegmentsAndMasterRecord(masterRecordToFlush *masterR
 	// First delete segments
 	segsDeleted := len(segsToDelete)
 	for sid := range segsToDelete {
+		log.Infof("LevelManager deleting segment %v from cloud store", common.StringToByteSliceZeroCopy(sid))
 		segID := common.StringToByteSliceZeroCopy(sid)
 		if err := lm.objStore.Delete(segID); err != nil {
 			return 0, 0, err
 		}
-		log.Debugf("LevelManager deleted segment %v from cloud store", common.StringToByteSliceZeroCopy(sid))
+		log.Infof("LevelManager deleted segment %v from cloud store", common.StringToByteSliceZeroCopy(sid))
 	}
 	// Then the adds
 	segsAdded := len(segsToAdd)
 	for sid, seg := range segsToAdd {
+		log.Infof("LevelManager adding segment %v to cloud store", common.StringToByteSliceZeroCopy(sid))
 		segID := common.StringToByteSliceZeroCopy(sid)
 		buff := make([]byte, 0, lm.segmentBufferSizeEstimate)
 		buff = seg.serialize(buff)
@@ -1494,7 +1496,7 @@ func (lm *LevelManager) pushSegmentsAndMasterRecord(masterRecordToFlush *masterR
 		if err := lm.objStore.Put(segID, buff); err != nil {
 			return 0, 0, err
 		}
-		log.Debugf("LevelManager added segment %v to cloud store", common.StringToByteSliceZeroCopy(sid))
+		log.Infof("LevelManager added segment %v to cloud store", common.StringToByteSliceZeroCopy(sid))
 	}
 	// Once they've all been added we can Flush the master record
 	buff := make([]byte, 0, lm.masterRecordBufferSizeEstimate)

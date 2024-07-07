@@ -960,7 +960,6 @@ func (m *ProcessorManager) storeFlushed(processorID int, version int) {
 	// The processor has flushed all local data to the specified completed version. We can now tell version manager
 	// that this has occurred. When all processor managers report in with the same completed version for all processors
 	// then flushed version will be set to the specified value and broadcast.
-	//log.Infof("calling version flushed for processor %d version %d", processorID, version)
 	if err := m.vMgrClient.VersionFlushed(processorID, version, int(cv)); err != nil {
 		// Normal to fail during shutdown
 		log.Debugf("failed to call VersionFlushed %v", err)
