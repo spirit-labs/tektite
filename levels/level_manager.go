@@ -308,16 +308,17 @@ func (lm *LevelManager) getClusterVersion(clusterName string) int {
 
 // Note that keyEnd is exclusive
 func (lm *LevelManager) getOverlappingTables(keyStart []byte, keyEnd []byte, level int,
-	segmentEntries []segmentEntry) ([]*TableEntry, error) {
+	segmentEntries []segmentEntry) (bool, []*TableEntry, error) {
 	var tables []*TableEntry
 	for _, segEntry := range segmentEntries {
 		if hasOverlap(keyStart, keyEnd, segEntry.rangeStart, segEntry.rangeEnd) {
 			seg, err := lm.getSegment(segEntry.segmentID)
 			if err != nil {
-				return nil, err
+				return false, nil, err
 			}
 			if seg == nil {
-				panic(fmt.Sprintf("level manager segment %v level %d not found", segEntry.segmentID, level))
+				log.Warnf("failed to find segment %s", string(segEntry.segmentID))
+				return false, nil, nil
 			}
 			if level == 0 {
 				// We must add the overlapping entries from newest to oldest
@@ -338,38 +339,55 @@ func (lm *LevelManager) getOverlappingTables(keyStart []byte, keyEnd []byte, lev
 			}
 		}
 	}
-	return tables, nil
+	return true, tables, nil
 }
+
+const maxRetries = 100
 
 func (lm *LevelManager) GetTableIDsForRange(keyStart []byte, keyEnd []byte) (OverlappingTableIDs, []VersionRange, error) {
 	if lm.getState() != stateActive {
 		return nil, nil, errors.NewTektiteErrorf(errors.Unavailable, "levelManager not active")
 	}
-	// We load the readable state from an atomic pointer, this state is updated atomically after apply changes have
-	// been applied to the LSM, this allows us to reduce contention between the read path and the write path.
-	readable := lm.readable.Load()
-	var overlapping OverlappingTableIDs
-	for level, entries := range readable.levelSegmentEntries {
-		tables, err := lm.getOverlappingTables(keyStart, keyEnd, level, entries.segmentEntries)
-		if err != nil {
-			return nil, nil, err
-		}
-		if level == 0 {
-			// Level 0 is overlapping
-			for _, table := range tables {
-				overlapping = append(overlapping, []sst.SSTableID{table.SSTableID})
+	retryCount := 0
+outer:
+	for {
+		// We load the readable state from an atomic pointer, this state is updated atomically after apply changes have
+		// been applied to the LSM, this allows us to reduce contention between the read path and the write path.
+		readable := lm.readable.Load()
+		var overlapping OverlappingTableIDs
+		for level, entries := range readable.levelSegmentEntries {
+			ok, tables, err := lm.getOverlappingTables(keyStart, keyEnd, level, entries.segmentEntries)
+			if err != nil {
+				return nil, nil, err
 			}
-		} else if tables != nil {
-			// Other levels are non overlapping
-			ssTableIDs := make([]sst.SSTableID, len(tables))
-			for i := 0; i < len(tables); i++ {
-				ssTableIDs[i] = tables[i].SSTableID
+			if !ok {
+				// Segment cannot be found - this can occur if readable state is loaded, then level manager state is flushed
+				// and a segment gets deleted before getOverlappingTables is called. In this case we reload the state
+				// and try again
+				retryCount++
+				if retryCount == maxRetries {
+					// Should never happen, but better to panic with a message then spin in a loop
+					panic("cannot find segment when executing GetTableIDsForRange")
+				}
+				continue outer
 			}
-			overlapping = append(overlapping, ssTableIDs)
+			if level == 0 {
+				// Level 0 is overlapping
+				for _, table := range tables {
+					overlapping = append(overlapping, []sst.SSTableID{table.SSTableID})
+				}
+			} else if tables != nil {
+				// Other levels are non overlapping
+				ssTableIDs := make([]sst.SSTableID, len(tables))
+				for i := 0; i < len(tables); i++ {
+					ssTableIDs[i] = tables[i].SSTableID
+				}
+				overlapping = append(overlapping, ssTableIDs)
+			}
 		}
+		// And we return any dead version ranges, so the data for those versions can be filtered out
+		return overlapping, readable.deadVersionRanges, nil
 	}
-	// And we return any dead version ranges, so the data for those versions can be filtered out
-	return overlapping, readable.deadVersionRanges, nil
 }
 
 func (lm *LevelManager) RegisterL0Tables(registrationBatch RegistrationBatch, completionFunc func(error)) {
@@ -1048,7 +1066,7 @@ func (lm *LevelManager) applyRegistrations(registrations []RegistrationEntry) er
 					return err
 				}
 				if segCurr == nil {
-					return errors.Errorf("cannot find l0 segment %v", l0SegmentEntry.segmentID)
+					return errors.Errorf("cannot find l0 segment %s", string(l0SegmentEntry.segmentID))
 				}
 				if containsTable(segCurr, registration.TableID) {
 					// Already added - this con occur on recovery or if client resubmits request after
@@ -1128,7 +1146,7 @@ func (lm *LevelManager) applyRegistrations(registrations []RegistrationEntry) er
 					return err
 				}
 				if seg == nil {
-					return errors.Errorf("cannot find segment %v", segEntry.segmentID)
+					return errors.Errorf("cannot find segment %s", string(segEntry.segmentID))
 				}
 				if containsTable(seg, registration.TableID) {
 					// Already added - this con occur on recovery or if client resubmits request after a previous
@@ -1289,7 +1307,7 @@ func (lm *LevelManager) getLevelStats(level int) *LevelStats {
 }
 
 func (lm *LevelManager) getSegment(segmentID []byte) (*segment, error) {
-	skey := common.ByteSliceToStringZeroCopy(segmentID)
+	skey := string(segmentID)
 	seg := lm.segmentCache.get(skey)
 	if seg != nil {
 		return seg, nil
@@ -1317,19 +1335,20 @@ func (lm *LevelManager) segmentToAdd(seg *segment) ([]byte, error) {
 	sid := fmt.Sprintf("lmgr-seg-%s", uuid.New().String())
 	lm.segmentCache.put(sid, seg)
 	lm.segmentsToAdd[sid] = seg
-	log.Infof("LevelManager added segment with id %s to segmentsToAdd", sid)
+	log.Debugf("LevelManager added segment with id %s to segmentsToAdd", sid)
 	return []byte(sid), nil
 }
 
 func (lm *LevelManager) segmentToRemove(segID segmentID) {
 	sid := common.ByteSliceToStringZeroCopy(segID)
-	lm.segmentCache.delete(sid)
+	// Note, we do not delete the entry from the segment cache at this point - it might not have been flushed to
+	// object store yet, so any queries that reference this segment will then fail
 	if _, exists := lm.segmentsToAdd[sid]; exists {
 		// The seg was created after last Flush so just delete it from segmentsToAdd
-		log.Infof("LevelManager deleting with id %v from segmentsToAdd", segID)
+		log.Debugf("LevelManager deleting with id %s from segmentsToAdd", sid)
 		delete(lm.segmentsToAdd, sid)
 	} else {
-		log.Infof("LevelManager adding segment with id %v to segmentsToDelete", segID)
+		log.Debugf("LevelManager adding segment with id %s to segmentsToDelete", sid)
 		lm.segmentsToDelete[sid] = struct{}{}
 	}
 }
@@ -1422,6 +1441,7 @@ func (lm *LevelManager) Flush(shutdown bool) (int, int, error) {
 		lm.lock.Unlock()
 		return 0, 0, nil
 	}
+
 	masterRecordToFlush := lm.masterRecord.copy()
 	// Make copies of segments to add and delete
 	segsToAdd := make(map[string]*segment, len(lm.segmentsToAdd))
@@ -1437,6 +1457,13 @@ func (lm *LevelManager) Flush(shutdown bool) (int, int, error) {
 	lm.segmentsToDelete = map[string]struct{}{}
 	lm.hasChanges = false
 	flushedCallback := lm.flushedCallback
+	// We push segments to cloud store outside the lock, so new entries can be added to the segment preflish cache
+	// in that time, so we don't want to clear the whole cache after segments are successfully pushed otherwise we could
+	// clear some that had not been pushed yet, and then if the lru cache expired the entries, it could result in
+	// some unpushed segments not existing in the cache and queries or compaction failing.
+	// so we seal the preflush cache - this just takes a copy of the pre flush cache and puts it to one side while
+	// still be queryable, then after flush succeeds we can clear this copy.
+	lm.segmentCache.sealPreflushCache()
 	lm.lock.Unlock()
 
 	// We push outside the lock as it's relatively slow, and we don't want to prevent queries being executed
@@ -1458,12 +1485,19 @@ func (lm *LevelManager) Flush(shutdown bool) (int, int, error) {
 	}
 
 	lm.lock.Lock()
-	lm.segmentCache.flush()
+	// Note, we only remove segments from cache after they have been flushed to cloud, otherwise GetTableIDsInRange
+	// might not find required segments
+	for sid := range segsToDelete {
+		log.Debugf("deleting segment %s from segment cache", sid)
+		lm.segmentCache.delete(sid)
+	}
+
 	// flushed callback only gets called once - we defer setting it to nil to the end in case an error occurs, where
 	// we want to retry
 	lm.flushedCallback = nil
 	lastFlushed := lm.masterRecord.lastFlushedVersion
 	lastProcessed := lm.masterRecord.lastProcessedReplSeq
+	lm.segmentCache.flushSealedCache()
 	lm.lock.Unlock()
 	if flushedCallback != nil { // must be called outside lock to avoid deadlock with proc mgr
 		flushedCallback(nil)
@@ -1478,25 +1512,24 @@ func (lm *LevelManager) pushSegmentsAndMasterRecord(masterRecordToFlush *masterR
 	// First delete segments
 	segsDeleted := len(segsToDelete)
 	for sid := range segsToDelete {
-		log.Infof("LevelManager deleting segment %v from cloud store", common.StringToByteSliceZeroCopy(sid))
+		log.Debugf("LevelManager deleting segment %s from cloud store", sid)
 		segID := common.StringToByteSliceZeroCopy(sid)
 		if err := lm.objStore.Delete(segID); err != nil {
 			return 0, 0, err
 		}
-		log.Infof("LevelManager deleted segment %v from cloud store", common.StringToByteSliceZeroCopy(sid))
 	}
 	// Then the adds
 	segsAdded := len(segsToAdd)
 	for sid, seg := range segsToAdd {
-		log.Infof("LevelManager adding segment %v to cloud store", common.StringToByteSliceZeroCopy(sid))
-		segID := common.StringToByteSliceZeroCopy(sid)
+		log.Debugf("LevelManager adding segment %s to cloud store", sid)
+		segID := []byte(sid)
 		buff := make([]byte, 0, lm.segmentBufferSizeEstimate)
 		buff = seg.serialize(buff)
 		lm.updateSegmentBufferSizeEstimate(len(buff))
 		if err := lm.objStore.Put(segID, buff); err != nil {
 			return 0, 0, err
 		}
-		log.Infof("LevelManager added segment %v to cloud store", common.StringToByteSliceZeroCopy(sid))
+		log.Debugf("LevelManager added segment %s to cloud store OK", sid)
 	}
 	// Once they've all been added we can Flush the master record
 	buff := make([]byte, 0, lm.masterRecordBufferSizeEstimate)

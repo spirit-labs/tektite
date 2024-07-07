@@ -262,6 +262,7 @@ func NewServerWithClientFactory(config conf.Config, clientFactory kafka.ClientFa
 		versionManager:      versionManager,
 		kafkaServer:         kafkaServer,
 		apiServer:           apiServer,
+		levelMgrClient:      levMgrClient,
 	}
 	remotingServer.RegisterMessageHandler(remoting.ClusterMessageShutdownMessage, &shutdownMessageHandler{s: server})
 	return server, nil
@@ -289,6 +290,7 @@ type Server struct {
 	apiServer           *api.HTTPAPIServer
 	webuiServer         *admin.Server
 	parser              *parser.Parser
+	levelMgrClient      levels.Client
 	shutDownPhase       int
 	stopWaitGroup       *sync.WaitGroup
 	shutdownComplete    bool
@@ -423,8 +425,12 @@ func (s *Server) stop(shutdown bool) error {
 	if s.conf.DDProfilerTypes != "" {
 		profiler.Stop()
 	}
+	// Stop level manager client first, in case go routines are in retry loop executing level mgr ops
+	if err := s.levelMgrClient.Stop(); err != nil {
+		return err
+	}
 	s.lifeCycleMgr.SetActive(false)
-	// We stop the version manager first to ensure it doesn't attempt to get new sequence ids while the server is
+	// We stop the version manager before the services to ensure it doesn't attempt to get new sequence ids while the server is
 	// shutting down which can make the release of the sequences cluster lock fail, leaving it applied
 	if err := s.versionManager.Stop(); err != nil {
 		panic(err) // Will never error
@@ -435,7 +441,7 @@ func (s *Server) stop(shutdown bool) error {
 			servStopStart := time.Now()
 			log.Debugf("tektite node %d stopping service %s", s.nodeID, reflect.TypeOf(serv).String())
 			if err := serv.Stop(); err != nil {
-				return errors.WithStack(err)
+				return err
 			}
 			log.Debugf("tektite node %d service %s stopping took %d ms", s.nodeID, reflect.TypeOf(serv).String(),
 				time.Now().Sub(servStopStart).Milliseconds())

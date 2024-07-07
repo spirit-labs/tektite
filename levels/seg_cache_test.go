@@ -61,7 +61,9 @@ func TestAddLoadDeletePostFlush(t *testing.T) {
 		segMap[id] = seg
 		segCache.put(id, seg)
 	}
-	segCache.flush()
+	segCache.sealPreflushCache()
+	segCache.flushSealedCache()
+
 	for id, seg := range segMap {
 		segReceived := segCache.get(id)
 		require.NotNil(t, segReceived)
@@ -101,7 +103,8 @@ func TestEvictionPostFlush(t *testing.T) {
 		segMap[id] = seg
 		segCache.put(id, seg)
 	}
-	segCache.flush()
+	segCache.sealPreflushCache()
+	segCache.flushSealedCache()
 	for i := 0; i < 10; i++ {
 		id := fmt.Sprintf("segment-%d", i)
 		segReceived := segCache.get(id)
