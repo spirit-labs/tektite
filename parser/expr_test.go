@@ -1112,6 +1112,32 @@ func TestParseAggregateFunctions(t *testing.T) {
 		})
 }
 
+func TestParseNestedBinaryExpressionWithIntegersWithLeadingZeros(t *testing.T) {
+	expr := "(x == 2008) && (z == 08)"
+	testParseExpression(t, expr,
+		&BinaryOperatorExprDesc{
+			Left: &BinaryOperatorExprDesc{
+				Left: &IdentifierExprDesc{
+					IdentifierName: "x",
+				},
+				Right: &IntegerConstExprDesc{
+					Value: 2008,
+				},
+				Op: "==",
+			},
+			Right: &BinaryOperatorExprDesc{
+				Left: &IdentifierExprDesc{
+					IdentifierName: "z",
+				},
+				Right: &IntegerConstExprDesc{
+					Value: 8,
+				},
+				Op: "==",
+			},
+			Op: "&&",
+		})
+}
+
 func TestFailToParseUnmatchedParens(t *testing.T) {
 	input := "1 + 2) + 3 + 4"
 	expectedMsg := `unmatched ')' (line 1 column 6):

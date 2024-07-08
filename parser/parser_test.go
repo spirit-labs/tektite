@@ -205,11 +205,11 @@ func TestLexFloat(t *testing.T) {
 }
 
 func TestLexInteger(t *testing.T) {
-	input := "0 1 123 1233456 234566"
+	input := "0 1 123 1233456 234566 08 000 0000100"
 	tokens, err := Lex(input, true)
 	require.NoError(t, err)
 	require.NotNil(t, tokens)
-	expected := []string{"0", "1", "123", "1233456", "234566"}
+	expected := []string{"0", "1", "123", "1233456", "234566", "08", "000", "0000100"}
 	require.Equal(t, len(expected), len(tokens))
 	for i, token := range tokens {
 		require.Equal(t, IntegerTokenType, token.Type)
