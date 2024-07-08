@@ -23,7 +23,7 @@ var lex = lexer.MustSimple([]lexer.SimpleRule{
 	{"LParens", `\(`},
 	{"RParens", `\)`},
 	{"Float", `[-+]?(\d+(\.\d*)?|\.\d+)(e[-+]?\d+)?f`},
-	{"Integer", `[+-]?(0|([1-9][0-9]*))`},
+	{"Integer", `[+-]?([0-9][0-9]*)`},
 	{"InvalidFloat", `[-+]?(\d+(\.\d*)?|\.\d+)(e[-+]?\d+)?`},
 	{"StringLiteral", `"(?:\\"|[^"])*"`},
 	{"Whitespace", `[ \t\n\r]+`},
