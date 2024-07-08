@@ -272,7 +272,7 @@ func TestBarrierWithOlderVersionAfterVersionComplete(t *testing.T) {
 	err = <-ch
 	require.NoError(t, err)
 
-	require.Equal(t, 101, batchHandler.receivedBatches[receiverID][0].Version)
+	require.Equal(t, 101, batchHandler.receivedBatchesMap()[receiverID][0].Version)
 
 	// Inject barrier with older version - should be ignored
 	ch = make(chan error, 1)
@@ -291,7 +291,7 @@ func TestBarrierWithOlderVersionAfterVersionComplete(t *testing.T) {
 	err = <-ch
 	require.NoError(t, err)
 
-	require.Equal(t, 101, batchHandler.receivedBatches[receiverID][1].Version)
+	require.Equal(t, 101, batchHandler.receivedBatchesMap()[receiverID][1].Version)
 }
 
 func TestForwardingMultipleReceiversAndProcessors(t *testing.T) {
@@ -503,7 +503,7 @@ func verifyBatchesReceivedAtTerminalReceiver(t *testing.T, sentBatches []*Proces
 	var receivedBatches []*ProcessBatch
 	for procID, handler := range batchHandlers {
 		_, isReceiverProcessor := receiverProcessors[procID]
-		batches, ok := handler.receivedBatches[receiverID]
+		batches, ok := handler.receivedBatchesMap()[receiverID]
 		if isReceiverProcessor {
 			require.True(t, ok)
 			receivedBatches = append(receivedBatches, batches...)
@@ -787,7 +787,7 @@ func TestBarriersNoForwarding(t *testing.T) {
 
 	for _, receiverID := range receiverIDs {
 		sent := sentBatches[receiverID]
-		received := batchHandler.receivedBatches[receiverID]
+		received := batchHandler.receivedBatchesMap()[receiverID]
 		require.Equal(t, len(sent), len(received))
 		require.Equal(t, numVersions*numBatchesPerVersion, len(received))
 		i := 0
@@ -885,7 +885,7 @@ func TestBarriersWithForwarding(t *testing.T) {
 	for procIndex, proc := range processors {
 		sent := sentBatches[proc.id]
 		batchHandler := batchHandlers[procIndex]
-		received := batchHandler.receivedBatches[receiverID]
+		received := batchHandler.receivedBatchesMap()[receiverID]
 		require.Equal(t, len(sent), len(received))
 		require.Equal(t, numVersions*numBatchesPerVersion, len(received))
 		i := 0
@@ -905,11 +905,11 @@ func TestBarriersWithForwarding(t *testing.T) {
 	for i := 0; i < numProcessors; i++ {
 		sent := sentBatches[i]
 		handler := batchHandlers[i]
-		receivedLocal := handler.receivedBatches[receiverID]
+		receivedLocal := handler.receivedBatchesMap()[receiverID]
 		require.Equal(t, sent, receivedLocal)
 
 		// Every handler should have received batches from every other handler
-		receivedRemote := handler.receivedBatches[forwardReceiverID]
+		receivedRemote := handler.receivedBatchesMap()[forwardReceiverID]
 		require.Equal(t, numProcessors*numBatchesPerVersion*numVersions, len(receivedRemote))
 
 		receivedByForwardingProc := map[int][]*ProcessBatch{}
@@ -1041,7 +1041,7 @@ func TestForwardAfterUnavailability(t *testing.T) {
 
 	require.Less(t, 0, int(atomic.LoadInt64(&forwarder.failCount)))
 
-	require.Equal(t, 11, len(batchHandler2.receivedBatches[1001]))
+	require.Equal(t, 11, len(batchHandler2.receivedBatchesMap()[1001]))
 }
 
 func TestLoadStoreReplBatchSeq(t *testing.T) {
@@ -1107,6 +1107,8 @@ func (t *testBatchForwarder) failFor(dur time.Duration) {
 }
 
 type forwardingBatchHandler struct {
+	lock sync.Mutex
+
 	receivedBatches  map[int][]*ProcessBatch
 	forwardedBatches map[int][]*ProcessBatch
 
@@ -1126,6 +1128,18 @@ type forwardingBatchHandler struct {
 type barrierForwardingInfo struct {
 	forwardReceiverID int
 	processorIDs      []int
+}
+
+func (g *forwardingBatchHandler) receivedBatchesMap() map[int][]*ProcessBatch {
+	g.lock.Lock()
+	defer g.lock.Unlock()
+	rb := make(map[int][]*ProcessBatch, len(g.receivedBatches))
+	for rid, batches := range g.receivedBatches {
+		batchesCopy := make([]*ProcessBatch, len(batches))
+		copy(batchesCopy, batches)
+		rb[rid] = batchesCopy
+	}
+	return rb
 }
 
 func (g *forwardingBatchHandler) GetForwardingProcessorCount(receiverID int) (int, bool) {
@@ -1157,6 +1171,8 @@ func newForwardingBatchHandler() *forwardingBatchHandler {
 
 func (g *forwardingBatchHandler) HandleProcessBatch(processor Processor, processBatch *ProcessBatch,
 	_ bool) (bool, *mem.Batch, []*ProcessBatch, error) {
+	g.lock.Lock()
+	defer g.lock.Unlock()
 	if !processBatch.Barrier {
 		g.receivedBatches[processBatch.ReceiverID] = append(g.receivedBatches[processBatch.ReceiverID], processBatch)
 	}
