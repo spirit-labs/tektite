@@ -1,5 +1,40 @@
 set max_line_width 200;
 
+topic_if := (kafka in partitions = 10)
+-> (project key,  if(json_int("v0",val) > 1005, "antelopes", "zebras") as animal)
+-> (store stream);
+
+topic_case := (kafka in partitions = 10)
+-> (project key,  case(json_int("v0",val), 
+         1, "happy",
+         2, "sad",
+         "meh") as mood)
+-> (store stream);
+
+topic_isNull := (kafka in partitions = 10)
+-> (filter by is_null(json_int("v0",val)))
+-> (store stream);
+
+topic_isNotNull := (kafka in partitions = 10)
+-> (filter by is_not_null(json_int("v0",val)))
+-> (store stream);
+
+topic_in := (kafka in partitions = 10)
+-> (filter by in(json_int("v0", val), 1, 2, 3))
+-> (store stream);
+
+topic_decimalShift := (kafka in partitions = 10)
+-> (project key, decimal_shift(to_decimal(json_float("v1", val), 4, 2), 2) as new_v1)
+-> (store stream);
+
+topic_startsWith := (kafka in partitions = 10)
+-> (filter by starts_with(json_string("v4", val), "foo"))
+-> (store stream);
+
+topic_endsWith := (kafka in partitions = 10)
+-> (filter by ends_with(json_string("v4", val), "o01"))
+-> (store stream);
+
 toIntTopic := (kafka in partitions = 10)
 -> (project key, to_int(json_string("v3",val)) as summary)
 -> (store stream);
@@ -83,6 +118,14 @@ uint64_le(to_bytes(json_string("v0",val)),-1) as le
 )
 -> (store stream);
 
+--produce data dataset_if;
+--produce data dataset_case;
+--produce data dataset_isNull;
+--produce data dataset_isNotNull;
+--produce data dataset_in;
+--produce data dataset_decimalShift;
+--produce data dataset_startsWith;
+--produce data dataset_endsWith;
 --produce data dataset_toInt;
 --produce data dataset_toFloat;
 --produce data dataset_toString;
@@ -97,6 +140,14 @@ uint64_le(to_bytes(json_string("v0",val)),-1) as le
 --produce data dataset_kafkaHelper;
 --produce data dataset_misc;
 
+(scan all from topic_if) -> (sort by key);
+(scan all from topic_case) -> (sort by key);
+(scan all from topic_isNull) -> (sort by key);
+(scan all from topic_isNotNull) -> (sort by key);
+(scan all from topic_in) -> (sort by key);
+(scan all from topic_decimalShift) -> (sort by key);
+(scan all from topic_startsWith) -> (sort by key);
+(scan all from topic_endsWith) -> (sort by key);
 (scan all from toIntTopic) -> (sort by key);
 (scan all from toFloatTopic) -> (sort by key);
 (scan all from toStringTopic) -> (sort by key);
@@ -111,6 +162,14 @@ uint64_le(to_bytes(json_string("v0",val)),-1) as le
 (scan all from kafkaHelperTopic) -> (sort by key);
 (scan all from miscTopic) -> (sort by key);
 
+delete(topic_if);
+delete(topic_case);
+delete(topic_isNull);
+delete(topic_isNotNull);
+delete(topic_in);
+delete(topic_decimalShift);
+delete(topic_startsWith);
+delete(topic_endsWith);
 delete(toIntTopic);
 delete(toFloatTopic);
 delete(toStringTopic);
