@@ -58,7 +58,7 @@ const (
 	DefaultEtcdCallTimeout = 5 * time.Second
 
 	DefaultTableCacheMaxSizeBytes  = 128 * 1024 * 1024
-	DefaultTableCacheSSTableMaxAge = 7 * 24 * time.Hour
+	DefaultTableCacheSSTableMaxAge = 5 * time.Minute
 
 	DefaultClusterManagerLockTimeout  = 2 * time.Minute
 	DefaultClusterManagerKeyPrefix    = "tektite_clust_data/"
@@ -407,6 +407,10 @@ func (c *Config) ApplyDefaults() {
 
 	if c.TableCacheMaxSizeBytes == 0 {
 		c.TableCacheMaxSizeBytes = DefaultTableCacheMaxSizeBytes
+	}
+
+	if c.TableCacheSSTableMaxAge == 0 {
+		c.TableCacheSSTableMaxAge = DefaultTableCacheSSTableMaxAge
 	}
 
 	if c.ClusterName == "" {

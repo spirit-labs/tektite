@@ -305,7 +305,7 @@ func (ps *ProcessorStore) buildAndPushTable(entry *flushQueueEntry) error {
 				entry.mt.Uuid)
 			break
 		}
-		if err := ps.pm.tableCache.AddSSTableWithMaxAge(id, ssTable); err != nil {
+		if err := ps.pm.tableCache.AddSSTable(id, ssTable); err != nil {
 			return err
 		}
 		log.Debugf("store %d added sstable with id %v for memtable %s to table cache", ps.pm.cfg.NodeID, id,
