@@ -74,7 +74,7 @@ egest_stream := local_topic -> (bridge to remote_topic props = ("bootstrap.serve
 	require.NoError(t, err)
 	defer producer.Close()
 
-	start := time.Now()
+	start := time.Now().UTC()
 
 	_, err = sendMessages(2, 10, 0, "local_topic", producer)
 	require.NoError(t, err)
@@ -140,7 +140,7 @@ egest_stream := local_topic -> (bridge to remote_topic props = ("bootstrap.serve
 	require.NoError(t, err)
 	defer producer.Close()
 
-	start := time.Now()
+	start := time.Now().UTC()
 
 	log.Debug("sending messages")
 
@@ -229,7 +229,7 @@ egest_stream := local_topic -> (bridge to remote_topic props = ("bootstrap.serve
 	require.NoError(t, err)
 	defer producer.Close()
 
-	start := time.Now()
+	start := time.Now().UTC()
 
 	// pause the kafka container so messages don't get bridged out
 	kHolder.pauseResumeKafka(t, true)
@@ -273,13 +273,16 @@ func sendMessages(numBatches int, batchSize int, startIndex int, topicName strin
 	msgID := startIndex
 	for i := 0; i < numBatches; i++ {
 		deliveryChan := make(chan kafkago.Event, batchSize)
+		ts := time.Now().UTC()
 		for j := 0; j < batchSize; j++ {
 			key := []byte(fmt.Sprintf("key%05d", msgID))
 			value := []byte(fmt.Sprintf("value%05d", msgID))
 			err := producer.Produce(&kafkago.Message{
 				TopicPartition: kafkago.TopicPartition{Topic: &topicName, Partition: kafkago.PartitionAny},
 				Key:            key,
-				Value:          value},
+				Value:          value,
+				Timestamp:      ts,
+			},
 				deliveryChan,
 			)
 			if err != nil {
