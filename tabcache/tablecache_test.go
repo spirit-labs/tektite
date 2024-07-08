@@ -74,7 +74,7 @@ func TestTableCache(t *testing.T) {
 	require.Equal(t, table1MaxAge, res)
 
 	table2MaxAge := createSSTable(t)
-	time.Sleep(time.Second)
+	time.Sleep(time.Second + 100*time.Millisecond)
 	err = tcMaxAge.AddSSTableWithMaxAge([]byte("sst2"), table2MaxAge)
 	require.NoError(t, err)
 
