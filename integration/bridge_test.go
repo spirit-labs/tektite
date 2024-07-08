@@ -26,6 +26,10 @@ func init() {
 	common.EnableTestPorts()
 }
 
+func genTopicName() string {
+	return fmt.Sprintf("bridge_test_%s", uuid.New().String())
+}
+
 func TestBridgeKafkaInitiallyUnavailable(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
@@ -36,7 +40,8 @@ func TestBridgeKafkaInitiallyUnavailable(t *testing.T) {
 	// Start Kafka then immediately pause it, so we can get address
 	kHolder := startKafka(t)
 	defer kHolder.stop()
-	createTopic(t, "remote_topic", 10, kHolder.address)
+	topicName := genTopicName()
+	createTopic(t, topicName, 10, kHolder.address)
 	kHolder.pauseResumeKafka(t, true)
 
 	clientTLSConfig := tekclient.TLSConfig{
@@ -58,11 +63,11 @@ func TestBridgeKafkaInitiallyUnavailable(t *testing.T) {
 	require.NoError(t, err)
 
 	err = cli.ExecuteStatement(fmt.Sprintf(`
-egest_stream := local_topic -> (bridge to remote_topic props = ("bootstrap.servers" = "%s"))`, kHolder.address))
+egest_stream := local_topic -> (bridge to %s props = ("bootstrap.servers" = "%s"))`, topicName, kHolder.address))
 	require.NoError(t, err)
 
 	err = cli.ExecuteStatement(fmt.Sprintf(`
-	ingest_stream := (bridge from remote_topic partitions = 10 props = ("bootstrap.servers" = "%s" "auto.offset.reset" = "earliest")) -> (store stream)`, kHolder.address))
+	ingest_stream := (bridge from %s partitions = 10 props = ("bootstrap.servers" = "%s" "auto.offset.reset" = "earliest")) -> (store stream)`, topicName, kHolder.address))
 	require.NoError(t, err)
 
 	tektiteKafkaAddress := s.GetConfig().KafkaServerListenerConfig.Addresses[0]
@@ -103,7 +108,8 @@ func TestBridgeSimulateNetworkFailure(t *testing.T) {
 
 	kHolder := startKafka(t)
 	defer kHolder.stop()
-	createTopic(t, "remote_topic", 10, kHolder.address)
+	topicName := genTopicName()
+	createTopic(t, topicName, 10, kHolder.address)
 
 	clientTLSConfig := tekclient.TLSConfig{
 		TrustedCertsPath: serverCertPath,
@@ -124,11 +130,11 @@ func TestBridgeSimulateNetworkFailure(t *testing.T) {
 	require.NoError(t, err)
 
 	err = cli.ExecuteStatement(fmt.Sprintf(`
-egest_stream := local_topic -> (bridge to remote_topic props = ("bootstrap.servers" = "%s"))`, kHolder.address))
+egest_stream := local_topic -> (bridge to %s props = ("bootstrap.servers" = "%s"))`, topicName, kHolder.address))
 	require.NoError(t, err)
 
 	err = cli.ExecuteStatement(fmt.Sprintf(`
-	ingest_stream := (bridge from remote_topic partitions = 10 props = ("bootstrap.servers" = "%s" "auto.offset.reset" = "earliest")) -> (store stream)`, kHolder.address))
+	ingest_stream := (bridge from %s partitions = 10 props = ("bootstrap.servers" = "%s" "auto.offset.reset" = "earliest")) -> (store stream)`, topicName, kHolder.address))
 	require.NoError(t, err)
 
 	tektiteKafkaAddress := s.GetConfig().KafkaServerListenerConfig.Addresses[0]
@@ -192,7 +198,8 @@ func TestRestartBridgeMessagesStored(t *testing.T) {
 
 	kHolder := startKafka(t)
 	defer kHolder.stop()
-	createTopic(t, "remote_topic", 10, kHolder.address)
+	topicName := genTopicName()
+	createTopic(t, topicName, 10, kHolder.address)
 
 	clientTLSConfig := tekclient.TLSConfig{
 		TrustedCertsPath: serverCertPath,
@@ -213,11 +220,11 @@ func TestRestartBridgeMessagesStored(t *testing.T) {
 	require.NoError(t, err)
 
 	err = cli.ExecuteStatement(fmt.Sprintf(`
-egest_stream := local_topic -> (bridge to remote_topic props = ("bootstrap.servers" = "%s"))`, kHolder.address))
+egest_stream := local_topic -> (bridge to %s props = ("bootstrap.servers" = "%s"))`, topicName, kHolder.address))
 	require.NoError(t, err)
 
 	err = cli.ExecuteStatement(fmt.Sprintf(`
-	ingest_stream := (bridge from remote_topic partitions = 10 props = ("bootstrap.servers" = "%s" "auto.offset.reset" = "earliest")) -> (store stream)`, kHolder.address))
+	ingest_stream := (bridge from %s partitions = 10 props = ("bootstrap.servers" = "%s" "auto.offset.reset" = "earliest")) -> (store stream)`, topicName, kHolder.address))
 	require.NoError(t, err)
 
 	tektiteKafkaAddress := s.GetConfig().KafkaServerListenerConfig.Addresses[0]
@@ -386,7 +393,7 @@ func (k *kafkaHolder) pauseResumeKafka(t *testing.T, pause bool) {
 
 func startKafka(t *testing.T) *kafkaHolder {
 	ctx := context.Background()
-	// Start a containerf
+	// Start a container
 	kc, err := kafka.RunContainer(ctx,
 		kafka.WithClusterID("test-cluster"),
 		testcontainers.WithImage("confluentinc/confluent-local:7.5.0"),
