@@ -24,12 +24,46 @@ toTimestampTopic := (kafka in partitions = 10)
 -> (project key, to_timestamp(json_int("v0",val)) as summary)
 -> (store stream);
 
+formatDateTopic := (kafka in partitions = 10)
+-> (project key, format_date(to_timestamp(json_int("v0",val)),"2006-01-02T15:04:05Z07:00") as summary)
+-> (store stream);
+
+parseDateTopic := (kafka in partitions = 10)
+-> (project key, parse_date(json_string("v6",val),"2006-01-02 15:04:05.000") as summary)
+-> (store stream);
+
+dateTopic := (kafka in partitions = 10)
+-> (filter by 
+year(to_timestamp(parse_date(json_string("v6",val),"2006-01-02 15:04:05.000"))) == 2008
+&& 
+month(to_timestamp(parse_date(json_string("v6",val),"2006-01-02 15:04:05.000"))) == 8
+&&
+day(to_timestamp(parse_date(json_string("v6",val),"2006-01-02 15:04:05.000"))) == 8
+&&
+hour(to_timestamp(parse_date(json_string("v6",val),"2006-01-02 15:04:05.000"))) == 8
+&&
+minute(to_timestamp(parse_date(json_string("v6",val),"2006-01-02 15:04:05.000"))) == 8
+&&
+second(to_timestamp(parse_date(json_string("v6",val),"2006-01-02 15:04:05.000"))) == 8
+&&
+millis(to_timestamp(parse_date(json_string("v6",val),"2006-01-02 15:04:05.000"))) == 128
+)
+-> (store stream);
+
+nowTopic := (kafka in partitions = 10)
+-> (filter by year(to_timestamp(parse_date(json_string("v6",val),"2006-01-02 15:04:05.000"))) < year(now()))
+-> (store stream);
+
 --produce data dataset_toInt;
 --produce data dataset_toFloat;
 --produce data dataset_toString;
 --produce data dataset_toDecimal;
 --produce data dataset_toBytes;
 --produce data dataset_toTimestamp;
+--produce data dataset_formatDate;
+--produce data dataset_parseDate;
+--produce data dataset_date;
+--produce data dataset_now;
 
 (scan all from toIntTopic) -> (sort by key);
 (scan all from toFloatTopic) -> (sort by key);
@@ -37,6 +71,10 @@ toTimestampTopic := (kafka in partitions = 10)
 (scan all from toDecimalTopic) -> (sort by key);
 (scan all from toBytesTopic) -> (sort by key);
 (scan all from toTimestampTopic) -> (sort by key);
+(scan all from formatDateTopic) -> (sort by key);
+(scan all from parseDateTopic) -> (sort by key);
+(scan all from dateTopic) -> (sort by key);
+(scan all from nowTopic) -> (sort by key);
 
 delete(toIntTopic);
 delete(toFloatTopic);
@@ -44,3 +82,7 @@ delete(toStringTopic);
 delete(toDecimalTopic);
 delete(toBytesTopic);
 delete(toTimestampTopic);
+delete(formatDateTopic);
+delete(parseDateTopic);
+delete(dateTopic);
+delete(nowTopic);
