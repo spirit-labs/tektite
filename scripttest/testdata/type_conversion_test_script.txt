@@ -54,6 +54,35 @@ nowTopic := (kafka in partitions = 10)
 -> (filter by year(to_timestamp(parse_date(json_string("v6",val),"2006-01-02 15:04:05.000"))) < year(now()))
 -> (store stream);
 
+jsonFnTopic := (kafka in partitions = 10)
+-> (filter by json_int("v0",val) == 1000 
+&& 
+json_float("v1",val) == 1.23f 
+&&
+json_bool("v2",val) == true
+&&
+json_is_null("v3",val)
+&&
+json_string("v4",val) == "foobar01"
+&&
+json_raw("v0",val) == "1000"
+&&
+json_type("v4",val) == "string"
+)
+-> (store stream);
+
+kafkaHelperTopic := (kafka in partitions = 10)
+-> (project key, kafka_header("sender_id", hdrs) as sender_id, kafka_build_headers("event_processing_time", to_string(event_time)))
+-> (store stream);
+
+miscTopic := (kafka in partitions = 10)
+-> (project key, if(len(concat(json_string("v0",val),json_string("v1",val))) > 8, "big", "small") as size,
+bytes_slice(to_bytes(json_string("v0",val)),2,4) as slice,
+uint64_be(to_bytes(json_string("v0",val)),-1) as be,
+uint64_le(to_bytes(json_string("v0",val)),-1) as le
+)
+-> (store stream);
+
 --produce data dataset_toInt;
 --produce data dataset_toFloat;
 --produce data dataset_toString;
@@ -64,6 +93,9 @@ nowTopic := (kafka in partitions = 10)
 --produce data dataset_parseDate;
 --produce data dataset_date;
 --produce data dataset_now;
+--produce data dataset_jsonFn;
+--produce data dataset_kafkaHelper;
+--produce data dataset_misc;
 
 (scan all from toIntTopic) -> (sort by key);
 (scan all from toFloatTopic) -> (sort by key);
@@ -75,6 +107,9 @@ nowTopic := (kafka in partitions = 10)
 (scan all from parseDateTopic) -> (sort by key);
 (scan all from dateTopic) -> (sort by key);
 (scan all from nowTopic) -> (sort by key);
+(scan all from jsonFnTopic) -> (sort by key);
+(scan all from kafkaHelperTopic) -> (sort by key);
+(scan all from miscTopic) -> (sort by key);
 
 delete(toIntTopic);
 delete(toFloatTopic);
@@ -86,3 +121,6 @@ delete(formatDateTopic);
 delete(parseDateTopic);
 delete(dateTopic);
 delete(nowTopic);
+delete(jsonFnTopic);
+delete(kafkaHelperTopic);
+delete(miscTopic);
