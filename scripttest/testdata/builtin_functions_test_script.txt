@@ -35,6 +35,43 @@ topic_endsWith := (kafka in partitions = 10)
 -> (filter by ends_with(json_string("v4", val), "o01"))
 -> (store stream);
 
+matchesTopic := (kafka in partitions = 10)
+-> (filter by matches(json_string("v4", val), "^bar"))
+-> (store stream);
+
+trimTopic := (kafka in partitions = 10)
+-> (filter by trim(json_string("v4", val), " \t\n\r") == "bar")
+-> (store stream);
+
+ltrimTopic := (kafka in partitions = 10)
+-> (filter by ltrim(json_string("v4", val), " \t\n\r") == "bar")
+-> (store stream);
+
+rtrimTopic := (kafka in partitions = 10)
+-> (filter by rtrim(json_string("v4", val), " \t\n\r") == "bar")
+-> (store stream);
+
+toLowerTopic := (kafka in partitions = 10)
+-> (filter by to_lower(json_string("v4", val)) == "bar")
+-> (store stream);
+
+toUpperTopic := (kafka in partitions = 10)
+-> (filter by to_lower(json_string("v4", val)) == "bar")
+-> (store stream);
+
+substrTopic := (kafka in partitions = 10)
+-> (filter by sub_str(json_string("v4", val), 0, 3) == "foo")
+-> (store stream);
+
+replaceTopic := (kafka in partitions = 10)
+-> (project key,  replace(json_string("v4",val), "foobar", "BARFOO") as replaced)
+-> (store stream);
+
+sprintfTopic := (kafka in partitions = 10)
+-> (project key, sprintf("v0:%s v1:%.2f",
+                 json_string("v0",val), json_float("v1",val)) as summary)
+-> (store stream);
+
 toIntTopic := (kafka in partitions = 10)
 -> (project key, to_int(json_string("v3",val)) as summary)
 -> (store stream);
@@ -126,6 +163,15 @@ uint64_le(to_bytes(json_string("v0",val)),-1) as le
 --produce data dataset_decimalShift;
 --produce data dataset_startsWith;
 --produce data dataset_endsWith;
+--produce data dataset_matches;
+--produce data dataset_trim;
+--produce data dataset_ltrim;
+--produce data dataset_rtrim;
+--produce data dataset_toLower;
+--produce data dataset_toUpper;
+--produce data dataset_substr;
+--produce data dataset_replace;
+--produce data dataset_sprintf;
 --produce data dataset_toInt;
 --produce data dataset_toFloat;
 --produce data dataset_toString;
@@ -148,6 +194,15 @@ uint64_le(to_bytes(json_string("v0",val)),-1) as le
 (scan all from topic_decimalShift) -> (sort by key);
 (scan all from topic_startsWith) -> (sort by key);
 (scan all from topic_endsWith) -> (sort by key);
+(scan all from matchesTopic) -> (sort by key);
+(scan all from trimTopic) -> (sort by key);
+(scan all from ltrimTopic) -> (sort by key);
+(scan all from rtrimTopic) -> (sort by key);
+(scan all from toLowerTopic) -> (sort by key);
+(scan all from toUpperTopic) -> (sort by key);
+(scan all from substrTopic) -> (sort by key);
+(scan all from replaceTopic) -> (sort by key);
+(scan all from sprintfTopic) -> (sort by key);
 (scan all from toIntTopic) -> (sort by key);
 (scan all from toFloatTopic) -> (sort by key);
 (scan all from toStringTopic) -> (sort by key);
@@ -170,6 +225,15 @@ delete(topic_in);
 delete(topic_decimalShift);
 delete(topic_startsWith);
 delete(topic_endsWith);
+delete(matchesTopic);
+delete(trimTopic);
+delete(ltrimTopic);
+delete(rtrimTopic);
+delete(toLowerTopic);
+delete(toUpperTopic);
+delete(substrTopic);
+delete(replaceTopic);
+delete(sprintfTopic);
 delete(toIntTopic);
 delete(toFloatTopic);
 delete(toStringTopic);
