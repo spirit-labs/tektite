@@ -486,14 +486,16 @@ func (sm *streamManager) deployStream(streamDesc parser.CreateStreamDesc, receiv
 	}
 	for i, oper := range operators {
 		oper.SetStreamInfo(info)
-		if i != len(operators)-1 {
-			nextOper := operators[i+1]
-			oper.AddDownStreamOperator(nextOper)
-		}
 		if sm.loaded {
+			// Must call setup before adding operator to previous operator or it could handle a batch before
+			// receivers are registered and error out (e.g. in the backfill operator in bridge to)
 			if err := oper.Setup(sm); err != nil {
 				return err
 			}
+		}
+		if i != len(operators)-1 {
+			nextOper := operators[i+1]
+			oper.AddDownStreamOperator(nextOper)
 		}
 	}
 	sm.streams[streamDesc.StreamName] = info
