@@ -42,9 +42,6 @@ type Mutex struct {
 }
 
 func (m *Mutex) Close() error {
-	if err := m.mut.Unlock(context.Background()); err != nil {
-		return convertEtcdError(err)
-	}
 	return convertEtcdError(m.session.Close())
 }
 

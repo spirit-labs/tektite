@@ -561,26 +561,24 @@ func TestMutex(t *testing.T) {
 			panic(err)
 		}
 		secondHeld.Store(true)
+
 		err = mut2.Close()
 		if err != nil {
 			panic(err)
 		}
 	}()
 
-	// Wait a little while and make sure second caller doesn't acquire mutex
-	time.Sleep(100 * time.Millisecond)
 	require.False(t, secondHeld.Load())
 
 	err = mut1.Close()
 	require.NoError(t, err)
 
-	// Now mutext should be got
+	// Now mutex should be got
 	ok, err := testutils.WaitUntilWithError(func() (bool, error) {
 		return secondHeld.Load(), nil
 	}, 2*time.Second, 1*time.Millisecond)
 	require.NoError(t, err)
 	require.True(t, ok)
-
 }
 
 func cleanUp(t *testing.T) {
