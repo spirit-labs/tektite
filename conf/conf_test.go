@@ -325,6 +325,12 @@ func invalidKafkaServerListenerAdvertisedAddressLength() Config {
 	return cnf
 }
 
+func invalidTableCacheSSTableMaxAge() Config {
+	cnf := validConf()
+	cnf.TableCacheSSTableMaxAge = 0
+	return cnf
+}
+
 func TestValidate(t *testing.T) {
 	tcs := []struct {
 		name string
@@ -572,6 +578,11 @@ func TestValidate(t *testing.T) {
 			"kafka-server-listener-advertised-addresses different length than kafka-server-listener-addresses",
 			invalidKafkaServerListenerAdvertisedAddressLength(),
 			"invalid configuration: kafka-server-listener-advertised-addresses must be the same length as kafka-server-listener-addresses",
+		},
+		{
+			"Zero table-cache-sstable-max-age",
+			invalidTableCacheSSTableMaxAge(),
+			"invalid configuration: table-cache-sstable-max-age must be >= 1ms",
 		},
 	}
 	for _, tc := range tcs {

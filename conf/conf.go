@@ -126,7 +126,7 @@ type Config struct {
 
 	// Table-cache config
 	TableCacheMaxSizeBytes  parseableInt
-	TableCacheSSTableMaxAge time.Duration
+	TableCacheSSTableMaxAge time.Duration `name:"table-cache-sstable-max-age"`
 
 	// Compaction worker config
 	CompactionWorkersEnabled bool
@@ -658,6 +658,9 @@ func (c *Config) Validate() error { //nolint:gocyclo
 				return errors.NewInvalidConfigurationError(fmt.Sprintf("invalid port %s for kafka-server-listener-advertised-addresses. Port must be a number", port))
 			}
 		}
+	}
+	if c.TableCacheSSTableMaxAge < 1*time.Millisecond {
+		return errors.NewInvalidConfigurationError("table-cache-sstable-max-age must be >= 1ms")
 	}
 	return nil
 }
