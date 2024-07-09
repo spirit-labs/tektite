@@ -235,7 +235,7 @@ func (c *compactionWorker) processJob(job *CompactionJob) ([]RegistrationEntry, 
 			err := c.cws.objStoreClient.Put(id, tableBytes)
 			if err == nil {
 				// Add to the local cache
-				err = c.cws.tableCache.AddSSTable(id, info.sst)
+				err = c.cws.tableCache.AddSSTableWithMaxAge(id, info.sst)
 				if err != nil {
 					panic(err) // never happens
 				}

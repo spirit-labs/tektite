@@ -57,7 +57,8 @@ const (
 
 	DefaultEtcdCallTimeout = 5 * time.Second
 
-	DefaultTableCacheMaxSizeBytes = 128 * 1024 * 1024
+	DefaultTableCacheMaxSizeBytes  = 128 * 1024 * 1024
+	DefaultTableCacheSSTableMaxAge = 5 * time.Minute
 
 	DefaultClusterManagerLockTimeout  = 2 * time.Minute
 	DefaultClusterManagerKeyPrefix    = "tektite_clust_data/"
@@ -124,7 +125,8 @@ type Config struct {
 	CompactionMaxSSTableSize           int
 
 	// Table-cache config
-	TableCacheMaxSizeBytes parseableInt
+	TableCacheMaxSizeBytes  parseableInt
+	TableCacheSSTableMaxAge time.Duration `name:"table-cache-sstable-max-age"`
 
 	// Compaction worker config
 	CompactionWorkersEnabled bool
@@ -407,6 +409,10 @@ func (c *Config) ApplyDefaults() {
 		c.TableCacheMaxSizeBytes = DefaultTableCacheMaxSizeBytes
 	}
 
+	if c.TableCacheSSTableMaxAge == 0 {
+		c.TableCacheSSTableMaxAge = DefaultTableCacheSSTableMaxAge
+	}
+
 	if c.ClusterName == "" {
 		c.ClusterName = DefaultClusterName
 	}
@@ -652,6 +658,9 @@ func (c *Config) Validate() error { //nolint:gocyclo
 				return errors.NewInvalidConfigurationError(fmt.Sprintf("invalid port %s for kafka-server-listener-advertised-addresses. Port must be a number", port))
 			}
 		}
+	}
+	if c.TableCacheSSTableMaxAge < 1*time.Millisecond {
+		return errors.NewInvalidConfigurationError("table-cache-sstable-max-age must be >= 1ms")
 	}
 	return nil
 }
