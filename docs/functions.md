@@ -347,7 +347,7 @@ to_float(v: T): float
 T ∈ {int, float, decimal, string, timestamp}
 ```
 
-Converts the value to type `int`
+Converts the value to type `float`
 
 ### to_string
 
@@ -424,7 +424,7 @@ The format syntax used is the [golang time format](https://go.dev/src/time/forma
 Examples:
 
 ```
-(project format_date(date_str, "2006-01-02 15:04:05.000") as purchase_time)
+(project parse_date(date_str, "2006-01-02 15:04:05.000") as purchase_time)
 ```
 
 ### year
@@ -823,34 +823,34 @@ Examples:
 ### uint64_be
 
 ```
-uint64_be(b: bytes): int
+uint64_be(b: bytes, position: int): int
 ```
 
-Decodes the bytes given by `b` as an unsigned 64-bit number in big-endian format.
+Decodes the bytes given by `b`, starting at position `position` as an unsigned 64-bit number in big-endian format.
 
 Example:
 
 If the incoming Kafka message key contains a 64-bit unsigned int in big-endian format, this will extract it as an int.
 ```
 my-topic := (topic partitions = 16) ->
-    (project uint64_be(key) as key, val) ->
+    (project uint64_be(key, 0) as key, val) ->
     (store stream)
 ```
 
 ### uint64_le
 
 ```
-uint64_le(b: bytes): int
+uint64_le(b: bytes, position: int): int
 ```
 
-Decodes the bytes given by `b` as an unsigned 64-bit number in little-endian format.
+Decodes the bytes given by `b`, starting at position `position` as an unsigned 64-bit number in little-endian format.
 
 Example:
 
 If the incoming Kafka message key contains a 64-bit unsigned int in little-endian format, this will extract it as an int.
 ```
 my-topic := (topic partitions = 16) ->
-    (project uint64_le(key) as key, val) ->
+    (project uint64_le(key, 0) as key, val) ->
     (store stream)
 ```
 

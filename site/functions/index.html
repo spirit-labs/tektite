@@ -16,7 +16,7 @@
       
       
       <link rel="icon" href="../assets/images/favicon.png">
-      <meta name="generator" content="mkdocs-1.6.0, mkdocs-material-9.5.25">
+      <meta name="generator" content="mkdocs-1.5.3, mkdocs-material-9.5.18">
     
     
       
@@ -24,7 +24,7 @@
       
     
     
-      <link rel="stylesheet" href="../assets/stylesheets/main.6543a935.min.css">
+      <link rel="stylesheet" href="../assets/stylesheets/main.66ac8b77.min.css">
       
         
         <link rel="stylesheet" href="../assets/stylesheets/palette.06af60db.min.css">
@@ -2145,7 +2145,7 @@ T ∈ {int, float, decimal, string, timestamp}
 <pre><code>to_float(v: T): float
 T ∈ {int, float, decimal, string, timestamp}
 </code></pre>
-<p>Converts the value to type <code>int</code></p>
+<p>Converts the value to type <code>float</code></p>
 <h3 id="to_string">to_string</h3>
 <pre><code>to_string(v: T): string
 T ∈ {int, float, bool, decimal, string, bytes, timestamp}
@@ -2185,7 +2185,7 @@ T ∈ {int, timestamp}
 <p>Parses the string <code>s</code> using the format <code>format</code> to give a timestamp value.</p>
 <p>The format syntax used is the <a href="https://go.dev/src/time/format.go">golang time format</a></p>
 <p>Examples:</p>
-<pre><code>(project format_date(date_str, &quot;2006-01-02 15:04:05.000&quot;) as purchase_time)
+<pre><code>(project parse_date(date_str, &quot;2006-01-02 15:04:05.000&quot;) as purchase_time)
 </code></pre>
 <h3 id="year">year</h3>
 <pre><code>year(d: timestamp): int
@@ -2415,23 +2415,23 @@ T ∈ {string, bytes}
 <pre><code>(project bytes_slice(bytes_val, 3, 10))
 </code></pre>
 <h3 id="uint64_be">uint64_be</h3>
-<pre><code>uint64_be(b: bytes): int
+<pre><code>uint64_be(b: bytes, position: int): int
 </code></pre>
-<p>Decodes the bytes given by <code>b</code> as an unsigned 64-bit number in big-endian format.</p>
+<p>Decodes the bytes given by <code>b</code>, starting at position <code>position</code> as an unsigned 64-bit number in big-endian format.</p>
 <p>Example:</p>
 <p>If the incoming Kafka message key contains a 64-bit unsigned int in big-endian format, this will extract it as an int.</p>
 <pre><code>my-topic := (topic partitions = 16) -&gt;
-    (project uint64_be(key) as key, val) -&gt;
+    (project uint64_be(key, 0) as key, val) -&gt;
     (store stream)
 </code></pre>
 <h3 id="uint64_le">uint64_le</h3>
-<pre><code>uint64_le(b: bytes): int
+<pre><code>uint64_le(b: bytes, position: int): int
 </code></pre>
-<p>Decodes the bytes given by <code>b</code> as an unsigned 64-bit number in little-endian format.</p>
+<p>Decodes the bytes given by <code>b</code>, starting at position <code>position</code> as an unsigned 64-bit number in little-endian format.</p>
 <p>Example:</p>
 <p>If the incoming Kafka message key contains a 64-bit unsigned int in little-endian format, this will extract it as an int.</p>
 <pre><code>my-topic := (topic partitions = 16) -&gt;
-    (project uint64_le(key) as key, val) -&gt;
+    (project uint64_le(key, 0) as key, val) -&gt;
     (store stream)
 </code></pre>
 <h3 id="abs">abs</h3>
@@ -2488,7 +2488,7 @@ T ∈ {int, float, decimal}
     <script id="__config" type="application/json">{"base": "..", "features": [], "search": "../assets/javascripts/workers/search.b8dbb3d2.min.js", "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}}</script>
     
     
-      <script src="../assets/javascripts/bundle.081f42fc.min.js"></script>
+      <script src="../assets/javascripts/bundle.3220b9d7.min.js"></script>
       
     
   </body>
