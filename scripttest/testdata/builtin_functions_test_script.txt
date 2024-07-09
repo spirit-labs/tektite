@@ -1,0 +1,249 @@
+set max_line_width 200;
+
+topic_if := (kafka in partitions = 10)
+-> (project key,  if(json_int("v0",val) > 1005, "antelopes", "zebras") as animal)
+-> (store stream);
+
+topic_case := (kafka in partitions = 10)
+-> (project key,  case(json_int("v0",val), 
+         1, "happy",
+         2, "sad",
+         "meh") as mood)
+-> (store stream);
+
+topic_isNull := (kafka in partitions = 10)
+-> (filter by is_null(json_int("v0",val)))
+-> (store stream);
+
+topic_isNotNull := (kafka in partitions = 10)
+-> (filter by is_not_null(json_int("v0",val)))
+-> (store stream);
+
+topic_in := (kafka in partitions = 10)
+-> (filter by in(json_int("v0", val), 1, 2, 3))
+-> (store stream);
+
+topic_decimalShift := (kafka in partitions = 10)
+-> (project key, decimal_shift(to_decimal(json_float("v1", val), 4, 2), 2) as new_v1)
+-> (store stream);
+
+topic_startsWith := (kafka in partitions = 10)
+-> (filter by starts_with(json_string("v4", val), "foo"))
+-> (store stream);
+
+topic_endsWith := (kafka in partitions = 10)
+-> (filter by ends_with(json_string("v4", val), "o01"))
+-> (store stream);
+
+matchesTopic := (kafka in partitions = 10)
+-> (filter by matches(json_string("v4", val), "^bar"))
+-> (store stream);
+
+trimTopic := (kafka in partitions = 10)
+-> (filter by trim(json_string("v4", val), " \t\n\r") == "bar")
+-> (store stream);
+
+ltrimTopic := (kafka in partitions = 10)
+-> (filter by ltrim(json_string("v4", val), " \t\n\r") == "bar")
+-> (store stream);
+
+rtrimTopic := (kafka in partitions = 10)
+-> (filter by rtrim(json_string("v4", val), " \t\n\r") == "bar")
+-> (store stream);
+
+toLowerTopic := (kafka in partitions = 10)
+-> (filter by to_lower(json_string("v4", val)) == "bar")
+-> (store stream);
+
+toUpperTopic := (kafka in partitions = 10)
+-> (filter by to_lower(json_string("v4", val)) == "bar")
+-> (store stream);
+
+substrTopic := (kafka in partitions = 10)
+-> (filter by sub_str(json_string("v4", val), 0, 3) == "foo")
+-> (store stream);
+
+replaceTopic := (kafka in partitions = 10)
+-> (project key,  replace(json_string("v4",val), "foobar", "BARFOO") as replaced)
+-> (store stream);
+
+sprintfTopic := (kafka in partitions = 10)
+-> (project key, sprintf("v0:%s v1:%.2f",
+                 json_string("v0",val), json_float("v1",val)) as summary)
+-> (store stream);
+
+toIntTopic := (kafka in partitions = 10)
+-> (project key, to_int(json_string("v3",val)) as summary)
+-> (store stream);
+
+toFloatTopic := (kafka in partitions = 10)
+-> (project key, to_float(json_string("v3",val)) as summary)
+-> (store stream);
+
+toStringTopic := (kafka in partitions = 10)
+-> (project key, to_string(json_float("v3",val)) as summary)
+-> (store stream);
+
+toDecimalTopic := (kafka in partitions = 10)
+-> (project key, to_decimal(json_float("v1",val),4,2) as summary)
+-> (store stream);
+
+toBytesTopic := (kafka in partitions = 10)
+-> (project key, to_bytes(json_string("v0",val)) as summary)
+-> (store stream);
+
+toTimestampTopic := (kafka in partitions = 10)
+-> (project key, to_timestamp(json_int("v0",val)) as summary)
+-> (store stream);
+
+formatDateTopic := (kafka in partitions = 10)
+-> (project key, format_date(to_timestamp(json_int("v0",val)),"2006-01-02T15:04:05Z07:00") as summary)
+-> (store stream);
+
+parseDateTopic := (kafka in partitions = 10)
+-> (project key, parse_date(json_string("v6",val),"2006-01-02 15:04:05.000") as summary)
+-> (store stream);
+
+dateTopic := (kafka in partitions = 10)
+-> (filter by 
+year(to_timestamp(parse_date(json_string("v6",val),"2006-01-02 15:04:05.000"))) == 2008
+&& 
+month(to_timestamp(parse_date(json_string("v6",val),"2006-01-02 15:04:05.000"))) == 8
+&&
+day(to_timestamp(parse_date(json_string("v6",val),"2006-01-02 15:04:05.000"))) == 8
+&&
+hour(to_timestamp(parse_date(json_string("v6",val),"2006-01-02 15:04:05.000"))) == 8
+&&
+minute(to_timestamp(parse_date(json_string("v6",val),"2006-01-02 15:04:05.000"))) == 8
+&&
+second(to_timestamp(parse_date(json_string("v6",val),"2006-01-02 15:04:05.000"))) == 8
+&&
+millis(to_timestamp(parse_date(json_string("v6",val),"2006-01-02 15:04:05.000"))) == 128
+)
+-> (store stream);
+
+nowTopic := (kafka in partitions = 10)
+-> (filter by year(to_timestamp(parse_date(json_string("v6",val),"2006-01-02 15:04:05.000"))) < year(now()))
+-> (store stream);
+
+jsonFnTopic := (kafka in partitions = 10)
+-> (filter by json_int("v0",val) == 1000 
+&& 
+json_float("v1",val) == 1.23f 
+&&
+json_bool("v2",val) == true
+&&
+json_is_null("v3",val)
+&&
+json_string("v4",val) == "foobar01"
+&&
+json_raw("v0",val) == "1000"
+&&
+json_type("v4",val) == "string"
+)
+-> (store stream);
+
+kafkaHelperTopic := (kafka in partitions = 10)
+-> (project key, kafka_header("sender_id", hdrs) as sender_id, kafka_build_headers("event_processing_time", to_string(event_time)))
+-> (store stream);
+
+miscTopic := (kafka in partitions = 10)
+-> (project key, if(len(concat(json_string("v0",val),json_string("v1",val))) > 8, "big", "small") as size,
+bytes_slice(to_bytes(json_string("v0",val)),2,4) as slice,
+uint64_be(to_bytes(json_string("v0",val)),-1) as be,
+uint64_le(to_bytes(json_string("v0",val)),-1) as le
+)
+-> (store stream);
+
+--produce data dataset_if;
+--produce data dataset_case;
+--produce data dataset_isNull;
+--produce data dataset_isNotNull;
+--produce data dataset_in;
+--produce data dataset_decimalShift;
+--produce data dataset_startsWith;
+--produce data dataset_endsWith;
+--produce data dataset_matches;
+--produce data dataset_trim;
+--produce data dataset_ltrim;
+--produce data dataset_rtrim;
+--produce data dataset_toLower;
+--produce data dataset_toUpper;
+--produce data dataset_substr;
+--produce data dataset_replace;
+--produce data dataset_sprintf;
+--produce data dataset_toInt;
+--produce data dataset_toFloat;
+--produce data dataset_toString;
+--produce data dataset_toDecimal;
+--produce data dataset_toBytes;
+--produce data dataset_toTimestamp;
+--produce data dataset_formatDate;
+--produce data dataset_parseDate;
+--produce data dataset_date;
+--produce data dataset_now;
+--produce data dataset_jsonFn;
+--produce data dataset_kafkaHelper;
+--produce data dataset_misc;
+
+(scan all from topic_if) -> (sort by key);
+(scan all from topic_case) -> (sort by key);
+(scan all from topic_isNull) -> (sort by key);
+(scan all from topic_isNotNull) -> (sort by key);
+(scan all from topic_in) -> (sort by key);
+(scan all from topic_decimalShift) -> (sort by key);
+(scan all from topic_startsWith) -> (sort by key);
+(scan all from topic_endsWith) -> (sort by key);
+(scan all from matchesTopic) -> (sort by key);
+(scan all from trimTopic) -> (sort by key);
+(scan all from ltrimTopic) -> (sort by key);
+(scan all from rtrimTopic) -> (sort by key);
+(scan all from toLowerTopic) -> (sort by key);
+(scan all from toUpperTopic) -> (sort by key);
+(scan all from substrTopic) -> (sort by key);
+(scan all from replaceTopic) -> (sort by key);
+(scan all from sprintfTopic) -> (sort by key);
+(scan all from toIntTopic) -> (sort by key);
+(scan all from toFloatTopic) -> (sort by key);
+(scan all from toStringTopic) -> (sort by key);
+(scan all from toDecimalTopic) -> (sort by key);
+(scan all from toBytesTopic) -> (sort by key);
+(scan all from toTimestampTopic) -> (sort by key);
+(scan all from formatDateTopic) -> (sort by key);
+(scan all from parseDateTopic) -> (sort by key);
+(scan all from dateTopic) -> (sort by key);
+(scan all from nowTopic) -> (sort by key);
+(scan all from jsonFnTopic) -> (sort by key);
+(scan all from kafkaHelperTopic) -> (sort by key);
+(scan all from miscTopic) -> (sort by key);
+
+delete(topic_if);
+delete(topic_case);
+delete(topic_isNull);
+delete(topic_isNotNull);
+delete(topic_in);
+delete(topic_decimalShift);
+delete(topic_startsWith);
+delete(topic_endsWith);
+delete(matchesTopic);
+delete(trimTopic);
+delete(ltrimTopic);
+delete(rtrimTopic);
+delete(toLowerTopic);
+delete(toUpperTopic);
+delete(substrTopic);
+delete(replaceTopic);
+delete(sprintfTopic);
+delete(toIntTopic);
+delete(toFloatTopic);
+delete(toStringTopic);
+delete(toDecimalTopic);
+delete(toBytesTopic);
+delete(toTimestampTopic);
+delete(formatDateTopic);
+delete(parseDateTopic);
+delete(dateTopic);
+delete(nowTopic);
+delete(jsonFnTopic);
+delete(kafkaHelperTopic);
+delete(miscTopic);
