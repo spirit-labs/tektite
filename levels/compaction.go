@@ -78,8 +78,6 @@ func (lm *LevelManager) chooseL0TablesToCompact() ([][]*TableEntry, bool) {
 func (lm *LevelManager) scheduleCompaction(level int, tableSlices [][]*TableEntry, deadVersionRanges []VersionRange,
 	completionFunc func(error)) (int, bool, error) {
 	// If we are compacting into the last level, then we delete tombstones
-	destLevel := level + 1
-	preserveTombstones := lm.getLastLevel() > destLevel
 
 	var jobs []CompactionJob
 
@@ -88,6 +86,7 @@ func (lm *LevelManager) scheduleCompaction(level int, tableSlices [][]*TableEntr
 	destLevelExists := len(segmentEntries) > 0
 	hasLocked := false
 	now := uint64(time.Now().UTC().UnixMilli())
+	lfv := lm.masterRecord.lastFlushedVersion
 
 outer:
 	for _, tables := range tableSlices {
@@ -133,6 +132,7 @@ outer:
 				continue outer
 			}
 		}
+		canCompact := true
 		// create the job
 		var tableIDs []sst.SSTableID
 		// Note that tables in a slice must be added in order from newest to earliest - this is critical as the exact same key
@@ -154,6 +154,12 @@ outer:
 			if !hasDeletes {
 				hasDeletes = st.DeleteRatio > 0
 			}
+			if int64(st.MaxVersion) > lfv {
+				// can't remove tombstones if there are any entries with version that's not flushed yet, otherwise
+				// when compacting into last level could end up not removing key as non compactable but removing
+				// tombstone as preserveTombstones = false as last level, thus ending up with data not getting deleted
+				canCompact = false
+			}
 		}
 		if len(overlapping) > 0 {
 			var nextLevelTables []tableToCompact
@@ -162,6 +168,9 @@ outer:
 					level: level + 1,
 					table: st,
 				})
+				if int64(st.MaxVersion) > lfv {
+					canCompact = false
+				}
 			}
 			tablesToCompact = append(tablesToCompact, nextLevelTables)
 		}
@@ -177,6 +186,11 @@ outer:
 			(level+1 != lm.getLastLevel() || !hasDeletes)
 
 		id := uuid.New().String()
+
+		destLevel := level + 1
+		// We preserve tombstones if we're not compacting into the last level or there are entries in any table
+		// in the compaction with a non compactable version (> last flushed version)
+		preserveTombstones := !canCompact || lm.getLastLevel() > destLevel
 
 		job := CompactionJob{
 			id:                 id,

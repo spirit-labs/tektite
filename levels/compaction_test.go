@@ -2366,12 +2366,38 @@ func TestCompleteDeadVersionMultipleMatchingLevels(t *testing.T) {
 	require.False(t, job.isMove)
 }
 
-func TestNoPreserveTombstonesWhenTableCompactedToLastLevel(t *testing.T) {
+func TestNoPreserveTombstonesWhenTableCompactedToLastLevelVersionsFlushed(t *testing.T) {
 	lm, tearDown := setupLevelManagerWithConfigSetter(t, true, func(cfg *conf.Config) {
 		cfg.L1CompactionTrigger = 1
 	})
 	defer tearDown(t)
 
+	// We set last flushed to 1, so canCompact = true and tombstones are removed on last level
+	err := lm.StoreLastFlushedVersion(1, false, 0)
+	require.NoError(t, err)
+
+	sst1 := createTableEntryWithDeleteRatio("sst1", 0, 9, 0.5)
+	sst2 := createTableEntryWithDeleteRatio("sst2", 10, 19, 0.5)
+
+	populateLevel(t, lm, 1, sst1, sst2)
+
+	err = lm.MaybeScheduleCompaction()
+	require.NoError(t, err)
+
+	job, err := getJob(lm)
+	require.NoError(t, err)
+
+	require.Equal(t, 1, job.levelFrom)
+	require.Equal(t, false, job.preserveTombstones)
+}
+
+func TestNoPreserveTombstonesWhenTableCompactedToLastLevelVersionsNotFlushed(t *testing.T) {
+	lm, tearDown := setupLevelManagerWithConfigSetter(t, true, func(cfg *conf.Config) {
+		cfg.L1CompactionTrigger = 1
+	})
+	defer tearDown(t)
+
+	// We don't store last flushed version, so it's == -1, so preserveTombstones will be true as we cannot compact
 	sst1 := createTableEntryWithDeleteRatio("sst1", 0, 9, 0.5)
 	sst2 := createTableEntryWithDeleteRatio("sst2", 10, 19, 0.5)
 
@@ -2384,7 +2410,7 @@ func TestNoPreserveTombstonesWhenTableCompactedToLastLevel(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, 1, job.levelFrom)
-	require.Equal(t, false, job.preserveTombstones)
+	require.Equal(t, true, job.preserveTombstones)
 }
 
 func TestClosePollersForConnectionID(t *testing.T) {

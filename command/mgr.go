@@ -49,6 +49,7 @@ type ManagerTest interface {
 	LoadCommands(fromCommandID int64) (*evbatch.Batch, error)
 	SetClusterCompactor(clusterCompactor bool)
 	MaybeCompact() error
+	DisableCompaction(disabled bool)
 }
 
 type manager struct {
@@ -70,6 +71,7 @@ type manager struct {
 	testSource             bool
 	stopped                atomic.Bool
 	loadCommandsTimer      *common.TimerHandle
+	compactionDisabled     atomic.Bool
 }
 
 type batchForwarder interface {
@@ -147,6 +149,10 @@ func (m *manager) Activate() error {
 	return nil
 }
 
+func (m *manager) DisableCompaction(disabled bool) {
+	m.compactionDisabled.Store(disabled)
+}
+
 func (m *manager) scheduleCheckCompaction(first bool) {
 	m.compactionTimer = common.ScheduleTimer(m.cfg.CommandCompactionInterval, first, func() {
 		m.lock.Lock()
@@ -168,7 +174,7 @@ func (m *manager) scheduleLoadCommands(first bool) {
 		if err := m.CheckProcessCommands(); err != nil {
 			log.Errorf("failed to load commands %v", err)
 		}
-		m.scheduleCheckCompaction(false)
+		m.scheduleLoadCommands(false)
 	})
 }
 
@@ -204,12 +210,11 @@ func (m *manager) processCommands(batch *evbatch.Batch) (int64, error) {
 		if vers != CommandsVersion {
 			return 0, errors.Errorf("unexpected command version %d, expected %d", vers, CommandsVersion)
 		}
-
 		ast, err := m.parser.ParseTSL(command)
 		if err != nil {
 			// This can occur, e.g. if a wasm function is not found because the module has been unregistered
 			// in this case we want to ignore and carry on
-			log.Debugf("command manager failed to parse command: %v", err)
+			log.Warnf("command manager failed to parse command: %v", err)
 			continue
 		}
 		if ast.CreateStream != nil {
@@ -224,9 +229,7 @@ func (m *manager) processCommands(batch *evbatch.Batch) (int64, error) {
 				m.commandIDsToClear = append(m.commandIDsToClear, pi.CommandID, commandID)
 			}
 		} else if ast.PrepareQuery != nil {
-			if err == nil {
-				err = m.queryManager.PrepareQuery(*ast.PrepareQuery)
-			}
+			err = m.queryManager.PrepareQuery(*ast.PrepareQuery)
 		} else {
 			panic("invalid command")
 		}
@@ -309,7 +312,11 @@ func (m *manager) ExecuteCommand(command string) error {
 	commandID := m.lastProcessedCommandID
 	if batch.RowCount > 0 {
 		for i := 0; i < batch.RowCount; i++ {
-			commandID = batch.GetIntColumn(0).Get(i)
+			cID := batch.GetIntColumn(0).Get(i)
+			if cID != commandID+1 {
+				panic(fmt.Sprintf("commands out of order, expected %d got %d", commandID+1, cID))
+			}
+			commandID = cID
 		}
 	}
 	commandID++
@@ -344,7 +351,7 @@ func (m *manager) ExecuteCommand(command string) error {
 		pi := m.streamManager.GetStream(ast.DeleteStream.StreamName)
 		err = m.streamManager.UndeployStream(*ast.DeleteStream, commandID)
 		if err == nil {
-			m.commandIDsToClear = append(m.commandIDsToClear, commandID, pi.CommandID)
+			m.commandIDsToClear = append(m.commandIDsToClear, pi.CommandID, commandID)
 		}
 	} else if ast.PrepareQuery != nil {
 		err = m.queryManager.PrepareQuery(*ast.PrepareQuery)
@@ -382,7 +389,7 @@ func (m *manager) MaybeCompact() error {
 }
 
 func (m *manager) maybeCompact() error {
-	if !m.isClusterCompactor() {
+	if !m.isClusterCompactor() || m.compactionDisabled.Load() {
 		return nil
 	}
 	if len(m.commandIDsToClear) == 0 {
@@ -401,12 +408,15 @@ func (m *manager) maybeCompact() error {
 	processorID := m.commandsOpSchema.PartitionProcessorMapping[0]
 	pBatch := proc.NewProcessBatch(processorID, batch, common.CommandsDeleteReceiverID, 0, -1)
 	// best effort, no need to replicate
+	ch := make(chan error, 1)
 	m.batchForwarder.ForwardBatch(pBatch, false, func(err error) {
-		if err != nil {
-			log.Warnf("failed to save compacted commands %v", err)
-		}
+		ch <- err
 	})
-	log.Debugf("compaction removed %d commands", len(m.commandIDsToClear))
+	err := <-ch
+	if err != nil {
+		return err
+	}
+	log.Debugf("node %d compaction removed %d commands", m.cfg.NodeID, len(m.commandIDsToClear))
 	m.commandIDsToClear = nil
 	return nil
 }
