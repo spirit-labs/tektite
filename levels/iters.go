@@ -51,6 +51,10 @@ func (r *RemoveExpiredEntriesIterator) Next() (bool, common.KV, error) {
 	}
 }
 
+func (r *RemoveExpiredEntriesIterator) Current() common.KV {
+	return r.iter.Current()
+}
+
 func (r *RemoveExpiredEntriesIterator) Close() {
 }
 
@@ -95,6 +99,10 @@ func (r *RemoveDeadVersionsIterator) Next() (bool, common.KV, error) {
 				curr.Value, string(curr.Value))
 		}
 	}
+}
+
+func (r *RemoveDeadVersionsIterator) Current() common.KV {
+	return r.iter.Current()
 }
 
 func (r *RemoveDeadVersionsIterator) Close() {

@@ -11,6 +11,7 @@ type MemtableIterator struct {
 	it                         *arenaskl.Iterator
 	keyStart                   []byte
 	keyEnd                     []byte
+	curr                       common.KV
 	initialSeek                bool
 	hasIterReturnedFirstResult bool
 }
@@ -41,15 +42,20 @@ func (m *MemtableIterator) Next() (bool, common.KV, error) {
 	}
 
 	if m.keyEnd == nil || bytes.Compare(m.it.Key(), m.keyEnd) < 0 {
-		curr := common.KV{
+		m.curr = common.KV{
 			Key:   m.it.Key(),
 			Value: m.it.Value(),
 		}
 		m.hasIterReturnedFirstResult = true
-		return true, curr, nil
+		return true, m.curr, nil
 	}
 
-	return false, common.KV{}, nil
+	m.curr = common.KV{}
+	return false, m.curr, nil
+}
+
+func (m *MemtableIterator) Current() common.KV {
+	return m.curr
 }
 
 func (m *MemtableIterator) doInitialSeek() {

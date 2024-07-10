@@ -511,11 +511,21 @@ type sliceIterator struct {
 
 func (s *sliceIterator) Next() (bool, common.KV, error) {
 	if s.pos >= s.lkvs {
+		s.pos = -1
+	}
+	if s.pos == -1 {
 		return false, common.KV{}, nil
 	}
 	result := s.kvs[s.pos]
 	s.pos++
 	return true, result, nil
+}
+
+func (s *sliceIterator) Current() common.KV {
+	if s.pos <= 0 {
+		return common.KV{}
+	}
+	return s.kvs[s.pos-1]
 }
 
 func (s *sliceIterator) Close() {

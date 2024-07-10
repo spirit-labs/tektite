@@ -11,7 +11,7 @@ import (
 type MergingIterator struct {
 	highestVersion           uint64
 	iters                    []Iterator
-	iterHeads                []common.KV // Keep references to the latest Next() value returned from iters
+	dropIterCurrent          []bool
 	preserveTombstones       bool
 	current                  common.KV
 	currIndex                int
@@ -26,7 +26,7 @@ func NewMergingIterator(iters []Iterator, preserveTombstones bool, highestVersio
 		highestVersion:           highestVersion,
 		minNonCompactableVersion: math.MaxUint64,
 		iters:                    iters,
-		iterHeads:                make([]common.KV, len(iters)),
+		dropIterCurrent:          make([]bool, len(iters)),
 		preserveTombstones:       preserveTombstones,
 	}
 	return mi, nil
@@ -37,7 +37,7 @@ func NewCompactionMergingIterator(iters []Iterator, preserveTombstones bool, min
 		highestVersion:           math.MaxUint64,
 		minNonCompactableVersion: minNonCompactableVersion,
 		iters:                    iters,
-		iterHeads:                make([]common.KV, len(iters)),
+		dropIterCurrent:          make([]bool, len(iters)),
 		preserveTombstones:       preserveTombstones,
 	}
 	return mi, nil
@@ -67,10 +67,11 @@ func (m *MergingIterator) Next() (bool, common.KV, error) {
 		var valid bool
 	outer:
 		for i := range m.iters {
-			if len(m.iterHeads[i].Key) == 0 {
-				// Find the next valid iter's KV that is not compactable and has a version that is not too high
+			c := m.iters[i].Current()
+			if len(c.Key) == 0 || m.dropIterCurrent[i] {
 				for {
-					valid, m.iterHeads[i], err = m.iters[i].Next()
+					// Find the next valid iter's KV that is not compactable and has a version that is not too high
+					valid, c, err = m.iters[i].Next()
 					if err != nil {
 						return false, common.KV{}, err
 					}
@@ -80,13 +81,13 @@ func (m *MergingIterator) Next() (bool, common.KV, error) {
 
 					// Skip over same key (if it's compactable)
 					// in same iterator we can have multiple versions of the same key
-					keyNoVersion = m.iterHeads[i].Key[:len(m.iterHeads[i].Key)-8]
-					if bytes.Equal(lastKeyNoVersion, m.iterHeads[i].Key[:len(m.iterHeads[i].Key)-8]) {
+					keyNoVersion = c.Key[:len(c.Key)-8]
+					if bytes.Equal(lastKeyNoVersion, c.Key[:len(c.Key)-8]) {
 						if !m.noDropOnNext {
 							if log.DebugEnabled {
 								lastVersion := encoding.DecodeKeyVersion(m.current.Key)
 								log.Debugf("%p mi: dropping key in next as same key: key %v (%s) value %v (%s) version:%d last key: %v (%s) last value %v (%s) last version %d minnoncompactableversion:%d",
-									m, m.iterHeads[i].Key, string(m.iterHeads[i].Key), m.iterHeads[i].Value, string(m.iterHeads[i].Value), version, m.current.Key, string(m.current.Key), m.current.Value, string(m.current.Value), lastVersion, m.minNonCompactableVersion)
+									m, c.Key, string(c.Key), c.Value, string(c.Value), version, m.current.Key, string(m.current.Key), m.current.Value, string(m.current.Value), lastVersion, m.minNonCompactableVersion)
 							}
 							continue
 						}
@@ -95,32 +96,33 @@ func (m *MergingIterator) Next() (bool, common.KV, error) {
 					}
 					// Skip past keys with too high a version
 					// prefix tombstones always have version math.MaxUint64 and are never screened out
-					version = encoding.DecodeKeyVersion(m.iterHeads[i].Key)
+					version = encoding.DecodeKeyVersion(c.Key)
 					if version > m.highestVersion && version != math.MaxUint64 {
 						if log.DebugEnabled {
 							log.Debugf("%p merging iter skipping past key %v (%s) as version %d too high - max version %d",
-								m, m.iterHeads[i].Key, string(m.iterHeads[i].Key), version, m.highestVersion)
+								m, c.Key, string(c.Key), version, m.highestVersion)
 						}
 						continue
 					}
+					m.dropIterCurrent[i] = false
 					break
 				}
 			} else {
-				version = encoding.DecodeKeyVersion(m.iterHeads[i].Key)
-				keyNoVersion = m.iterHeads[i].Key[:len(m.iterHeads[i].Key)-8]
+				version = encoding.DecodeKeyVersion(c.Key)
+				keyNoVersion = c.Key[:len(c.Key)-8]
 			}
 
 			if chosenKeyNoVersion == nil {
 				chosenKeyNoVersion = keyNoVersion
 				smallestIndex = i
-				choosen = m.iterHeads[i]
+				choosen = c
 				choosenVersion = version
 			} else {
 				diff := bytes.Compare(keyNoVersion, chosenKeyNoVersion)
 				if diff < 0 {
 					chosenKeyNoVersion = keyNoVersion
 					smallestIndex = i
-					choosen = m.iterHeads[i]
+					choosen = c
 					choosenVersion = version
 				} else if diff == 0 {
 					// Keys are same
@@ -134,32 +136,32 @@ func (m *MergingIterator) Next() (bool, common.KV, error) {
 						if version < m.minNonCompactableVersion {
 							if log.DebugEnabled {
 								log.Debugf("%p mi: dropping as key version %d less than minnoncompactable (%d) %d chosenKeyVersion %d: key %v (%s) value %v (%s)",
-									m, version, 1, m.minNonCompactableVersion, choosenVersion, m.iterHeads[i].Key, string(m.iterHeads[i].Key), m.iterHeads[i].Value, string(m.iterHeads[i].Value))
+									m, version, 1, m.minNonCompactableVersion, choosenVersion, c.Key, string(c.Key), c.Value, string(c.Value))
 							}
-							m.iterHeads[smallestIndex] = common.KV{}
+							m.dropIterCurrent[smallestIndex] = true
 						}
 						chosenKeyNoVersion = keyNoVersion
 						smallestIndex = i
-						choosen = m.iterHeads[i]
+						choosen = c
 						choosenVersion = version
 					} else if version < choosenVersion {
 						// the previous highest version is higher than this version, so we can remove this version
 						// as long as previous highest is compactable
 						if choosenVersion < m.minNonCompactableVersion {
 							// drop this entry if the version is compactable
-							m.iterHeads[i] = common.KV{}
 							if log.DebugEnabled {
 								log.Debugf("%p mi: dropping as key version %d less than minnoncompactable (%d) %d chosenKeyVersion %d: key %v (%s) value %v (%s)",
 									m, version, 2, m.minNonCompactableVersion, choosenVersion, choosen.Key, string(choosen.Key), choosen.Value, string(choosen.Value))
 							}
+							m.dropIterCurrent[i] = true
 						}
 					} else {
 						// same key, same version, drop this one, and keep the one we already found,
 						if log.DebugEnabled {
 							log.Debugf("%p mi: dropping key as same key and version: key %v (%s) value %v (%s) ver %d",
-								m, m.iterHeads[i].Key, string(m.iterHeads[i].Key), m.iterHeads[i].Value, string(m.iterHeads[i].Value), version)
+								m, c.Key, string(c.Key), c.Value, string(c.Value), version)
 						}
-						m.iterHeads[i] = common.KV{}
+						m.dropIterCurrent[i] = true
 					}
 				}
 			}
@@ -175,7 +177,7 @@ func (m *MergingIterator) Next() (bool, common.KV, error) {
 				if m.isPrefixTombstone || choosenVersion < m.minNonCompactableVersion {
 					// The key matches current prefix tombstone
 					// skip past it if it is compactable - for prefixes we alwqays delete even if non compactable
-					m.iterHeads[smallestIndex] = common.KV{}
+					m.dropIterCurrent[smallestIndex] = true
 					continue
 				}
 			} else {
@@ -197,7 +199,7 @@ func (m *MergingIterator) Next() (bool, common.KV, error) {
 		if !m.preserveTombstones && (isTombstone || choosenVersion == math.MaxUint64) {
 			// We have a tombstone or a prefix tombstone end marker - skip past it
 			// End marker also is identified as having a version of math.MaxUint64
-			m.iterHeads[smallestIndex] = common.KV{}
+			m.dropIterCurrent[smallestIndex] = true
 		} else {
 			// output the entry
 			m.current.Key = choosen.Key
@@ -206,8 +208,12 @@ func (m *MergingIterator) Next() (bool, common.KV, error) {
 			repeat = false
 		}
 	}
-	m.iterHeads[m.currIndex] = common.KV{}
+	m.dropIterCurrent[m.currIndex] = true
 	return true, m.current, nil
+}
+
+func (m *MergingIterator) Current() common.KV {
+	return m.current
 }
 
 func (m *MergingIterator) Close() {

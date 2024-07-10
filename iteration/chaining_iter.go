@@ -7,6 +7,7 @@ import (
 type ChainingIterator struct {
 	iterators []Iterator
 	pos       int
+	head      common.KV
 }
 
 func NewChainingIterator(its []Iterator) *ChainingIterator {
@@ -19,9 +20,15 @@ func (c *ChainingIterator) Next() (bool, common.KV, error) {
 		if err == nil && !valid {
 			continue
 		}
+		c.head = kv
 		return valid, kv, err
 	}
-	return false, common.KV{}, nil
+	c.head = common.KV{}
+	return false, c.head, nil
+}
+
+func (c *ChainingIterator) Current() common.KV {
+	return c.head
 }
 
 func (c *ChainingIterator) Close() {

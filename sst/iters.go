@@ -59,6 +59,10 @@ func (si *SSTableIterator) Next() (bool, common.KV, error) {
 	}
 }
 
+func (si *SSTableIterator) Current() common.KV {
+	return si.currkV
+}
+
 func (si *SSTableIterator) Close() {
 }
 
@@ -93,6 +97,13 @@ func (l *LazySSTableIterator) Next() (bool, common.KV, error) {
 		return false, common.KV{}, err
 	}
 	return iter.Next()
+}
+
+func (l *LazySSTableIterator) Current() common.KV {
+	if l.iter == nil {
+		return common.KV{}
+	}
+	return l.iter.Current()
 }
 
 func (l *LazySSTableIterator) Close() {

@@ -500,6 +500,11 @@ func (u *updatableIterator) Next() (bool, common.KV, error) {
 	return valid, kv, err
 }
 
+func (u *updatableIterator) Current() common.KV {
+	curr := u.iter.Current()
+	return curr
+}
+
 func (u *updatableIterator) Close() {
 	u.iter.Close()
 }
