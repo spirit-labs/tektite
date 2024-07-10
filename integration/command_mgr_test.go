@@ -280,6 +280,10 @@ func TestManagerCompaction(t *testing.T) {
 
 	servers, _ := startClusterWithObjStore(t, objStoreAddress, 3, fk, nil)
 	mgrs := getManagers(servers)
+	// We will invoke compaction manually
+	for _, mgr := range mgrs {
+		mgr.DisableCompaction(true)
+	}
 
 	mgr := mgrs[0]
 	numCommands := 10
@@ -296,8 +300,8 @@ func TestManagerCompaction(t *testing.T) {
 	}
 
 	// Wait until commands are processed on all managers
-	for _, mgr := range mgrs {
-		m := mgr
+	for _, m2 := range mgrs {
+		m := m2
 		testutils.WaitUntil(t, func() (bool, error) {
 			return m.LastProcessedCommandID() == int64(2*numCommands-2), nil
 		})
@@ -318,6 +322,7 @@ func TestManagerCompaction(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 2*numCommands-1, batch.RowCount)
 	mgr.SetClusterCompactor(true)
+	mgr.DisableCompaction(false)
 	err = mgr.MaybeCompact()
 	require.NoError(t, err)
 
