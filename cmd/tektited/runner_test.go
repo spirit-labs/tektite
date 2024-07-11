@@ -183,5 +183,7 @@ func createConfigWithAllFields() conf.Config {
 		VersionManagerStoreFlushedInterval: 23 * time.Second,
 
 		WasmModuleInstances: 23,
+
+		LogScope: "foo",
 	}
 }

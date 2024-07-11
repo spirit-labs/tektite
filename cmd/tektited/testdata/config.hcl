@@ -135,3 +135,5 @@ version-completed-broadcast-interval = "2s"
 version-manager-store-flushed-interval = "23s"
 
 wasm-module-instances = 23
+
+log-scope = "foo"

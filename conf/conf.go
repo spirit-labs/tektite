@@ -90,6 +90,8 @@ const (
 	MinioObjectStoreType    = "minio"
 
 	DefaultWasmModuleInstances = 8
+
+	DefaultLogScope = "_default_logscope_"
 )
 
 var DefaultClusterManagerAddresses = []string{"localhost:2379"}
@@ -486,7 +488,7 @@ func (c *Config) ApplyDefaults() {
 	}
 
 	if c.LogScope == "" {
-		c.LogScope = "_default_logscope_"
+		c.LogScope = DefaultLogScope
 	}
 }
 
