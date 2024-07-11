@@ -405,7 +405,7 @@ func startKafka(t *testing.T) *kafkaHolder {
 	ctx := context.Background()
 	// Start a container
 	kc, err := kafka.RunContainer(ctx,
-		kafka.WithClusterID("test-cluster"),
+		kafka.WithClusterID(fmt.Sprintf("test-cluster-%s", uuid.NewString())),
 		testcontainers.WithImage("confluentinc/confluent-local:7.5.0"),
 	)
 	require.NoError(t, err)
