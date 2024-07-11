@@ -72,16 +72,19 @@ func TestCompactionIncrementingData(t *testing.T) {
 	// Now we verify the data - generate a merging iterator over all the data in the lsm
 	mi := createIterator(t, lm, nil, nil)
 	for i := 0; i < numTables*numEntriesPerTable; i++ {
-		valid, curr, err := mi.Next()
+		valid, err := mi.IsValid()
 		require.NoError(t, err)
 		require.True(t, valid)
+		curr := mi.Current()
 		pref := common.CopyByteSlice(prefix)
 		expectedKey := append(pref, []byte(fmt.Sprintf("key%06d", i))...)
 		expectedVal := fmt.Sprintf("val%06d", i)
 		require.Equal(t, expectedKey, curr.Key[:len(curr.Key)-8]) // trim version
 		require.Equal(t, expectedVal, string(curr.Value))
+		err = mi.Next()
+		require.NoError(t, err)
 	}
-	valid, _, err := mi.Next()
+	valid, err := mi.IsValid()
 	require.NoError(t, err)
 	require.False(t, valid)
 
@@ -184,9 +187,10 @@ func TestCompactionOverwritingData(t *testing.T) {
 	mi := createIterator(t, lm, nil, nil)
 	for _, k := range expectedKeys {
 
-		valid, curr, err := mi.Next()
+		valid, err := mi.IsValid()
 		require.NoError(t, err)
 		require.True(t, valid)
+		curr := mi.Current()
 
 		v, ok := keysMap[k]
 		require.True(t, ok)
@@ -203,8 +207,11 @@ func TestCompactionOverwritingData(t *testing.T) {
 
 		ver := math.MaxUint64 - binary.BigEndian.Uint64(curr.Key[len(curr.Key)-8:])
 		require.Equal(t, expectedVersion, int(ver))
+
+		err = mi.Next()
+		require.NoError(t, err)
 	}
-	valid, _, err := mi.Next()
+	valid, err := mi.IsValid()
 	require.NoError(t, err)
 	require.False(t, valid)
 
@@ -286,7 +293,7 @@ func TestCompactionTombstones(t *testing.T) {
 
 	// iterator shouldn't show anything
 	mi := createIterator(t, lm, nil, nil)
-	valid, _, err := mi.Next()
+	valid, err := mi.IsValid()
 	require.NoError(t, err)
 	require.False(t, valid)
 
@@ -447,9 +454,10 @@ func TestRandomUpdateDeleteData(t *testing.T) {
 			continue
 		}
 
-		valid, curr, err := mi.Next()
+		valid, err := mi.IsValid()
 		require.NoError(t, err)
 		require.True(t, valid)
+		curr := mi.Current()
 
 		ver := math.MaxUint64 - binary.BigEndian.Uint64(curr.Key[len(curr.Key)-8:])
 
@@ -462,8 +470,11 @@ func TestRandomUpdateDeleteData(t *testing.T) {
 		require.Equal(t, expectedVal, string(curr.Value))
 
 		require.Equal(t, expectedVersion, int(ver))
+
+		err = mi.Next()
+		require.NoError(t, err)
 	}
-	valid, _, err := mi.Next()
+	valid, err := mi.IsValid()
 	require.NoError(t, err)
 	require.False(t, valid)
 
@@ -667,18 +678,20 @@ func TestCompactionDeadVersions(t *testing.T) {
 	iter := createIterator(t, lm, nil, nil)
 	i := 0
 	for {
-		valid, curr, err := iter.Next()
+		valid, err := iter.IsValid()
 		require.NoError(t, err)
 		if !valid {
 			break
 		}
-		key := curr.Key
+		key := iter.Current().Key
 		keyNoversion := key[:len(key)-8]
 
 		prefixCopy := common.CopyByteSlice(prefix)
 		expectedKey := append(prefixCopy, []byte(fmt.Sprintf("key%06d", i))...)
 		require.Equal(t, expectedKey, keyNoversion)
 
+		err = iter.Next()
+		require.NoError(t, err)
 		i++
 		if i == 10 {
 			i = lastRangeStart

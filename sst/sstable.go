@@ -77,13 +77,14 @@ func BuildSSTable(format common.DataFormat, buffSizeEstimate int, entriesEstimat
 	first := true
 	var prevKey []byte
 	for {
-		v, kv, err := iter.Next()
+		v, err := iter.IsValid()
 		if err != nil {
 			return nil, nil, nil, 0, 0, err
 		}
 		if !v {
 			break
 		}
+		kv := iter.Current()
 		// Sanity checks - can maybe remove them or activate them only with a flag for performance
 		if prevKey != nil && bytes.Compare(prevKey, kv.Key) >= 0 {
 			panic("keys not in order / contains duplicates")
@@ -121,6 +122,10 @@ func BuildSSTable(format common.DataFormat, buffSizeEstimate int, entriesEstimat
 		}
 		if version < minVersion {
 			minVersion = version
+		}
+
+		if err := iter.Next(); err != nil {
+			return nil, nil, nil, 0, 0, err
 		}
 	}
 

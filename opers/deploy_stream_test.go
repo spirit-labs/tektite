@@ -714,11 +714,12 @@ func loadRowsFromPartition(t *testing.T, keyColumnTypes []types.ColumnType, outK
 	numCols := len(keyColumnTypes) + len(rowColumnTypes)
 	var actualOut [][]any
 	for {
-		valid, curr, err := iter.Next()
+		valid, err := iter.IsValid()
 		require.NoError(t, err)
 		if !valid {
 			break
 		}
+		curr := iter.Current()
 		row := make([]any, numCols)
 		keySlice, _, err := encoding.DecodeKeyToSlice(curr.Key, 24, keyColumnTypes)
 		require.NoError(t, err)
@@ -730,6 +731,8 @@ func loadRowsFromPartition(t *testing.T, keyColumnTypes []types.ColumnType, outK
 			row[rowCol] = rowSlice[i]
 		}
 		actualOut = append(actualOut, row)
+		err = iter.Next()
+		require.NoError(t, err)
 	}
 	return actualOut
 }

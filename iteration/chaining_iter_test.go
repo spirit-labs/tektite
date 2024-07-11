@@ -20,12 +20,15 @@ func expectEntriesChaining(t *testing.T, iter Iterator, expected ...int) {
 		expKey := expected[i]
 		i++
 		expVal := expected[i]
-		curr := requireIterNextValid(t, iter, true)
+		requireIterValid(t, iter, true)
+		curr := iter.Current()
 		ekey := fmt.Sprintf("key-%010d", expKey)
 		key := string(curr.Key[:len(curr.Key)-8])
 		require.Equal(t, ekey, key)
 		evalue := fmt.Sprintf("value-%010d", expVal)
 		require.Equal(t, evalue, string(curr.Value))
+		err := iter.Next()
+		require.NoError(t, err)
 	}
-	requireIterNextValid(t, iter, false)
+	requireIterValid(t, iter, false)
 }

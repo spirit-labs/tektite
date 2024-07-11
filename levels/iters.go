@@ -31,28 +31,40 @@ func NewRemoveExpiredEntriesIterator(iter iteration2.Iterator, sstCreationTime u
 	}
 }
 
-func (r *RemoveExpiredEntriesIterator) Next() (bool, common.KV, error) {
+func (r *RemoveExpiredEntriesIterator) Current() common.KV {
+	return r.iter.Current()
+}
+
+func (r *RemoveExpiredEntriesIterator) Next() error {
+	return r.iter.Next()
+}
+
+func (r *RemoveExpiredEntriesIterator) IsValid() (bool, error) {
 	for {
-		valid, curr, err := r.iter.Next()
-		if err != nil || !valid {
-			return false, curr, err
+		valid, err := r.iter.IsValid()
+		if err != nil {
+			return false, err
 		}
+		if !valid {
+			return false, nil
+		}
+		curr := r.iter.Current()
 		expired, err := r.isExpired(curr.Key)
 		if err != nil {
-			return false, common.KV{}, err
+			return false, err
 		}
 		if !expired {
-			return true, curr, nil
+			return true, nil
 		}
 		if log.DebugEnabled {
 			log.Debugf("RemoveExpiredEntriesIterator removed key %v (%s) value %v (%s)", curr.Key, string(curr.Key),
 				curr.Value, string(curr.Value))
 		}
+		err = r.iter.Next()
+		if err != nil {
+			return false, err
+		}
 	}
-}
-
-func (r *RemoveExpiredEntriesIterator) Current() common.KV {
-	return r.iter.Current()
 }
 
 func (r *RemoveExpiredEntriesIterator) Close() {
@@ -84,25 +96,37 @@ func NewRemoveDeadVersionsIterator(iter iteration2.Iterator, deadVersionRanges [
 	}
 }
 
-func (r *RemoveDeadVersionsIterator) Next() (bool, common.KV, error) {
+func (r *RemoveDeadVersionsIterator) Current() common.KV {
+	return r.iter.Current()
+}
+
+func (r *RemoveDeadVersionsIterator) Next() error {
+	return r.iter.Next()
+}
+
+func (r *RemoveDeadVersionsIterator) IsValid() (bool, error) {
 	for {
-		valid, curr, err := r.iter.Next()
-		if err != nil || !valid {
-			return valid, curr, err
+		valid, err := r.iter.IsValid()
+		if err != nil {
+			return false, err
 		}
+		if !valid {
+			return false, nil
+		}
+		curr := r.iter.Current()
 		dead := r.hasDeadVersion(curr.Key)
 		if !dead {
-			return true, curr, nil
+			return true, nil
 		}
 		if log.DebugEnabled {
 			log.Debugf("RemoveDeadVersionsIterator removed key %v (%s) value %v (%s)", curr.Key, string(curr.Key),
 				curr.Value, string(curr.Value))
 		}
+		err = r.iter.Next()
+		if err != nil {
+			return false, err
+		}
 	}
-}
-
-func (r *RemoveDeadVersionsIterator) Current() common.KV {
-	return r.iter.Current()
 }
 
 func (r *RemoveDeadVersionsIterator) Close() {

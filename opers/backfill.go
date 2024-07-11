@@ -381,7 +381,7 @@ func (b *BackfillOperator) loadBatchForPartition(partID int) (*evbatch.Batch, er
 	colBuilders := evbatch.CreateColBuilders(b.schema.EventSchema.ColumnTypes())
 	rowCount := 0
 	for rowCount < b.maxBackfillBatchSize {
-		valid, curr, err := info.iter.Next()
+		valid, err := info.iter.IsValid()
 		if err != nil {
 			return nil, err
 		}
@@ -391,6 +391,7 @@ func (b *BackfillOperator) loadBatchForPartition(partID int) (*evbatch.Batch, er
 			info.lagging = false
 			break
 		}
+		curr := info.iter.Current()
 		k, _ := encoding.KeyDecodeInt(curr.Key, 25) // 17 as 1 byte null marker before offset
 		colBuilders[0].(*evbatch.IntColBuilder).Append(k)
 		buff := curr.Value
@@ -441,6 +442,10 @@ func (b *BackfillOperator) loadBatchForPartition(partID int) (*evbatch.Batch, er
 			}
 		}
 		rowCount++
+		err = info.iter.Next()
+		if err != nil {
+			return nil, err
+		}
 	}
 	batch := evbatch.NewBatchFromBuilders(b.schema.EventSchema, colBuilders...)
 	log.Infof("%s backfill loaded offsets %s for partition %d", b.cfg.LogScope, getMsgIDs(batch), partID)
@@ -469,14 +474,23 @@ type updatableIterator struct {
 	iterFactory func(keyStart []byte, keyEnd []byte) (iteration.Iterator, error)
 }
 
-func (u *updatableIterator) Next() (bool, common.KV, error) {
-	valid, kv, err := u.iter.Next()
+func (u *updatableIterator) Current() common.KV {
+	curr := u.iter.Current()
+	u.lastKey = curr.Key
+	return curr
+}
+
+func (u *updatableIterator) Next() error {
+	return u.iter.Next()
+}
+
+func (u *updatableIterator) IsValid() (bool, error) {
+	valid, err := u.iter.IsValid()
 	if err != nil {
-		return valid, kv, err
+		return false, err
 	}
 	if valid {
-		u.lastKey = kv.Key
-		return true, kv, nil
+		return true, nil
 	}
 	// If not valid we recreate the iterator and call IsValid() again.
 	// This means we will pick up newly added data
@@ -487,18 +501,9 @@ func (u *updatableIterator) Next() (bool, common.KV, error) {
 	}
 	u.iter, err = u.iterFactory(start, u.keyEnd)
 	if err != nil {
-		return false, common.KV{}, err
+		return false, err
 	}
-	valid, kv, err = u.iter.Next()
-	if valid {
-		u.lastKey = kv.Key
-	}
-	return valid, kv, err
-}
-
-func (u *updatableIterator) Current() common.KV {
-	curr := u.iter.Current()
-	return curr
+	return u.iter.IsValid()
 }
 
 func (u *updatableIterator) Close() {

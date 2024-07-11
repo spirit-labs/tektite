@@ -395,14 +395,17 @@ func mergeSSTables(format common.DataFormat, tables [][]tableToMerge, preserveTo
 
 	mergeResults := make([]common.KV, 0, totEntries)
 	for {
-		valid, curr, err := mi.Next()
+		valid, err := mi.IsValid()
 		if err != nil {
 			return nil, err
 		}
 		if !valid {
 			break
 		}
-		mergeResults = append(mergeResults, curr)
+		mergeResults = append(mergeResults, mi.Current())
+		if err := mi.Next(); err != nil {
+			return nil, err
+		}
 	}
 
 	size := 0
@@ -474,13 +477,14 @@ func validateRegEntry(entry RegistrationEntry, objStore objstore.Client) {
 	var firstKey []byte
 	var lastKey []byte
 	for {
-		valid, curr, err := iter.Next()
+		valid, err := iter.IsValid()
 		if err != nil {
 			panic(err)
 		}
 		if !valid {
 			break
 		}
+		curr := iter.Current()
 		if lastKey != nil && bytes.Compare(curr.Key, lastKey) <= 0 {
 			panic(fmt.Sprintf("key out of order or duplicate %s", string(curr.Key)))
 		}
@@ -488,6 +492,10 @@ func validateRegEntry(entry RegistrationEntry, objStore objstore.Client) {
 			firstKey = curr.Key
 		}
 		lastKey = curr.Key
+		err = iter.Next()
+		if err != nil {
+			panic(err)
+		}
 	}
 	if !bytes.Equal(firstKey, entry.KeyStart) {
 		panic(fmt.Sprintf("first key %v (%s) and range start %v (%s) are not equal",
@@ -509,23 +517,20 @@ type sliceIterator struct {
 	pos  int
 }
 
-func (s *sliceIterator) Next() (bool, common.KV, error) {
-	if s.pos >= s.lkvs {
-		s.pos = -1
-	}
-	if s.pos == -1 {
-		return false, common.KV{}, nil
-	}
-	result := s.kvs[s.pos]
-	s.pos++
-	return true, result, nil
-}
-
 func (s *sliceIterator) Current() common.KV {
-	if s.pos <= 0 {
+	if s.pos >= s.lkvs {
 		return common.KV{}
 	}
-	return s.kvs[s.pos-1]
+	return s.kvs[s.pos]
+}
+
+func (s *sliceIterator) Next() error {
+	s.pos++
+	return nil
+}
+
+func (s *sliceIterator) IsValid() (bool, error) {
+	return s.pos < s.lkvs, nil
 }
 
 func (s *sliceIterator) Close() {
