@@ -190,6 +190,14 @@ egest_stream := local_topic -> (bridge to %s props = ("bootstrap.servers" = "%s"
 	waitForRowsIgnoreDups(t, "ingest_stream", 40, cli, start, true)
 }
 
+//
+//func TestInLoop(t *testing.T) {
+//	for i := 0; i < 100000; i++ {
+//		log.Infof("iteration %d", i)
+//		TestRestartBridgeMessagesStored(t)
+//	}
+//}
+
 func TestRestartBridgeMessagesStored(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
