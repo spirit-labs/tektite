@@ -164,21 +164,22 @@ func (b *BridgeToOperator) sendBatch(batch *evbatch.Batch, execCtx StreamExecCon
 		return nil
 	}
 	producer := b.producers[partitionID]
+	offs := getMsgIDs(batch)
 	if err := producer.SendBatch(batch); err != nil {
 		// failed to send batch. we will go into "paused mode" which means we won't attempt to
 		// send messages, we will store them. after a delay we will exit "pause mode" and start backfilling
 		if err := b.enterPausedMode(execCtx); err != nil {
 			return err
 		}
-		log.Warnf("%s 'bridge to' operator failed to send to topic %s. Will backoff and retry send after delay - error: %v",
-			b.cfg.LogScope, b.desc.TopicName, err)
+		log.Warnf("%s 'bridge to' operator failed to send %s to topic %s. Will backoff and retry send after delay - error: %v",
+			b.cfg.LogScope, offs, b.desc.TopicName, err)
 		// We return an error which is caught in HandleStreamBatch to signify that the send failed
 		return sfe
 	}
 	// Successfully sent batch
 	lastOffset := batch.GetIntColumn(0).Get(batch.RowCount - 1)
 	b.offsetsToCommit[partitionID] = lastOffset
-	log.Infof("%s bridge_to batch sent ok processor %d partition %d offsets %s", b.cfg.LogScope, execCtx.Processor().ID(), execCtx.PartitionID())
+	log.Infof("%s bridge_to batch sent ok processor %d partition %d offsets %s", b.cfg.LogScope, execCtx.Processor().ID(), execCtx.PartitionID(), offs)
 	return nil
 }
 
