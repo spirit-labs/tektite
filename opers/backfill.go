@@ -38,13 +38,12 @@ type BackfillOperator struct {
 
 // Always accessed from same GR apart from the closed atomic bool
 type iteratorInfo struct {
-	initialised      bool
-	iter             iteration.Iterator
-	lagging          bool
-	loadedAllRows    bool
-	lastLoadedOffset int64
-	partID           int
-	closed           atomic.Bool
+	initialised   bool
+	iter          iteration.Iterator
+	lagging       bool
+	loadedAllRows bool
+	partID        int
+	closed        atomic.Bool
 }
 
 func NewBackfillOperator(schema *OperatorSchema, cfg *conf.Config, fromSlabID int, offsetsSlabID,
@@ -234,7 +233,7 @@ func (b *BackfillOperator) loadAndIngestBackfillBatch(processor proc.Processor, 
 	pb.BackFill = true
 	processor.IngestBatch(pb, func(err error) {
 		if err != nil {
-			log.Errorf("failed to ingest back-fill batch %v", err)
+			log.Warnf("%s failed to ingest back-fill batch %v", b.cfg.LogScope, err)
 		}
 	})
 	return true, nil
@@ -274,7 +273,7 @@ func (b *BackfillOperator) Teardown(mgr StreamManagerCtx, cb func(error)) {
 
 func (b *BackfillOperator) processorChange(processor proc.Processor, started bool, _ bool) {
 	if err := b.processorsChanged(processor, started); err != nil {
-		log.Errorf("failed to create or stop iterators %v", err)
+		log.Errorf("%s failed to create or stop iterators %v", b.cfg.LogScope, err)
 	}
 }
 
@@ -300,7 +299,7 @@ func (b *BackfillOperator) fireEmptyBatch(partitionID int, processor proc.Proces
 				})
 				b.timers.Store(partitionID, tz)
 			} else {
-				log.Errorf("failed to ingest empty batch %v", err)
+				log.Errorf("%s failed to ingest empty batch1 %v", b.cfg.LogScope, err)
 			}
 		}
 	})
@@ -330,7 +329,7 @@ func (b *BackfillOperator) processorsChanged(processor proc.Processor, started b
 			pb.BackFill = true
 			processor.IngestBatch(pb, func(err error) {
 				if err != nil {
-					log.Errorf("failed to ingest empty batch %v", err)
+					log.Errorf("%s failed to ingest empty batch2 %v", b.cfg.LogScope, err)
 				}
 			})
 		}
@@ -381,7 +380,6 @@ func (b *BackfillOperator) loadBatchForPartition(partID int) (*evbatch.Batch, er
 	}
 	colBuilders := evbatch.CreateColBuilders(b.schema.EventSchema.ColumnTypes())
 	rowCount := 0
-	var lastLoadedOffset = int64(-1)
 	for rowCount < b.maxBackfillBatchSize {
 		valid, err := info.iter.IsValid()
 		if err != nil {
@@ -391,12 +389,10 @@ func (b *BackfillOperator) loadBatchForPartition(partID int) (*evbatch.Batch, er
 			// No more rows
 			info.loadedAllRows = true
 			info.lagging = false
-			lastLoadedOffset = -1
 			break
 		}
 		curr := info.iter.Current()
 		k, _ := encoding.KeyDecodeInt(curr.Key, 25) // 17 as 1 byte null marker before offset
-		lastLoadedOffset = k
 		colBuilders[0].(*evbatch.IntColBuilder).Append(k)
 		buff := curr.Value
 		byteOff := 0
@@ -451,7 +447,6 @@ func (b *BackfillOperator) loadBatchForPartition(partID int) (*evbatch.Batch, er
 			return nil, err
 		}
 	}
-	info.lastLoadedOffset = lastLoadedOffset
 	batch := evbatch.NewBatchFromBuilders(b.schema.EventSchema, colBuilders...)
 	log.Infof("%s backfill loaded offsets %s for partition %d", b.cfg.LogScope, getOffsets(batch), partID)
 	return batch, nil
