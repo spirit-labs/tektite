@@ -643,7 +643,7 @@ func (sm *streamManager) deployBridgeToOperator(streamName string, op *parser.Br
 			Schema:     prevOperator.OutSchema(),
 		}
 	bfo := NewBackfillOperator(sso.OutSchema(), sm.cfg, slabID, backfillOffsetsSlabID, sm.cfg.MaxBackfillBatchSize, backfillReceiverID, true)
-	bt, err := NewBridgeToOperator(op, sso, bfo, sm.messageClientFactory)
+	bt, err := NewBridgeToOperator(sm.cfg, op, sso, bfo, sm.messageClientFactory)
 	if err != nil {
 		return nil, nil, nil, err
 	}
