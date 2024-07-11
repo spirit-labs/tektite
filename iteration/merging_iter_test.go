@@ -2,11 +2,13 @@ package iteration
 
 import (
 	"fmt"
+	"math"
+	"testing"
+
+	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/encoding"
 	log "github.com/spirit-labs/tektite/logger"
 	"github.com/stretchr/testify/require"
-	"math"
-	"testing"
 )
 
 func TestMergingIteratorNoDups(t *testing.T) {
@@ -134,32 +136,23 @@ func TestMergingIteratorValidReturnChanges(t *testing.T) {
 	mi, err := NewMergingIterator(iters, false, 0)
 	require.NoError(t, err)
 
-	requireIterValid(t, mi, true)
-	expectEntry(t, mi, 2, 20)
-	err = mi.Next()
-	require.NoError(t, err)
-	requireIterValid(t, mi, true)
-	expectEntry(t, mi, 3, 30)
-
 	// Force iter1 to return not valid
 	iter1.SetValidOverride(false)
 
-	err = mi.Next()
-	require.NoError(t, err)
-	requireIterValid(t, mi, false)
+	expectNextEntry(t, mi, 2, 20)
+	expectNextEntry(t, mi, 3, 30)
+
+	requireIterNextValid(t, mi, false)
 
 	// Make it valid again
 	iter1.UnsetValidOverride()
-	requireIterValid(t, mi, true)
-	expectEntry(t, mi, 5, 50)
+	expectNextEntry(t, mi, 5, 50)
 
-	err = mi.Next()
-	require.NoError(t, err)
-	requireIterValid(t, mi, false)
+	requireIterNextValid(t, mi, false)
 }
 
 func TestMergingIteratorValidReturnChangesWithTombstone(t *testing.T) {
-	// We need to support iterators changing the rersult of IsValid() from false to true on
+	// We need to support iterators changing the result of Next() from false to true on
 	// subsequent calls. E.g. this can happen with MemTableIterator as new data arrives between the two calls
 	// Here iterator changes from not valid to valid and reveals a tombstone which deletes an entry from a later iterator
 	iter1 := createIter(4, -1)
@@ -169,57 +162,17 @@ func TestMergingIteratorValidReturnChangesWithTombstone(t *testing.T) {
 	mi, err := NewMergingIterator(iters, false, 0)
 	require.NoError(t, err)
 
-	requireIterValid(t, mi, true)
-	expectEntry(t, mi, 2, 20)
-	err = mi.Next()
-	require.NoError(t, err)
-	requireIterValid(t, mi, true)
-	expectEntry(t, mi, 3, 30)
-
 	// Force iter1 to return not valid
 	iter1.SetValidOverride(false)
 
-	err = mi.Next()
-	require.NoError(t, err)
-	requireIterValid(t, mi, true)
+	expectNextEntry(t, mi, 2, 20)
+	expectNextEntry(t, mi, 3, 30)
+
+	requireIterNextValid(t, mi, true)
 
 	// Make it valid again
 	iter1.UnsetValidOverride()
-	requireIterValid(t, mi, false)
-}
-
-func TestMergingIteratorIsValidCurrDoesntAdvanceCursor(t *testing.T) {
-	// Make sure that calling IsValid() or Curr() multiple times doesn't advance the cursor
-	iter1 := createIter(2, 2)
-	iter2 := createIter(0, 0)
-	iter3 := createIter(4, 4)
-	iters := []Iterator{iter1, iter2, iter3}
-	mi, err := NewMergingIterator(iters, false, 0)
-	require.NoError(t, err)
-
-	requireIterValid(t, mi, true)
-	requireIterValid(t, mi, true)
-	expectEntry(t, mi, 0, 0)
-	expectEntry(t, mi, 0, 0)
-	err = mi.Next()
-	require.NoError(t, err)
-
-	requireIterValid(t, mi, true)
-	requireIterValid(t, mi, true)
-	expectEntry(t, mi, 2, 2)
-	expectEntry(t, mi, 2, 2)
-	err = mi.Next()
-	require.NoError(t, err)
-
-	requireIterValid(t, mi, true)
-	requireIterValid(t, mi, true)
-	expectEntry(t, mi, 4, 4)
-	expectEntry(t, mi, 4, 4)
-	err = mi.Next()
-	require.NoError(t, err)
-
-	requireIterValid(t, mi, false)
-	requireIterValid(t, mi, false)
+	requireIterNextValid(t, mi, false)
 }
 
 func TestMergingIteratorWithVersionAllSameVersionEqualHighestVersion(t *testing.T) {
@@ -249,7 +202,7 @@ func TestMergingIteratorWithVersionAllSameVersionLowerThanHighestVersion(t *test
 	iters := []Iterator{iter1, iter2, iter3}
 	mi, err := NewMergingIterator(iters, false, 6)
 	require.NoError(t, err)
-	requireIterValid(t, mi, false)
+	requireIterNextValid(t, mi, false)
 }
 
 func TestMergingIteratorWithVersionScreenOutDups(t *testing.T) {
@@ -470,10 +423,10 @@ func TestMergingIteratorPrefixTombstoneDoNotPreserve(t *testing.T) {
 	mi, err := NewMergingIterator(iters, false, 2)
 	require.NoError(t, err)
 
-	requireEntry(t, mi, "a/", "val1", false)
-	requireEntry(t, mi, "a/b", "val2", false)
-	requireEntry(t, mi, "a/d/a", "val7", false)
-	requireEntry(t, mi, "a/d/a/b", "val8", false)
+	requireNextEntry(t, mi, "a/", "val1")
+	requireNextEntry(t, mi, "a/b", "val2")
+	requireNextEntry(t, mi, "a/d/a", "val7")
+	requireNextEntry(t, mi, "a/d/a/b", "val8")
 }
 
 func TestMergingIteratorPrefixTombstonePreserveTombstones(t *testing.T) {
@@ -495,29 +448,27 @@ func TestMergingIteratorPrefixTombstonePreserveTombstones(t *testing.T) {
 	mi, err := NewMergingIterator(iters, true, 1)
 	require.NoError(t, err)
 
-	requireEntry(t, mi, "a/", "val1", false)
-	requireEntry(t, mi, "a/b", "val2", false)
+	requireNextEntry(t, mi, "a/", "val1")
+	requireNextEntry(t, mi, "a/b", "val2")
 
-	requireEntry(t, mi, "a/c", "", false)
-	requireEntry(t, mi, "a/d/0", "x", false)
+	requireNextEntry(t, mi, "a/c", "")
+	requireNextEntry(t, mi, "a/d/0", "x")
 
-	requireEntry(t, mi, "a/d/a", "val8", false)
-	requireEntry(t, mi, "a/d/a/b", "val9", true)
+	requireNextEntry(t, mi, "a/d/a", "val8")
+	requireNextEntry(t, mi, "a/d/a/b", "val9")
+	ok, _, _ := mi.Next()
+	require.Equal(t, false, ok)
 }
 
-func requireEntry(t *testing.T, iter Iterator, expectedKey string, expectedVal string, last bool) {
-	requireIterValid(t, iter, true)
-	curr := iter.Current()
+func requireNextEntry(t *testing.T, iter Iterator, expectedKey string, expectedVal string) {
+	curr := requireIterNextValid(t, iter, true)
 	require.Equal(t, expectedKey, string(curr.Key[:len(curr.Key)-8]))
 	require.Equal(t, expectedVal, string(curr.Value))
-	if !last {
-		require.NoError(t, iter.Next())
-	}
 }
 
-func expectEntry(t *testing.T, iter Iterator, expKey int, expVal int) {
+func expectNextEntry(t *testing.T, iter Iterator, expKey int, expVal int) {
 	t.Helper()
-	curr := iter.Current()
+	curr := requireIterNextValid(t, iter, true)
 	curr.Key = curr.Key[:len(curr.Key)-8] // Strip version
 	ekey := fmt.Sprintf("key-%010d", expKey)
 	require.Equal(t, ekey, string(curr.Key))
@@ -531,8 +482,7 @@ func expectEntries(t *testing.T, iter Iterator, expected ...int) {
 		expKey := expected[i]
 		i++
 		expVal := expected[i]
-		requireIterValid(t, iter, true)
-		curr := iter.Current()
+		curr := requireIterNextValid(t, iter, true)
 		log.Debugf("got key:%s val:%s", string(curr.Key), string(curr.Value))
 		curr.Key = curr.Key[:len(curr.Key)-8] // strip version
 		ekey := fmt.Sprintf("key-%010d", expKey)
@@ -543,10 +493,8 @@ func expectEntries(t *testing.T, iter Iterator, expected ...int) {
 		} else {
 			require.Equal(t, 0, len(curr.Value))
 		}
-		err := iter.Next()
-		require.NoError(t, err)
 	}
-	requireIterValid(t, iter, false)
+	requireIterNextValid(t, iter, false)
 }
 
 func createIterWithVersions(vals ...int) *StaticIterator {
@@ -580,9 +528,10 @@ func createIter0(versions bool, vals ...int) *StaticIterator {
 	return gi
 }
 
-func requireIterValid(t *testing.T, iter Iterator, valid bool) {
+func requireIterNextValid(t *testing.T, iter Iterator, valid bool) common.KV {
 	t.Helper()
-	v, err := iter.IsValid()
+	v, kv, err := iter.Next()
 	require.NoError(t, err)
 	require.Equal(t, valid, v)
+	return kv
 }

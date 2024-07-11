@@ -253,31 +253,29 @@ func (g *GetOperator) LoadBatch(iter iteration.Iterator, maxRows int) (*evbatch.
 	colBuilders := evbatch.CreateColBuilders(g.schema.EventSchema.ColumnTypes())
 	rc := 0
 	valid := false
+	var curr common.KV
+	var err error
 	for {
-		var err error
-		valid, err = iter.IsValid()
-		if err != nil {
-			return nil, false, err
-		}
 		if rc == maxRows {
 			break
+		}
+		valid, curr, err = iter.Next()
+		if err != nil {
+			return nil, false, err
 		}
 		if !valid {
 			break
 		}
-		k := iter.Current().Key
+		k := curr.Key
 		if log.DebugEnabled {
 			version := math.MaxUint64 - binary.BigEndian.Uint64(k[len(k)-8:])
-			v := iter.Current().Value
+			v := curr.Value
 			log.Debugf("query loader loaded key %v (%s) value %v (%s) version %d", k, string(k), v, string(v), version)
 		}
 		if err := opers.LoadColsFromKey(colBuilders, g.keyColumnTypes, g.keyColIndexes, k); err != nil {
 			return nil, false, err
 		}
-		opers.LoadColsFromValue(colBuilders, g.rowColumnTypes, g.rowColIndexes, iter.Current().Value)
-		if err = iter.Next(); err != nil {
-			return nil, false, err
-		}
+		opers.LoadColsFromValue(colBuilders, g.rowColumnTypes, g.rowColIndexes, curr.Value)
 		rc++
 	}
 	if rc == 0 {

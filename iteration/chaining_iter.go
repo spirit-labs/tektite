@@ -7,36 +7,28 @@ import (
 type ChainingIterator struct {
 	iterators []Iterator
 	pos       int
+	head      common.KV
 }
 
 func NewChainingIterator(its []Iterator) *ChainingIterator {
 	return &ChainingIterator{iterators: its}
 }
 
+func (c *ChainingIterator) Next() (bool, common.KV, error) {
+	for ; c.pos < len(c.iterators); c.pos++ {
+		valid, kv, err := c.iterators[c.pos].Next()
+		if err == nil && !valid {
+			continue
+		}
+		c.head = kv
+		return valid, kv, err
+	}
+	c.head = common.KV{}
+	return false, c.head, nil
+}
+
 func (c *ChainingIterator) Current() common.KV {
-	return c.iterators[c.pos].Current()
-}
-
-func (c *ChainingIterator) Next() error {
-	if err := c.iterators[c.pos].Next(); err != nil {
-		return err
-	}
-	valid, err := c.iterators[c.pos].IsValid()
-	if err != nil {
-		return err
-	}
-	if valid {
-		return nil
-	}
-	c.pos++
-	return nil
-}
-
-func (c *ChainingIterator) IsValid() (bool, error) {
-	if c.pos >= len(c.iterators) {
-		return false, nil
-	}
-	return c.iterators[c.pos].IsValid()
+	return c.head
 }
 
 func (c *ChainingIterator) Close() {

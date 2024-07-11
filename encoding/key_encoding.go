@@ -220,3 +220,8 @@ func EncodeVersion(key []byte, version uint64) []byte {
 	// this is important when iterating, so we iterate over the highest versions first (which is usually the one we want)
 	return AppendUint64ToBufferBE(key, math.MaxUint64-version)
 }
+
+func DecodeKeyVersion(key []byte) uint64 {
+	// version is stored inverted so higher version comes before lower version for same key
+	return math.MaxUint64 - binary.BigEndian.Uint64(key[len(key)-8:])
+}

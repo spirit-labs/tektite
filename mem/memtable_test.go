@@ -21,24 +21,18 @@ func TestMTIteratorPicksUpNewRecordsGreaterKeyAlreadyExists(t *testing.T) {
 	addToMemtable(t, memTable, "key3", "val3")
 	addToMemtable(t, memTable, "key4", "val4")
 
-	requireIterValid(t, iter, false)
+	requireNextValid(t, iter, false)
 
 	addToMemtable(t, memTable, "key2", "val2")
 	addToMemtable(t, memTable, "key2.1", "val2.1")
 
-	requireIterValid(t, iter, true)
-	curr := iter.Current()
+	curr := requireNextValid(t, iter, true)
 	require.Equal(t, "key2", string(curr.Key))
 	require.Equal(t, "val2", string(curr.Value))
-	err := iter.Next()
-	require.NoError(t, err)
-	requireIterValid(t, iter, true)
-	curr = iter.Current()
+	curr = requireNextValid(t, iter, true)
 	require.Equal(t, "key2.1", string(curr.Key))
 	require.Equal(t, "val2.1", string(curr.Value))
-	err = iter.Next()
-	require.NoError(t, err)
-	requireIterValid(t, iter, false)
+	requireNextValid(t, iter, false)
 }
 
 func TestMTIteratorAddNonKeyOrder(t *testing.T) {
@@ -51,14 +45,10 @@ func TestMTIteratorAddNonKeyOrder(t *testing.T) {
 	addToMemtable(t, memTable, "key4", "val4")
 
 	iter := memTable.NewIterator(nil, nil)
-	requireIterValid(t, iter, true)
 	for i := 0; i < 5; i++ {
-		requireIterValid(t, iter, true)
-		curr := iter.Current()
+		curr := requireNextValid(t, iter, true)
 		require.Equal(t, fmt.Sprintf("key%d", i), string(curr.Key))
 		require.Equal(t, fmt.Sprintf("val%d", i), string(curr.Value))
-		err := iter.Next()
-		require.NoError(t, err)
 	}
 }
 
@@ -72,14 +62,10 @@ func TestMTIteratorAddInNonKeyOrder(t *testing.T) {
 	addToMemtable(t, memTable, "key4", "val4")
 
 	iter := memTable.NewIterator(nil, nil)
-	requireIterValid(t, iter, true)
 	for i := 0; i < 5; i++ {
-		requireIterValid(t, iter, true)
-		curr := iter.Current()
+		curr := requireNextValid(t, iter, true)
 		require.Equal(t, fmt.Sprintf("key%d", i), string(curr.Key))
 		require.Equal(t, fmt.Sprintf("val%d", i), string(curr.Value))
-		err := iter.Next()
-		require.NoError(t, err)
 	}
 }
 
@@ -95,10 +81,8 @@ func TestMTIteratorOverwriteKeys(t *testing.T) {
 	addToMemtable(t, memTable, "key0", "val6")
 
 	iter := memTable.NewIterator(nil, nil)
-	requireIterValid(t, iter, true)
 	for i := 0; i < 5; i++ {
-		requireIterValid(t, iter, true)
-		curr := iter.Current()
+		curr := requireNextValid(t, iter, true)
 		j := i
 		if i == 0 {
 			j = 6
@@ -107,8 +91,6 @@ func TestMTIteratorOverwriteKeys(t *testing.T) {
 		}
 		require.Equal(t, fmt.Sprintf("key%d", i), string(curr.Key))
 		require.Equal(t, fmt.Sprintf("val%d", j), string(curr.Value))
-		err := iter.Next()
-		require.NoError(t, err)
 	}
 }
 
@@ -122,18 +104,14 @@ func TestMTIteratorTombstones(t *testing.T) {
 	addToMemtableWithByteSlice(t, memTable, "key4", nil)
 
 	iter := memTable.NewIterator(nil, nil)
-	requireIterValid(t, iter, true)
 	for i := 0; i < 5; i++ {
-		requireIterValid(t, iter, true)
-		curr := iter.Current()
+		curr := requireNextValid(t, iter, true)
 		require.Equal(t, fmt.Sprintf("key%d", i), string(curr.Key))
 		if i == 1 || i == 4 {
 			require.Equal(t, 0, len(curr.Value))
 		} else {
 			require.Equal(t, fmt.Sprintf("val%d", i), string(curr.Value))
 		}
-		err := iter.Next()
-		require.NoError(t, err)
 	}
 }
 
@@ -170,14 +148,11 @@ func testMTIteratorIterateInRange(t *testing.T, keyStart []byte, keyEnd []byte, 
 
 	iter := memTable.NewIterator(keyStart, keyEnd)
 	for i := expectedFirst; i <= expectedLast; i++ {
-		requireIterValid(t, iter, true)
-		curr := iter.Current()
+		curr := requireNextValid(t, iter, true)
 		require.Equal(t, fmt.Sprintf("prefix/key%010d", i), string(curr.Key))
 		require.Equal(t, fmt.Sprintf("val%010d", i), string(curr.Value))
-		err = iter.Next()
-		require.NoError(t, err)
 	}
-	requireIterValid(t, iter, false)
+	requireNextValid(t, iter, false)
 }
 
 func addToMemtable(t *testing.T, memTable *Memtable, key string, value string) {
@@ -225,11 +200,12 @@ func TestBatchAddAndIterate(t *testing.T) {
 	})
 }
 
-func requireIterValid(t *testing.T, iter iteration.Iterator, valid bool) {
+func requireNextValid(t *testing.T, iter iteration.Iterator, expectedValid bool) common.KV {
 	t.Helper()
-	v, err := iter.IsValid()
+	valid, kv, err := iter.Next()
 	require.NoError(t, err)
-	require.Equal(t, valid, v)
+	require.Equal(t, expectedValid, valid)
+	return kv
 }
 
 // simple batch for testing that does not require versions
