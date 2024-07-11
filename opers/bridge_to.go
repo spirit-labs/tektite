@@ -120,7 +120,7 @@ type BridgeToOperator struct {
 }
 
 func (b *BridgeToOperator) HandleStreamBatch(batch *evbatch.Batch, execCtx StreamExecContext) (*evbatch.Batch, error) {
-	offs := getOffsets(batch)
+	offs := getMsgIDs(batch)
 	log.Infof("%s bridge_to handling batch processor %d partition %d offsets %s", b.cfg.LogScope, execCtx.Processor().ID(), execCtx.PartitionID(), offs)
 	_, err := b.backFillOperator.HandleStreamBatch(batch, execCtx)
 	if err != nil {
@@ -146,12 +146,12 @@ func (b *BridgeToOperator) HandleStreamBatch(batch *evbatch.Batch, execCtx Strea
 	return nil, nil
 }
 
-func getOffsets(batch *evbatch.Batch) string {
+func getMsgIDs(batch *evbatch.Batch) string {
 	var sb strings.Builder
 	sb.WriteString("{")
 	for i := 0; i < batch.RowCount; i++ {
-		offset := batch.GetIntColumn(0).Get(i)
-		sb.WriteString(fmt.Sprintf("%d,", offset))
+		offset := batch.GetBytesColumn(2).Get(i)
+		sb.WriteString(fmt.Sprintf("%s,", string(offset)))
 	}
 	sb.WriteString("}")
 	return sb.String()
@@ -178,6 +178,7 @@ func (b *BridgeToOperator) sendBatch(batch *evbatch.Batch, execCtx StreamExecCon
 	// Successfully sent batch
 	lastOffset := batch.GetIntColumn(0).Get(batch.RowCount - 1)
 	b.offsetsToCommit[partitionID] = lastOffset
+	log.Infof("%s bridge_to batch sent ok processor %d partition %d offsets %s", b.cfg.LogScope, execCtx.Processor().ID(), execCtx.PartitionID())
 	return nil
 }
 

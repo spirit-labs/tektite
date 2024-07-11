@@ -448,7 +448,7 @@ func (b *BackfillOperator) loadBatchForPartition(partID int) (*evbatch.Batch, er
 		}
 	}
 	batch := evbatch.NewBatchFromBuilders(b.schema.EventSchema, colBuilders...)
-	log.Infof("%s backfill loaded offsets %s for partition %d", b.cfg.LogScope, getOffsets(batch), partID)
+	log.Infof("%s backfill loaded offsets %s for partition %d", b.cfg.LogScope, getMsgIDs(batch), partID)
 	return batch, nil
 }
 
