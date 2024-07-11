@@ -581,14 +581,13 @@ func (j *JoinOperator) appendRows(iter iteration.Iterator, batch *evbatch.Batch,
 	incomingET int64) ([]evbatch.ColumnBuilder, error) {
 	lookedUp := false
 	for {
-		valid, err := iter.IsValid()
+		valid, curr, err := iter.Next()
 		if err != nil {
 			return nil, err
 		}
 		if !valid {
 			break
 		}
-		curr := iter.Current()
 
 		// combine the column values from the incoming batch with the column vals from the looked up row
 		if outBuilders == nil {
@@ -633,9 +632,6 @@ func (j *JoinOperator) appendRows(iter iteration.Iterator, batch *evbatch.Batch,
 		}
 
 		outBuilders[0].(*evbatch.TimestampColBuilder).Append(types.NewTimestamp(etToUse))
-		if err := iter.Next(); err != nil {
-			return nil, err
-		}
 
 		lookedUp = true
 	}

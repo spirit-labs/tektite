@@ -8,12 +8,12 @@ import (
 )
 
 type MemtableIterator struct {
-	it          *arenaskl.Iterator
-	keyStart    []byte
-	keyEnd      []byte
-	curr        common.KV
-	valid       bool
-	initialSeek bool
+	it                         *arenaskl.Iterator
+	keyStart                   []byte
+	keyEnd                     []byte
+	curr                       common.KV
+	initialSeek                bool
+	hasIterReturnedFirstResult bool
 }
 
 func (m *Memtable) NewIterator(keyStart []byte, keyEnd []byte) iteration.Iterator {
@@ -28,16 +28,34 @@ func (m *Memtable) NewIterator(keyStart []byte, keyEnd []byte) iteration.Iterato
 	return iter
 }
 
-func (m *MemtableIterator) Current() common.KV {
-	if !m.valid {
-		panic("not valid")
+func (m *MemtableIterator) Next() (bool, common.KV, error) {
+	if !m.initialSeek {
+		m.doInitialSeek()
 	}
-	return m.curr
+
+	if m.it.Valid() && m.hasIterReturnedFirstResult {
+		m.it.Next()
+	}
+
+	if !m.it.Valid() {
+		return false, common.KV{}, nil
+	}
+
+	if m.keyEnd == nil || bytes.Compare(m.it.Key(), m.keyEnd) < 0 {
+		m.curr = common.KV{
+			Key:   m.it.Key(),
+			Value: m.it.Value(),
+		}
+		m.hasIterReturnedFirstResult = true
+		return true, m.curr, nil
+	}
+
+	m.curr = common.KV{}
+	return false, m.curr, nil
 }
 
-func (m *MemtableIterator) Next() error {
-	m.it.Next()
-	return nil
+func (m *MemtableIterator) Current() common.KV {
+	return m.curr
 }
 
 func (m *MemtableIterator) doInitialSeek() {
@@ -53,27 +71,6 @@ func (m *MemtableIterator) doInitialSeek() {
 		// should make the iterator valid
 		m.initialSeek = true
 	}
-}
-
-func (m *MemtableIterator) IsValid() (bool, error) {
-	if !m.initialSeek {
-		m.doInitialSeek()
-	}
-	if !m.it.Valid() {
-		m.valid = false
-		return false, nil
-	}
-	if m.keyEnd == nil || bytes.Compare(m.it.Key(), m.keyEnd) < 0 {
-		m.valid = true
-		m.curr = common.KV{
-			Key:   m.it.Key(),
-			Value: m.it.Value(),
-		}
-		return true, nil
-	}
-
-	m.valid = false
-	return false, nil
 }
 
 func (m *MemtableIterator) Close() {
