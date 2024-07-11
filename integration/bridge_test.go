@@ -204,6 +204,8 @@ func TestRestartBridgeMessagesStored(t *testing.T) {
 	}
 	t.Parallel()
 
+	log.Infof("starting test %s", t.Name())
+
 	kHolder := startKafka(t)
 	defer kHolder.stop()
 	topicName := genTopicName()
@@ -252,28 +254,28 @@ egest_stream := local_topic -> (bridge to %s props = ("bootstrap.servers" = "%s"
 	_, err = sendMessages(2, 10, 0, "local_topic", producer)
 	require.NoError(t, err)
 
-	log.Debug("sent initial messages")
+	log.Infof("%s sent initial messages", t.Name())
 
-	log.Debug("shutting down server")
+	log.Infof("%s shutting down server", t.Name())
 
 	// shutdown the server
 	cfg := s.GetConfig()
 	err = shutdown.PerformShutdown(&cfg, false)
 	require.NoError(t, err)
 
-	log.Debug("server is shut down")
+	log.Infof("%s server is shut down", t.Name())
 
-	log.Debug("restarting server")
+	log.Infof("%s restarting server", t.Name())
 
 	// restart
 
 	s = startStandaloneServer(t, cfg.DevObjectStoreAddresses[0], clusterName)
-	log.Debug("restarted server")
+	log.Infof("%s restarted server", t.Name())
 
 	// unpause container
 	kHolder.pauseResumeKafka(t, false)
 
-	log.Debug("unpaused kafka")
+	log.Infof("%s unpaused kafka - now waiting for rows", t.Name())
 
 	cli, err = tekclient.NewClient(s.GetConfig().HttpApiAddresses[0], clientTLSConfig)
 	require.NoError(t, err)

@@ -88,6 +88,7 @@ func NewBridgeToOperator(cfg *conf.Config, desc *parser.BridgeToDesc, storeStrea
 		lastRetryDuration:   make([]time.Duration, maxProcessorID+1),
 		cfg:                 cfg,
 	}
+	log.Infof("%s created bridge to", cfg.LogScope)
 	backFillOperator.AddDownStreamOperator(&backfillSink{b: bto})
 	return bto, nil
 }
@@ -119,15 +120,18 @@ type BridgeToOperator struct {
 }
 
 func (b *BridgeToOperator) HandleStreamBatch(batch *evbatch.Batch, execCtx StreamExecContext) (*evbatch.Batch, error) {
+	offs := getOffsets(batch)
+	log.Infof("%s bridge_to handling batch processor %d partition %d offsets %s", b.cfg.LogScope, execCtx.Processor().ID(), execCtx.PartitionID(), offs)
 	_, err := b.backFillOperator.HandleStreamBatch(batch, execCtx)
+	if err != nil {
+		log.Infof("%s bridge_to processor %d partition %d returned err %v", b.cfg.LogScope, execCtx.Processor().ID(), execCtx.PartitionID(), err)
+	}
 	if err != nil && err != sfe {
 		// sfe is a special error that is sent back when the batch goes through the backfill operator directly
 		// but fails to be sent to Kafka due to an error. In that case we fall through and persist the batch
 		return nil, err
 	}
 	live := b.backFillOperator.IsLive(execCtx.PartitionID())
-	offs := getOffsets(batch)
-	log.Infof("%s bridge_to handling batch processor %d partition %d offsets %s", b.cfg.LogScope, execCtx.Processor().ID(), execCtx.PartitionID(), offs)
 	inPausedMode := b.pausedMode[execCtx.Processor().ID()]
 	sentOk := err == nil && live && !inPausedMode
 	if !sentOk {
@@ -135,7 +139,9 @@ func (b *BridgeToOperator) HandleStreamBatch(batch *evbatch.Batch, execCtx Strea
 		if _, err := b.storeStreamOperator.HandleStreamBatch(batch, execCtx); err != nil {
 			return nil, err
 		}
-		log.Infof("%s bridge_to batch not sent ok so storing processor %d partition %d offsets %s", b.cfg.LogScope, execCtx.Processor().ID(), execCtx.PartitionID(), offs)
+		log.Infof("%s bridge_to batch not sent ok so storing processor %d partition %d offsets %s live %t inPausedMode %t", b.cfg.LogScope, execCtx.Processor().ID(), execCtx.PartitionID(), offs, live, inPausedMode)
+	} else {
+		log.Infof("%s bridge_to batch was sent ok so storing processor %d partition %d offsets %s live %t inPausedMode %t", b.cfg.LogScope, execCtx.Processor().ID(), execCtx.PartitionID(), offs, live, inPausedMode)
 	}
 	return nil, nil
 }
@@ -270,6 +276,8 @@ func (b *BridgeToOperator) OutSchema() *OperatorSchema {
 }
 
 func (b *BridgeToOperator) Setup(mgr StreamManagerCtx) error {
+	log.Infof("%s in bridge_to setup", b.cfg.LogScope)
+
 	for _, producer := range b.producers {
 		if producer != nil {
 			if err := producer.Start(); err != nil {
@@ -281,6 +289,8 @@ func (b *BridgeToOperator) Setup(mgr StreamManagerCtx) error {
 }
 
 func (b *BridgeToOperator) Teardown(mgr StreamManagerCtx, completeCB func(error)) {
+	log.Infof("%s in bridge_to tearDown", b.cfg.LogScope)
+
 	b.timers.Range(func(_, value any) bool {
 		value.(*common.TimerHandle).Stop()
 		return true
