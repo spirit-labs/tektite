@@ -170,8 +170,8 @@ func (b *BridgeToOperator) sendBatch(batch *evbatch.Batch, execCtx StreamExecCon
 		if err := b.enterPausedMode(execCtx); err != nil {
 			return err
 		}
-		log.Warnf("'bridge to' operator failed to send to topic %s. Will backoff and retry send after delay - error: %v",
-			b.desc.TopicName, err)
+		log.Warnf("%s 'bridge to' operator failed to send to topic %s. Will backoff and retry send after delay - error: %v",
+			b.cfg.LogScope, b.desc.TopicName, err)
 		// We return an error which is caught in HandleStreamBatch to signify that the send failed
 		return sfe
 	}
@@ -299,7 +299,7 @@ func (b *BridgeToOperator) Teardown(mgr StreamManagerCtx, completeCB func(error)
 	for _, producer := range b.producers {
 		if producer != nil {
 			if err := producer.Stop(); err != nil {
-				log.Warnf("failed to stop producer: %v", err)
+				log.Warnf("%s failed to stop producer: %v", b.cfg.LogScope, err)
 			}
 		}
 	}

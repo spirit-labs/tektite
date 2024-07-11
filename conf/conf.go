@@ -484,6 +484,10 @@ func (c *Config) ApplyDefaults() {
 	if c.WasmModuleInstances == 0 {
 		c.WasmModuleInstances = DefaultWasmModuleInstances
 	}
+
+	if c.LogScope == "" {
+		c.LogScope = "_default_logscope_"
+	}
 }
 
 func (c *Config) Validate() error { //nolint:gocyclo
