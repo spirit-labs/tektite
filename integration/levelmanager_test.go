@@ -28,7 +28,6 @@ external client and local client to access it.
 */
 //goland:noinspection ALL
 func TestLevelManagerCluster(t *testing.T) {
-	t.Parallel()
 
 	cloudStore := dev.NewInMemStore(0)
 	tcConf := conf.Config{}

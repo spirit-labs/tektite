@@ -21,7 +21,6 @@ func init() {
 }
 
 func TestCompaction(t *testing.T) {
-	t.Parallel()
 
 	clientTLSConfig := tekclient.TLSConfig{
 		TrustedCertsPath: serverCertPath,

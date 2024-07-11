@@ -26,12 +26,10 @@ const (
 )
 
 func TestProducerEndpointGoClient(t *testing.T) {
-	t.Parallel()
 	testProducerEndpoint(t, clientTypeGo)
 }
 
 func TestProducerEndpointJavaClient(t *testing.T) {
-	t.Parallel()
 	testProducerEndpoint(t, clientTypeJava)
 }
 

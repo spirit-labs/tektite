@@ -14,12 +14,10 @@ import (
 )
 
 func TestConsumerEndpointGoClient(t *testing.T) {
-	t.Parallel()
 	testConsumerEndpoint(t, clientTypeGo)
 }
 
 func TestConsumerEndpointJavaClient(t *testing.T) {
-	t.Parallel()
 	testConsumerEndpoint(t, clientTypeJava)
 }
 

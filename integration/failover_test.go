@@ -23,7 +23,6 @@ func TestFailoverReplicationQueues(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
 	}
-	t.Parallel()
 	testFailoverReplicationQueues(t, false)
 }
 
@@ -31,7 +30,6 @@ func TestFailoverReplicationQueuesFailLevelManagerNode(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
 	}
-	t.Parallel()
 	testFailoverReplicationQueues(t, true)
 }
 
@@ -84,7 +82,6 @@ func TestFailoverWithKafkaIn(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
 	}
-	t.Parallel()
 	testFailoverWithKafkaIn(t, false)
 }
 
@@ -92,7 +89,6 @@ func TestFailoverWithKafkaInFailLevelManagerNode(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
 	}
-	t.Parallel()
 	testFailoverWithKafkaIn(t, true)
 }
 
@@ -185,7 +181,6 @@ func TestFailoverReplicationQueuesWithAggregation(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
 	}
-	t.Parallel()
 	testFailoverReplicationQueuesWithAggregation(t, false)
 }
 
@@ -194,7 +189,6 @@ func TestFailoverReplicationQueuesWithAggregationFailLevelManagerNode(t *testing
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
 	}
-	t.Parallel()
 	testFailoverReplicationQueuesWithAggregation(t, true)
 }
 
@@ -263,7 +257,6 @@ func TestFailoverWithKafkaInWithAggregation(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
 	}
-	t.Parallel()
 	testFailoverWithKafkaInWithAggregation(t, false)
 }
 
@@ -271,7 +264,6 @@ func TestFailoverWithKafkaInWithAggregationFailLevelManagerNode(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
 	}
-	t.Parallel()
 	testFailoverWithKafkaInWithAggregation(t, true)
 }
 

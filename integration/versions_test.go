@@ -34,7 +34,6 @@ We then gather all the received batches across all processors and verify that th
 as the batch ids increase, and that the batches received on the terminal receivers are identical.
 */
 func TestSnapshotVersions(t *testing.T) {
-	t.Parallel()
 
 	seqMgr := sequence.NewInMemSequenceManager()
 

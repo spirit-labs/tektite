@@ -35,8 +35,6 @@ func TestBridgeKafkaInitiallyUnavailable(t *testing.T) {
 		t.Skip("Skipping integration test in short mode")
 	}
 
-	t.Parallel()
-
 	// Start Kafka then immediately pause it, so we can get address
 	kHolder := startKafka(t)
 	defer kHolder.stop()
@@ -104,7 +102,6 @@ func TestBridgeSimulateNetworkFailure(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
 	}
-	t.Parallel()
 
 	kHolder := startKafka(t)
 	defer kHolder.stop()
@@ -202,7 +199,6 @@ func TestRestartBridgeMessagesStored(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
 	}
-	t.Parallel()
 
 	log.Infof("starting test %s", t.Name())
 
