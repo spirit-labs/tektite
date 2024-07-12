@@ -447,11 +447,7 @@ func (b *BackfillOperator) loadBatchForPartition(partID int) (*evbatch.Batch, er
 			return nil, err
 		}
 	}
-	batch := evbatch.NewBatchFromBuilders(b.schema.EventSchema, colBuilders...)
-	if b.schema.EventSchema.ColumnTypes()[2] == types.ColumnTypeBytes {
-		log.Infof("%s backfill loaded offsets %s for partition %d", b.cfg.LogScope, getMsgIDs(batch), partID)
-	}
-	return batch, nil
+	return evbatch.NewBatchFromBuilders(b.schema.EventSchema, colBuilders...), nil
 }
 
 // updatableIterator ensures data that was added since creation gets seen

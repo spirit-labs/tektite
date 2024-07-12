@@ -1,7 +1,6 @@
 package opers
 
 import (
-	"fmt"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/conf"
 	"github.com/spirit-labs/tektite/evbatch"
@@ -9,7 +8,6 @@ import (
 	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/parser"
 	"github.com/spirit-labs/tektite/proc"
-	"strings"
 	"sync"
 	"time"
 )
@@ -88,7 +86,6 @@ func NewBridgeToOperator(cfg *conf.Config, desc *parser.BridgeToDesc, storeStrea
 		lastRetryDuration:   make([]time.Duration, maxProcessorID+1),
 		cfg:                 cfg,
 	}
-	log.Infof("%s created bridge to", cfg.LogScope)
 	backFillOperator.AddDownStreamOperator(&backfillSink{b: bto})
 	return bto, nil
 }
@@ -120,12 +117,7 @@ type BridgeToOperator struct {
 }
 
 func (b *BridgeToOperator) HandleStreamBatch(batch *evbatch.Batch, execCtx StreamExecContext) (*evbatch.Batch, error) {
-	offs := getMsgIDs(batch)
-	log.Infof("%s bridge_to handling batch processor %d partition %d offsets %s", b.cfg.LogScope, execCtx.Processor().ID(), execCtx.PartitionID(), offs)
 	_, err := b.backFillOperator.HandleStreamBatch(batch, execCtx)
-	if err != nil {
-		log.Infof("%s bridge_to processor %d partition %d returned err %v", b.cfg.LogScope, execCtx.Processor().ID(), execCtx.PartitionID(), err)
-	}
 	if err != nil && err != sfe {
 		// sfe is a special error that is sent back when the batch goes through the backfill operator directly
 		// but fails to be sent to Kafka due to an error. In that case we fall through and persist the batch
@@ -139,22 +131,8 @@ func (b *BridgeToOperator) HandleStreamBatch(batch *evbatch.Batch, execCtx Strea
 		if _, err := b.storeStreamOperator.HandleStreamBatch(batch, execCtx); err != nil {
 			return nil, err
 		}
-		log.Infof("%s bridge_to batch not sent ok so storing processor %d partition %d offsets %s live %t inPausedMode %t", b.cfg.LogScope, execCtx.Processor().ID(), execCtx.PartitionID(), offs, live, inPausedMode)
-	} else {
-		log.Infof("%s bridge_to batch was sent ok so storing processor %d partition %d offsets %s live %t inPausedMode %t", b.cfg.LogScope, execCtx.Processor().ID(), execCtx.PartitionID(), offs, live, inPausedMode)
 	}
 	return nil, nil
-}
-
-func getMsgIDs(batch *evbatch.Batch) string {
-	var sb strings.Builder
-	sb.WriteString("{")
-	for i := 0; i < batch.RowCount; i++ {
-		offset := batch.GetBytesColumn(2).Get(i)
-		sb.WriteString(fmt.Sprintf("%s,", string(offset)))
-	}
-	sb.WriteString("}")
-	return sb.String()
 }
 
 func (b *BridgeToOperator) sendBatch(batch *evbatch.Batch, execCtx StreamExecContext) error {
@@ -164,29 +142,27 @@ func (b *BridgeToOperator) sendBatch(batch *evbatch.Batch, execCtx StreamExecCon
 		return nil
 	}
 	producer := b.producers[partitionID]
-	offs := getMsgIDs(batch)
 	if err := producer.SendBatch(batch); err != nil {
 		// failed to send batch. we will go into "paused mode" which means we won't attempt to
 		// send messages, we will store them. after a delay we will exit "pause mode" and start backfilling
 		if err := b.enterPausedMode(execCtx); err != nil {
 			return err
 		}
-		log.Warnf("%s 'bridge to' operator failed to send %s to topic %s. Will backoff and retry send after delay - error: %v",
-			b.cfg.LogScope, offs, b.desc.TopicName, err)
+		log.Warnf("%s 'bridge to' operator failed to topic %s. Will backoff and retry send after delay - error: %v",
+			b.cfg.LogScope, b.desc.TopicName, err)
 		// We return an error which is caught in HandleStreamBatch to signify that the send failed
 		return sfe
 	}
 	// Successfully sent batch
 	lastOffset := batch.GetIntColumn(0).Get(batch.RowCount - 1)
 	b.offsetsToCommit[partitionID] = lastOffset
-	log.Infof("%s bridge_to batch sent ok processor %d partition %d offsets %s", b.cfg.LogScope, execCtx.Processor().ID(), execCtx.PartitionID(), offs)
 	return nil
 }
 
 func (b *BridgeToOperator) enterPausedMode(execCtx StreamExecContext) error {
 	processor := execCtx.Processor()
 	processorID := processor.ID()
-	log.Infof("%s bridge to entering paused mode for processor %d", b.cfg.LogScope, processorID)
+	log.Debugf("%s bridge to entering paused mode for processor %d", b.cfg.LogScope, processorID)
 	processor.CheckInProcessorLoop()
 	b.pausedMode[processor.ID()] = true
 	partIDs, ok := b.schema.ProcessorPartitionMapping[processorID]
@@ -209,7 +185,7 @@ func (b *BridgeToOperator) enterPausedMode(execCtx StreamExecContext) error {
 }
 
 func (b *BridgeToOperator) exitPausedMode(processor proc.Processor, partIDs []int) {
-	log.Infof("%s bridge to exiting paused mode for processor %d", b.cfg.LogScope, processor.ID())
+	log.Debugf("%s bridge to exiting paused mode for processor %d", b.cfg.LogScope, processor.ID())
 	processor.SubmitAction(func() error {
 		processor.CheckInProcessorLoop()
 		procID := processor.ID()
@@ -247,7 +223,7 @@ func (b *BridgeToOperator) getRetryDelay(processorID int) time.Duration {
 		}
 	}
 	b.lastRetryDuration[processorID] = delay
-	log.Infof("%s bridge to retrying after delay of %d ms", b.cfg.LogScope, delay.Milliseconds())
+	log.Debugf("%s bridge to retrying after delay of %d ms", b.cfg.LogScope, delay.Milliseconds())
 	return delay
 }
 
@@ -278,8 +254,6 @@ func (b *BridgeToOperator) OutSchema() *OperatorSchema {
 }
 
 func (b *BridgeToOperator) Setup(mgr StreamManagerCtx) error {
-	log.Infof("%s in bridge_to setup", b.cfg.LogScope)
-
 	for _, producer := range b.producers {
 		if producer != nil {
 			if err := producer.Start(); err != nil {
@@ -291,8 +265,6 @@ func (b *BridgeToOperator) Setup(mgr StreamManagerCtx) error {
 }
 
 func (b *BridgeToOperator) Teardown(mgr StreamManagerCtx, completeCB func(error)) {
-	log.Infof("%s in bridge_to tearDown", b.cfg.LogScope)
-
 	b.timers.Range(func(_, value any) bool {
 		value.(*common.TimerHandle).Stop()
 		return true

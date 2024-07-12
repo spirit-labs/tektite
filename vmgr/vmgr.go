@@ -269,7 +269,7 @@ func (v *VersionManager) Shutdown() (bool, error) {
 
 	// If the version is not flushed yet, we wait
 	if v.lastVersionToFlush < shutdownVersion {
-		log.Infof("node %d vmgr shutdown - waiting for version %d to be flushed, last %d",
+		log.Debugf("node %d vmgr shutdown - waiting for version %d to be flushed, last %d",
 			v.cfg.NodeID, shutdownVersion, v.lastVersionToFlush)
 
 		v.shutdownFlushVersion = shutdownVersion

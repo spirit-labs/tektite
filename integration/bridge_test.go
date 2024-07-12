@@ -187,20 +187,12 @@ egest_stream := local_topic -> (bridge to %s props = ("bootstrap.servers" = "%s"
 	waitForRowsIgnoreDups(t, "ingest_stream", 40, cli, start, true)
 }
 
-//
-//func TestInLoop(t *testing.T) {
-//	for i := 0; i < 100000; i++ {
-//		log.Infof("iteration %d", i)
-//		TestRestartBridgeMessagesStored(t)
-//	}
-//}
-
 func TestRestartBridgeMessagesStored(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
 	}
 
-	log.Infof("starting test %s", t.Name())
+	log.Debugf("starting test %s", t.Name())
 
 	kHolder := startKafka(t)
 	defer kHolder.stop()
@@ -250,28 +242,28 @@ egest_stream := local_topic -> (bridge to %s props = ("bootstrap.servers" = "%s"
 	_, err = sendMessages(2, 10, 0, "local_topic", producer)
 	require.NoError(t, err)
 
-	log.Infof("%s sent initial messages", t.Name())
+	log.Debugf("%s sent initial messages", t.Name())
 
-	log.Infof("%s shutting down server", t.Name())
+	log.Debugf("%s shutting down server", t.Name())
 
 	// shutdown the server
 	cfg := s.GetConfig()
 	err = shutdown.PerformShutdown(&cfg, false)
 	require.NoError(t, err)
 
-	log.Infof("%s server is shut down", t.Name())
+	log.Debugf("%s server is shut down", t.Name())
 
-	log.Infof("%s restarting server", t.Name())
+	log.Debugf("%s restarting server", t.Name())
 
 	// restart
 
 	s = startStandaloneServer(t, cfg.DevObjectStoreAddresses[0], clusterName)
-	log.Infof("%s restarted server", t.Name())
+	log.Debugf("%s restarted server", t.Name())
 
 	// unpause container
 	kHolder.pauseResumeKafka(t, false)
 
-	log.Infof("%s unpaused kafka - now waiting for rows", t.Name())
+	log.Debugf("%s unpaused kafka - now waiting for rows", t.Name())
 
 	cli, err = tekclient.NewClient(s.GetConfig().HttpApiAddresses[0], clientTLSConfig)
 	require.NoError(t, err)
