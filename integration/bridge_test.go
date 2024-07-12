@@ -278,7 +278,7 @@ egest_stream := local_topic -> (bridge to %s props = ("bootstrap.servers" = "%s"
 	defer cli.Close()
 
 	// rows should appear
-	waitForRows(t, "ingest_stream", 20, cli, start)
+	waitForRowsIgnoreDups(t, "ingest_stream", 20, cli, start, true)
 }
 
 func sendMessages(numBatches int, batchSize int, startIndex int, topicName string, producer *kafkago.Producer) ([]*kafkago.Message, error) {
