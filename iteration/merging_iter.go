@@ -9,16 +9,17 @@ import (
 )
 
 type MergingIterator struct {
-	highestVersion           uint64
-	iters                    []Iterator
-	dropIterCurrent          []bool
-	preserveTombstones       bool
-	current                  common.KV
-	currIndex                int
-	minNonCompactableVersion uint64
-	noDropOnNext             bool
-	currentTombstone         []byte
-	isPrefixTombstone        bool
+	highestVersion             uint64
+	iters                      []Iterator
+	dropIterCurrent            []bool
+	preserveTombstones         bool
+	current                    common.KV
+	currIndex                  int
+	minNonCompactableVersion   uint64
+	currentTombstone           []byte
+	isPrefixTombstone          bool
+	firstSameKey               []byte
+	firstSameKeyNonCompactable bool
 }
 
 func NewMergingIterator(iters []Iterator, preserveTombstones bool, highestVersion uint64) (*MergingIterator, error) {
@@ -44,15 +45,17 @@ func NewCompactionMergingIterator(iters []Iterator, preserveTombstones bool, min
 }
 
 func (m *MergingIterator) Next() (bool, common.KV, error) {
+
 	var lastKeyNoVersion []byte
 	if len(m.current.Key) > 0 {
+		// If a key is not compactable because version >= minNonCompactableVersion then all versions of that key
+		// are also non compactable, even if the other versions are < minNonCompactableVersion
+		// so, we need to keep track of when the last key changes then decide whether that key is compactable
+		// then we won't skip past any entries that are non compactable
 		lastKeyNoVersion = m.current.Key[:len(m.current.Key)-8]
-		if encoding.DecodeKeyVersion(m.current.Key) >= m.minNonCompactableVersion {
-			// Cannot compact it
-			// We set this flag to mark that we cannot drop any other proceeding same keys with lower versions either
-			// If the first one is >= minNonCompactable but proceeding lower keys are < minNonCompactable they can't be
-			// dropped either otherwise on rollback of snapshot we could be left with no versions of those keys.
-			m.noDropOnNext = true
+		if m.firstSameKey == nil || !bytes.Equal(m.firstSameKey, lastKeyNoVersion) {
+			m.firstSameKey = lastKeyNoVersion
+			m.firstSameKeyNonCompactable = encoding.DecodeKeyVersion(m.current.Key) >= m.minNonCompactableVersion
 		}
 	}
 
@@ -70,7 +73,7 @@ func (m *MergingIterator) Next() (bool, common.KV, error) {
 			c := m.iters[i].Current()
 			if len(c.Key) == 0 || m.dropIterCurrent[i] {
 				for {
-					// Find the next valid iter's KV that is compactable and has a version that is not too high
+					// Find the next valid iters KV that is compactable and has a version that is not too high
 					valid, c, err = m.iters[i].Next()
 					if err != nil {
 						return false, common.KV{}, err
@@ -80,31 +83,19 @@ func (m *MergingIterator) Next() (bool, common.KV, error) {
 					}
 
 					version = encoding.DecodeKeyVersion(c.Key)
-
 					// Skip over same key (if it's compactable)
 					// in same iterator we can have multiple versions of the same key
 					keyNoVersion = c.Key[:len(c.Key)-8]
-					if bytes.Equal(lastKeyNoVersion, keyNoVersion) {
-						// key is same
-						if version < m.minNonCompactableVersion {
-							// theoretically compactable
-							if !m.noDropOnNext {
-								// we can't drop it though because the highest version of this same key was not compactable,
-								// therefore we can't compact any other versions of it either
-								if log.DebugEnabled {
-									lastVersion := encoding.DecodeKeyVersion(m.current.Key)
-									log.Debugf("%p mi: dropping key in next as same key: key %v (%s) value %v (%s) version:%d last key: %v (%s) last value %v (%s) last version %d minnoncompactableversion:%d",
-										m, c.Key, string(c.Key), c.Value, string(c.Value), version, m.current.Key, string(m.current.Key), m.current.Value, string(m.current.Value), lastVersion, m.minNonCompactableVersion)
-								}
-								continue
-							}
+					if !m.firstSameKeyNonCompactable && bytes.Equal(lastKeyNoVersion, keyNoVersion) {
+						if log.DebugEnabled {
+							lastVersion := encoding.DecodeKeyVersion(m.current.Key)
+							log.Debugf("%p mi: dropping key in next as same key: key %v (%s) value %v (%s) version:%d last key: %v (%s) last value %v (%s) last version %d minnoncompactableversion:%d",
+								m, c.Key, string(c.Key), c.Value, string(c.Value), version, m.current.Key, string(m.current.Key), m.current.Value, string(m.current.Value), lastVersion, m.minNonCompactableVersion)
 						}
-					} else {
-						m.noDropOnNext = false
+						continue
 					}
 					// Skip past keys with too high a version
 					// prefix tombstones always have version math.MaxUint64 and are never screened out
-
 					if version > m.highestVersion && version != math.MaxUint64 {
 						if log.DebugEnabled {
 							log.Debugf("%p merging iter skipping past key %v (%s) as version %d too high - max version %d",
