@@ -17,11 +17,14 @@ func NewChainingIterator(its []Iterator) *ChainingIterator {
 func (c *ChainingIterator) Next() (bool, common.KV, error) {
 	for ; c.pos < len(c.iterators); c.pos++ {
 		valid, kv, err := c.iterators[c.pos].Next()
-		if err == nil && !valid {
+		if err != nil {
+			return false, common.KV{}, err
+		}
+		if !valid {
 			continue
 		}
 		c.head = kv
-		return valid, kv, err
+		return true, kv, err
 	}
 	c.head = common.KV{}
 	return false, c.head, nil

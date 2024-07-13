@@ -115,6 +115,60 @@ func TestMTIteratorTombstones(t *testing.T) {
 	}
 }
 
+// TestMTIteratorCurrent - Make sure Current() has correct behaviour
+func TestMTIteratorCurrentIterateFullRange(t *testing.T) {
+	memTable := NewMemtable(arenaskl.NewArena(1024*1024), 0, 1024*1024)
+	batch := &testBatch{}
+	for i := 0; i < 10; i++ {
+		key := []byte(fmt.Sprintf("prefix/key%010d", i))
+		val := []byte(fmt.Sprintf("val%010d", i))
+		batch.AddEntry(common.KV{
+			Key:   key,
+			Value: val,
+		})
+	}
+	ok, err := memTable.Write(batch)
+	require.NoError(t, err)
+	require.True(t, ok)
+
+	iter := memTable.NewIterator(nil, nil)
+	for i := 0; i < 10; i++ {
+		curr := requireNextValid(t, iter, true)
+		require.Equal(t, fmt.Sprintf("prefix/key%010d", i), string(curr.Key))
+		require.Equal(t, fmt.Sprintf("val%010d", i), string(curr.Value))
+		require.Equal(t, curr, iter.Current())
+	}
+	requireNextValid(t, iter, false)
+	require.Equal(t, common.KV{}, iter.Current())
+}
+
+// TestMTIteratorCurrent - Make sure Current() has correct behaviour on partial range
+func TestMTIteratorCurrentIteratePartialRange(t *testing.T) {
+	memTable := NewMemtable(arenaskl.NewArena(1024*1024), 0, 1024*1024)
+	batch := &testBatch{}
+	for i := 0; i < 10; i++ {
+		key := []byte(fmt.Sprintf("prefix/key%010d", i))
+		val := []byte(fmt.Sprintf("val%010d", i))
+		batch.AddEntry(common.KV{
+			Key:   key,
+			Value: val,
+		})
+	}
+	ok, err := memTable.Write(batch)
+	require.NoError(t, err)
+	require.True(t, ok)
+
+	iter := memTable.NewIterator([]byte(fmt.Sprintf("prefix/key%010d", 3)), []byte(fmt.Sprintf("prefix/key%010d", 7)))
+	for i := 3; i < 7; i++ {
+		curr := requireNextValid(t, iter, true)
+		require.Equal(t, fmt.Sprintf("prefix/key%010d", i), string(curr.Key))
+		require.Equal(t, fmt.Sprintf("val%010d", i), string(curr.Value))
+		require.Equal(t, curr, iter.Current())
+	}
+	requireNextValid(t, iter, false)
+	require.Equal(t, common.KV{}, iter.Current())
+}
+
 func TestMTIteratorIterateInRange(t *testing.T) {
 	testMTIteratorIterateInRange(t, nil, nil, 0, 99)
 	testMTIteratorIterateInRange(t, []byte("prefix/key0000000033"), nil, 33, 99)

@@ -38,6 +38,7 @@ func (m *MemtableIterator) Next() (bool, common.KV, error) {
 	}
 
 	if !m.it.Valid() {
+		m.curr = common.KV{}
 		return false, common.KV{}, nil
 	}
 

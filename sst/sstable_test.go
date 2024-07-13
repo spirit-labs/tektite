@@ -197,6 +197,38 @@ func TestIterate(t *testing.T) {
 	testIterate(t, []byte("keyprefix/t"), []byte("keyprefix/u"), -1, -1)
 }
 
+func TestCurrentIterateAll(t *testing.T) {
+	it := prepareInput(nil, nil, 10)
+	sstable, _, _, _, _, err := BuildSSTable(common.DataFormatV1, 0, 0, it)
+	require.NoError(t, err)
+	iter, err := sstable.NewIterator(nil, nil)
+	require.NoError(t, err)
+	for i := 0; i < 10; i++ {
+		kv := requireIterNextValid(t, iter, true)
+		require.Equal(t, kv, iter.Current())
+	}
+	kv := requireIterNextValid(t, iter, false)
+	require.Equal(t, common.KV{}, kv)
+	require.Equal(t, common.KV{}, iter.Current())
+}
+
+func TestCurrentIteratePartial(t *testing.T) {
+	it := prepareInput(nil, nil, 10)
+	sstable, _, _, _, _, err := BuildSSTable(common.DataFormatV1, 0, 0, it)
+	require.NoError(t, err)
+	startRange := []byte(fmt.Sprintf("somekey-%010d", 2))
+	endRange := []byte(fmt.Sprintf("somekey-%010d", 7))
+	iter, err := sstable.NewIterator(startRange, endRange)
+	require.NoError(t, err)
+	for i := 2; i < 7; i++ {
+		kv := requireIterNextValid(t, iter, true)
+		require.Equal(t, kv, iter.Current())
+	}
+	kv := requireIterNextValid(t, iter, false)
+	require.Equal(t, common.KV{}, kv)
+	require.Equal(t, common.KV{}, iter.Current())
+}
+
 func testIterate(t *testing.T, startKey []byte, endKey []byte, firstExpected int, lastExpected int) {
 	t.Helper()
 	commonPrefix := []byte("keyprefix/")

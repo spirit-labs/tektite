@@ -56,6 +56,7 @@ func (r *RemoveExpiredEntriesIterator) Current() common.KV {
 }
 
 func (r *RemoveExpiredEntriesIterator) Close() {
+	r.iter.Close()
 }
 
 func (r *RemoveExpiredEntriesIterator) isExpired(key []byte) (bool, error) {
@@ -88,7 +89,7 @@ func (r *RemoveDeadVersionsIterator) Next() (bool, common.KV, error) {
 	for {
 		valid, curr, err := r.iter.Next()
 		if err != nil || !valid {
-			return valid, curr, err
+			return false, curr, err
 		}
 		dead := r.hasDeadVersion(curr.Key)
 		if !dead {
@@ -106,6 +107,7 @@ func (r *RemoveDeadVersionsIterator) Current() common.KV {
 }
 
 func (r *RemoveDeadVersionsIterator) Close() {
+	r.iter.Close()
 }
 
 func (r *RemoveDeadVersionsIterator) hasDeadVersion(key []byte) bool {

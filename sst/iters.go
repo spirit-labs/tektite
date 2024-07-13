@@ -29,6 +29,7 @@ type SSTableIterator struct {
 func (si *SSTableIterator) Next() (bool, common.KV, error) {
 	if si.nextOffset == -1 {
 		si.valid = false
+		si.currkV = common.KV{}
 		return false, common.KV{}, nil
 	}
 	indexOffset := int(si.ss.indexOffset)
@@ -39,6 +40,7 @@ func (si *SSTableIterator) Next() (bool, common.KV, error) {
 		// End of range
 		si.nextOffset = -1
 		si.valid = false
+		si.currkV = common.KV{}
 		return false, common.KV{}, nil
 	} else {
 		si.currkV.Key = k
@@ -139,12 +141,6 @@ func (l *LazySSTableIterator) getIter() (iteration.Iterator, error) {
 		if err != nil {
 			return nil, err
 		}
-		//if log.DebugEnabled {
-		//	DumpLock.Lock()
-		//	defer DumpLock.Unlock()
-		//	dumpSST(l.tableID, ssTable)
-		//}
-
 		iter, err := l.iterFactory(ssTable, l.keyStart, l.keyEnd)
 		if err != nil {
 			return nil, err
