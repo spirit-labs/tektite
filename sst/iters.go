@@ -15,9 +15,6 @@ func (s *SSTable) NewIterator(keyStart []byte, keyEnd []byte) (iteration.Iterato
 		nextOffset: offset,
 		keyEnd:     keyEnd,
 	}
-	if err := si.Next(); err != nil {
-		return nil, err
-	}
 	return si, nil
 }
 
@@ -29,14 +26,10 @@ type SSTableIterator struct {
 	keyEnd     []byte
 }
 
-func (si *SSTableIterator) Current() common.KV {
-	return si.currkV
-}
-
-func (si *SSTableIterator) Next() error {
+func (si *SSTableIterator) Next() (bool, common.KV, error) {
 	if si.nextOffset == -1 {
 		si.valid = false
-		return nil
+		return false, common.KV{}, nil
 	}
 	indexOffset := int(si.ss.indexOffset)
 	var kl, vl uint32
@@ -46,6 +39,7 @@ func (si *SSTableIterator) Next() error {
 		// End of range
 		si.nextOffset = -1
 		si.valid = false
+		return false, common.KV{}, nil
 	} else {
 		si.currkV.Key = k
 		si.nextOffset += int(kl)
@@ -61,12 +55,12 @@ func (si *SSTableIterator) Next() error {
 			si.nextOffset = -1
 		}
 		si.valid = true
+		return true, si.currkV, nil
 	}
-	return nil
 }
 
-func (si *SSTableIterator) IsValid() (bool, error) {
-	return si.valid, nil
+func (si *SSTableIterator) Current() common.KV {
+	return si.currkV
 }
 
 func (si *SSTableIterator) Close() {
@@ -97,24 +91,19 @@ func NewLazySSTableIterator(tableID SSTableID, tableCache tableGetter,
 	return it, nil
 }
 
-func (l *LazySSTableIterator) Current() common.KV {
-	return l.iter.Current()
-}
-
-func (l *LazySSTableIterator) Next() error {
+func (l *LazySSTableIterator) Next() (bool, common.KV, error) {
 	iter, err := l.getIter()
 	if err != nil {
-		return err
+		return false, common.KV{}, err
 	}
 	return iter.Next()
 }
 
-func (l *LazySSTableIterator) IsValid() (bool, error) {
-	iter, err := l.getIter()
-	if err != nil {
-		return false, err
+func (l *LazySSTableIterator) Current() common.KV {
+	if l.iter == nil {
+		return common.KV{}
 	}
-	return iter.IsValid()
+	return l.iter.Current()
 }
 
 func (l *LazySSTableIterator) Close() {
@@ -131,19 +120,15 @@ func dumpSST(id SSTableID, sst *SSTable) {
 	}
 	log.Debugf("==============Dumping sstable: %v", id)
 	for {
-		valid, err := sstIter.IsValid()
+		valid, current, err := sstIter.Next()
 		if err != nil {
 			panic(err)
 		}
 		if !valid {
 			break
 		}
-		log.Debugf("key: %v (%s) value: %v (%s)", sstIter.Current().Key, string(sstIter.Current().Key),
-			sstIter.Current().Value, string(sstIter.Current().Value))
-		err = sstIter.Next()
-		if err != nil {
-			panic(err)
-		}
+		log.Debugf("key: %v (%s) value: %v (%s)", current.Key, string(current.Key),
+			current.Value, string(current.Value))
 	}
 	log.Debugf("==============End Dumping sstable: %v", id)
 }

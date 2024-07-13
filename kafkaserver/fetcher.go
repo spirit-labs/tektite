@@ -371,14 +371,13 @@ func (f *PartitionFetcher) fetchFromStore(fetchOffset int64, maxBytes int) ([]by
 	var firstTimestamp, lastTimestamp types.Timestamp
 	var numRecords int
 	for {
-		ok, err := iter.IsValid()
+		ok, kv, err := iter.Next()
 		if err != nil {
 			return nil, err
 		}
 		if !ok {
 			break
 		}
-		kv := iter.Current()
 
 		offset, _ := encoding.KeyDecodeInt(kv.Key, 25)
 		if firstOffset == -1 {
@@ -427,9 +426,6 @@ func (f *PartitionFetcher) fetchFromStore(fetchOffset int64, maxBytes int) ([]by
 		}
 		numRecords++
 		first = false
-		if err := iter.Next(); err != nil {
-			return nil, err
-		}
 	}
 
 	if first {

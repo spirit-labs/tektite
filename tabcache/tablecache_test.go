@@ -123,14 +123,11 @@ func checkTable(t *testing.T, table *sst.SSTable) {
 	iter, err := table.NewIterator(nil, nil)
 	require.NoError(t, err)
 	for i := 0; i < 10; i++ {
-		valid, err := iter.IsValid()
+		valid, curr, err := iter.Next()
 		require.NoError(t, err)
 		require.True(t, valid)
-		curr := iter.Current()
 		require.Equal(t, []byte(fmt.Sprintf("key%000005d", i)), curr.Key)
 		require.Equal(t, []byte(fmt.Sprintf("val%000005d", i)), curr.Value)
-		err = iter.Next()
-		require.NoError(t, err)
 	}
 }
 

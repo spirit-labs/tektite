@@ -530,14 +530,13 @@ func (st *scriptTest) verifyRemainingData(require *require.Assertions) {
 		iter, err := processor.NewIterator(nil, nil, math.MaxUint64, false)
 		require.NoError(err)
 		for {
-			valid, err := iter.IsValid()
+			valid, curr, err := iter.Next()
 			require.NoError(err)
 			if !valid {
 				break
 			}
-			k := iter.Current().Key
+			k := curr.Key
 			slabID := int(binary.BigEndian.Uint64(k[16:]))
-
 			if slabID >= common.UserSlabIDBase {
 				// Find which processor and node owns this prefix
 				partitionHash := k[:16]
@@ -558,13 +557,13 @@ func (st *scriptTest) verifyRemainingData(require *require.Assertions) {
 						return false, err
 					}
 					defer iter2.Close()
-					valid, err := iter2.IsValid()
+					valid, curr, err := iter2.Next()
 					if err != nil {
 						return false, err
 					}
 					if valid {
 						log.Errorf("found data for prefix %v slabID %d on node %d processor id %d - key %v value %v", prefix,
-							slabID, processorNode, processor.ID(), iter2.Current().Key, iter2.Current().Value)
+							slabID, processorNode, processor.ID(), curr.Key, curr.Value)
 					}
 					// We don't want to see any data
 					return !valid, nil
@@ -572,8 +571,6 @@ func (st *scriptTest) verifyRemainingData(require *require.Assertions) {
 				require.True(ok)
 				require.NoError(err)
 			}
-			err = iter.Next()
-			require.NoError(err)
 		}
 		iter.Close()
 	}
