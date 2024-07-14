@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"github.com/google/uuid"
 	"github.com/spirit-labs/tektite/common"
+	"github.com/spirit-labs/tektite/debug"
 	"github.com/spirit-labs/tektite/encoding"
 	"github.com/spirit-labs/tektite/errors"
 	log "github.com/spirit-labs/tektite/logger"
@@ -53,26 +54,12 @@ func (lm *LevelManager) maybeScheduleCompaction() error {
 	return err
 }
 
-func (lm *LevelManager) chooseL0TablesToCompact() ([][]*TableEntry, bool) {
-	if lm.compactingStartupL0Group {
-		// If we're already compacting startup L0 group (processor id = -1) then we cannot compact any more L0 tables
-		// until that is complete. That's because the startup L0 group can have key overlap with other groups so
-		// if we processed a compaction for a non startup L0 group before the startup compaction completed it could result
-		// in moves to L1 with overlapping keys.
-		return nil, false
-	}
-	// If we have table entries for processor -1, these are ones added on startup where we do not know the processor id.
-	// So we must compact this in a single job, before compact any others.
-	startupEntries, ok := lm.level0Groups[-1]
-	if ok {
-		return [][]*TableEntry{startupEntries}, true
-	}
-	// We currently compact the whole level - a job for each group
+func (lm *LevelManager) getAllL0Tables() [][]*TableEntry {
 	var tableSlices [][]*TableEntry
 	for _, g := range lm.level0Groups {
 		tableSlices = append(tableSlices, g)
 	}
-	return tableSlices, true
+	return tableSlices
 }
 
 func (lm *LevelManager) scheduleCompaction(level int, tableSlices [][]*TableEntry, deadVersionRanges []VersionRange,
@@ -353,12 +340,16 @@ func (lm *LevelManager) tableCount(level int) int {
 
 func (lm *LevelManager) chooseTablesToCompact(level int, maxTables int) ([][]*TableEntry, error) {
 	if level == 0 {
-		tables, ok := lm.chooseL0TablesToCompact()
-		if !ok {
+		if lm.compactingStartupL0Group {
 			// L0 startup group compaction in progress
 			return nil, nil
 		}
-		return tables, nil
+		startupEntries, ok := lm.level0Groups[-1]
+		if ok {
+			// There are startup entries - they must be compacted first
+			return [][]*TableEntry{startupEntries}, nil
+		}
+		return lm.getAllL0Tables(), nil
 	}
 	iter, err := lm.levelIterator(level)
 	if err != nil {
@@ -599,6 +590,30 @@ func (lm *LevelManager) connectionClosed(connectionID int) {
 	}
 }
 
+func (lm *LevelManager) checkForDeadEntries(rng VersionRange) bool {
+	for level, _ := range lm.masterRecord.levelSegmentEntries {
+		iter, err := lm.levelIterator(level)
+		if err != nil {
+			panic(err)
+		}
+		for {
+			te, err := iter.Next()
+			if err != nil {
+				panic(err)
+			}
+			if te == nil {
+				break
+			}
+			// Only add the tables that match
+			if te.MaxVersion >= rng.VersionStart && te.MinVersion <= rng.VersionEnd {
+				log.Errorf("entry with dead version in sstable %s level %d", string(te.SSTableID), level)
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func (lm *LevelManager) maybeScheduleRemoveDeadVersionEntries() error {
 	log.Debugf("levelmanager.maybeScheduleRemoveDeadVersionEntries")
 	if lm.removeDeadVersionsInProgress {
@@ -630,7 +645,6 @@ func (lm *LevelManager) maybeScheduleRemoveDeadVersionEntries() error {
 			if level == 0 {
 				// We compact the entire level, if at least one table matches dead version
 				hasMatch := false
-				entries := lm.getLevelSegmentEntries(0)
 				if len(entries.segmentEntries) > 0 {
 					l0SegmentEntry := entries.segmentEntries[0]
 					l0Seg, err := lm.getSegment(l0SegmentEntry.segmentID)
@@ -646,12 +660,17 @@ func (lm *LevelManager) maybeScheduleRemoveDeadVersionEntries() error {
 					}
 				}
 				if hasMatch {
-					var ok bool
-					tableEntries, ok = lm.chooseL0TablesToCompact()
-					if !ok {
-						// We can't choose any L0 tables as there is a startup L0 compaction in progress, this doesn't
-						// mean there are no dead version entries, so we won't remove the entry on completion
+					if lm.compactingStartupL0Group {
 						scheduledAll = false
+					} else {
+						startupEntries, ok := lm.level0Groups[-1]
+						if ok {
+							// If there are any startup entries they should be scheduled first
+							tableEntries = [][]*TableEntry{startupEntries}
+							scheduledAll = false // There could be other L0 entries too, with dead versions in them
+						} else {
+							tableEntries = lm.getAllL0Tables()
+						}
 					}
 				}
 			} else {
@@ -678,10 +697,13 @@ func (lm *LevelManager) maybeScheduleRemoveDeadVersionEntries() error {
 			}
 		}
 
-		if len(infos) == 0 {
+		if scheduledAll && len(infos) == 0 {
 			log.Debugf("removal of dead version range: %v - no data to remove so doing nothing", versionRange)
 			// Nothing to do, we can remove the dead version now
 			lm.masterRecord.deadVersionRanges = lm.masterRecord.deadVersionRanges[1:]
+			if debug.SanityChecks && lm.checkForDeadEntries(versionRange) {
+				panic(fmt.Sprintf("dead entries for range %v still exist after removal", versionRange))
+			}
 			if len(lm.masterRecord.deadVersionRanges) > 0 {
 				// Try with the next version range
 				continue
@@ -705,6 +727,9 @@ func (lm *LevelManager) maybeScheduleRemoveDeadVersionEntries() error {
 				// range can remain - we remove the dead version
 				log.Debugf("dead version range %v removed on level manager", lm.masterRecord.deadVersionRanges[0])
 				lm.masterRecord.deadVersionRanges = lm.masterRecord.deadVersionRanges[1:]
+				if debug.SanityChecks && lm.checkForDeadEntries(versionRange) {
+					panic(fmt.Sprintf("dead entries for range %v still exist after removal", versionRange))
+				}
 			}
 			lm.removeDeadVersionsInProgress = false
 		})
