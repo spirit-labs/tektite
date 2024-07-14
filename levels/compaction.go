@@ -615,6 +615,8 @@ func (lm *LevelManager) checkForDeadEntries(rng VersionRange) bool {
 }
 
 func (lm *LevelManager) maybeScheduleRemoveDeadVersionEntries() error {
+	return nil
+
 	log.Debugf("levelmanager.maybeScheduleRemoveDeadVersionEntries")
 	if lm.removeDeadVersionsInProgress {
 		log.Debugf("levelmanager.maybeScheduleRemoveDeadVersionEntries - already in progress")
