@@ -176,12 +176,12 @@ func waitForIncrementingRows(t *testing.T, tableName string, numMessages int, cl
 		}, client)
 }
 
-func TestInLoop(t *testing.T) {
-	for i := 0; i < 100000; i++ {
-		log.Infof("iteration %d", i)
-		TestFailoverReplicationQueuesWithAggregation(t)
-	}
-}
+//func TestInLoop(t *testing.T) {
+//	for i := 0; i < 100000; i++ {
+//		log.Infof("iteration %d", i)
+//		TestFailoverReplicationQueuesWithAggregation(t)
+//	}
+//}
 
 func TestFailoverReplicationQueuesWithAggregation(t *testing.T) {
 	if testing.Short() {
