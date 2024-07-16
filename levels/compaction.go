@@ -227,7 +227,6 @@ func (lm *LevelManager) minNonCompactableVersion() int64 {
 	}
 	lfv := lm.masterRecord.lastFlushedVersion
 	if lfv < minRange {
-		// FIXME - is this ever true?
 		return lfv
 	}
 	return minRange
