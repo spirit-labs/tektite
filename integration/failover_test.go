@@ -10,6 +10,7 @@ import (
 	"github.com/spirit-labs/tektite/kafka"
 	"github.com/spirit-labs/tektite/kafka/fake"
 	log "github.com/spirit-labs/tektite/logger"
+	"github.com/spirit-labs/tektite/sanity"
 	"github.com/spirit-labs/tektite/server"
 	"github.com/spirit-labs/tektite/tekclient"
 	"github.com/spirit-labs/tektite/testutils"
@@ -197,6 +198,8 @@ func testFailoverReplicationQueuesWithAggregation(t *testing.T, failLevelManager
 	failNode, clientNode := getFailAndClientNodes(failLevelManager, servers)
 	client := createClient(t, clientNode, servers)
 	defer client.Close()
+
+	sanity.ClearStores()
 
 	defer func() {
 		r := recover()

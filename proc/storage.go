@@ -44,8 +44,6 @@ type ProcessorStore struct {
 	stopWG                 sync.WaitGroup
 	lastMTReplaceTime      uint64
 	periodicReplaceInQueue atomic.Bool
-	writeSeq               uint64
-	firstGoodSequence      uint64
 }
 
 func NewProcessorStore(pm *ProcessorManager, processorID int) *ProcessorStore {
@@ -64,8 +62,7 @@ type flushQueueEntry struct {
 	mt                   *mem.Memtable
 	lastCompletedVersion int64
 	periodic             bool
-	seq                  uint64
-	firstGoodSeq         uint64
+	cleared              bool
 	cb                   func(error)
 }
 
@@ -198,7 +195,6 @@ func (ps *ProcessorStore) replaceMemtable(periodic bool, cb func(error)) error {
 	ps.queue = append(ps.queue, &flushQueueEntry{
 		mt:                   ps.mt,
 		lastCompletedVersion: lcv,
-		seq:                  atomic.AddUint64(&ps.writeSeq, 1),
 		periodic:             periodic,
 		cb:                   cb,
 	})
@@ -216,10 +212,12 @@ func (ps *ProcessorStore) clear() error {
 	// We lock queueLock too to make sure no pushes in progress
 	ps.queueLock.Lock()
 	defer ps.queueLock.Unlock()
-	// We set the first good sequence to be the next write sequence
-	// Any entries with seq < first good sequence will be ignored when read by the push loop
-	// so this means they are logically "cleared"
-	atomic.StoreUint64(&ps.firstGoodSequence, atomic.LoadUint64(&ps.writeSeq)+1)
+	ps.mt = nil
+	for _, entry := range ps.queue {
+		// Set to cleared so they won't be used in gets or queries, also it's unlikely they will be pushed but this is
+		// not critical as any data pushed will be in dead versions
+		entry.cleared = true
+	}
 	return nil
 }
 
@@ -236,7 +234,7 @@ func (ps *ProcessorStore) pushLoop() {
 		var err error
 		if entry.mt != nil {
 			// Memtable can be nil if we're flushing and no writes occurred
-			if entry.seq >= atomic.LoadUint64(&ps.firstGoodSequence) && !ps.stopping.Load() {
+			if !entry.cleared && !ps.stopping.Load() {
 				err = ps.buildAndPushTable(entry)
 			} else {
 				log.Debugf("didn't push memtable %s as clearing/stopping", entry.mt.Uuid)
@@ -428,7 +426,7 @@ func (ps *ProcessorStore) findInQueuedEntries(keyStart []byte, keyEnd []byte, ma
 	defer ps.queueLock.RUnlock()
 	for i := len(ps.queue) - 1; i >= 0; i-- {
 		entry := ps.queue[i]
-		if entry.mt != nil {
+		if entry.mt != nil && !entry.cleared {
 			val, err := findInMemtable(entry.mt, keyStart, keyEnd, maxVersion)
 			if err != nil {
 				return nil, err
@@ -552,7 +550,7 @@ func (ps *ProcessorStore) NewIterator(keyStart []byte, keyEnd []byte, highestVer
 	ps.queueLock.RLock()
 	for i := len(ps.queue) - 1; i >= 0; i-- {
 		entry := ps.queue[i]
-		if entry.mt != nil {
+		if entry.mt != nil && !entry.cleared {
 			iters = append(iters, entry.mt.NewIterator(keyStart, keyEnd))
 		}
 	}

@@ -20,6 +20,7 @@ const (
 	LevelManagerNotLeaderNode
 	VersionManagerShutdown
 	FailureCancelled
+	RegisterDeadVersionWrongClusterVersion
 	InvalidConfiguration ErrorCode = iota + 3000
 	InternalError        ErrorCode = iota + 5000
 )

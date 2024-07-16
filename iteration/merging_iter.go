@@ -87,6 +87,9 @@ func (m *MergingIterator) Next() (bool, common.KV, error) {
 					// in same iterator we can have multiple versions of the same key
 					keyNoVersion = c.Key[:len(c.Key)-8]
 					if !m.firstSameKeyNonCompactable && bytes.Equal(lastKeyNoVersion, keyNoVersion) {
+						if version >= m.minNonCompactableVersion {
+							panic("compacting non compactable version") //sanity check
+						}
 						if log.DebugEnabled {
 							lastVersion := encoding.DecodeKeyVersion(m.current.Key)
 							log.Debugf("%p mi: dropping key in next as same key: key %v (%s) value %v (%s) version:%d last key: %v (%s) last value %v (%s) last version %d minnoncompactableversion:%d",

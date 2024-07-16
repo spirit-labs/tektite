@@ -197,7 +197,7 @@ func (f *failureHandler) getLastFailureFlushedVersion() error {
 		return err
 	}
 	// -2 return represents still waiting for versions to complete for required cluster version
-	if lastFlushedVersion == -2 || err != nil {
+	if lastFlushedVersion == -2 {
 		log.Debugf("node: %d calling GetLastFailureFlushedVersion for clusterVersion %d returned last flushed %d err %v",
 			f.procMgr.cfg.NodeID, f.failingClusterVersion, lastFlushedVersion, err)
 		// not all processors have called in to version manager or version manager is unavailable - we will retry
@@ -329,6 +329,7 @@ func (f *failureHandler) maybeRunFailure(cs *clustmgr.ClusterState) error {
 	}
 	nodeFailures := f.hasNodeFailure(cs)
 	if nodeFailures || f.failingClusterVersion != -1 || reflect.DeepEqual(f.lastFailedClusterState, cs) {
+		log.Debugf("node %d failure detected at cluster version %d", f.procMgr.cfg.NodeID, cs.Version)
 		// If any node failures, or we're already failing, or this cluster state is same as last cluster state failure
 		// was attempted with then we start failure.
 		// The same cluster state, with a different version can arrive, and we must make sure we reprocess failure with

@@ -356,7 +356,7 @@ func setupAgg(t *testing.T, latenessMs int, tableID int, offset bool) *Aggregate
 	agg, err := NewAggregateOperator(operSchema, aggDesc, tableID,
 		1002, 1003, 1004, time.Duration(100)*time.Millisecond,
 		time.Duration(10)*time.Millisecond, time.Duration(latenessMs)*time.Millisecond, false, true,
-		&expr.ExpressionFactory{})
+		&expr.ExpressionFactory{}, 0)
 	require.NoError(t, err)
 	require.Equal(t, outColumnNames, agg.aggStateSchema.ColumnNames())
 	require.Equal(t, outColumnTypes, agg.aggStateSchema.ColumnTypes())

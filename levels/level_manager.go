@@ -627,8 +627,10 @@ func (lm *LevelManager) RegisterDeadVersionRange(versionRange VersionRange, clus
 	defer lm.updateReplSeq(replSeq)
 	lowestVersion := lm.clusterVersions[clusterName]
 	if clusterVersion < lowestVersion {
-		return errors.NewTektiteErrorf(errors.Unavailable,
-			"RegisterDeadVersionRange - registration batch version is too low %d expected %d", clusterVersion, lowestVersion)
+		// Note we send back RegisterDeadVersionWrongClusterVersion as we do not want the sender to retry - failure
+		// should be cancelled
+		return errors.NewTektiteErrorf(errors.RegisterDeadVersionWrongClusterVersion,
+			"RegisterDeadVersionRange - cluster version is too low %d expected %d", clusterVersion, lowestVersion)
 	}
 	// We update the cluster version - this prevents L0 tables with a dead version range being pushed after this has been
 	// called - as we clear the local store when we get the new cluster version in proc mgr.

@@ -932,7 +932,7 @@ func (sm *streamManager) deployAggregateOperator(streamName string, op *parser.A
 		}
 	}
 	aggOper, err := NewAggregateOperator(prevOperator.OutSchema(), op, aggStateSlabID, openWindowsSlabID, resultsSlabID,
-		closedWindowReceiverID, size, hop, lateness, storeResults, includeWindowCols, sm.expressionFactory)
+		closedWindowReceiverID, size, hop, lateness, storeResults, includeWindowCols, sm.expressionFactory, sm.cfg.NodeID)
 	if err != nil {
 		return nil, nil, nil, err
 	}
