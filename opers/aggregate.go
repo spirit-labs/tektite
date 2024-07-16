@@ -1,8 +1,11 @@
 package opers
 
 import (
+	"bytes"
 	"encoding/binary"
+	"fmt"
 	"github.com/spirit-labs/tektite/common"
+	"github.com/spirit-labs/tektite/debug"
 	"github.com/spirit-labs/tektite/encoding"
 	"github.com/spirit-labs/tektite/evbatch"
 	"github.com/spirit-labs/tektite/expr"
@@ -18,7 +21,7 @@ import (
 func NewAggregateOperator(inSchema *OperatorSchema, aggDesc *parser.AggregateDesc,
 	aggStateSlabID int, openWindowsSlabID int, resultsSlabID int, closedWindowReceiverID int,
 	size time.Duration, hop time.Duration, lateness time.Duration, storeResults bool,
-	includeWindowCols bool, expressionFactory *expr.ExpressionFactory) (*AggregateOperator, error) {
+	includeWindowCols bool, expressionFactory *expr.ExpressionFactory, nodeID int) (*AggregateOperator, error) {
 
 	hasOffset := HasOffsetColumn(inSchema.EventSchema)
 	windowed := size != 0
@@ -235,6 +238,7 @@ func NewAggregateOperator(inSchema *OperatorSchema, aggDesc *parser.AggregateDes
 		includeWindowCols:           includeWindowCols,
 		aggDesc:                     aggDesc,
 		hashCache:                   newPartitionHashCache(inSchema.MappingID, inSchema.Partitions),
+		nodeID:                      nodeID,
 	}, nil
 }
 
@@ -277,6 +281,7 @@ type AggregateOperator struct {
 	includeWindowCols           bool
 	aggDesc                     *parser.AggregateDesc
 	hashCache                   *partitionHashCache
+	nodeID                      int
 }
 
 type windowEntry struct {
@@ -855,6 +860,9 @@ func (a *AggregateOperator) computeAggs(grouped map[string][]any, execCtx Stream
 			writtenEntries = append(writtenEntries, kv)
 		}
 		execCtx.StoreEntry(kv, false)
+		if debug.AggregateChecks {
+			execCtx.Processor().(proc.SanityProcessor).SanityStore().Put(kv.Key, kv.Value)
+		}
 	}
 	return writtenEntries, nil
 }
@@ -886,6 +894,15 @@ func (a *AggregateOperator) maybeLoadState(key []byte, execCtx StreamExecContext
 	v, err := execCtx.Get(key)
 	if err != nil {
 		return nil, err
+	}
+	if debug.AggregateChecks {
+		ss := execCtx.Processor().(proc.SanityProcessor).SanityStore()
+		vv := ss.Get(key, math.MaxUint64)
+		if !bytes.Equal(v, vv) {
+			log.Errorf("node %d processor %d aggregate get for key %v returned:\n%v - sanity store returned:\n%v", a.nodeID, execCtx.Processor().ID(), key, v, vv)
+			ss.LogValuesForKey(key)
+			panic(fmt.Sprintf("aggregate get for key %v returned:\n%v - sanity store returned:\n%v", key, v, vv))
+		}
 	}
 	if v == nil {
 		return nil, nil

@@ -1168,7 +1168,7 @@ func testAggregateWithStoredData(t *testing.T, inColumnNames []string, inColumnT
 
 	agg, err := NewAggregateOperator(&OperatorSchema{EventSchema: inSchema, PartitionScheme: PartitionScheme{MappingID: "mapping", Partitions: 200}}, aggDesc, tableID,
 		-1, -1, -1, 0, 0, 0, false, false,
-		&expr.ExpressionFactory{})
+		&expr.ExpressionFactory{}, 0)
 	require.NoError(t, err)
 
 	require.Equal(t, outColumnNames, agg.aggStateSchema.ColumnNames())

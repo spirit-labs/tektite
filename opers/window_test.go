@@ -38,7 +38,7 @@ func TestAugmentWithWindows(t *testing.T) {
 		PartitionScheme: NewPartitionScheme("foo", 10, false, 48)},
 		aggDesc, 0,
 		-1, -1, -1, time.Duration(size)*time.Millisecond,
-		time.Duration(hop)*time.Millisecond, 0, false, false, &expr.ExpressionFactory{})
+		time.Duration(hop)*time.Millisecond, 0, false, false, &expr.ExpressionFactory{}, 0)
 	require.NoError(t, err)
 
 	eventTimes := []int{100, 101, 105, 107, 109}

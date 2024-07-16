@@ -8,3 +8,5 @@ package debug
 //goland:noinspection GoUnusedGlobalVariable
 var Debug = true
 var SanityChecks = true
+
+var AggregateChecks = false

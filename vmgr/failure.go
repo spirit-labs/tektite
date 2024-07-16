@@ -2,9 +2,11 @@ package vmgr
 
 import (
 	"github.com/spirit-labs/tektite/common"
+	"github.com/spirit-labs/tektite/debug"
 	"github.com/spirit-labs/tektite/errors"
 	"github.com/spirit-labs/tektite/levels"
 	log "github.com/spirit-labs/tektite/logger"
+	"github.com/spirit-labs/tektite/sanity"
 	"sync/atomic"
 	"time"
 )
@@ -139,6 +141,9 @@ func (v *VersionManager) failureVersionsCompleted(deadVersionRange levels.Versio
 	for {
 		err := v.levelMgrClient.RegisterDeadVersionRange(deadVersionRange, v.cfg.ClusterName, failureClusterVersion)
 		if err == nil {
+			if debug.AggregateChecks {
+				sanity.RegisterDeadVersionRange(deadVersionRange)
+			}
 			break
 		}
 		if v.isStopped() {

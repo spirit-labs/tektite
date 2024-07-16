@@ -11,6 +11,7 @@ import (
 	"github.com/spirit-labs/tektite/iteration"
 	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/mem"
+	"github.com/spirit-labs/tektite/sanity"
 	"github.com/timandy/routine"
 	"sync"
 	"sync/atomic"
@@ -83,6 +84,12 @@ type Processor interface {
 	NewIterator(keyStart []byte, keyEnd []byte, highestVersion uint64, preserveTombstones bool) (iteration.Iterator, error)
 }
 
+type SanityProcessor interface {
+	Processor
+
+	SanityStore() *sanity.SanityStore
+}
+
 type TestProcessor interface {
 	Processor
 
@@ -122,6 +129,9 @@ func NewProcessor(id int, cfg *conf.Config, store Store, batchForwarder BatchFor
 	}
 	proc.forwardSequences = make([]int, procCount)
 	proc.stopWg.Add(1)
+	if debug.SanityChecks {
+		proc.sanityStore = sanity.GetSanityStore(id)
+	}
 	return proc
 }
 
@@ -158,6 +168,7 @@ type processor struct {
 	replSeqKey                []byte
 	keyRangeStart             []byte
 	keyRangeEnd               []byte
+	sanityStore               *sanity.SanityStore
 }
 
 type barrierInfo struct {
@@ -792,4 +803,8 @@ func (p *processor) NewIterator(keyStart []byte, keyEnd []byte, highestVersion u
 		return nil, errors.NewTektiteErrorf(errors.Unavailable, "processor %d is not leader", p.id)
 	}
 	return p.store.NewIterator(keyStart, keyEnd, highestVersion, preserveTombstones)
+}
+
+func (p *processor) SanityStore() *sanity.SanityStore {
+	return p.sanityStore
 }
