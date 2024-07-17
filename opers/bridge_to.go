@@ -194,10 +194,6 @@ func (b *BridgeToOperator) exitPausedMode(processor proc.Processor, partIDs []in
 		b.timers.Delete(procID)
 		b.pausedMode[procID] = false
 		b.lastRetryDuration[procID] = 0 // reset retry delay
-		// We must flush write cache before loading as version might not have completed and data could still be in cache
-		if err := processor.WriteCache().MaybeWriteToStore(); err != nil {
-			return err
-		}
 		for _, partID := range partIDs {
 			// Tell the backfill operator to start back-filling from last committed offset.
 			if err := b.backFillOperator.restartBackfill(partID, processor); err != nil {
