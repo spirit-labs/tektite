@@ -32,11 +32,9 @@ func NewWriteCache(store storage, maxSizeBytes int64, processorID int) *WriteCac
 func (w *WriteCache) Put(kv common.KV) {
 	ok := w.batch.AddEntry(kv)
 	if !ok {
-		// Adding to batch would make it exceed maxSize so we write the batch, then replace it then add it in the new
-		// batch
-		if err := w.writeToStore(); err != nil {
-			panic(err)
-		}
+		// Adding to batch would make it exceed maxSize so we replace it then add it in the new batch
+		w.Clear()
+		// TODO - we should make this an lru
 		if ok := w.batch.AddEntry(kv); !ok {
 			panic("cannot add entry")
 		}
@@ -45,21 +43,6 @@ func (w *WriteCache) Put(kv common.KV) {
 
 func (w *WriteCache) Get(key []byte) ([]byte, bool) {
 	return w.batch.Get(key)
-}
-
-func (w *WriteCache) MaybeWriteToStore() error {
-	if w.batch.Len() > 0 {
-		return w.writeToStore()
-	}
-	return nil
-}
-
-func (w *WriteCache) writeToStore() error {
-	if err := w.store.Write(w.batch); err != nil {
-		return err
-	}
-	w.batch = mem.NewBatchWithMaxSize(w.maxSizeBytes)
-	return nil
 }
 
 func (w *WriteCache) Clear() {

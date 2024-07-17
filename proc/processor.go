@@ -565,12 +565,6 @@ func (p *processor) processBarrier(barrier *ProcessBatch) error {
 	if err != nil {
 		return err
 	}
-	// We write the cache on every barrier. However, instead of writing cache on every barrier it would be better to
-	// write it when we know there will be no more barriers on a processor for a version. This is not as simple as
-	// writing it on VersionComplete as VersionComplete is only called on terminal processors
-	if err := p.WriteCache().MaybeWriteToStore(); err != nil {
-		return err
-	}
 	if len(remoteBatches) > 0 {
 		p.enqueueForwardBatches(remoteBatches)
 	} else {

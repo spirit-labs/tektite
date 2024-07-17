@@ -1996,12 +1996,12 @@ func (e *execContext) StoreEntry(kv common.KV, noCache bool) {
 			tp.ValidateKeyRange(kv.Key)
 		}
 	}
-	if noCache {
-		if e.entries == nil {
-			e.entries = mem.NewBatch()
-		}
-		e.entries.AddEntry(kv)
-	} else {
+	if e.entries == nil {
+		e.entries = mem.NewBatch()
+	}
+	// We always write through - this is essential to ensure repl seq is written in the same memtable
+	e.entries.AddEntry(kv)
+	if !noCache {
 		e.processor.WriteCache().Put(kv)
 	}
 }

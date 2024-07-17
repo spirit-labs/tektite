@@ -377,9 +377,6 @@ func (t *TestProcessor) handleBatchHolder(holder ingestBatchHolder) {
 		}
 	}
 	holder.cf(nil)
-	if err := t.WriteCache().MaybeWriteToStore(); err != nil {
-		log.Errorf("failed to write to store %v", err)
-	}
 }
 
 func (t *TestProcessor) close() {
