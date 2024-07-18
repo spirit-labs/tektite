@@ -13,6 +13,7 @@ import (
 	"github.com/spirit-labs/tektite/objstore"
 	"github.com/spirit-labs/tektite/sst"
 	"github.com/spirit-labs/tektite/tabcache"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -1708,12 +1709,11 @@ func (lm *LevelManager) dump() {
 }
 
 func containsTable(seg *segment, tabID sst.SSTableID) bool {
-	for _, te := range seg.tableEntries {
-		if bytes.Equal(te.SSTableID, tabID) {
-			return true
-		}
-	}
-	return false
+	n := len(seg.tableEntries)
+	index := sort.Search(n, func(i int) bool {
+		return bytes.Compare(seg.tableEntries[i].SSTableID, tabID) >= 0
+	})
+	return index < n && bytes.Equal(seg.tableEntries[index].SSTableID, tabID)
 }
 
 func (lm *LevelManager) GetObjectStore() objstore.Client {
