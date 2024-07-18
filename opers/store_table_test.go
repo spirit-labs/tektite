@@ -69,7 +69,7 @@ func TestOffsetRemoved(t *testing.T) {
 
 func createTableOperator(t *testing.T, keyCols []string, columnNamesIn []string, columnTypesIn []types.ColumnType) *StoreTableOperator {
 	inSchema := evbatch.NewEventSchema(columnNamesIn, columnTypesIn)
-	to, err := NewStoreTableOperator(&OperatorSchema{EventSchema: inSchema, PartitionScheme: PartitionScheme{MappingID: "mapping", Partitions: 10}}, 1001, keyCols, -1, true,
+	to, err := NewStoreTableOperator(&OperatorSchema{EventSchema: inSchema, PartitionScheme: PartitionScheme{MappingID: "mapping", Partitions: 10}}, 1001, keyCols, -1,
 		&parser.StoreTableDesc{})
 	require.NoError(t, err)
 	return to

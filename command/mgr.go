@@ -112,7 +112,7 @@ func (m *manager) Start() error {
 		PartitionScheme: opers.NewPartitionScheme("_default_", 1, false, m.cfg.ProcessorCount),
 	}
 	if err := m.streamManager.RegisterSystemSlab(CommandsSlabName, common.CommandsReceiverID, common.CommandsDeleteReceiverID,
-		common.CommandsSlabID, m.commandsOpSchema, []string{"id"}, true); err != nil {
+		common.CommandsSlabID, m.commandsOpSchema, []string{"id"}); err != nil {
 		return err
 	}
 

@@ -47,7 +47,7 @@ type batchForwarder interface {
 
 type streamMgr interface {
 	RegisterSystemSlab(slabName string, persistorReceiverID int, deleterReceiverID int, slabID int,
-		schema *opers.OperatorSchema, keyCols []string, noCache bool) error
+		schema *opers.OperatorSchema, keyCols []string) error
 	RegisterChangeListener(listener func(streamName string, deployed bool))
 }
 
@@ -59,7 +59,7 @@ func NewGroupCoordinator(cfg *conf.Config, provider processorProvider, streamMgr
 	}
 	keyCols := []string{"group_id", "topic_id", "partition_id"}
 	if err := streamMgr.RegisterSystemSlab(ConsumerOffsetsMappingID, common.KafkaOffsetsReceiverID, -1,
-		common.KafkaOffsetsSlabID, schema, keyCols, true); err != nil {
+		common.KafkaOffsetsSlabID, schema, keyCols); err != nil {
 		return nil, err
 	}
 	return &GroupCoordinator{

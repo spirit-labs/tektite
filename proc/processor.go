@@ -37,7 +37,6 @@ that version.
 * When the version is complete for all processors in the system, we know we have a consistent snapshot. I.e. the snapshot reflects
 the set of updates caused by processing ingests from all receivers up to specific value of offset for each receiver, in the stream
 of batches being ingested.
-
 */
 
 type Processor interface {
@@ -101,7 +100,7 @@ type VersionCompleteHandler func(version int, requiredCompletions int, commandID
 func NewProcessor(id int, cfg *conf.Config, store Store, batchForwarder BatchForwarder,
 	batchHandler BatchHandler, receiverInfoProvider ReceiverInfoProvider, keyRangeStart []byte, keyRangeEnd []byte) Processor {
 	// We choose cache max size to 25% of the available space in a newly created memtable
-	cacheMaxSize := int64(0.25 * float64(int64(cfg.MemtableMaxSizeBytes)-mem.MemtableSizeOverhead))
+	cacheMaxSize := int(0.25 * float64(int64(cfg.MemtableMaxSizeBytes)-mem.MemtableSizeOverhead))
 	levelManagerProcessor := cfg.LevelManagerEnabled && id == cfg.ProcessorCount
 	replSeqKey := encoding.EncodeEntryPrefix(keyRangeStart, common.ReplSeqSlabID, 24)
 	proc := &processor{
@@ -114,7 +113,7 @@ func NewProcessor(id int, cfg *conf.Config, store Store, batchForwarder BatchFor
 		closeCh:                   make(chan struct{}, 1),
 		store:                     store,
 		completedReceiverVersions: map[int]int{},
-		storeCache:                NewWriteCache(store, cacheMaxSize, id),
+		storeCache:                NewWriteCache(cacheMaxSize, id),
 		barrierInfos:              map[int]*barrierInfo{},
 		requiredCompletions:       -1,
 		currentVersion:            -1,
