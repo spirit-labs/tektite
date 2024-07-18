@@ -88,7 +88,7 @@ func (ts *StoreStreamOperator) HandleStreamBatch(batch *evbatch.Batch, execCtx S
 		storeOffset(execCtx, kOffset, partitionHash, ts.offsetsSlabID, execCtx.WriteVersion())
 	}
 	keyPrefix := encoding.EncodeEntryPrefix(partitionHash, uint64(ts.slabID), 64)
-	storeBatchInTable(batch, []int{0}, ts.rowCols, keyPrefix, execCtx, ts.nodeID, false)
+	storeBatchInTable(batch, []int{0}, ts.rowCols, keyPrefix, execCtx, ts.nodeID)
 	return batch, ts.sendBatchDownStream(batch, execCtx)
 }
 

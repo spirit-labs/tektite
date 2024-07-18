@@ -1,51 +1,61 @@
 package proc
 
 import (
+	lru "github.com/hashicorp/golang-lru"
 	"github.com/spirit-labs/tektite/common"
 	log "github.com/spirit-labs/tektite/logger"
-	"github.com/spirit-labs/tektite/mem"
+	"unsafe"
 )
 
-// WriteCache caches writes for a processor and is flushed when a version is complete on a processor. This improves
-// performance when a key is updated multiple times in the same version. This can happen with aggregations and the
-// table operator.
+// WriteCache is mainly used to cache entries for aggregations
 type WriteCache struct {
-	store        storage
-	batch        *mem.Batch
-	maxSizeBytes int64
-	processorID  int
+	lruCache    *lru.Cache
+	processorID int
 }
 
-type storage interface {
-	Write(batch *mem.Batch) error
+type cacheEntry struct {
+	value []byte
+	size  int
 }
 
-func NewWriteCache(store storage, maxSizeBytes int64, processorID int) *WriteCache {
+func (ce *cacheEntry) Size() int {
+	return ce.size
+}
+
+var byteSliceOverhead = int(unsafe.Sizeof([]byte{1}))
+var cacheEntryOverhead = int(unsafe.Sizeof(cacheEntry{}))
+
+func NewWriteCache(maxSizeBytes int, processorID int) *WriteCache {
+	lruCache, err := lru.New(maxSizeBytes)
+	if err != nil {
+		panic(err)
+	}
 	return &WriteCache{
-		store:        store,
-		batch:        mem.NewBatchWithMaxSize(maxSizeBytes),
-		maxSizeBytes: maxSizeBytes,
-		processorID:  processorID,
+		lruCache:    lruCache,
+		processorID: processorID,
 	}
 }
 
 func (w *WriteCache) Put(kv common.KV) {
-	ok := w.batch.AddEntry(kv)
-	if !ok {
-		// Adding to batch would make it exceed maxSize so we replace it then add it in the new batch
-		w.Clear()
-		// TODO - we should make this an lru
-		if ok := w.batch.AddEntry(kv); !ok {
-			panic("cannot add entry")
-		}
-	}
+	keyNoVersion := kv.Key[:len(kv.Key)-8]
+	w.lruCache.RemoveOldest()
+	size := cacheEntryOverhead + len(kv.Value) + // value
+		byteSliceOverhead + len(kv.Key) // key
+	w.lruCache.Add(common.ByteSliceToStringZeroCopy(keyNoVersion), cacheEntry{
+		value: kv.Value,
+		size:  size,
+	})
 }
 
-func (w *WriteCache) Get(key []byte) ([]byte, bool) {
-	return w.batch.Get(key)
+func (w *WriteCache) Get(keyNoVersion []byte) ([]byte, bool) {
+	v, ok := w.lruCache.Get(common.ByteSliceToStringZeroCopy(keyNoVersion))
+	if !ok {
+		return nil, false
+	}
+	return v.(cacheEntry).value, true
 }
 
 func (w *WriteCache) Clear() {
 	log.Debugf("clearing write cache to store for processor %d", w.processorID)
-	w.batch = mem.NewBatchWithMaxSize(w.maxSizeBytes)
+	w.lruCache.Purge()
 }

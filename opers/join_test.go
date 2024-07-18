@@ -210,7 +210,7 @@ func newJoinTestProcessor(id int, receiver Receiver) *joinTestProcessor {
 	return &joinTestProcessor{
 		id:         id,
 		receiver:   receiver,
-		writeCache: proc.NewWriteCache(st, math.MaxInt64, id),
+		writeCache: proc.NewWriteCache(math.MaxInt64, id),
 		st:         st,
 	}
 }

@@ -17,14 +17,13 @@ type StoreTableOperator struct {
 	outRowCols []int
 	keyPrecfix []byte
 	nodeID     int
-	noCache    bool
 	hasKey     bool
 	slabID     uint64
 	hasOffset  bool
 	hashCache  *partitionHashCache
 }
 
-func NewStoreTableOperator(schema *OperatorSchema, slabID int, keyCols []string, nodeID int, noCache bool,
+func NewStoreTableOperator(schema *OperatorSchema, slabID int, keyCols []string, nodeID int,
 	desc errMsgAtPositionProvider) (*StoreTableOperator, error) {
 	var inKeyCols []int
 	var outKeyCols []int
@@ -81,7 +80,6 @@ func NewStoreTableOperator(schema *OperatorSchema, slabID int, keyCols []string,
 		rowCols:    rowCols,
 		outRowCols: outRowCols,
 		nodeID:     nodeID,
-		noCache:    noCache,
 		hasKey:     len(keyCols) > 0,
 		slabID:     uint64(slabID),
 		hasOffset:  hasOffset,
@@ -110,7 +108,7 @@ func (s *StoreTableOperator) HandleStreamBatch(batch *evbatch.Batch, execCtx Str
 func (s *StoreTableOperator) storeBatchInTable(batch *evbatch.Batch, execCtx StreamExecContext) {
 	if s.hasKey {
 		prefix := s.createTableKeyPrefix(s.slabID, execCtx.PartitionID(), 64)
-		storeBatchInTable(batch, s.inKeyCols, s.rowCols, prefix, execCtx, s.nodeID, s.noCache)
+		storeBatchInTable(batch, s.inKeyCols, s.rowCols, prefix, execCtx, s.nodeID)
 	} else {
 		// No key cols, so we store the row with a constant key - we just use the table/partition here
 		key := s.createTableKeyPrefix(s.slabID, execCtx.PartitionID(), 32)
@@ -121,7 +119,7 @@ func (s *StoreTableOperator) storeBatchInTable(batch *evbatch.Batch, execCtx Str
 		execCtx.StoreEntry(common.KV{
 			Key:   key,
 			Value: row,
-		}, s.noCache)
+		}, false)
 	}
 }
 

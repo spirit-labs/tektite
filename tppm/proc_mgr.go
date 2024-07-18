@@ -296,7 +296,7 @@ func newTestProcessor(id int, tpm *TestProcessorManager) *TestProcessor {
 		ingestCh:   make(chan ingestBatchHolder, 10),
 		version:    &tpm.writeVersion,
 		tpm:        tpm,
-		storeCache: proc.NewWriteCache(tpm.st, math.MaxInt64, -1),
+		storeCache: proc.NewWriteCache(math.MaxInt64, -1),
 	}
 	p.stopWg.Add(1)
 	return p
