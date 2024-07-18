@@ -608,7 +608,7 @@ func decodeBatch(bytes []byte) (kvs []common.KV, baseOffset int64, baseTimeStamp
 type testStreamMgr struct {
 }
 
-func (t testStreamMgr) RegisterSystemSlab(slabName string, persistorReceiverID int, deleterReceiverID int, slabID int, schema *opers.OperatorSchema, keyCols []string, noCache bool) error {
+func (t testStreamMgr) RegisterSystemSlab(slabName string, persistorReceiverID int, deleterReceiverID int, slabID int, schema *opers.OperatorSchema, keyCols []string) error {
 	return nil
 }
 

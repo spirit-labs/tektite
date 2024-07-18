@@ -97,7 +97,7 @@ func createInColIndexMap(schema *evbatch.EventSchema) map[string]int {
 }
 
 func storeBatchInTable(batch *evbatch.Batch, keyCols []int, rowCols []int,
-	keyPrefix []byte, execCtx StreamExecContext, nodeID int, noCache bool) {
+	keyPrefix []byte, execCtx StreamExecContext, nodeID int) {
 	for i := 0; i < batch.RowCount; i++ {
 		keyBuff := common.CopyByteSlice(keyPrefix)
 		keyBuff = evbatch.EncodeKeyCols(batch, i, keyCols, keyBuff)
@@ -114,7 +114,7 @@ func storeBatchInTable(batch *evbatch.Batch, keyCols []int, rowCols []int,
 		execCtx.StoreEntry(common.KV{
 			Key:   keyBuff,
 			Value: rowBuff,
-		}, noCache)
+		}, false)
 	}
 }
 

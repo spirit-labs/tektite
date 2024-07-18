@@ -7,7 +7,7 @@ import (
 )
 
 type StreamExecContext interface {
-	StoreEntry(kv common.KV, noCache bool)
+	StoreEntry(kv common.KV, cache bool)
 	ForwardEntry(processorID int, receiverID int, remotePartitionID int, rowIndex int, batch *evbatch.Batch, schema *evbatch.EventSchema)
 	ForwardBarrier(processorID int, receiverID int)
 	CheckInProcessorLoop()

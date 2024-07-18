@@ -49,7 +49,7 @@ func (rd *RowDeleteOperator) HandleStreamBatch(batch *evbatch.Batch, execCtx Str
 		keyBuff = encoding.EncodeVersion(keyBuff, uint64(execCtx.WriteVersion()))
 		execCtx.StoreEntry(common.KV{
 			Key: keyBuff,
-		}, true)
+		}, false)
 	}
 	return batch, nil
 }

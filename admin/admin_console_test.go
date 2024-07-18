@@ -826,7 +826,7 @@ func (t *testStreamManager) GetAllKafkaEndpoints() []*opers.KafkaEndpointInfo {
 	return t.kafkaEndpoints
 }
 
-func (t *testStreamManager) RegisterSystemSlab(string, int, int, int, *opers.OperatorSchema, []string, bool) error {
+func (t *testStreamManager) RegisterSystemSlab(string, int, int, int, *opers.OperatorSchema, []string) error {
 	panic("not implemented")
 }
 

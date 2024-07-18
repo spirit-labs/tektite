@@ -46,7 +46,7 @@ type StreamManager interface {
 	GetKafkaEndpoint(name string) *KafkaEndpointInfo
 	GetAllKafkaEndpoints() []*KafkaEndpointInfo
 	RegisterSystemSlab(slabName string, persistorReceiverID int, deleterReceiverID int, slabID int,
-		schema *OperatorSchema, keyCols []string, noCache bool) error
+		schema *OperatorSchema, keyCols []string) error
 	SetProcessorManager(procMgr ProcessorManager)
 	GetIngestedMessageCount() int
 	PrepareForShutdown()
@@ -319,9 +319,14 @@ func (sm *streamManager) RegisterChangeListener(listener func(string, bool)) {
 }
 
 func (sm *streamManager) callChangeListeners(streamName string, deployed bool) {
-	for _, listener := range sm.changeListeners {
-		listener(streamName, deployed)
-	}
+	listeners := make([]func(string, bool), len(sm.changeListeners))
+	copy(listeners, sm.changeListeners)
+	// Call outside lock to prevent deadlock
+	go func() {
+		for _, listener := range listeners {
+			listener(streamName, deployed)
+		}
+	}()
 }
 
 func (sm *streamManager) DeployStream(streamDesc parser.CreateStreamDesc, receiverSequences []int,
@@ -959,7 +964,7 @@ func (sm *streamManager) deployStoreTableOperator(streamName string, op *parser.
 	prevOperator Operator, slabSliceSeqs *sliceSeq,
 	prefixRetentions []slabRetention) (Operator, []slabRetention, *SlabInfo, error) {
 	slabID := slabSliceSeqs.GetNextID()
-	to, err := NewStoreTableOperator(prevOperator.OutSchema(), slabID, op.KeyCols, sm.cfg.NodeID, false, op)
+	to, err := NewStoreTableOperator(prevOperator.OutSchema(), slabID, op.KeyCols, sm.cfg.NodeID, op)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -1405,7 +1410,7 @@ func (d *deleteSlabReceiver) ReceiveBatch(batch *evbatch.Batch, execCtx StreamEx
 		execCtx.StoreEntry(common.KV{
 			Key:   key,
 			Value: value,
-		}, true)
+		}, false)
 	}
 	return nil, nil
 }
@@ -1419,10 +1424,10 @@ func (d *deleteSlabReceiver) RequiresBarriersInjection() bool {
 }
 
 func (sm *streamManager) RegisterSystemSlab(slabName string, persistorReceiverID int, deleterReceiverID int,
-	slabID int, schema *OperatorSchema, keyCols []string, noCache bool) error {
+	slabID int, schema *OperatorSchema, keyCols []string) error {
 	sm.lock.Lock()
 	defer sm.lock.Unlock()
-	to, err := NewStoreTableOperator(schema, slabID, keyCols, -1, noCache, nil)
+	to, err := NewStoreTableOperator(schema, slabID, keyCols, -1, nil)
 	if err != nil {
 		return err
 	}
@@ -1989,7 +1994,7 @@ func (e *execContext) Get(key []byte) ([]byte, error) {
 	return e.processor.Get(key)
 }
 
-func (e *execContext) StoreEntry(kv common.KV, noCache bool) {
+func (e *execContext) StoreEntry(kv common.KV, cache bool) {
 	if debug.SanityChecks {
 		tp, ok := e.Processor().(proc.TestProcessor)
 		if ok {
@@ -2001,7 +2006,7 @@ func (e *execContext) StoreEntry(kv common.KV, noCache bool) {
 	}
 	// We always write through - this is essential to ensure repl seq is written in the same memtable
 	e.entries.AddEntry(kv)
-	if !noCache {
+	if cache {
 		e.processor.WriteCache().Put(kv)
 	}
 }

@@ -174,13 +174,11 @@ func NewJoinOperator(leftTableSlabID int, rightTableSlabID int, left Operator, r
 		rightKeyCols = append(rightKeyCols, EventTimeColName)
 	}
 
-	leftTable, err := NewStoreTableOperator(left.OutSchema(), leftTableSlabID, leftKeyCols, nodeID,
-		false, op)
+	leftTable, err := NewStoreTableOperator(left.OutSchema(), leftTableSlabID, leftKeyCols, nodeID, op)
 	if err != nil {
 		return nil, err
 	}
-	rightTable, err := NewStoreTableOperator(right.OutSchema(), rightTableSlabID, rightKeyCols, nodeID,
-		false, op)
+	rightTable, err := NewStoreTableOperator(right.OutSchema(), rightTableSlabID, rightKeyCols, nodeID, op)
 	if err != nil {
 		return nil, err
 	}
@@ -529,7 +527,7 @@ func (j *JoinOperator) handleIncomingStreamStream(batch *evbatch.Batch, execCtx 
 		execCtx.StoreEntry(common.KV{
 			Key:   persistKeyBuff,
 			Value: persistRowBuff,
-		}, true)
+		}, false)
 
 		// Lookup in the other table
 		lpkb := len(persistKeyBuff)

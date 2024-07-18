@@ -859,7 +859,7 @@ func (a *AggregateOperator) computeAggs(grouped map[string][]any, execCtx Stream
 		if !a.windowed {
 			writtenEntries = append(writtenEntries, kv)
 		}
-		execCtx.StoreEntry(kv, false)
+		execCtx.StoreEntry(kv, true)
 		if debug.AggregateChecks {
 			execCtx.Processor().(proc.SanityProcessor).SanityStore().Put(kv.Key, kv.Value)
 		}
@@ -956,7 +956,7 @@ func (a *AggregateOperator) ReceiveBatch(batch *evbatch.Batch, execCtx StreamExe
 	if a.storeResults {
 		// store the batch
 		prefix := encoding.EncodeEntryPrefix(partitionHash, a.resultsSlabID, 64)
-		storeBatchInTable(batch, a.outKeyColIndexes, a.outAggColIndexes, prefix, execCtx, -1, false)
+		storeBatchInTable(batch, a.outKeyColIndexes, a.outAggColIndexes, prefix, execCtx, -1)
 	}
 	keyPrefix := execCtx.EventBatchBytes()
 	ws, _ := encoding.KeyDecodeInt(keyPrefix, 25)
