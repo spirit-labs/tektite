@@ -319,9 +319,14 @@ func (sm *streamManager) RegisterChangeListener(listener func(string, bool)) {
 }
 
 func (sm *streamManager) callChangeListeners(streamName string, deployed bool) {
-	for _, listener := range sm.changeListeners {
-		listener(streamName, deployed)
-	}
+	listeners := make([]func(string, bool), len(sm.changeListeners))
+	copy(listeners, sm.changeListeners)
+	// Call outside lock to prevent deadlock
+	go func() {
+		for _, listener := range listeners {
+			listener(streamName, deployed)
+		}
+	}()
 }
 
 func (sm *streamManager) DeployStream(streamDesc parser.CreateStreamDesc, receiverSequences []int,
