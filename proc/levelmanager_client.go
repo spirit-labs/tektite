@@ -35,27 +35,19 @@ func (l *LevelManagerLocalClient) SetProcessorManager(processorManger Manager) {
 	l.processorManager = processorManger
 }
 
-func (l *LevelManagerLocalClient) GetTableIDsForRange(keyStart []byte, keyEnd []byte) (levels.OverlappingTableIDs,
-	[]levels.VersionRange, error) {
+func (l *LevelManagerLocalClient) QueryTablesInRange(keyStart []byte, keyEnd []byte) (levels.OverlappingTables, error) {
 	req := &clustermsgs.LevelManagerGetTableIDsForRangeMessage{
 		KeyStart: keyStart,
 		KeyEnd:   keyEnd,
 	}
 	r, err := l.sendLevelManagerRequestWithRetry(req)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	resp := r.(*clustermsgs.LevelManagerGetTableIDsForRangeResponse)
 	bytes := resp.Payload
-	otids := levels.DeserializeOverlappingTableIDs(bytes, 0)
-	versionRanges := make([]levels.VersionRange, len(resp.DeadVersions))
-	for i, rng := range resp.DeadVersions {
-		versionRanges[i] = levels.VersionRange{
-			VersionStart: rng.VersionStart,
-			VersionEnd:   rng.VersionEnd,
-		}
-	}
-	return otids, versionRanges, nil
+	otids := levels.DeserializeOverlappingTables(bytes, 0)
+	return otids, nil
 }
 
 func (l *LevelManagerLocalClient) RegisterL0Tables(registrationBatch levels.RegistrationBatch) error {

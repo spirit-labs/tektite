@@ -478,7 +478,7 @@ func getWithIteratorNoVersionCheck(iter iteration.Iterator, key []byte) ([]byte,
 }
 
 func (ps *ProcessorStore) createSSTableIterators(keyStart []byte, keyEnd []byte) ([]iteration.Iterator, error) {
-	ids, deadVersions, err := ps.pm.levelManagerClient.GetTableIDsForRange(keyStart, keyEnd)
+	ids, err := ps.pm.levelManagerClient.QueryTablesInRange(keyStart, keyEnd)
 	if err != nil {
 		return nil, err
 	}
@@ -490,30 +490,29 @@ func (ps *ProcessorStore) createSSTableIterators(keyStart []byte, keyEnd []byte)
 	for i, nonOverLapIDs := range ids {
 		if len(nonOverLapIDs) == 1 {
 			log.Debugf("using sstable %v in iterator [%d, 0] for key start %v", nonOverLapIDs[0], i, keyStart)
-			lazy, err := sst2.NewLazySSTableIterator(nonOverLapIDs[0], ps.pm.tableCache, keyStart, keyEnd, ps.iterFactoryFunc())
+			info := nonOverLapIDs[0]
+			iter, err := sst2.NewLazySSTableIterator(info.ID, ps.pm.tableCache, keyStart, keyEnd, ps.iterFactoryFunc())
 			if err != nil {
 				return nil, err
 			}
-			iters = append(iters, lazy)
+			if info.DeadVersions != nil {
+				iter = levels.NewRemoveDeadVersionsIterator(iter, info.DeadVersions)
+			}
+			iters = append(iters, iter)
 		} else {
 			itersInChain := make([]iteration.Iterator, len(nonOverLapIDs))
 			for j, nonOverlapID := range nonOverLapIDs {
 				log.Debugf("using sstable %v in iterator [%d, %d] for key start %v", nonOverlapID, i, j, keyStart)
-				lazy, err := sst2.NewLazySSTableIterator(nonOverlapID, ps.pm.tableCache, keyStart, keyEnd, ps.iterFactoryFunc())
+				iter, err := sst2.NewLazySSTableIterator(nonOverlapID.ID, ps.pm.tableCache, keyStart, keyEnd, ps.iterFactoryFunc())
 				if err != nil {
 					return nil, err
 				}
-				itersInChain[j] = lazy
+				if nonOverlapID.DeadVersions != nil {
+					iter = levels.NewRemoveDeadVersionsIterator(iter, nonOverlapID.DeadVersions)
+				}
+				itersInChain[j] = iter
 			}
 			iters = append(iters, iteration.NewChainingIterator(itersInChain))
-		}
-	}
-	if len(deadVersions) > 0 {
-		log.Debugf("dead versions are: %v", deadVersions)
-		// We have dead versions that we need to remove on this side. This occurs after failure when we rollback to
-		// the last good snapshot and we need to filter out any versions between that and when recovery completed.
-		for i, iter := range iters {
-			iters[i] = levels.NewRemoveDeadVersionsIterator(iter, deadVersions)
 		}
 	}
 	return iters, nil

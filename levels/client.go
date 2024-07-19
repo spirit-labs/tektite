@@ -13,7 +13,7 @@ import (
 )
 
 type Client interface {
-	GetTableIDsForRange(keyStart []byte, keyEnd []byte) (OverlappingTableIDs, []VersionRange, error)
+	QueryTablesInRange(keyStart []byte, keyEnd []byte) (OverlappingTables, error)
 
 	RegisterL0Tables(registrationBatch RegistrationBatch) error
 
@@ -62,25 +62,18 @@ func NewExternalClient(serverAddresses []string, tlsConf conf.TLSConfig, serverR
 	}
 }
 
-func (c *externalClient) GetTableIDsForRange(keyStart []byte, keyEnd []byte) (OverlappingTableIDs, []VersionRange, error) {
+func (c *externalClient) QueryTablesInRange(keyStart []byte, keyEnd []byte) (OverlappingTables, error) {
 	req := &clustermsgs.LevelManagerGetTableIDsForRangeMessage{
 		KeyStart: keyStart,
 		KeyEnd:   keyEnd,
 	}
 	r, err := c.sendRpcWithRetryOnNoLeader(req)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	resp := r.(*clustermsgs.LevelManagerGetTableIDsForRangeResponse)
-	otids := DeserializeOverlappingTableIDs(resp.Payload, 0)
-	versionRanges := make([]VersionRange, len(resp.DeadVersions))
-	for i, rng := range resp.DeadVersions {
-		versionRanges[i] = VersionRange{
-			VersionStart: rng.VersionStart,
-			VersionEnd:   rng.VersionEnd,
-		}
-	}
-	return otids, versionRanges, nil
+	otids := DeserializeOverlappingTables(resp.Payload, 0)
+	return otids, nil
 }
 
 func (c *externalClient) RegisterL0Tables(registrationBatch RegistrationBatch) error {

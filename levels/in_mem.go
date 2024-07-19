@@ -14,8 +14,8 @@ func (c *InMemClient) LoadLastFlushedVersion() (int64, error) {
 	return -1, nil
 }
 
-func (c *InMemClient) GetTableIDsForRange(keyStart []byte, keyEnd []byte) (OverlappingTableIDs, []VersionRange, error) {
-	return c.LevelManager.GetTableIDsForRange(keyStart, keyEnd)
+func (c *InMemClient) QueryTablesInRange(keyStart []byte, keyEnd []byte) (OverlappingTables, error) {
+	return c.LevelManager.QueryTablesInRange(keyStart, keyEnd)
 }
 
 func (c *InMemClient) RegisterL0Tables(registrationBatch RegistrationBatch) error {

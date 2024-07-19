@@ -8,15 +8,31 @@ import (
 )
 
 func TestSerializeDeserializeOverlappingTableIDs(t *testing.T) {
-	var otids OverlappingTableIDs
+	var otids OverlappingTables
 	for i := 0; i < 10; i++ {
-		var notids []sst.SSTableID
+		var notids []QueryTableInfo
 		for j := 0; j < 10; j++ {
 			u, err := uuid.NewUUID()
 			require.NoError(t, err)
 			bytes, err := u.MarshalBinary()
 			require.NoError(t, err)
-			notids = append(notids, bytes)
+			var dvs []VersionRange
+			dvs = append(dvs, VersionRange{
+				VersionStart: 111,
+				VersionEnd:   222,
+			})
+			dvs = append(dvs, VersionRange{
+				VersionStart: 333,
+				VersionEnd:   555,
+			})
+			dvs = append(dvs, VersionRange{
+				VersionStart: 777,
+				VersionEnd:   888,
+			})
+			notids = append(notids, QueryTableInfo{
+				ID:           bytes,
+				DeadVersions: dvs,
+			})
 		}
 		otids = append(otids, notids)
 	}
@@ -25,7 +41,7 @@ func TestSerializeDeserializeOverlappingTableIDs(t *testing.T) {
 	buff = append(buff, 1, 2, 3)
 	buff = otids.Serialize(buff)
 
-	otidsAfter := DeserializeOverlappingTableIDs(buff, 3)
+	otidsAfter := DeserializeOverlappingTables(buff, 3)
 	require.Equal(t, otids, otidsAfter)
 }
 
@@ -101,6 +117,30 @@ func TestSerializeDeserializeTableEntry(t *testing.T) {
 		MaxVersion: 7654321,
 		NumEntries: 47464,
 		Size:       696686,
+	}
+	var buff []byte
+	buff = append(buff, 1, 2, 3)
+	buff = te.serialize(buff)
+
+	teAfter := &TableEntry{}
+	teAfter.deserialize(buff, 3)
+
+	require.Equal(t, te, teAfter)
+}
+
+func TestSerializeDeserializeTableEntryWithDeadVersionRanges(t *testing.T) {
+	te := &TableEntry{
+		SSTableID:  []byte("sstableid1"),
+		RangeStart: []byte("rangestart1"),
+		RangeEnd:   []byte("rangeend1"),
+		MinVersion: 7653595,
+		MaxVersion: 7654321,
+		NumEntries: 47464,
+		Size:       696686,
+		DeadVersionRanges: []VersionRange{
+			{VersionStart: 111, VersionEnd: 222},
+			{VersionStart: 333, VersionEnd: 777},
+		},
 	}
 	var buff []byte
 	buff = append(buff, 1, 2, 3)
@@ -212,13 +252,6 @@ func TestSerializeDeserializeMasterRecord(t *testing.T) {
 			11: 2000,
 			12: 3000,
 		},
-		deadVersionRanges: []VersionRange{{
-			VersionStart: 123,
-			VersionEnd:   234,
-		}, {
-			VersionStart: 467,
-			VersionEnd:   876,
-		}},
 		lastFlushedVersion:   1234,
 		lastProcessedReplSeq: 5432,
 		stats: &Stats{

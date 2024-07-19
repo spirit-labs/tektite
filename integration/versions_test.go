@@ -478,8 +478,8 @@ func (t *testLevelMgrClient) GetStats() (levels.Stats, error) {
 	return levels.Stats{}, nil
 }
 
-func (t *testLevelMgrClient) GetTableIDsForRange([]byte, []byte) (levels.OverlappingTableIDs, []levels.VersionRange, error) {
-	return nil, nil, nil
+func (t *testLevelMgrClient) QueryTablesInRange([]byte, []byte) (levels.OverlappingTables, error) {
+	return nil, nil
 }
 
 func (t *testLevelMgrClient) RegisterL0Tables(levels.RegistrationBatch) error {
