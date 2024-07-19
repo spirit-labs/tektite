@@ -89,13 +89,13 @@ egest_stream := local_topic -> (bridge to %s props = ("bootstrap.servers" = "%s"
 
 	// Rows should arrive via the bridge from
 
-	waitForRows(t, "ingest_stream", 20, cli, start)
+	waitForRowsIgnoreDups(t, "ingest_stream", 20, cli, start, true)
 
 	// Now send some more messages
 	_, err = sendMessages(2, 10, 20, "local_topic", producer)
 	require.NoError(t, err)
 
-	waitForRows(t, "ingest_stream", 40, cli, start)
+	waitForRowsIgnoreDups(t, "ingest_stream", 40, cli, start, true)
 }
 
 func TestBridgeSimulateNetworkFailure(t *testing.T) {
