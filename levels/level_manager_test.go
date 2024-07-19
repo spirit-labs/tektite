@@ -1476,10 +1476,16 @@ func TestDeadVersionsRemovedOnStartup(t *testing.T) {
 		VersionEnd:   33,
 	}
 	// Apply a lock to prevent compaction happening straight away
-	lm.lockTable("sst1")
+	lr := lockedRange{
+		level: 1,
+		start: regEntry.KeyStart,
+		end:   regEntry.KeyEnd,
+	}
+	lm.LockRange(lr)
+
 	err = lm.RegisterDeadVersionRange(rng, "test_cluster", 123, false, 0)
 	require.NoError(t, err)
-	lm.unlockTable("sst1")
+	lm.UnlockRange(lr)
 
 	stats := lm.GetCompactionStats()
 	require.Equal(t, 0, stats.QueuedJobs)

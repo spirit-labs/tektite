@@ -67,16 +67,14 @@ type LevelManager struct {
 	jobQueue                       []jobHolder
 	inProgress                     map[string]inProgressCompaction
 	pendingCompactions             map[int]int
-	lockedTables                   map[string]struct{}
+	lockedRanges                   map[int][]lockedRange
 	pollers                        *pollerQueue
 	stats                          CompactionStats
 	removeDeadVersionsInProgress   bool
 	enableDedup                    bool
 	level0Groups                   map[int][]*TableEntry
 	sstProcessorMap                map[string]int
-	compactingStartupL0Group       bool
-
-	readable atomic.Pointer[readableState]
+	readable                       atomic.Pointer[readableState]
 }
 
 type readableState struct {
@@ -120,7 +118,7 @@ func NewLevelManager(conf *conf.Config, cloudStore objstore.Client, tabCache *ta
 		validateOnEachStateChange: validateOnEachStateChange,
 		pollers:                   &pollerQueue{},
 		inProgress:                map[string]inProgressCompaction{},
-		lockedTables:              map[string]struct{}{},
+		lockedRanges:              map[int][]lockedRange{},
 		pendingCompactions:        map[int]int{},
 		enableDedup:               enableDedup,
 		st:                        stateCreated,
@@ -835,13 +833,6 @@ func (lm *LevelManager) updateL0Groups(regBatch RegistrationBatch) error {
 			} else {
 				lm.level0Groups[processorID] = group
 			}
-		}
-	}
-	if lm.compactingStartupL0Group {
-		_, ok := lm.level0Groups[-1]
-		if !ok {
-			// We were compacting L0 Groups and now they are compacted so set flag to false
-			lm.compactingStartupL0Group = false
 		}
 	}
 	if debug.SanityChecks {

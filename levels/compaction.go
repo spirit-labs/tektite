@@ -22,6 +22,19 @@ type jobHolder struct {
 	completionFunc func(error)
 }
 
+type lockedRange struct {
+	level int
+	start []byte
+	end   []byte
+}
+
+func (lr *lockedRange) overlaps(rng *lockedRange) bool {
+	dontOverlapRight := bytes.Compare(rng.start, lr.end) > 0
+	dontOverlapLeft := bytes.Compare(rng.end, lr.start) < 0
+	dontOverlap := dontOverlapLeft || dontOverlapRight
+	return !dontOverlap
+}
+
 func (lm *LevelManager) maybeScheduleCompaction() error {
 
 	// If there are any dead version ranges that need to be removed these always take priority.
@@ -80,45 +93,59 @@ outer:
 
 		// We compact each slice in its own job
 		var tablesToCompact [][]tableToCompact
-		for _, table := range tables {
-			_, locked := lm.lockedTables[string(table.SSTableID)]
-			if locked {
-				// there's already a job that includes this table - we can't compact this slice
-				hasLocked = true
-				continue outer
-			}
+
+		// Calculate overall range of source tables
+		sourceRangeStart, sourceRangeEnd := lm.calculateOverallRange(tables)
+		sourceRange := lockedRange{
+			level: level,
+			start: sourceRangeStart,
+			end:   sourceRangeEnd,
 		}
 
-		// find overlap with next level
+		// First check if this range is already locked
+		if lm.isRangeLocked(sourceRange) {
+			// there's already a job that includes this range - we can't compact this slice
+			hasLocked = true
+			continue outer
+		}
+
+		// find overlap with tables in next level
 		var overlapping []*TableEntry
 		if destLevelExists {
-			// it's critical we calculate the overlap to exclude versions, so we make
-			// sure we capture overlapping keys of any version
-			rangeStart, rangeEnd := lm.calculateOverallRange(tables)
-			rangeStartNoVersion := rangeStart[:len(rangeStart)-8]
-
-			// rangeEnd param to getOverlappingTables is exclusive, so we need to increment
-			rangeEndNoVersion := rangeEnd[:len(rangeEnd)-8]
-			rangeEndNoVersion = common.IncrementBytesBigEndian(rangeEndNoVersion)
+			// note: rangeEnd param to getOverlappingTables is exclusive, so we need to increment
+			rangeEnd := common.IncrementBytesBigEndian(sourceRangeEnd)
 			var err error
 			var ok bool
-			ok, overlapping, err = lm.getOverlappingTables(rangeStartNoVersion, rangeEndNoVersion, level+1, segmentEntries)
+			ok, overlapping, err = lm.getOverlappingTables(sourceRangeStart, rangeEnd, level+1, segmentEntries)
 			if err != nil {
 				return 0, false, err
 			}
 			if !ok {
-				// should never happen in compaction
 				panic("failed to find segment")
 			}
 		}
-		for _, overlap := range overlapping {
-			_, locked := lm.lockedTables[string(overlap.SSTableID)]
-			if locked {
-				// there's already a job that includes this table - we can't compact this slice
-				hasLocked = true
-				continue outer
-			}
+
+		// calculate maximum possible overall range of results of compaction
+		destRangeStart := sourceRangeStart
+		destRangeEnd := sourceRangeEnd
+		if len(overlapping) > 0 {
+			destRangeStart, destRangeEnd = lm.calculateOverallRange(append(tables, overlapping...))
 		}
+		destRange := lockedRange{
+			level: level + 1,
+			start: destRangeStart,
+			end:   destRangeEnd,
+		}
+
+		// Now check if overall result range is already locked in destination level - note that we lock ranges instead
+		// of locking destination tables, as when compacting into an empty level we still need to lock the destination
+		// range to prevent more than once concurrent compaction compacting into the same destination range
+		if lm.isRangeLocked(destRange) {
+			// there's already a job that includes this table - we can't compact this slice
+			hasLocked = true
+			continue outer
+		}
+
 		canCompact := true
 		// create the job
 		var tableIDs []sst.SSTableID
@@ -188,6 +215,8 @@ outer:
 			scheduleTime:       common.NanoTime(),
 			serverTime:         uint64(time.Now().UTC().UnixMilli()),
 			lastFlushedVersion: lm.minNonCompactableVersion(),
+			sourceRange:        sourceRange,
+			destRange:          destRange,
 		}
 
 		log.Debugf("created compaction job %s from level %d last level is %d, preserve tombstones is %t",
@@ -216,6 +245,19 @@ outer:
 
 	// return number of jobs, whether any tables were locked
 	return len(jobs), hasLocked, nil
+}
+
+func (lm *LevelManager) isRangeLocked(rng lockedRange) bool {
+	rngs, ok := lm.lockedRanges[rng.level]
+	if !ok {
+		return false
+	}
+	for _, r := range rngs {
+		if r.overlaps(&rng) {
+			return true
+		}
+	}
+	return false
 }
 
 func (lm *LevelManager) minNonCompactableVersion() int64 {
@@ -290,19 +332,49 @@ func (lm *LevelManager) queueOrDespatchJob(job CompactionJob, complFunc func(err
 }
 
 func (lm *LevelManager) lockTablesForJob(job CompactionJob) {
-	for _, overlapping := range job.tables {
-		for _, st := range overlapping {
-			lm.lockedTables[string(st.table.SSTableID)] = struct{}{}
-		}
-	}
+	lm.lockRange(job.sourceRange)
+	lm.lockRange(job.destRange)
 }
 
 func (lm *LevelManager) unlockTablesForJob(job CompactionJob) {
-	for _, overlapping := range job.tables {
-		for _, st := range overlapping {
-			delete(lm.lockedTables, string(st.table.SSTableID))
+	lm.unlockRange(job.sourceRange)
+	lm.unlockRange(job.destRange)
+}
+
+func (lm *LevelManager) LockRange(rng lockedRange) {
+	lm.lock.Lock()
+	defer lm.lock.Unlock()
+	lm.lockRange(rng)
+}
+
+func (lm *LevelManager) lockRange(rng lockedRange) {
+	lm.lockedRanges[rng.level] = append(lm.lockedRanges[rng.level], rng)
+}
+
+func (lm *LevelManager) UnlockRange(rng lockedRange) {
+	lm.lock.Lock()
+	defer lm.lock.Unlock()
+	lm.unlockRange(rng)
+}
+
+func (lm *LevelManager) unlockRange(r lockedRange) {
+	levelRanges, ok := lm.lockedRanges[r.level]
+	if ok {
+		var newRanges []lockedRange
+		found := false
+		for _, rng := range levelRanges {
+			if !(bytes.Equal(r.start, rng.start) && bytes.Equal(r.end, rng.end)) {
+				newRanges = append(newRanges, rng)
+			} else {
+				found = true
+			}
+		}
+		if found {
+			lm.lockedRanges[r.level] = newRanges
+			return
 		}
 	}
+	panic(fmt.Sprintf("failed to unlock range %v - not found", r))
 }
 
 func (lm *LevelManager) calculateOverallRange(tables []*TableEntry) ([]byte, []byte) {
@@ -322,7 +394,9 @@ func (lm *LevelManager) calculateOverallRange(tables []*TableEntry) ([]byte, []b
 			}
 		}
 	}
-	return rangeStart, rangeEnd
+	// it's critical we calculate the overlap to exclude versions, so we make
+	// sure we capture overlapping keys of any version
+	return rangeStart[:len(rangeStart)-8], rangeEnd[:len(rangeEnd)-8]
 }
 
 func (lm *LevelManager) chooseLevelToCompact() (int, int) {
@@ -354,10 +428,6 @@ func (lm *LevelManager) tableCount(level int) int {
 
 func (lm *LevelManager) chooseTablesToCompact(level int, maxTables int) ([][]*TableEntry, error) {
 	if level == 0 {
-		if lm.compactingStartupL0Group {
-			// L0 startup group compaction in progress
-			return nil, nil
-		}
 		startupEntries, ok := lm.level0Groups[-1]
 		if ok {
 			// There are startup entries - they must be compacted first
@@ -645,7 +715,6 @@ func (lm *LevelManager) maybeScheduleRemoveDeadVersionEntries() error {
 			level        int
 			tableEntries [][]*TableEntry
 		}
-		scheduledAll := true
 		var infos []compactInfo
 		for level, entries := range lm.masterRecord.levelSegmentEntries {
 			if entries.maxVersion < versionRange.VersionStart {
@@ -657,33 +726,12 @@ func (lm *LevelManager) maybeScheduleRemoveDeadVersionEntries() error {
 				return err
 			}
 			if level == 0 {
-				// We compact the entire level, if at least one table matches dead version
-				hasMatch := false
-				if len(entries.segmentEntries) > 0 {
-					l0SegmentEntry := entries.segmentEntries[0]
-					l0Seg, err := lm.getSegment(l0SegmentEntry.segmentID)
-					if err != nil {
-						return err
-					}
-					tables := l0Seg.tableEntries
-					for _, tableEntry := range tables {
+				// Look at each group
+				for _, g := range lm.level0Groups {
+					for _, tableEntry := range g {
 						if tableEntry.MaxVersion >= versionRange.VersionStart && tableEntry.MinVersion <= versionRange.VersionEnd {
-							hasMatch = true
-							break
-						}
-					}
-				}
-				if hasMatch {
-					if lm.compactingStartupL0Group {
-						scheduledAll = false
-					} else {
-						startupEntries, ok := lm.level0Groups[-1]
-						if ok {
-							// If there are any startup entries they should be scheduled first
-							tableEntries = [][]*TableEntry{startupEntries}
-							scheduledAll = false // There could be other L0 entries too, with dead versions in them
-						} else {
-							tableEntries = lm.getAllL0Tables()
+							// possibly contains dead versions
+							tableEntries = append(tableEntries, g)
 						}
 					}
 				}
@@ -711,7 +759,7 @@ func (lm *LevelManager) maybeScheduleRemoveDeadVersionEntries() error {
 			}
 		}
 
-		if scheduledAll && len(infos) == 0 {
+		if len(infos) == 0 {
 			log.Debugf("removal of dead version range: %v - no data to remove so doing nothing", versionRange)
 			// Nothing to do, we can remove the dead version now
 			lm.masterRecord.deadVersionRanges = lm.masterRecord.deadVersionRanges[1:]
@@ -725,6 +773,7 @@ func (lm *LevelManager) maybeScheduleRemoveDeadVersionEntries() error {
 			return nil
 		}
 
+		scheduledAll := true
 		cf := common.NewCountDownFuture(0, func(err error) {
 
 			// This will be called with the compaction and lm locks held
@@ -770,18 +819,6 @@ func (lm *LevelManager) maybeScheduleRemoveDeadVersionEntries() error {
 
 		return nil
 	}
-}
-
-func (lm *LevelManager) lockTable(tableName string) {
-	lm.lock.Lock()
-	defer lm.lock.Unlock()
-	lm.lockedTables[tableName] = struct{}{}
-}
-
-func (lm *LevelManager) unlockTable(tableName string) {
-	lm.lock.Lock()
-	defer lm.lock.Unlock()
-	delete(lm.lockedTables, tableName)
 }
 
 func (lm *LevelManager) forceCompaction(level int, maxTables int) error {
@@ -835,6 +872,8 @@ type CompactionJob struct {
 	scheduleTime       uint64 // Used for timing jobs - we use nanoTime to avoid errors if clocks change
 	serverTime         uint64 // Unix millis past epoch - Used on compaction workers to determine if entries are expired
 	lastFlushedVersion int64
+	sourceRange        lockedRange // Not used on compaction worker so doesn't need to be serialized
+	destRange          lockedRange // Not used on compaction worker so doesn't need to be serialized
 }
 
 func (c *CompactionJob) Serialize(buff []byte) []byte {
