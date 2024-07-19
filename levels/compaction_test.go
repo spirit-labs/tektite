@@ -2179,8 +2179,8 @@ func TestCompleteDeadVersionRemovalNotAllScheduledOneWaiting(t *testing.T) {
 		TableID:    []byte("sst2"),
 		MinVersion: 19,
 		MaxVersion: 53,
-		KeyStart:   encoding.EncodeVersion([]byte("key-0000"), 0),
-		KeyEnd:     encoding.EncodeVersion([]byte("key-0003"), 0),
+		KeyStart:   encoding.EncodeVersion([]byte("key-0004"), 0),
+		KeyEnd:     encoding.EncodeVersion([]byte("key-0007"), 0),
 	}
 	regBatch := RegistrationBatch{
 		Registrations: []RegistrationEntry{regEntry1, regEntry2},
@@ -2197,7 +2197,11 @@ func TestCompleteDeadVersionRemovalNotAllScheduledOneWaiting(t *testing.T) {
 	}
 
 	// lock one of the tables - this simulates another compaction job in progress which has it locked
-	lm.lockTable("sst1")
+	lm.LockRange(lockedRange{
+		level: 1,
+		start: regEntry1.KeyStart,
+		end:   regEntry1.KeyEnd,
+	})
 
 	err = lm.RegisterDeadVersionRange(rng1, "test_cluster", 123, false, 0)
 	require.NoError(t, err)
@@ -2229,7 +2233,11 @@ func TestCompleteDeadVersionRemovalNotAllScheduledOneWaiting(t *testing.T) {
 	require.False(t, job.isMove)
 
 	// Now unlock the table
-	lm.unlockTable("sst1")
+	lm.UnlockRange(lockedRange{
+		level: 1,
+		start: regEntry1.KeyStart,
+		end:   regEntry1.KeyEnd,
+	})
 
 	sendCompactionComplete(t, lm, job, []TableEntry{})
 
@@ -2455,7 +2463,7 @@ func TestJobCreatedWithLastFlushedVersion(t *testing.T) {
 	err = lm.StoreLastFlushedVersion(100, false, 0)
 	require.NoError(t, err)
 
-	sst3 := createTableEntryWithDeleteRatio("sst3", 10, 19, 0.5)
+	sst3 := createTableEntryWithDeleteRatio("sst3", 20, 29, 0.5)
 	populateLevel(t, lm, 1, sst3)
 	err = lm.MaybeScheduleCompaction()
 	require.NoError(t, err)
