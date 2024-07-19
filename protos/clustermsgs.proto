@@ -66,12 +66,6 @@ message LevelManagerGetTableIDsForRangeMessage {
 
 message LevelManagerGetTableIDsForRangeResponse {
   bytes payload = 1;
-  repeated LevelManagerVersionRange dead_versions = 2;
-}
-
-message LevelManagerVersionRange {
-  uint64 version_start = 1;
-  uint64 version_end = 2;
 }
 
 message LevelManagerRawResponse {

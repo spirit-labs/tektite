@@ -2,41 +2,57 @@
 package levels
 
 import (
+	"encoding/binary"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/encoding"
 	"github.com/spirit-labs/tektite/sst"
 )
 
-type NonoverlappingTableIDs []sst.SSTableID
+type QueryTableInfo struct {
+	ID           sst.SSTableID
+	DeadVersions []VersionRange
+}
 
-type OverlappingTableIDs []NonoverlappingTableIDs
+type NonOverlappingTables []QueryTableInfo
 
-func (ot OverlappingTableIDs) Serialize(bytes []byte) []byte {
+type OverlappingTables []NonOverlappingTables
+
+func (ot OverlappingTables) Serialize(bytes []byte) []byte {
 	bytes = encoding.AppendUint32ToBufferLE(bytes, uint32(len(ot)))
-	for _, noids := range ot {
-		bytes = encoding.AppendUint32ToBufferLE(bytes, uint32(len(noids)))
-		for _, tid := range noids {
-			bytes = encoding.AppendUint32ToBufferLE(bytes, uint32(len(tid)))
-			bytes = append(bytes, tid...)
+	for _, tableInfos := range ot {
+		bytes = encoding.AppendUint32ToBufferLE(bytes, uint32(len(tableInfos)))
+		for _, tableInfo := range tableInfos {
+			bytes = encoding.AppendUint32ToBufferLE(bytes, uint32(len(tableInfo.ID)))
+			bytes = append(bytes, tableInfo.ID...)
+			bytes = encoding.AppendUint32ToBufferLE(bytes, uint32(len(tableInfo.DeadVersions)))
+			for _, dv := range tableInfo.DeadVersions {
+				bytes = dv.Serialize(bytes)
+			}
 		}
 	}
 	return bytes
 }
 
-func DeserializeOverlappingTableIDs(bytes []byte, offset int) OverlappingTableIDs {
+func DeserializeOverlappingTables(bytes []byte, offset int) OverlappingTables {
 	nn, offset := encoding.ReadUint32FromBufferLE(bytes, offset)
-	otids := make([]NonoverlappingTableIDs, nn)
+	otids := make([]NonOverlappingTables, nn)
 	for i := 0; i < int(nn); i++ {
 		var no uint32
 		no, offset = encoding.ReadUint32FromBufferLE(bytes, offset)
-		tabIDs := make([]sst.SSTableID, no)
-		otids[i] = tabIDs
+		tableInfos := make([]QueryTableInfo, no)
+		otids[i] = tableInfos
 		for j := 0; j < int(no); j++ {
 			var l uint32
 			l, offset = encoding.ReadUint32FromBufferLE(bytes, offset)
 			tabID := bytes[offset : offset+int(l)]
 			offset += int(l)
-			tabIDs[j] = tabID
+			tableInfos[j].ID = tabID
+			l, offset = encoding.ReadUint32FromBufferLE(bytes, offset)
+			deadVersions := make([]VersionRange, l)
+			for i := 0; i < int(l); i++ {
+				offset = deadVersions[i].Deserialize(bytes, offset)
+			}
+			tableInfos[j].DeadVersions = deadVersions
 		}
 	}
 	return otids
@@ -180,16 +196,24 @@ func (s *segment) deserialize(buff []byte) {
 }
 
 type TableEntry struct {
-	SSTableID        sst.SSTableID
-	RangeStart       []byte
-	RangeEnd         []byte
-	MinVersion       uint64
-	MaxVersion       uint64
-	DeleteRatio      float64
-	AddedTime        uint64 // The time the table was first added to the database - used to calculate retention
-	NumEntries       uint64
-	Size             uint64
-	NumPrefixDeletes uint32
+	SSTableID         sst.SSTableID
+	RangeStart        []byte
+	RangeEnd          []byte
+	MinVersion        uint64
+	MaxVersion        uint64
+	DeleteRatio       float64
+	AddedTime         uint64 // The time the table was first added to the database - used to calculate retention
+	NumEntries        uint64
+	Size              uint64
+	NumPrefixDeletes  uint32
+	DeadVersionRanges []VersionRange
+}
+
+func (te *TableEntry) copy() *TableEntry {
+	cp := *te
+	cp.DeadVersionRanges = make([]VersionRange, len(te.DeadVersionRanges))
+	copy(cp.DeadVersionRanges, te.DeadVersionRanges)
+	return &cp
 }
 
 func (te *TableEntry) serialize(buff []byte) []byte {
@@ -205,6 +229,12 @@ func (te *TableEntry) serialize(buff []byte) []byte {
 	buff = encoding.AppendUint64ToBufferLE(buff, te.NumEntries)
 	buff = encoding.AppendUint64ToBufferLE(buff, te.Size)
 	buff = encoding.AppendUint32ToBufferLE(buff, te.NumPrefixDeletes)
+	// We encode DeadVersionRanges as varint to save space as most TableEntry instances won't have any DeadVersionRanges
+	ldvps := len(te.DeadVersionRanges)
+	buff = binary.AppendUvarint(buff, uint64(ldvps))
+	for i := 0; i < ldvps; i++ {
+		buff = te.DeadVersionRanges[i].Serialize(buff)
+	}
 	return buff
 }
 
@@ -225,6 +255,14 @@ func (te *TableEntry) deserialize(buff []byte, offset int) int {
 	te.NumEntries, offset = encoding.ReadUint64FromBufferLE(buff, offset)
 	te.Size, offset = encoding.ReadUint64FromBufferLE(buff, offset)
 	te.NumPrefixDeletes, offset = encoding.ReadUint32FromBufferLE(buff, offset)
+	ldvps, bytesRead := binary.Uvarint(buff[offset:])
+	offset += bytesRead
+	if ldvps > 0 {
+		te.DeadVersionRanges = make([]VersionRange, ldvps)
+		for i := 0; i < int(ldvps); i++ {
+			offset = te.DeadVersionRanges[i].Deserialize(buff, offset)
+		}
+	}
 	return offset
 }
 
@@ -370,7 +408,6 @@ type masterRecord struct {
 	levelSegmentEntries  []levelEntries
 	levelTableCounts     map[int]int
 	slabRetentions       map[uint64]uint64 // this is a map as we can get duplicate registrations
-	deadVersionRanges    []VersionRange
 	lastFlushedVersion   int64
 	lastProcessedReplSeq int
 	stats                *Stats
@@ -401,15 +438,12 @@ func (mr *masterRecord) copy() *masterRecord {
 	for level, cnt := range mr.levelTableCounts {
 		tableCountCopy[level] = cnt
 	}
-	deadVersionRangesCopy := make([]VersionRange, len(mr.deadVersionRanges))
-	copy(deadVersionRangesCopy, mr.deadVersionRanges)
 	return &masterRecord{
 		format:               mr.format,
 		version:              mr.version,
 		levelSegmentEntries:  lseCopy,
 		levelTableCounts:     tableCountCopy,
 		slabRetentions:       prefixRetentionsCopy,
-		deadVersionRanges:    deadVersionRangesCopy,
 		lastFlushedVersion:   mr.lastFlushedVersion,
 		lastProcessedReplSeq: mr.lastProcessedReplSeq,
 		stats:                mr.stats.copy(),
@@ -436,10 +470,6 @@ func (mr *masterRecord) serialize(buff []byte) []byte {
 	for slabID, retention := range mr.slabRetentions {
 		buff = encoding.AppendUint64ToBufferLE(buff, slabID)
 		buff = encoding.AppendUint64ToBufferLE(buff, retention)
-	}
-	buff = encoding.AppendUint32ToBufferLE(buff, uint32(len(mr.deadVersionRanges)))
-	for _, rng := range mr.deadVersionRanges {
-		buff = rng.Serialize(buff)
 	}
 	buff = encoding.AppendUint64ToBufferLE(buff, uint64(mr.lastFlushedVersion))
 	buff = encoding.AppendUint64ToBufferLE(buff, uint64(mr.lastProcessedReplSeq))
@@ -487,12 +517,6 @@ func (mr *masterRecord) deserialize(buff []byte, offset int) int {
 		var retention uint64
 		retention, offset = encoding.ReadUint64FromBufferLE(buff, offset)
 		mr.slabRetentions[slabID] = retention
-	}
-	var nr uint32
-	nr, offset = encoding.ReadUint32FromBufferLE(buff, offset)
-	mr.deadVersionRanges = make([]VersionRange, nr)
-	for i := 0; i < int(nr); i++ {
-		offset = mr.deadVersionRanges[i].Deserialize(buff, offset)
 	}
 	var lfv uint64
 	lfv, offset = encoding.ReadUint64FromBufferLE(buff, offset)
