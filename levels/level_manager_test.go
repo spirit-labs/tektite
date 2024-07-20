@@ -1962,3 +1962,77 @@ func TestStats(t *testing.T) {
 	require.Equal(t, l2TotTableSize-int(deregBatch2.TableSize), levStats2.Bytes)
 	require.Equal(t, l2TotEntrySize-int(deregBatch2.NumEntries), levStats2.Entries)
 }
+
+func TestContainsTable(t *testing.T) {
+	populatedSeg := &segment{
+		format: 26,
+		tableEntries: []*TableEntry{
+			{
+				SSTableID:  []byte("sstableid1"),
+				RangeStart: []byte("rangestart1"),
+				RangeEnd:   []byte("rangeend1"),
+			},
+			{
+				SSTableID:  []byte("sstableid2"),
+				RangeStart: []byte("rangestart2"),
+				RangeEnd:   []byte("rangeend2"),
+			},
+		},
+	}
+	emptySeg := &segment{
+		format:       26,
+		tableEntries: []*TableEntry{},
+	}
+	var testCases = []struct {
+		name     string
+		seg      *segment
+		tabID    []byte
+		expected bool
+	}{
+		{
+			name:     "sstableid1",
+			seg:      populatedSeg,
+			tabID:    []byte("sstableid1"),
+			expected: true,
+		},
+		{
+			name:     "sstableid2",
+			seg:      populatedSeg,
+			tabID:    []byte("sstableid2"),
+			expected: true,
+		},
+		{
+			name:     "non-existing table id",
+			seg:      populatedSeg,
+			tabID:    []byte("sstableid3"),
+			expected: false,
+		},
+		{
+			name:     "empty table id",
+			seg:      emptySeg,
+			tabID:    []byte(""),
+			expected: false,
+		},
+		{
+			name:     "table id less than first entry",
+			seg:      populatedSeg,
+			tabID:    []byte("aaaaa"),
+			expected: false,
+		},
+		{
+			name:     "table id greater than last entry",
+			seg:      populatedSeg,
+			tabID:    []byte("zzzzz"),
+			expected: false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			result := containsTable(tc.seg, tc.tabID)
+			if result != tc.expected {
+				t.Errorf("expected %v, got %v", tc.expected, result)
+			}
+		})
+	}
+}
