@@ -2051,10 +2051,10 @@ func TestGetSegmentForRegistration(t *testing.T) {
 		expected     int
 	}{
 		{name: "no valid insertion point", registration: RegistrationEntry{KeyStart: []byte("b"), KeyEnd: []byte("e")}, expected: -1},
-		{name: "insertion at the head", registration: RegistrationEntry{KeyStart: []byte("a"), KeyEnd: []byte("aa")}, expected: 0},
-		{name: "insertion between first and second segment", registration: RegistrationEntry{KeyStart: []byte("ccd"), KeyEnd: []byte("ccdd")}, expected: 1},
-		{name: "insertion between second and third segment", registration: RegistrationEntry{KeyStart: []byte("ffg"), KeyEnd: []byte("ffgg")}, expected: 2},
-		{name: "insertion after the last segment", registration: RegistrationEntry{KeyStart: []byte("iiii"), KeyEnd: []byte("j")}, expected: 3},
+		{name: "find segment at the head", registration: RegistrationEntry{KeyStart: []byte("a"), KeyEnd: []byte("aa")}, expected: 0},
+		{name: "find segment between first and second segment", registration: RegistrationEntry{KeyStart: []byte("ccd"), KeyEnd: []byte("ccdd")}, expected: 1},
+		{name: "find segment between second and third segment", registration: RegistrationEntry{KeyStart: []byte("ffg"), KeyEnd: []byte("ffgg")}, expected: 2},
+		{name: "find segment at the end", registration: RegistrationEntry{KeyStart: []byte("iiii"), KeyEnd: []byte("j")}, expected: 2},
 	}
 
 	for _, tc := range testCases {

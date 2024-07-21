@@ -1712,6 +1712,15 @@ func containsTable(seg *segment, tabID sst.SSTableID) bool {
 
 func getSegmentForRegistration(segmentEntries []segmentEntry, registration RegistrationEntry) int {
 	n := len(segmentEntries)
+	// if n == 0 then sort.Search considers 0 a legal insertion point
+	// for now we still return -1 to fit in with the current code
+	if n == 0 {
+		return -1
+	}
+	// fits the case i == 0 && i == len(segmentEntries)-1
+	if n == 1 {
+		return 0
+	}
 	// with sort.Search we need a compare function that partitions the array into true/false
 	index := sort.Search(n, func(i int) bool {
 		return bytes.Compare(registration.KeyEnd, segmentEntries[i].rangeStart) < 0
@@ -1721,7 +1730,11 @@ func getSegmentForRegistration(segmentEntries []segmentEntry, registration Regis
 		return index
 	}
 	if bytes.Compare(registration.KeyStart, segmentEntries[index-1].rangeEnd) > 0 {
-		return index
+		if index == n {
+			return index - 1
+		} else {
+			return index
+		}
 	}
 	return -1
 }
