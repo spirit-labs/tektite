@@ -1128,20 +1128,10 @@ func (lm *LevelManager) applyRegistrations(registrations []RegistrationEntry) er
 			// Segments in these levels are non overlapping
 
 			// Find which segment the new registration belongs in
-			found := -1
-			numSegmentEntries := len(segmentEntries)
-
 			// If the new table key start is after the key end of the previous segment (or there is no previous segment)
 			// and the new table key end is before the key start of the next segment (or there is no next segment)
 			// then we add the table entry to the current segment
-			cmpRegistration := func(i int) bool {
-				return (i == 0 || bytes.Compare(registration.KeyStart, segmentEntries[i-1].rangeEnd) > 0) &&
-					(i == numSegmentEntries-1 || bytes.Compare(registration.KeyEnd, segmentEntries[i+1].rangeStart) < 0)
-			}
-			index := sort.Search(numSegmentEntries, cmpRegistration)
-			if index < numSegmentEntries {
-				found = index
-			}
+			found := getSegmentForRegistration(segmentEntries, registration)
 			if len(segmentEntries) > 0 && found == -1 {
 				panic("cannot find segment for new table entry")
 			}
@@ -1163,7 +1153,7 @@ func (lm *LevelManager) applyRegistrations(registrations []RegistrationEntry) er
 				// Find the insert before point
 				insertPoint := -1
 				numTableEntries := len(seg.tableEntries)
-				index = sort.Search(numTableEntries, func(i int) bool {
+				index := sort.Search(numTableEntries, func(i int) bool {
 					return bytes.Compare(registration.KeyEnd, seg.tableEntries[i].RangeStart) < 0
 				})
 				if index < numTableEntries {
@@ -1718,6 +1708,22 @@ func containsTable(seg *segment, tabID sst.SSTableID) bool {
 		return bytes.Compare(seg.tableEntries[i].SSTableID, tabID) >= 0
 	})
 	return index < n && bytes.Equal(seg.tableEntries[index].SSTableID, tabID)
+}
+
+func getSegmentForRegistration(segmentEntries []segmentEntry, registration RegistrationEntry) int {
+	n := len(segmentEntries)
+	// with sort.Search we need a compare function that partitions the array into true/false
+	index := sort.Search(n, func(i int) bool {
+		return bytes.Compare(registration.KeyEnd, segmentEntries[i].rangeStart) < 0
+	})
+	// now we can check if the KeyStart is > than segmentEntries[i-1].rangeEnd
+	if index == 0 {
+		return index
+	}
+	if bytes.Compare(registration.KeyStart, segmentEntries[index-1].rangeEnd) > 0 {
+		return index
+	}
+	return -1
 }
 
 func (lm *LevelManager) GetObjectStore() objstore.Client {

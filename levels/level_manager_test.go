@@ -2036,3 +2036,33 @@ func TestContainsTable(t *testing.T) {
 		})
 	}
 }
+
+func TestGetSegmentForRegistration(t *testing.T) {
+	segmentEntries := []segmentEntry{
+		{rangeStart: []byte("aaa"), rangeEnd: []byte("ccc")},
+		{rangeStart: []byte("ddd"), rangeEnd: []byte("fff")},
+		{rangeStart: []byte("ggg"), rangeEnd: []byte("iii")},
+	}
+
+	// Test cases
+	testCases := []struct {
+		name         string
+		registration RegistrationEntry
+		expected     int
+	}{
+		{name: "no valid insertion point", registration: RegistrationEntry{KeyStart: []byte("b"), KeyEnd: []byte("e")}, expected: -1},
+		{name: "insertion at the head", registration: RegistrationEntry{KeyStart: []byte("a"), KeyEnd: []byte("aa")}, expected: 0},
+		{name: "insertion between first and second segment", registration: RegistrationEntry{KeyStart: []byte("ccd"), KeyEnd: []byte("ccdd")}, expected: 1},
+		{name: "insertion between second and third segment", registration: RegistrationEntry{KeyStart: []byte("ffg"), KeyEnd: []byte("ffgg")}, expected: 2},
+		{name: "insertion after the last segment", registration: RegistrationEntry{KeyStart: []byte("iiii"), KeyEnd: []byte("j")}, expected: 3},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			index := getSegmentForRegistration(segmentEntries, tc.registration)
+			if index != tc.expected {
+				t.Errorf("expected %d, got %d", tc.expected, index)
+			}
+		})
+	}
+}
