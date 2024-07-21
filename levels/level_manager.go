@@ -1723,7 +1723,7 @@ func getSegmentForRegistration(segmentEntries []segmentEntry, registration Regis
 	}
 	// with sort.Search we need a compare function that partitions the array into true/false
 	index := sort.Search(n, func(i int) bool {
-		return bytes.Compare(registration.KeyEnd, segmentEntries[i].rangeStart) < 0
+		return i == n-1 || bytes.Compare(registration.KeyEnd, segmentEntries[i+1].rangeStart) < 0
 	})
 	// now we can check if the KeyStart is > than segmentEntries[i-1].rangeEnd
 	if index == 0 {
