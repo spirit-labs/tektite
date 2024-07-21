@@ -1129,15 +1129,18 @@ func (lm *LevelManager) applyRegistrations(registrations []RegistrationEntry) er
 
 			// Find which segment the new registration belongs in
 			found := -1
-			for i := 0; i < len(segmentEntries); i++ {
-				// If the new table key start is after the key end of the previous segment (or there is no previous segment)
-				// and the new table key end is before the key start of the next segment (or there is no next segment)
-				// then we add the table entry to the current segment
-				if (i == 0 || bytes.Compare(registration.KeyStart, segmentEntries[i-1].rangeEnd) > 0) &&
-					(i == len(segmentEntries)-1 || bytes.Compare(registration.KeyEnd, segmentEntries[i+1].rangeStart) < 0) {
-					found = i
-					break
-				}
+			numSegmentEntries := len(segmentEntries)
+
+			// If the new table key start is after the key end of the previous segment (or there is no previous segment)
+			// and the new table key end is before the key start of the next segment (or there is no next segment)
+			// then we add the table entry to the current segment
+			cmpRegistration := func(i int) bool {
+				return (i == 0 || bytes.Compare(registration.KeyStart, segmentEntries[i-1].rangeEnd) > 0) &&
+					(i == numSegmentEntries-1 || bytes.Compare(registration.KeyEnd, segmentEntries[i+1].rangeStart) < 0)
+			}
+			index := sort.Search(numSegmentEntries, cmpRegistration)
+			if index < numSegmentEntries {
+				found = index
 			}
 			if len(segmentEntries) > 0 && found == -1 {
 				panic("cannot find segment for new table entry")
@@ -1159,11 +1162,12 @@ func (lm *LevelManager) applyRegistrations(registrations []RegistrationEntry) er
 				}
 				// Find the insert before point
 				insertPoint := -1
-				for i, te := range seg.tableEntries {
-					if bytes.Compare(registration.KeyEnd, te.RangeStart) < 0 {
-						insertPoint = i
-						break
-					}
+				numTableEntries := len(seg.tableEntries)
+				index = sort.Search(numTableEntries, func(i int) bool {
+					return bytes.Compare(registration.KeyEnd, seg.tableEntries[i].RangeStart) < 0
+				})
+				if index < numTableEntries {
+					insertPoint = index
 				}
 
 				if insertPoint > 0 {
