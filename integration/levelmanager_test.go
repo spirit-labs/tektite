@@ -182,7 +182,7 @@ func sendClientCommands(t *testing.T, client levels.Client) {
 	})
 	require.NoError(t, err)
 
-	tids, _, err := client.GetTableIDsForRange([]byte("key01"), []byte("key09"))
+	tids, err := client.QueryTablesInRange([]byte("key01"), []byte("key09"))
 	require.NoError(t, err)
 	require.NotNil(t, tids)
 
@@ -190,7 +190,7 @@ func sendClientCommands(t *testing.T, client levels.Client) {
 	nTids := tids[0]
 	require.Equal(t, 1, len(nTids))
 	receivedTid := nTids[0]
-	require.Equal(t, "some_table_id", string(receivedTid))
+	require.Equal(t, "some_table_id", string(receivedTid.ID))
 
 	// Try and apply changes with an old version, should fail
 	regBatch = levels.RegistrationBatch{
@@ -239,7 +239,7 @@ func sendClientCommands(t *testing.T, client levels.Client) {
 	err = client.ApplyChanges(regBatch)
 	require.NoError(t, err)
 
-	tids, _, err = client.GetTableIDsForRange([]byte("key20"), []byte("key25"))
+	tids, err = client.QueryTablesInRange([]byte("key20"), []byte("key25"))
 	require.NoError(t, err)
 	require.NotNil(t, tids)
 	require.Equal(t, 1, len(tids))

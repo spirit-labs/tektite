@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"github.com/google/uuid"
 	"github.com/spirit-labs/tektite/common"
-	"github.com/spirit-labs/tektite/debug"
 	"github.com/spirit-labs/tektite/encoding"
 	"github.com/spirit-labs/tektite/errors"
 	log "github.com/spirit-labs/tektite/logger"
@@ -36,14 +35,6 @@ func (lr *lockedRange) overlaps(rng *lockedRange) bool {
 }
 
 func (lm *LevelManager) maybeScheduleCompaction() error {
-
-	// If there are any dead version ranges that need to be removed these always take priority.
-	if len(lm.masterRecord.deadVersionRanges) > 0 {
-		if err := lm.maybeScheduleRemoveDeadVersionEntries(); err != nil {
-			return err
-		}
-	}
-
 	// Get a level to compact (if any)
 	level, numTables := lm.chooseLevelToCompact()
 	if level == -1 {
@@ -63,7 +54,7 @@ func (lm *LevelManager) maybeScheduleCompaction() error {
 		return nil
 	}
 
-	_, _, err = lm.scheduleCompaction(level, tables, nil, nil)
+	_, _, err = lm.scheduleCompaction(level, tables, nil)
 	return err
 }
 
@@ -75,8 +66,7 @@ func (lm *LevelManager) getAllL0Tables() [][]*TableEntry {
 	return tableSlices
 }
 
-func (lm *LevelManager) scheduleCompaction(level int, tableSlices [][]*TableEntry, deadVersionRanges []VersionRange,
-	completionFunc func(error)) (int, bool, error) {
+func (lm *LevelManager) scheduleCompaction(level int, tableSlices [][]*TableEntry, completionFunc func(error)) (int, bool, error) {
 	// If we are compacting into the last level, then we delete tombstones
 
 	var jobs []CompactionJob
@@ -146,6 +136,7 @@ outer:
 			continue outer
 		}
 
+		hasDeadVersionRanges := false
 		canCompact := true
 		// create the job
 		var tableIDs []sst.SSTableID
@@ -155,11 +146,10 @@ outer:
 		hasPotentialExpiredEntries := false
 		hasDeletes := false
 		for i := len(tables) - 1; i >= 0; i-- {
-			st := tables[i]
+			st := tables[i].copy()
 			tablesToCompact = append(tablesToCompact, []tableToCompact{{
-				level:             level,
-				table:             st,
-				deadVersionRanges: deadVersionRanges,
+				level: level,
+				table: st,
 			}})
 			tableIDs = append(tableIDs, st.SSTableID)
 			if !hasPotentialExpiredEntries {
@@ -174,16 +164,22 @@ outer:
 				// tombstone as preserveTombstones = false as last level, thus ending up with data not getting deleted
 				canCompact = false
 			}
+			if len(st.DeadVersionRanges) > 0 {
+				hasDeadVersionRanges = true
+			}
 		}
 		if len(overlapping) > 0 {
 			var nextLevelTables []tableToCompact
 			for _, st := range overlapping {
 				nextLevelTables = append(nextLevelTables, tableToCompact{
 					level: level + 1,
-					table: st,
+					table: st.copy(),
 				})
 				if int64(st.MaxVersion) > lfv {
 					canCompact = false
+				}
+				if len(st.DeadVersionRanges) > 0 {
+					hasDeadVersionRanges = true
 				}
 			}
 			tablesToCompact = append(tablesToCompact, nextLevelTables)
@@ -196,7 +192,7 @@ outer:
 		// 4. There is no overlap with tables in the next level
 		// 5. We're not moving to the last level or there are no deletes in the table (we want to remove deletes on the last
 		// level, so we can't move in that case)
-		move := len(tables) == 1 && !hasPotentialExpiredEntries && deadVersionRanges == nil && len(overlapping) == 0 &&
+		move := len(tables) == 1 && !hasPotentialExpiredEntries && !hasDeadVersionRanges && len(overlapping) == 0 &&
 			(level+1 != lm.getLastLevel() || !hasDeletes)
 
 		id := uuid.New().String()
@@ -214,7 +210,7 @@ outer:
 			preserveTombstones: preserveTombstones,
 			scheduleTime:       common.NanoTime(),
 			serverTime:         uint64(time.Now().UTC().UnixMilli()),
-			lastFlushedVersion: lm.minNonCompactableVersion(),
+			lastFlushedVersion: lm.masterRecord.lastFlushedVersion,
 			sourceRange:        sourceRange,
 			destRange:          destRange,
 		}
@@ -258,20 +254,6 @@ func (lm *LevelManager) isRangeLocked(rng lockedRange) bool {
 		}
 	}
 	return false
-}
-
-func (lm *LevelManager) minNonCompactableVersion() int64 {
-	var minRange int64 = math.MaxInt64
-	for _, rng := range lm.masterRecord.deadVersionRanges {
-		if int64(rng.VersionStart) < minRange {
-			minRange = int64(rng.VersionStart)
-		}
-	}
-	lfv := lm.masterRecord.lastFlushedVersion
-	if lfv < minRange {
-		return lfv
-	}
-	return minRange
 }
 
 func (lm *LevelManager) hasPotentialExpiredEntries(te *TableEntry, now uint64) bool {
@@ -698,129 +680,6 @@ func (lm *LevelManager) checkForDeadEntries(rng VersionRange) bool {
 	return false
 }
 
-func (lm *LevelManager) maybeScheduleRemoveDeadVersionEntries() error {
-	log.Debugf("levelmanager.maybeScheduleRemoveDeadVersionEntries")
-	if lm.removeDeadVersionsInProgress {
-		log.Debugf("levelmanager.maybeScheduleRemoveDeadVersionEntries - already in progress")
-
-		// We only process one remove dead versions at a time
-		return nil
-	}
-
-	for {
-		versionRange := lm.masterRecord.deadVersionRanges[0]
-
-		// Scan for any tables that potentially have data that needs to be compacted out
-		type compactInfo struct {
-			level        int
-			tableEntries [][]*TableEntry
-		}
-		var infos []compactInfo
-		for level, entries := range lm.masterRecord.levelSegmentEntries {
-			if entries.maxVersion < versionRange.VersionStart {
-				continue
-			}
-			var tableEntries [][]*TableEntry
-			iter, err := lm.levelIterator(level)
-			if err != nil {
-				return err
-			}
-			if level == 0 {
-				// Look at each group
-				for _, g := range lm.level0Groups {
-					for _, tableEntry := range g {
-						if tableEntry.MaxVersion >= versionRange.VersionStart && tableEntry.MinVersion <= versionRange.VersionEnd {
-							// possibly contains dead versions
-							tableEntries = append(tableEntries, g)
-						}
-					}
-				}
-			} else {
-				for {
-					te, err := iter.Next()
-					if err != nil {
-						return err
-					}
-					if te == nil {
-						break
-					}
-					// Only add the tables that match
-					if te.MaxVersion >= versionRange.VersionStart && te.MinVersion <= versionRange.VersionEnd {
-						tableEntries = append(tableEntries, []*TableEntry{te})
-					}
-				}
-			}
-			log.Debugf("level %d job has %d table entries", level, len(tableEntries))
-			if len(tableEntries) > 0 {
-				infos = append(infos, compactInfo{
-					level:        level,
-					tableEntries: tableEntries,
-				})
-			}
-		}
-
-		if len(infos) == 0 {
-			log.Debugf("removal of dead version range: %v - no data to remove so doing nothing", versionRange)
-			// Nothing to do, we can remove the dead version now
-			lm.masterRecord.deadVersionRanges = lm.masterRecord.deadVersionRanges[1:]
-			if debug.SanityChecks && lm.checkForDeadEntries(versionRange) {
-				panic(fmt.Sprintf("dead entries for range %v still exist after removal", versionRange))
-			}
-			if len(lm.masterRecord.deadVersionRanges) > 0 {
-				// Try with the next version range
-				continue
-			}
-			return nil
-		}
-
-		scheduledAll := true
-		cf := common.NewCountDownFuture(0, func(err error) {
-
-			// This will be called with the compaction and lm locks held
-
-			// Never called with error
-			if err != nil {
-				panic(err)
-			}
-
-			log.Debugf("removal of dead version range: %v completed scheduled all? %t", versionRange, scheduledAll)
-
-			if scheduledAll {
-				// We managed to schedule all compactions required to remove this version range so no more data for the
-				// range can remain - we remove the dead version
-				log.Debugf("dead version range %v removed on level manager", lm.masterRecord.deadVersionRanges[0])
-				lm.masterRecord.deadVersionRanges = lm.masterRecord.deadVersionRanges[1:]
-				if debug.SanityChecks && lm.checkForDeadEntries(versionRange) {
-					panic(fmt.Sprintf("dead entries for range %v still exist after removal", versionRange))
-				}
-			}
-			lm.removeDeadVersionsInProgress = false
-		})
-
-		scheduledCount := 0
-		for _, info := range infos {
-			count, hasLocked, err := lm.scheduleCompaction(info.level, info.tableEntries, []VersionRange{versionRange}, cf.CountDown)
-			if err != nil {
-				return err
-			}
-			if hasLocked {
-				// If we couldn't compact everything we wanted because tables were locked then we didn't schedule all - there
-				// is more compaction to do in order to remove dead version range.
-				scheduledAll = false
-			}
-			scheduledCount += count
-		}
-		cf.SetCount(scheduledCount)
-
-		if scheduledCount > 0 {
-			log.Debugf("scheduled removal of dead version range: %v", versionRange)
-			lm.removeDeadVersionsInProgress = true
-		}
-
-		return nil
-	}
-}
-
 func (lm *LevelManager) forceCompaction(level int, maxTables int) error {
 	lm.lock.Lock()
 	defer lm.lock.Unlock()
@@ -835,7 +694,7 @@ func (lm *LevelManager) forceCompaction(level int, maxTables int) error {
 	if len(tables) == 0 {
 		return nil
 	}
-	_, _, err = lm.scheduleCompaction(level, tables, nil, nil)
+	_, _, err = lm.scheduleCompaction(level, tables, nil)
 	return err
 }
 
@@ -852,9 +711,8 @@ type LevelIterator interface {
 }
 
 type tableToCompact struct {
-	level             int
-	table             *TableEntry
-	deadVersionRanges []VersionRange
+	level int
+	table *TableEntry
 }
 
 type inProgressCompaction struct {
@@ -885,10 +743,6 @@ func (c *CompactionJob) Serialize(buff []byte) []byte {
 		for _, tableToCompact := range tablesToCompact {
 			buff = encoding.AppendUint32ToBufferLE(buff, uint32(tableToCompact.level))
 			buff = tableToCompact.table.serialize(buff)
-			buff = encoding.AppendUint32ToBufferLE(buff, uint32(len(tableToCompact.deadVersionRanges)))
-			for _, rng := range tableToCompact.deadVersionRanges {
-				buff = rng.Serialize(buff)
-			}
 		}
 	}
 	buff = encoding.AppendBoolToBuffer(buff, c.isMove)
@@ -916,21 +770,9 @@ func (c *CompactionJob) Deserialize(buff []byte, offset int) int {
 			l, offset = encoding.ReadUint32FromBufferLE(buff, offset)
 			te := &TableEntry{}
 			offset = te.deserialize(buff, offset)
-
-			var lvr uint32
-			lvr, offset = encoding.ReadUint32FromBufferLE(buff, offset)
-			var deadVersionRanges []VersionRange
-			if lvr > 0 {
-				deadVersionRanges = make([]VersionRange, lvr)
-				for i := 0; i < int(lvr); i++ {
-					offset = deadVersionRanges[i].Deserialize(buff, offset)
-				}
-			}
-
 			tables2[j] = tableToCompact{
-				level:             int(l),
-				table:             te,
-				deadVersionRanges: deadVersionRanges,
+				level: int(l),
+				table: te,
 			}
 		}
 		c.tables[i] = tables2
