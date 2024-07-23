@@ -899,12 +899,7 @@ func (lm *LevelManager) applyDeRegistrations(deRegistrations []RegistrationEntry
 			found = 0
 		} else {
 			// Find which segment entry the table is in
-			for i, entry := range segmentEntries {
-				if bytes.Compare(deRegistration.KeyStart, entry.rangeStart) >= 0 && bytes.Compare(deRegistration.KeyEnd, entry.rangeEnd) <= 0 {
-					found = i
-					break
-				}
-			}
+			found = getSegmentEntryForDeregistration(segmentEntries, deRegistration)
 			if found == -1 {
 				// This can occur if deRegistration is applied more than once - we are idempotent.
 				// E.g. during reprocessing or if the client resubmits after a network error but it had actually been
@@ -1735,6 +1730,25 @@ func getSegmentForRegistration(segmentEntries []segmentEntry, registration Regis
 		} else {
 			return index
 		}
+	}
+	return -1
+}
+
+func getSegmentEntryForDeregistration(segmentEntries []segmentEntry, deRegistration RegistrationEntry) int {
+	n := len(segmentEntries)
+	if n == 0 {
+		return -1
+	}
+	index := sort.Search(n, func(i int) bool {
+		return bytes.Compare(deRegistration.KeyStart, segmentEntries[i].rangeStart) < 0 ||
+			(bytes.Compare(deRegistration.KeyStart, segmentEntries[i].rangeStart) >= 0 &&
+				bytes.Compare(deRegistration.KeyEnd, segmentEntries[i].rangeEnd) <= 0)
+	})
+	// if index < n it's possible that sort.Search will consider it a legal index
+	// but we still need to test the equality condition
+	if index < n && bytes.Compare(deRegistration.KeyStart, segmentEntries[index].rangeStart) >= 0 &&
+		bytes.Compare(deRegistration.KeyEnd, segmentEntries[index].rangeEnd) <= 0 {
+		return index
 	}
 	return -1
 }

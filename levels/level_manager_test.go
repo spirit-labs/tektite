@@ -2066,3 +2066,70 @@ func TestGetSegmentForRegistration(t *testing.T) {
 		})
 	}
 }
+
+func TestGetSegmentEntryForDeregistration(t *testing.T) {
+	segmentEntries := []segmentEntry{
+		{rangeStart: []byte("aaa"), rangeEnd: []byte("ccc")},
+		{rangeStart: []byte("ddd"), rangeEnd: []byte("fff")},
+		{rangeStart: []byte("ggg"), rangeEnd: []byte("iii")},
+	}
+
+	testCases := []struct {
+		name           string
+		segmentEntries []segmentEntry
+		deRegistration RegistrationEntry
+		expected       int
+	}{
+		{
+			name:           "exact match first segment",
+			segmentEntries: segmentEntries,
+			deRegistration: RegistrationEntry{KeyStart: []byte("aaa"), KeyEnd: []byte("ccc")},
+			expected:       0,
+		},
+		{
+			name:           "within first segment",
+			segmentEntries: segmentEntries,
+			deRegistration: RegistrationEntry{KeyStart: []byte("bbb"), KeyEnd: []byte("bbb")},
+			expected:       0,
+		},
+		{
+			name:           "overlapping two segments",
+			segmentEntries: segmentEntries,
+			deRegistration: RegistrationEntry{KeyStart: []byte("ccc"), KeyEnd: []byte("ddd")},
+			expected:       -1,
+		},
+		{
+			name:           "before first segment",
+			segmentEntries: segmentEntries,
+			deRegistration: RegistrationEntry{KeyStart: []byte("000"), KeyEnd: []byte("999")},
+			expected:       -1,
+		},
+		{
+			name:           "after last segment",
+			segmentEntries: segmentEntries,
+			deRegistration: RegistrationEntry{KeyStart: []byte("jjj"), KeyEnd: []byte("zzz")},
+			expected:       -1,
+		},
+		{
+			name:           "larger than any segment",
+			segmentEntries: segmentEntries,
+			deRegistration: RegistrationEntry{KeyStart: []byte("aaa"), KeyEnd: []byte("zzz")},
+			expected:       -1,
+		},
+		{
+			name:           "empty segment entries",
+			segmentEntries: []segmentEntry{},
+			deRegistration: RegistrationEntry{KeyStart: []byte("aaa"), KeyEnd: []byte("bbb")},
+			expected:       -1,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			result := getSegmentEntryForDeregistration(tc.segmentEntries, tc.deRegistration)
+			if result != tc.expected {
+				t.Errorf("expected %d, got %d", tc.expected, result)
+			}
+		})
+	}
+}
