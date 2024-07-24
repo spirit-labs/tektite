@@ -923,13 +923,7 @@ func (lm *LevelManager) applyDeRegistrations(deRegistrations []RegistrationEntry
 		}
 
 		// Find the table entry in the segment entry
-		pos := -1
-		for i, te := range seg.tableEntries {
-			if bytes.Equal(deRegistration.TableID, te.SSTableID) {
-				pos = i
-				break
-			}
-		}
+		pos := getTableEntryForDeregistration(seg, deRegistration)
 		if pos == -1 {
 			// This can occur if deRegistration is applied more than once - we are idempotent.
 			// E.g. during reprocessing or if the client resubmits after a network error but it had actually been
@@ -1751,6 +1745,27 @@ func getSegmentEntryForDeregistration(segmentEntries []segmentEntry, deRegistrat
 		return index
 	}
 	return -1
+}
+
+func getTableEntryForDeregistration(seg *segment, deRegistration RegistrationEntry) int {
+	pos := -1
+	if deRegistration.Level == 0 {
+		for i, te := range seg.tableEntries {
+			if bytes.Equal(te.SSTableID, deRegistration.TableID) {
+				pos = i
+				break
+			}
+		}
+		return pos
+	}
+	n := len(seg.tableEntries)
+	pos = sort.Search(n, func(i int) bool {
+		return bytes.Compare(seg.tableEntries[i].SSTableID, deRegistration.TableID) >= 0
+	})
+	if pos >= n || !bytes.Equal(deRegistration.TableID, seg.tableEntries[pos].SSTableID) {
+		pos = -1
+	}
+	return pos
 }
 
 func (lm *LevelManager) GetObjectStore() objstore.Client {
