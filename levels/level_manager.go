@@ -1803,7 +1803,8 @@ func getTableEntryForDeregistration(seg *segment, deRegistration RegistrationEnt
 		pos = -1
 	}
 	// it's also possible for multiple table entries to have the same range
-	for i, te := range seg.tableEntries[pos:] {
+	for i := pos; i < n; i++ {
+		te := seg.tableEntries[i]
 		if bytes.Equal(te.SSTableID, deRegistration.TableID) {
 			pos = i
 			break
