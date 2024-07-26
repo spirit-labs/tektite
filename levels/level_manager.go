@@ -1799,8 +1799,15 @@ func getTableEntryForDeregistration(seg *segment, deRegistration RegistrationEnt
 	pos = sort.Search(n, func(i int) bool {
 		return bytes.Compare(seg.tableEntries[i].RangeStart, deRegistration.KeyStart) >= 0
 	})
-	if pos >= n || !bytes.Equal(deRegistration.TableID, seg.tableEntries[pos].SSTableID) {
+	if pos >= n {
 		pos = -1
+	}
+	// it's also possible for multiple table entries to have the same range
+	for i, te := range seg.tableEntries[pos:] {
+		if bytes.Equal(te.SSTableID, deRegistration.TableID) {
+			pos = i
+			break
+		}
 	}
 	return pos
 }
