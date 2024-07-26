@@ -725,8 +725,8 @@ type testLevelMgrClient struct {
 	stats levels.Stats
 }
 
-func (t *testLevelMgrClient) GetTableIDsForRange(keyStart []byte, keyEnd []byte) (levels.OverlappingTableIDs, []levels.VersionRange, error) {
-	return nil, nil, nil
+func (t *testLevelMgrClient) QueryTablesInRange(keyStart []byte, keyEnd []byte) (levels.OverlappingTables, error) {
+	return nil, nil
 }
 
 func (t *testLevelMgrClient) RegisterL0Tables(levels.RegistrationBatch) error {

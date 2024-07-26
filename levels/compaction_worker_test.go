@@ -584,8 +584,8 @@ func TestCompactionExpiredPrefix(t *testing.T) {
 }
 
 func TestCompactionDeadVersions(t *testing.T) {
-	l0CompactionTrigger := 4
-	l1CompactionTrigger := 4
+	l0CompactionTrigger := 2
+	l1CompactionTrigger := 20
 	levelMultiplier := 10
 	lm, tearDown := setup(t, func(cfg *conf.Config) {
 		cfg.L0CompactionTrigger = l0CompactionTrigger
@@ -599,89 +599,67 @@ func TestCompactionDeadVersions(t *testing.T) {
 	err := lm.StoreLastFlushedVersion(math.MaxInt64, false, 0)
 	require.NoError(t, err)
 
-	numEntriesPerTable := 10
-	tableCount := 0
-	numLevels := 4
-	// we will generate sufficient tables to fill approx numLevels levels
-	numTables := getNumTablesToFill(numLevels, l0CompactionTrigger, l1CompactionTrigger, levelMultiplier)
-	numTables-- // subtract one as we don't want l0 to be completely full and thus trigger a compaction at the end
-
-	// First add a table with version 1000
-
 	prefix := []byte("xxxxxxxxxxxxxxxx") // partition hash
 	prefix = append(prefix, []byte("prefix1_")...)
 
-	tableName := uuid.New().String()
-	smallestKey, largestKey := buildAndRegisterTableWithKeyRangeAndVersion(t, tableName, 0, 9,
+	tableName1 := uuid.New().String()
+	smallestKey, largestKey := buildAndRegisterTableWithKeyRangeAndVersion(t, tableName1, 0, 9,
 		lm.GetObjectStore(), false, prefix, 1000)
-	addTableWithMinMaxVersion(t, lm, tableName, smallestKey, largestKey, 1000, 1000)
-	rangeStart := 10
+	addTableWithMinMaxVersion(t, lm, tableName1, smallestKey, largestKey, 1000, 1100)
 
-	// Then a load of tables with version 1500
-	for tableCount < numTables {
-		tableName := uuid.New().String()
-		rangeEnd := rangeStart + numEntriesPerTable - 1
-		smallestKey, largestKey = buildAndRegisterTableWithKeyRangeAndVersion(t, tableName, rangeStart, rangeEnd,
-			lm.GetObjectStore(), false, prefix, 1500)
-		addTableWithMinMaxVersion(t, lm, tableName, smallestKey, largestKey, 1500, 1500)
-		rangeStart += numEntriesPerTable
-		tableCount++
-	}
+	tableName2 := uuid.New().String()
+	smallestKey, largestKey = buildAndRegisterTableWithKeyRangeAndVersion(t, tableName2, 10, 19,
+		lm.GetObjectStore(), false, prefix, 1000)
+	addTableWithMinMaxVersion(t, lm, tableName2, smallestKey, largestKey, 1500, 1600)
 
-	// Then a table with version 2000
-	tableName = uuid.New().String()
-	lastRangeStart := rangeStart
-	smallestKey, largestKey = buildAndRegisterTableWithKeyRangeAndVersion(t, tableName, rangeStart, rangeStart+numEntriesPerTable-1,
-		lm.GetObjectStore(), false, prefix, 2000)
-	addTableWithMinMaxVersion(t, lm, tableName, smallestKey, largestKey, 2000, 2000)
-
-	// wait for compaction jobs to complete
-	ok, err := testutils.WaitUntilWithError(func() (bool, error) {
-		stats := lm.GetCompactionStats()
-		return stats.QueuedJobs == 0 && stats.InProgressJobs == 0, nil
-	}, 30*time.Second, 1*time.Millisecond)
-	require.NoError(t, err)
-	require.True(t, ok)
+	tableName3 := uuid.New().String()
+	smallestKey, largestKey = buildAndRegisterTableWithKeyRangeAndVersion(t, tableName3, 20, 29,
+		lm.GetObjectStore(), false, prefix, 1000)
+	addTableWithMinMaxVersion(t, lm, tableName3, smallestKey, largestKey, 1700, 1800)
 
 	// Now register deadversions which includes 1500
 	rng := VersionRange{
-		VersionStart: 1300,
-		VersionEnd:   1700,
+		VersionStart: 1500,
+		VersionEnd:   1550,
 	}
-
 	err = lm.RegisterDeadVersionRange(rng, "test_cluster", 0, false, 0)
 	require.NoError(t, err)
 
-	// a big compaction should ensue
+	// Add a couple more tables to force the previous once out
 
-	// wait for compaction jobs to complete
-	ok, err = testutils.WaitUntilWithError(func() (bool, error) {
-		stats := lm.GetCompactionStats()
-		return stats.QueuedJobs == 0 && stats.InProgressJobs == 0, nil
-	}, 30*time.Second, 1*time.Millisecond)
+	tableName4 := uuid.New().String()
+	smallestKey, largestKey = buildAndRegisterTableWithKeyRangeAndVersion(t, tableName4, 30, 39,
+		lm.GetObjectStore(), false, prefix, 1000)
+	addTableWithMinMaxVersion(t, lm, tableName4, smallestKey, largestKey, 10000, 20000)
+
+	tableName5 := uuid.New().String()
+	smallestKey, largestKey = buildAndRegisterTableWithKeyRangeAndVersion(t, tableName5, 40, 49,
+		lm.GetObjectStore(), false, prefix, 1000)
+	addTableWithMinMaxVersion(t, lm, tableName5, smallestKey, largestKey, 10000, 20000)
+
+	err = lm.forceCompaction(0, 3)
 	require.NoError(t, err)
-	require.True(t, ok)
 
-	// Nothing should be left apart from the first and last table
+	// Should be no data in range 10-19 (incl)
+	keyStart := []byte(fmt.Sprintf("%skey%05d", string(prefix), 10))
+	keyEnd := []byte(fmt.Sprintf("%skey%05d", string(prefix), 20))
 
-	iter := createIterator(t, lm, nil, nil)
-	i := 0
-	for {
-		valid, curr, err := iter.Next()
+	tables, err := lm.QueryTablesInRange(keyStart, keyEnd)
+	require.NoError(t, err)
+	require.Equal(t, 0, len(tables))
+
+	// Should be no dead versions
+	log.Infof("last level is %d", lm.getLastLevel())
+	for i := 0; i <= lm.getLastLevel(); i++ {
+		iter, err := lm.LevelIterator(i)
 		require.NoError(t, err)
-		if !valid {
-			break
-		}
-		key := curr.Key
-		keyNoversion := key[:len(key)-8]
-
-		prefixCopy := common.CopyByteSlice(prefix)
-		expectedKey := append(prefixCopy, []byte(fmt.Sprintf("key%06d", i))...)
-		require.Equal(t, expectedKey, keyNoversion)
-
-		i++
-		if i == 10 {
-			i = lastRangeStart
+		for {
+			te, err := iter.Next()
+			require.NoError(t, err)
+			if te == nil {
+				break
+			}
+			require.Nil(t, te.DeadVersionRanges)
 		}
 	}
 }
@@ -842,13 +820,13 @@ func (i *inMemClientFactory) CreateLevelManagerClient() Client {
 }
 
 func createIterator(t *testing.T, lm *LevelManager, keyStart []byte, keyEnd []byte) *iteration.MergingIterator {
-	otids, _, err := lm.GetTableIDsForRange(keyStart, keyEnd)
+	otids, err := lm.QueryTablesInRange(keyStart, keyEnd)
 	require.NoError(t, err)
 	var chainIters []iteration.Iterator
 	for _, notids := range otids {
 		var iters []iteration.Iterator
-		for _, id := range notids {
-			buff, err := lm.GetObjectStore().Get(id)
+		for _, info := range notids {
+			buff, err := lm.GetObjectStore().Get(info.ID)
 			require.NoError(t, err)
 			require.NotNil(t, buff)
 			sstable := &sst.SSTable{}

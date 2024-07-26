@@ -19,22 +19,14 @@ func (g *getTableIDsInRangeMessageHandler) HandleMessage(holder remoting.Message
 	if g.ms.levelManager == nil {
 		return nil, createNotLeaderError(g.ms)
 	}
-	tids, deadVersions, err := g.ms.levelManager.GetTableIDsForRange(msg.KeyStart, msg.KeyEnd)
+	tids, err := g.ms.levelManager.QueryTablesInRange(msg.KeyStart, msg.KeyEnd)
 	if err != nil {
 		return nil, err
 	}
 	var bytes []byte
 	bytes = tids.Serialize(bytes)
-	dead := make([]*clustermsgs.LevelManagerVersionRange, len(deadVersions))
-	for i, rng := range deadVersions {
-		dead[i] = &clustermsgs.LevelManagerVersionRange{
-			VersionStart: rng.VersionStart,
-			VersionEnd:   rng.VersionEnd,
-		}
-	}
 	return &clustermsgs.LevelManagerGetTableIDsForRangeResponse{
-		Payload:      bytes,
-		DeadVersions: dead,
+		Payload: bytes,
 	}, nil
 }
 

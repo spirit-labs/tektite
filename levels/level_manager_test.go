@@ -39,32 +39,32 @@ func TestAddAndGet_L0(t *testing.T) {
 
 	// Get entire contiguous block with exact range
 	overlapTableIDs = getInRange(t, levelManager, 3, 13)
-	validateTabIds(t, OverlappingTableIDs{
-		NonoverlappingTableIDs{addedTableIDs[2]},
-		NonoverlappingTableIDs{addedTableIDs[1]},
-		NonoverlappingTableIDs{addedTableIDs[0]},
+	validateTabIds(t, OverlappingTables{
+		NonOverlappingTables{addedTableIDs[2]},
+		NonOverlappingTables{addedTableIDs[1]},
+		NonOverlappingTables{addedTableIDs[0]},
 	}, overlapTableIDs)
 
 	// Get entire contiguous block with smaller range
 	overlapTableIDs = getInRange(t, levelManager, 4, 10)
-	validateTabIds(t, OverlappingTableIDs{
-		NonoverlappingTableIDs{addedTableIDs[2]},
-		NonoverlappingTableIDs{addedTableIDs[1]},
-		NonoverlappingTableIDs{addedTableIDs[0]},
+	validateTabIds(t, OverlappingTables{
+		NonOverlappingTables{addedTableIDs[2]},
+		NonOverlappingTables{addedTableIDs[1]},
+		NonOverlappingTables{addedTableIDs[0]},
 	}, overlapTableIDs)
 
 	// Get entire contiguous block with larger range
 	overlapTableIDs = getInRange(t, levelManager, 2, 14)
-	validateTabIds(t, OverlappingTableIDs{
-		NonoverlappingTableIDs{addedTableIDs[2]},
-		NonoverlappingTableIDs{addedTableIDs[1]},
-		NonoverlappingTableIDs{addedTableIDs[0]},
+	validateTabIds(t, OverlappingTables{
+		NonOverlappingTables{addedTableIDs[2]},
+		NonOverlappingTables{addedTableIDs[1]},
+		NonOverlappingTables{addedTableIDs[0]},
 	}, overlapTableIDs)
 
 	// Get exactly one from contiguous block
 	overlapTableIDs = getInRange(t, levelManager, 6, 8)
-	validateTabIds(t, OverlappingTableIDs{
-		NonoverlappingTableIDs{addedTableIDs[1]},
+	validateTabIds(t, OverlappingTables{
+		NonOverlappingTables{addedTableIDs[1]},
 	}, overlapTableIDs)
 
 	// Don't return anything from gap
@@ -77,90 +77,90 @@ func TestAddAndGet_L0(t *testing.T) {
 
 	// Select entire block with gaps
 	overlapTableIDs = getInRange(t, levelManager, 14, 31)
-	validateTabIds(t, OverlappingTableIDs{
-		NonoverlappingTableIDs{addedTableIDs[5]},
-		NonoverlappingTableIDs{addedTableIDs[4]},
-		NonoverlappingTableIDs{addedTableIDs[3]},
+	validateTabIds(t, OverlappingTables{
+		NonOverlappingTables{addedTableIDs[5]},
+		NonOverlappingTables{addedTableIDs[4]},
+		NonOverlappingTables{addedTableIDs[3]},
 	}, overlapTableIDs)
 
 	// Select subset with gaps
 	overlapTableIDs = getInRange(t, levelManager, 18, 22)
-	validateTabIds(t, OverlappingTableIDs{
-		NonoverlappingTableIDs{addedTableIDs[4]},
+	validateTabIds(t, OverlappingTables{
+		NonOverlappingTables{addedTableIDs[4]},
 	}, overlapTableIDs)
 	overlapTableIDs = getInRange(t, levelManager, 18, 31)
-	validateTabIds(t, OverlappingTableIDs{
-		NonoverlappingTableIDs{addedTableIDs[5]},
-		NonoverlappingTableIDs{addedTableIDs[4]},
+	validateTabIds(t, OverlappingTables{
+		NonOverlappingTables{addedTableIDs[5]},
+		NonOverlappingTables{addedTableIDs[4]},
 	}, overlapTableIDs)
 
 	// Exactly overlapping
 	overlapTableIDs = getInRange(t, levelManager, 32, 41)
-	validateTabIds(t, OverlappingTableIDs{
-		NonoverlappingTableIDs{addedTableIDs[8]},
-		NonoverlappingTableIDs{addedTableIDs[7]},
-		NonoverlappingTableIDs{addedTableIDs[6]},
+	validateTabIds(t, OverlappingTables{
+		NonOverlappingTables{addedTableIDs[8]},
+		NonOverlappingTables{addedTableIDs[7]},
+		NonOverlappingTables{addedTableIDs[6]},
 	}, overlapTableIDs)
 	overlapTableIDs = getInRange(t, levelManager, 31, 41)
-	validateTabIds(t, OverlappingTableIDs{
-		NonoverlappingTableIDs{addedTableIDs[8]},
-		NonoverlappingTableIDs{addedTableIDs[7]},
-		NonoverlappingTableIDs{addedTableIDs[6]},
+	validateTabIds(t, OverlappingTables{
+		NonOverlappingTables{addedTableIDs[8]},
+		NonOverlappingTables{addedTableIDs[7]},
+		NonOverlappingTables{addedTableIDs[6]},
 	}, overlapTableIDs)
 	overlapTableIDs = getInRange(t, levelManager, 35, 35)
-	validateTabIds(t, OverlappingTableIDs{
-		NonoverlappingTableIDs{addedTableIDs[8]},
-		NonoverlappingTableIDs{addedTableIDs[7]},
-		NonoverlappingTableIDs{addedTableIDs[6]},
+	validateTabIds(t, OverlappingTables{
+		NonOverlappingTables{addedTableIDs[8]},
+		NonOverlappingTables{addedTableIDs[7]},
+		NonOverlappingTables{addedTableIDs[6]},
 	}, overlapTableIDs)
 
 	// Fully inside
 	overlapTableIDs = getInRange(t, levelManager, 42, 48)
-	validateTabIds(t, OverlappingTableIDs{
-		NonoverlappingTableIDs{addedTableIDs[10]},
-		NonoverlappingTableIDs{addedTableIDs[9]},
+	validateTabIds(t, OverlappingTables{
+		NonOverlappingTables{addedTableIDs[10]},
+		NonOverlappingTables{addedTableIDs[9]},
 	}, overlapTableIDs)
 	overlapTableIDs = getInRange(t, levelManager, 41, 49)
-	validateTabIds(t, OverlappingTableIDs{
-		NonoverlappingTableIDs{addedTableIDs[10]},
-		NonoverlappingTableIDs{addedTableIDs[9]},
+	validateTabIds(t, OverlappingTables{
+		NonOverlappingTables{addedTableIDs[10]},
+		NonOverlappingTables{addedTableIDs[9]},
 	}, overlapTableIDs)
 	overlapTableIDs = getInRange(t, levelManager, 45, 46)
-	validateTabIds(t, OverlappingTableIDs{
-		NonoverlappingTableIDs{addedTableIDs[10]},
-		NonoverlappingTableIDs{addedTableIDs[9]},
+	validateTabIds(t, OverlappingTables{
+		NonOverlappingTables{addedTableIDs[10]},
+		NonOverlappingTables{addedTableIDs[9]},
 	}, overlapTableIDs)
 	overlapTableIDs = getInRange(t, levelManager, 41, 43)
-	validateTabIds(t, OverlappingTableIDs{
-		NonoverlappingTableIDs{addedTableIDs[9]},
+	validateTabIds(t, OverlappingTables{
+		NonOverlappingTables{addedTableIDs[9]},
 	}, overlapTableIDs)
 	overlapTableIDs = getInRange(t, levelManager, 48, 49)
-	validateTabIds(t, OverlappingTableIDs{
-		NonoverlappingTableIDs{addedTableIDs[9]},
+	validateTabIds(t, OverlappingTables{
+		NonOverlappingTables{addedTableIDs[9]},
 	}, overlapTableIDs)
 
 	// Select entire block overlapping next
 	overlapTableIDs = getInRange(t, levelManager, 51, 61)
-	validateTabIds(t, OverlappingTableIDs{
-		NonoverlappingTableIDs{addedTableIDs[13]},
-		NonoverlappingTableIDs{addedTableIDs[12]},
-		NonoverlappingTableIDs{addedTableIDs[11]},
+	validateTabIds(t, OverlappingTables{
+		NonOverlappingTables{addedTableIDs[13]},
+		NonOverlappingTables{addedTableIDs[12]},
+		NonOverlappingTables{addedTableIDs[11]},
 	}, overlapTableIDs)
 	overlapTableIDs = getInRange(t, levelManager, 53, 58)
-	validateTabIds(t, OverlappingTableIDs{
-		NonoverlappingTableIDs{addedTableIDs[13]},
-		NonoverlappingTableIDs{addedTableIDs[12]},
-		NonoverlappingTableIDs{addedTableIDs[11]},
+	validateTabIds(t, OverlappingTables{
+		NonOverlappingTables{addedTableIDs[13]},
+		NonOverlappingTables{addedTableIDs[12]},
+		NonOverlappingTables{addedTableIDs[11]},
 	}, overlapTableIDs)
 	overlapTableIDs = getInRange(t, levelManager, 51, 53)
-	validateTabIds(t, OverlappingTableIDs{
-		NonoverlappingTableIDs{addedTableIDs[12]},
-		NonoverlappingTableIDs{addedTableIDs[11]},
+	validateTabIds(t, OverlappingTables{
+		NonOverlappingTables{addedTableIDs[12]},
+		NonOverlappingTables{addedTableIDs[11]},
 	}, overlapTableIDs)
 	overlapTableIDs = getInRange(t, levelManager, 55, 56)
-	validateTabIds(t, OverlappingTableIDs{
-		NonoverlappingTableIDs{addedTableIDs[13]},
-		NonoverlappingTableIDs{addedTableIDs[12]},
+	validateTabIds(t, OverlappingTables{
+		NonOverlappingTables{addedTableIDs[13]},
+		NonOverlappingTables{addedTableIDs[12]},
 	}, overlapTableIDs)
 
 	afterTest(t, levelManager)
@@ -185,19 +185,19 @@ func TestAddAndGet_L1(t *testing.T) {
 
 	// Get entire block with exact range
 	overlapTableIDs = getInRange(t, levelManager, 3, 51)
-	validateTabIds(t, OverlappingTableIDs{addedTableIDs}, overlapTableIDs)
+	validateTabIds(t, OverlappingTables{addedTableIDs}, overlapTableIDs)
 
 	// Get subset block with exact range
 	overlapTableIDs = getInRange(t, levelManager, 6, 16)
-	validateTabIds(t, OverlappingTableIDs{addedTableIDs[1:4]}, overlapTableIDs)
+	validateTabIds(t, OverlappingTables{addedTableIDs[1:4]}, overlapTableIDs)
 
 	// Get entire block with larger range
 	overlapTableIDs = getInRange(t, levelManager, 0, 1000)
-	validateTabIds(t, OverlappingTableIDs{addedTableIDs}, overlapTableIDs)
+	validateTabIds(t, OverlappingTables{addedTableIDs}, overlapTableIDs)
 
 	// Get single table
 	overlapTableIDs = getInRange(t, levelManager, 9, 11)
-	validateTabIds(t, OverlappingTableIDs{{addedTableIDs[2]}}, overlapTableIDs)
+	validateTabIds(t, OverlappingTables{{addedTableIDs[2]}}, overlapTableIDs)
 
 	afterTest(t, levelManager)
 }
@@ -217,19 +217,19 @@ func TestAddAndGet_MultipleLevels(t *testing.T) {
 
 	// Get everything
 	overlapTableIDs := getInRange(t, levelManager, 20, 70)
-	validateTabIds(t, OverlappingTableIDs{
-		NonoverlappingTableIDs{addedTableIDs0[2]},
-		NonoverlappingTableIDs{addedTableIDs0[1]},
-		NonoverlappingTableIDs{addedTableIDs0[0]},
+	validateTabIds(t, OverlappingTables{
+		NonOverlappingTables{addedTableIDs0[2]},
+		NonOverlappingTables{addedTableIDs0[1]},
+		NonOverlappingTables{addedTableIDs0[0]},
 		addedTableIDs1,
 		addedTableIDs2,
 	}, overlapTableIDs)
 
 	// Get selection
 	overlapTableIDs = getInRange(t, levelManager, 55, 58)
-	validateTabIds(t, OverlappingTableIDs{
-		NonoverlappingTableIDs{addedTableIDs0[2]},
-		NonoverlappingTableIDs{addedTableIDs0[1]},
+	validateTabIds(t, OverlappingTables{
+		NonOverlappingTables{addedTableIDs0[2]},
+		NonOverlappingTables{addedTableIDs0[1]},
 		addedTableIDs1[2:3],
 		addedTableIDs2[3:4],
 	}, overlapTableIDs)
@@ -255,11 +255,11 @@ func TestAddAndGetAll_MultipleSegments(t *testing.T) {
 	require.Equal(t, 10, len(mr.levelSegmentEntries[1].segmentEntries))
 
 	// Now get them all, spanning multiple segments
-	oids, _, err := levelManager.GetTableIDsForRange(nil, nil)
+	oids, err := levelManager.QueryTablesInRange(nil, nil)
 	require.NoError(t, err)
 	require.Equal(t, 1, len(oids))
 	ids := oids[0]
-	require.Equal(t, addedTableIDs, []sst.SSTableID(ids))
+	require.Equal(t, NonOverlappingTables(addedTableIDs), ids)
 }
 
 func TestAddAndGetMost_MultipleSegments(t *testing.T) {
@@ -280,12 +280,12 @@ func TestAddAndGetMost_MultipleSegments(t *testing.T) {
 	require.Equal(t, 10, len(mr.levelSegmentEntries[1].segmentEntries))
 
 	// Now get most of them, spanning multiple segments
-	oids, _, err := levelManager.GetTableIDsForRange(createKey(2), createKey(2*(numEntries-2)))
+	oids, err := levelManager.QueryTablesInRange(createKey(2), createKey(2*(numEntries-2)))
 	require.NoError(t, err)
 	require.Equal(t, 1, len(oids))
 	ids := oids[0]
 	expected := addedTableIDs[1 : len(addedTableIDs)-2]
-	require.Equal(t, expected, []sst.SSTableID(ids))
+	require.Equal(t, NonOverlappingTables(expected), ids)
 }
 
 func TestAddAndRemove_L0(t *testing.T) {
@@ -296,17 +296,17 @@ func TestAddAndRemove_L0(t *testing.T) {
 		2, 4, 5, 7, 14, 17, 20, 21, 23, 30)
 
 	overlapTableIDs := getInRange(t, levelManager, 2, 31)
-	validateTabIds(t, OverlappingTableIDs{
-		NonoverlappingTableIDs{addedTableIDs[4]},
-		NonoverlappingTableIDs{addedTableIDs[3]},
-		NonoverlappingTableIDs{addedTableIDs[2]},
-		NonoverlappingTableIDs{addedTableIDs[1]},
-		NonoverlappingTableIDs{addedTableIDs[0]},
+	validateTabIds(t, OverlappingTables{
+		NonOverlappingTables{addedTableIDs[4]},
+		NonOverlappingTables{addedTableIDs[3]},
+		NonOverlappingTables{addedTableIDs[2]},
+		NonOverlappingTables{addedTableIDs[1]},
+		NonOverlappingTables{addedTableIDs[0]},
 	}, overlapTableIDs)
 
 	deregEntry0 := RegistrationEntry{
 		Level:    0,
-		TableID:  overlapTableIDs[4][0],
+		TableID:  overlapTableIDs[4][0].ID,
 		KeyStart: createKey(2),
 		KeyEnd:   createKey(4),
 	}
@@ -317,23 +317,23 @@ func TestAddAndRemove_L0(t *testing.T) {
 	require.NoError(t, err)
 
 	overlapTableIDs2 := getInRange(t, levelManager, 2, 31)
-	validateTabIds(t, OverlappingTableIDs{
-		NonoverlappingTableIDs{addedTableIDs[4]},
-		NonoverlappingTableIDs{addedTableIDs[3]},
-		NonoverlappingTableIDs{addedTableIDs[2]},
-		NonoverlappingTableIDs{addedTableIDs[1]},
+	validateTabIds(t, OverlappingTables{
+		NonOverlappingTables{addedTableIDs[4]},
+		NonOverlappingTables{addedTableIDs[3]},
+		NonOverlappingTables{addedTableIDs[2]},
+		NonOverlappingTables{addedTableIDs[1]},
 	}, overlapTableIDs2)
 
 	deregEntry2 := RegistrationEntry{
 		Level:    0,
-		TableID:  overlapTableIDs[2][0],
+		TableID:  overlapTableIDs[2][0].ID,
 		KeyStart: createKey(14),
 		KeyEnd:   createKey(17),
 	}
 
 	deregEntry4 := RegistrationEntry{
 		Level:    0,
-		TableID:  overlapTableIDs[0][0],
+		TableID:  overlapTableIDs[0][0].ID,
 		KeyStart: createKey(23),
 		KeyEnd:   createKey(30),
 	}
@@ -345,21 +345,21 @@ func TestAddAndRemove_L0(t *testing.T) {
 	require.NoError(t, err)
 
 	overlapTableIDs3 := getInRange(t, levelManager, 2, 31)
-	validateTabIds(t, OverlappingTableIDs{
-		NonoverlappingTableIDs{addedTableIDs[3]},
-		NonoverlappingTableIDs{addedTableIDs[1]},
+	validateTabIds(t, OverlappingTables{
+		NonOverlappingTables{addedTableIDs[3]},
+		NonOverlappingTables{addedTableIDs[1]},
 	}, overlapTableIDs3)
 
 	deregEntry1 := RegistrationEntry{
 		Level:    0,
-		TableID:  overlapTableIDs[3][0],
+		TableID:  overlapTableIDs[3][0].ID,
 		KeyStart: createKey(5),
 		KeyEnd:   createKey(7),
 	}
 
 	deregEntry3 := RegistrationEntry{
 		Level:    0,
-		TableID:  overlapTableIDs[1][0],
+		TableID:  overlapTableIDs[1][0].ID,
 		KeyStart: createKey(20),
 		KeyEnd:   createKey(21),
 	}
@@ -499,7 +499,7 @@ func TestAddAndRemoveSameBatch(t *testing.T) {
 		}},
 		DeRegistrations: []RegistrationEntry{{
 			Level:    1,
-			TableID:  tableIDs[1],
+			TableID:  tableIDs[1].ID,
 			KeyStart: createKey(6),
 			KeyEnd:   createKey(7),
 		}},
@@ -507,7 +507,7 @@ func TestAddAndRemoveSameBatch(t *testing.T) {
 	err = levelManager.ApplyChangesNoCheck(regBatch)
 	require.NoError(t, err)
 
-	oTabIDs, _, err := levelManager.GetTableIDsForRange(createKey(3), createKey(1000))
+	oTabIDs, err := levelManager.QueryTablesInRange(createKey(3), createKey(1000))
 	require.NoError(t, err)
 	require.Equal(t, 1, len(oTabIDs))
 	noTabIDs := oTabIDs[0]
@@ -515,8 +515,8 @@ func TestAddAndRemoveSameBatch(t *testing.T) {
 
 	require.Equal(t, tableIDs[0], noTabIDs[0])
 	require.Equal(t, tableIDs[2], noTabIDs[1])
-	require.Equal(t, sst.SSTableID(newTableID1), noTabIDs[2])
-	require.Equal(t, sst.SSTableID(newTableID2), noTabIDs[3])
+	require.Equal(t, sst.SSTableID(newTableID1), noTabIDs[2].ID)
+	require.Equal(t, sst.SSTableID(newTableID2), noTabIDs[3].ID)
 
 	afterTest(t, levelManager)
 }
@@ -537,7 +537,7 @@ func testNilRangeStartAndEnd(t *testing.T, rangeStart []byte, rangeEnd []byte) {
 
 	addTables(t, levelManager, 1, 3, 5, 6, 7, 8, 12)
 
-	oTabIDs, _, err := levelManager.GetTableIDsForRange(rangeStart, rangeEnd)
+	oTabIDs, err := levelManager.QueryTablesInRange(rangeStart, rangeEnd)
 	require.NoError(t, err)
 	require.Equal(t, 1, len(oTabIDs))
 	noTabIDs := oTabIDs[0]
@@ -591,15 +591,15 @@ func testAddRemoveNonOverlapping(t *testing.T, ordered bool, level int, rangeGap
 			require.NoError(t, err)
 			// Get the table ids to make sure they were added ok
 			for i := 0; i < len(regBatch.Registrations); i++ {
-				oIDs, _, err := levelManager.GetTableIDsForRange(regBatch.Registrations[i].KeyStart,
+				oIDs, err := levelManager.QueryTablesInRange(regBatch.Registrations[i].KeyStart,
 					common.IncrementBytesBigEndian(regBatch.Registrations[i].KeyEnd))
 				require.NoError(t, err)
 				require.Equal(t, 1, len(oIDs))
 				nIDs := oIDs[0]
 				require.Equal(t, 1, len(nIDs))
-				require.Equal(t, regBatch.Registrations[i].TableID, nIDs[0])
+				require.Equal(t, regBatch.Registrations[i].TableID, nIDs[0].ID)
 				// We store the sstableid on the entry so we can use it later in the deregistration
-				entries[entryNum+1-len(regBatch.Registrations)+i].tableID = nIDs[0]
+				entries[entryNum+1-len(regBatch.Registrations)+i].tableID = nIDs[0].ID
 			}
 			checkState(t, levelManager, entryNum+1, batchNum, level, maxTableEntries, ordered, false)
 			batchNum++
@@ -632,7 +632,7 @@ func testAddRemoveNonOverlapping(t *testing.T, ordered bool, level int, rangeGap
 			require.NoError(t, err)
 			// Get the table ids to make sure they were removed ok
 			for i := 0; i < len(regBatch.DeRegistrations); i++ {
-				oIDs, _, err := levelManager.GetTableIDsForRange(regBatch.DeRegistrations[i].KeyStart,
+				oIDs, err := levelManager.QueryTablesInRange(regBatch.DeRegistrations[i].KeyStart,
 					common.IncrementBytesBigEndian(regBatch.DeRegistrations[i].KeyEnd))
 				require.NoError(t, err)
 				require.Equal(t, 0, len(oIDs))
@@ -719,16 +719,16 @@ func afterTest(t *testing.T, levelManager *LevelManager) {
 	require.NoError(t, err)
 }
 
-func validateTabIds(t *testing.T, expectedTabIDs OverlappingTableIDs, actualTabIDs OverlappingTableIDs) {
+func validateTabIds(t *testing.T, expectedTabIDs OverlappingTables, actualTabIDs OverlappingTables) {
 	t.Helper()
 	require.Equal(t, expectedTabIDs, actualTabIDs)
 }
 
-func getInRange(t *testing.T, levelManager *LevelManager, ks int, ke int) OverlappingTableIDs {
+func getInRange(t *testing.T, levelManager *LevelManager, ks int, ke int) OverlappingTables {
 	t.Helper()
 	keyStart := createKey(ks)
 	keyEnd := createKey(ke)
-	overlapTabIDs, _, err := levelManager.GetTableIDsForRange(keyStart, keyEnd)
+	overlapTabIDs, err := levelManager.QueryTablesInRange(keyStart, keyEnd)
 	require.NoError(t, err)
 	return overlapTabIDs
 }
@@ -784,7 +784,7 @@ func createKey(i int) []byte {
 	return encoding.EncodeVersion(prefix, 0)
 }
 
-func removeTables(t *testing.T, levelManager *LevelManager, level int, tabIDs []sst.SSTableID, pairs ...int) {
+func removeTables(t *testing.T, levelManager *LevelManager, level int, tabIDs []QueryTableInfo, pairs ...int) {
 	t.Helper()
 	var regEntries []RegistrationEntry
 	j := 0
@@ -798,7 +798,7 @@ func removeTables(t *testing.T, levelManager *LevelManager, level int, tabIDs []
 		j++
 		regEntry := RegistrationEntry{
 			Level:    level,
-			TableID:  tabID,
+			TableID:  tabID.ID,
 			KeyStart: firstKey,
 			KeyEnd:   lastKey,
 		}
@@ -811,7 +811,7 @@ func removeTables(t *testing.T, levelManager *LevelManager, level int, tabIDs []
 	require.NoError(t, err)
 }
 
-func addTables(t *testing.T, levelManager *LevelManager, level int, pairs ...int) []sst.SSTableID {
+func addTables(t *testing.T, levelManager *LevelManager, level int, pairs ...int) []QueryTableInfo {
 	t.Helper()
 	addRegEntries, addTableIDs := createRegistrationEntries(t, level, pairs...)
 	regBatch := RegistrationBatch{
@@ -822,10 +822,10 @@ func addTables(t *testing.T, levelManager *LevelManager, level int, pairs ...int
 	return addTableIDs
 }
 
-func createRegistrationEntries(t *testing.T, level int, pairs ...int) ([]RegistrationEntry, []sst.SSTableID) {
+func createRegistrationEntries(t *testing.T, level int, pairs ...int) ([]RegistrationEntry, []QueryTableInfo) {
 	t.Helper()
 	var regEntries []RegistrationEntry
-	var tableIDs []sst.SSTableID
+	var tableIDs []QueryTableInfo
 	for i := 0; i < len(pairs); i++ {
 		ks := pairs[i]
 		i++
@@ -841,7 +841,7 @@ func createRegistrationEntries(t *testing.T, level int, pairs ...int) ([]Registr
 			KeyEnd:   lastKey,
 		}
 		regEntries = append(regEntries, regEntry)
-		tableIDs = append(tableIDs, tabID)
+		tableIDs = append(tableIDs, QueryTableInfo{ID: tabID})
 	}
 	return regEntries, tableIDs
 }
@@ -850,11 +850,11 @@ func TestDataResetOnRestartWithoutFlush(t *testing.T) {
 	levelManager, tearDown := setupLevelManager(t)
 	defer tearDown(t)
 	tabIDs := addTables(t, levelManager, 1, 3, 5, 6, 7, 8, 12)
-	oids, _, err := levelManager.GetTableIDsForRange(nil, nil)
+	oids, err := levelManager.QueryTablesInRange(nil, nil)
 	require.NoError(t, err)
 	require.Equal(t, 1, len(oids))
 	ids := oids[0]
-	require.Equal(t, tabIDs, []sst.SSTableID(ids))
+	require.Equal(t, NonOverlappingTables(tabIDs), ids)
 
 	err = levelManager.Stop()
 	require.NoError(t, err)
@@ -865,7 +865,7 @@ func TestDataResetOnRestartWithoutFlush(t *testing.T) {
 	err = levelManager.Activate()
 	require.NoError(t, err)
 
-	oids, _, err = levelManager.GetTableIDsForRange(nil, nil)
+	oids, err = levelManager.QueryTablesInRange(nil, nil)
 	require.NoError(t, err)
 	require.Nil(t, oids)
 }
@@ -874,11 +874,11 @@ func TestDataRestoredOnRestartWithFlush(t *testing.T) {
 	levelManager, tearDown := setupLevelManager(t)
 	defer tearDown(t)
 	tabIDs := addTables(t, levelManager, 1, 3, 5, 6, 7, 8, 12)
-	oids, _, err := levelManager.GetTableIDsForRange(nil, nil)
+	oids, err := levelManager.QueryTablesInRange(nil, nil)
 	require.NoError(t, err)
 	require.Equal(t, 1, len(oids))
 	ids := oids[0]
-	require.Equal(t, tabIDs, []sst.SSTableID(ids))
+	require.Equal(t, NonOverlappingTables(tabIDs), ids)
 
 	_, _, err = levelManager.Flush(false)
 	require.NoError(t, err)
@@ -896,11 +896,11 @@ func TestDataRestoredOnRestartWithFlush(t *testing.T) {
 	ver2 := levelManager.getMasterRecord().version
 	require.Equal(t, ver, ver2)
 
-	oids, _, err = levelManager.GetTableIDsForRange(nil, nil)
+	oids, err = levelManager.QueryTablesInRange(nil, nil)
 	require.NoError(t, err)
 	require.Equal(t, 1, len(oids))
 	ids = oids[0]
-	require.Equal(t, tabIDs, []sst.SSTableID(ids))
+	require.Equal(t, NonOverlappingTables(tabIDs), ids)
 }
 
 func TestFlushManyAdds(t *testing.T) {
@@ -911,18 +911,18 @@ func TestFlushManyAdds(t *testing.T) {
 	defer tearDown(t)
 	numAdds := 1000
 	ks := 0
-	var allTabIDs []sst.SSTableID
+	var allTabIDs []QueryTableInfo
 	for i := 0; i < numAdds; i++ {
 		tabIDs := addTables(t, levelManager, 1, ks, ks+1)
 		ks += 3
 		allTabIDs = append(allTabIDs, tabIDs...)
 	}
 
-	oids, _, err := levelManager.GetTableIDsForRange(nil, nil)
+	oids, err := levelManager.QueryTablesInRange(nil, nil)
 	require.NoError(t, err)
 	require.Equal(t, 1, len(oids))
 	ids := oids[0]
-	require.Equal(t, allTabIDs, []sst.SSTableID(ids))
+	require.Equal(t, NonOverlappingTables(allTabIDs), ids)
 
 	mr := levelManager.getMasterRecord()
 	ver := mr.version
@@ -944,11 +944,11 @@ func TestFlushManyAdds(t *testing.T) {
 	err = levelManager.Activate()
 	require.NoError(t, err)
 
-	oids, _, err = levelManager.GetTableIDsForRange(nil, nil)
+	oids, err = levelManager.QueryTablesInRange(nil, nil)
 	require.NoError(t, err)
 	require.Equal(t, 1, len(oids))
 	ids = oids[0]
-	require.Equal(t, allTabIDs, []sst.SSTableID(ids))
+	require.Equal(t, NonOverlappingTables(allTabIDs), ids)
 
 	ver2 := levelManager.getMasterRecord().version
 	require.Equal(t, ver, ver2)
@@ -963,7 +963,7 @@ func TestFlushManyAddsAndSomeDeletes(t *testing.T) {
 	defer tearDown(t)
 	numAdds := 1000
 	ks := 0
-	var allTabIDs []sst.SSTableID
+	var allTabIDs []QueryTableInfo
 	for i := 0; i < numAdds; i++ {
 		tabIDs := addTables(t, levelManager, 1, ks, ks+1)
 		ks += 3
@@ -982,7 +982,7 @@ func TestFlushManyAddsAndSomeDeletes(t *testing.T) {
 	for i := 0; i < numDels; i++ {
 		deregEntries = append(deregEntries, RegistrationEntry{
 			Level:    1,
-			TableID:  allTabIDs[i],
+			TableID:  allTabIDs[i].ID,
 			KeyStart: createKey(ks),
 			KeyEnd:   createKey(ks + 1),
 		})
@@ -1016,11 +1016,11 @@ func TestFlushManyAddsAndSomeDeletes(t *testing.T) {
 	err = levelManager.Activate()
 	require.NoError(t, err)
 
-	oids, _, err := levelManager.GetTableIDsForRange(nil, nil)
+	oids, err := levelManager.QueryTablesInRange(nil, nil)
 	require.NoError(t, err)
 	require.Equal(t, 1, len(oids))
 	ids := oids[0]
-	require.Equal(t, allTabIDs[100:], []sst.SSTableID(ids))
+	require.Equal(t, NonOverlappingTables(allTabIDs[100:]), ids)
 
 	ver2 := levelManager.getMasterRecord().version
 	require.Equal(t, ver, ver2)
@@ -1035,7 +1035,7 @@ func TestFlushManyDeletes(t *testing.T) {
 	defer tearDown(t)
 	numAdds := 1000
 	ks := 0
-	var allTabIDs []sst.SSTableID
+	var allTabIDs []QueryTableInfo
 	for i := 0; i < numAdds; i++ {
 		tabIDs := addTables(t, levelManager, 1, ks, ks+1)
 		ks += 3
@@ -1059,7 +1059,7 @@ func TestFlushManyDeletes(t *testing.T) {
 	for i := 0; i < numDels; i++ {
 		deregEntries = append(deregEntries, RegistrationEntry{
 			Level:    1,
-			TableID:  allTabIDs[i],
+			TableID:  allTabIDs[i].ID,
 			KeyStart: createKey(ks),
 			KeyEnd:   createKey(ks + 1),
 		})
@@ -1090,11 +1090,11 @@ func TestFlushManyDeletes(t *testing.T) {
 	err = levelManager.Activate()
 	require.NoError(t, err)
 
-	oids, _, err := levelManager.GetTableIDsForRange(nil, nil)
+	oids, err := levelManager.QueryTablesInRange(nil, nil)
 	require.NoError(t, err)
 	require.Equal(t, 1, len(oids))
 	ids := oids[0]
-	require.Equal(t, allTabIDs[200:], []sst.SSTableID(ids))
+	require.Equal(t, NonOverlappingTables(allTabIDs[200:]), ids)
 
 	ver2 := levelManager.getMasterRecord().version
 	require.Equal(t, ver, ver2)
@@ -1107,7 +1107,7 @@ func TestMultipleFlushes(t *testing.T) {
 	numAdds := 1000
 
 	ks := 0
-	var allTabIDs []sst.SSTableID
+	var allTabIDs []QueryTableInfo
 	for i := 0; i < numAdds; i++ {
 
 		tabIDs := addTables(t, levelManager, 1, ks, ks+1)
@@ -1118,11 +1118,11 @@ func TestMultipleFlushes(t *testing.T) {
 		ver := mr.version
 		require.Equal(t, i+1, int(ver))
 
-		oids, _, err := levelManager.GetTableIDsForRange(nil, nil)
+		oids, err := levelManager.QueryTablesInRange(nil, nil)
 		require.NoError(t, err)
 		require.Equal(t, 1, len(oids))
 		ids := oids[0]
-		require.Equal(t, allTabIDs, []sst.SSTableID(ids))
+		require.Equal(t, NonOverlappingTables(allTabIDs), ids)
 
 		_, _, err = levelManager.Flush(false)
 		require.NoError(t, err)
@@ -1140,11 +1140,11 @@ func TestMultipleFlushes(t *testing.T) {
 		ver = mr.version
 		require.Equal(t, i+1, int(ver))
 
-		oids, _, err = levelManager.GetTableIDsForRange(nil, nil)
+		oids, err = levelManager.QueryTablesInRange(nil, nil)
 		require.NoError(t, err)
 		require.Equal(t, 1, len(oids))
 		ids = oids[0]
-		require.Equal(t, allTabIDs, []sst.SSTableID(ids))
+		require.Equal(t, NonOverlappingTables(allTabIDs), ids)
 	}
 }
 
@@ -1210,7 +1210,7 @@ func TestAddIdempotency(t *testing.T) {
 	require.NoError(t, err)
 
 	overlapTableIDs := getInRange(t, levelManager, 0, 10)
-	expectedTabIDs := []NonoverlappingTableIDs{[]sst.SSTableID{tabID}}
+	expectedTabIDs := []NonOverlappingTables{[]QueryTableInfo{{ID: tabID}}}
 	validateTabIds(t, expectedTabIDs, overlapTableIDs)
 
 	// Now apply again
@@ -1247,13 +1247,13 @@ func TestRemoveIdempotency(t *testing.T) {
 	err = levelManager.ApplyChangesNoCheck(regBatch)
 	require.NoError(t, err)
 	overlapTableIDs := getInRange(t, levelManager, 0, 10)
-	validateTabIds(t, []NonoverlappingTableIDs{[]sst.SSTableID{tabID2}, []sst.SSTableID{tabID1}}, overlapTableIDs)
+	validateTabIds(t, []NonOverlappingTables{[]QueryTableInfo{{ID: tabID2}}, []QueryTableInfo{{ID: tabID1}}}, overlapTableIDs)
 
 	regBatch = RegistrationBatch{DeRegistrations: []RegistrationEntry{regEntry1}}
 	err = levelManager.ApplyChangesNoCheck(regBatch)
 	require.NoError(t, err)
 	overlapTableIDs = getInRange(t, levelManager, 0, 10)
-	validateTabIds(t, []NonoverlappingTableIDs{[]sst.SSTableID{tabID2}}, overlapTableIDs)
+	validateTabIds(t, []NonOverlappingTables{[]QueryTableInfo{{ID: tabID2}}}, overlapTableIDs)
 
 	// Removing tables must be idempotent as same batch can be re-applied on reprocessing or on resubmission from client
 	// after transient error (e.g. network error)
@@ -1263,7 +1263,7 @@ func TestRemoveIdempotency(t *testing.T) {
 	err = levelManager.ApplyChangesNoCheck(regBatch)
 	require.NoError(t, err)
 	overlapTableIDs = getInRange(t, levelManager, 0, 10)
-	validateTabIds(t, []NonoverlappingTableIDs{[]sst.SSTableID{tabID2}}, overlapTableIDs)
+	validateTabIds(t, []NonOverlappingTables{[]QueryTableInfo{{ID: tabID2}}}, overlapTableIDs)
 
 	// Now remove the other entry
 	regBatch = RegistrationBatch{DeRegistrations: []RegistrationEntry{regEntry2}}
@@ -1410,99 +1410,6 @@ func (tc *testCommandBatchIngestor) ingest(buff []byte, complFunc func(error)) {
 	}()
 }
 
-func TestGetTableIDsInRangeReturnsDeadVersions(t *testing.T) {
-	levelManager, tearDown := setupLevelManagerWithMaxEntries(t, 10)
-	defer tearDown(t)
-
-	regEntry := RegistrationEntry{
-		Level:      0,
-		TableID:    []byte("sst1"),
-		MinVersion: 0,
-		MaxVersion: 100,
-		KeyStart:   encoding.EncodeVersion([]byte("key-0000"), 0),
-		KeyEnd:     encoding.EncodeVersion([]byte("key-0003"), 0),
-	}
-	regBatch := RegistrationBatch{
-		Registrations: []RegistrationEntry{regEntry},
-	}
-	err := levelManager.ApplyChangesNoCheck(regBatch)
-	require.NoError(t, err)
-
-	rng1 := VersionRange{
-		VersionStart: 12,
-		VersionEnd:   23,
-	}
-	rng2 := VersionRange{
-		VersionStart: 34,
-		VersionEnd:   67,
-	}
-	rng3 := VersionRange{
-		VersionStart: 34,
-		VersionEnd:   78,
-	}
-	err = levelManager.RegisterDeadVersionRange(rng1, "cluster1", 0, false, 0)
-	require.NoError(t, err)
-	err = levelManager.RegisterDeadVersionRange(rng2, "cluster1", 0, false, 1)
-	require.NoError(t, err)
-	err = levelManager.RegisterDeadVersionRange(rng3, "cluster2", 0, false, 2)
-	require.NoError(t, err)
-
-	_, deadVersions, err := levelManager.GetTableIDsForRange(nil, nil)
-	require.NoError(t, err)
-	require.Equal(t, []VersionRange{rng1, rng2, rng3}, deadVersions)
-}
-
-func TestDeadVersionsRemovedOnStartup(t *testing.T) {
-	lm, tearDown := setupLevelManagerWithConfigSetter(t, true, func(cfg *conf.Config) {
-		cfg.L0CompactionTrigger = 10
-	})
-	defer tearDown(t)
-
-	regEntry := RegistrationEntry{
-		Level:      0,
-		TableID:    []byte("sst1"),
-		MinVersion: 17,
-		MaxVersion: 25,
-		KeyStart:   encoding.EncodeVersion([]byte("key-0000"), 0),
-		KeyEnd:     encoding.EncodeVersion([]byte("key-0003"), 0),
-	}
-	regBatch := RegistrationBatch{
-		Registrations: []RegistrationEntry{regEntry},
-	}
-	err := lm.ApplyChangesNoCheck(regBatch)
-	require.NoError(t, err)
-	rng := VersionRange{
-		VersionStart: 25,
-		VersionEnd:   33,
-	}
-	// Apply a lock to prevent compaction happening straight away
-	lm.lockTable("sst1")
-	err = lm.RegisterDeadVersionRange(rng, "test_cluster", 123, false, 0)
-	require.NoError(t, err)
-	lm.unlockTable("sst1")
-
-	stats := lm.GetCompactionStats()
-	require.Equal(t, 0, stats.QueuedJobs)
-
-	// Now stop and start the level manager
-	_, _, err = lm.Flush(true)
-	require.NoError(t, err)
-	err = lm.Stop()
-	require.NoError(t, err)
-	lm.reset()
-	err = lm.Start(true)
-	require.NoError(t, err)
-
-	// Job should be created
-
-	job, err := getJob(lm)
-	require.NoError(t, err)
-	require.False(t, job.isMove)
-
-	require.Equal(t, "sst1", string(job.tables[0][0].table.SSTableID))
-	require.Equal(t, []VersionRange{rng}, job.tables[0][0].deadVersionRanges)
-}
-
 func TestLastFlushedVersion(t *testing.T) {
 	lm, tearDown := setupLevelManager(t)
 	defer tearDown(t)
@@ -1575,52 +1482,6 @@ func TestDedupApplyChanges(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, 5, lm.GetLevelTableCounts()[0])
-}
-
-func TestDedupRegisterDeadVersionRange(t *testing.T) {
-	lm, tearDown := setupLevelManagerWithDedup(t, false, false, true, func(cfg *conf.Config) {
-	})
-	defer tearDown(t)
-
-	// Add a batch to prevent dead version range being immediately removed
-	err := lm.ApplyChanges(createBatch(0), false, 0)
-	require.NoError(t, err)
-
-	deadRange1 := VersionRange{
-		VersionStart: 10,
-		VersionEnd:   12,
-	}
-	err = lm.RegisterDeadVersionRange(deadRange1, "", 0, false, 7)
-	require.NoError(t, err)
-
-	deadRanges := lm.getDeadVersions()
-	require.Equal(t, []VersionRange{deadRange1}, deadRanges)
-
-	_, _, err = lm.Flush(false)
-	require.NoError(t, err)
-	lm.reset()
-	err = lm.Start(true)
-	require.NoError(t, err)
-
-	deadRange2 := VersionRange{
-		VersionStart: 20,
-		VersionEnd:   23,
-	}
-
-	err = lm.RegisterDeadVersionRange(deadRange2, "", 0, true, 7)
-	require.NoError(t, err)
-
-	deadRanges = lm.getDeadVersions()
-	require.Equal(t, []VersionRange{deadRange1}, deadRanges)
-
-	err = lm.Activate()
-	require.NoError(t, err)
-
-	err = lm.RegisterDeadVersionRange(deadRange2, "", 0, false, 8)
-	require.NoError(t, err)
-
-	deadRanges = lm.getDeadVersions()
-	require.Equal(t, []VersionRange{deadRange1, deadRange2}, deadRanges)
 }
 
 func TestDedupRegisterSlabRetention(t *testing.T) {
@@ -1963,6 +1824,264 @@ func TestStats(t *testing.T) {
 	require.Equal(t, l2TotEntrySize-int(deregBatch2.NumEntries), levStats2.Entries)
 }
 
+func TestRegisterDeadVersionRanges(t *testing.T) {
+	levelManager, tearDown := setupLevelManager(t)
+	defer tearDown(t)
+
+	// Add some entries in different levels
+	regEntry0_1 := regTableInLevel(t, levelManager, 0, 0, 9, 310, 319, 0)
+	regEntry0_2 := regTableInLevel(t, levelManager, 0, 10, 19, 320, 329, 1)
+	regEntry0_3 := regTableInLevel(t, levelManager, 0, 20, 29, 330, 339, 2)
+
+	regEntry1_1 := regTableInLevel(t, levelManager, 1, 0, 9, 210, 219, 0)
+	regEntry1_2 := regTableInLevel(t, levelManager, 1, 10, 19, 220, 229, 0)
+	regEntry1_3 := regTableInLevel(t, levelManager, 1, 20, 29, 230, 239, 0)
+
+	regEntry2_1 := regTableInLevel(t, levelManager, 2, 0, 9, 110, 119, 0)
+	regEntry2_2 := regTableInLevel(t, levelManager, 2, 10, 19, 120, 129, 0)
+	regEntry2_3 := regTableInLevel(t, levelManager, 2, 20, 29, 130, 139, 0)
+
+	tables := getInRange(t, levelManager, 0, 30)
+	require.Equal(t, 5, len(tables))
+	// Make sure no dead version ranges
+	for _, infos := range tables {
+		for _, table := range infos {
+			require.Nil(t, table.DeadVersions)
+		}
+	}
+
+	// Ranges that overlap one entry
+	rng1 := VersionRange{
+		VersionStart: 220,
+		VersionEnd:   225,
+	}
+	expected := []NonOverlappingTables{
+		{
+			{ID: regEntry0_3.TableID},
+		},
+		{
+			{ID: regEntry0_2.TableID},
+		},
+		{
+			{ID: regEntry0_1.TableID},
+		},
+		{
+			{ID: regEntry1_1.TableID},
+			{ID: regEntry1_2.TableID, DeadVersions: []VersionRange{rng1}},
+			{ID: regEntry1_3.TableID},
+		},
+		{
+			{ID: regEntry2_1.TableID},
+			{ID: regEntry2_2.TableID},
+			{ID: regEntry2_3.TableID},
+		},
+	}
+	validateDeadVersions(t, levelManager, rng1, expected)
+
+	rng2 := VersionRange{
+		VersionStart: 223,
+		VersionEnd:   227,
+	}
+	expected = []NonOverlappingTables{
+		{
+			{ID: regEntry0_3.TableID},
+		},
+		{
+			{ID: regEntry0_2.TableID},
+		},
+		{
+			{ID: regEntry0_1.TableID},
+		},
+		{
+			{ID: regEntry1_1.TableID},
+			{ID: regEntry1_2.TableID, DeadVersions: []VersionRange{rng1, rng2}},
+			{ID: regEntry1_3.TableID},
+		},
+		{
+			{ID: regEntry2_1.TableID},
+			{ID: regEntry2_2.TableID},
+			{ID: regEntry2_3.TableID},
+		},
+	}
+	validateDeadVersions(t, levelManager, rng2, expected)
+
+	rng3 := VersionRange{
+		VersionStart: 224,
+		VersionEnd:   229,
+	}
+	expected = []NonOverlappingTables{
+		{
+			{ID: regEntry0_3.TableID},
+		},
+		{
+			{ID: regEntry0_2.TableID},
+		},
+		{
+			{ID: regEntry0_1.TableID},
+		},
+		{
+			{ID: regEntry1_1.TableID},
+			{ID: regEntry1_2.TableID, DeadVersions: []VersionRange{rng1, rng2, rng3}},
+			{ID: regEntry1_3.TableID},
+		},
+		{
+			{ID: regEntry2_1.TableID},
+			{ID: regEntry2_2.TableID},
+			{ID: regEntry2_3.TableID},
+		},
+	}
+	validateDeadVersions(t, levelManager, rng3, expected)
+
+	rng4 := VersionRange{
+		VersionStart: 125,
+		VersionEnd:   325,
+	}
+	expected = []NonOverlappingTables{
+		{
+			{ID: regEntry0_3.TableID},
+		},
+		{
+			{ID: regEntry0_2.TableID, DeadVersions: []VersionRange{rng4}},
+		},
+		{
+			{ID: regEntry0_1.TableID, DeadVersions: []VersionRange{rng4}},
+		},
+		{
+			{ID: regEntry1_1.TableID, DeadVersions: []VersionRange{rng4}},
+			{ID: regEntry1_2.TableID, DeadVersions: []VersionRange{rng1, rng2, rng3, rng4}},
+			{ID: regEntry1_3.TableID, DeadVersions: []VersionRange{rng4}},
+		},
+		{
+			{ID: regEntry2_1.TableID},
+			{ID: regEntry2_2.TableID, DeadVersions: []VersionRange{rng4}},
+			{ID: regEntry2_3.TableID, DeadVersions: []VersionRange{rng4}},
+		},
+	}
+	validateDeadVersions(t, levelManager, rng4, expected)
+
+	// No matches
+
+	rng5 := VersionRange{
+		VersionStart: 0,
+		VersionEnd:   109,
+	}
+	validateDeadVersions(t, levelManager, rng5, expected)
+
+	rng6 := VersionRange{
+		VersionStart: 340,
+		VersionEnd:   350,
+	}
+	validateDeadVersions(t, levelManager, rng6, expected)
+
+	// Now flush and restart
+	_, _, err := levelManager.Flush(false)
+	require.NoError(t, err)
+	err = levelManager.Stop()
+	require.NoError(t, err)
+	levelManager.reset()
+	err = levelManager.Start(true)
+	require.NoError(t, err)
+	err = levelManager.Activate()
+	require.NoError(t, err)
+
+	tables = getInRange(t, levelManager, 0, 30)
+	require.Equal(t, OverlappingTables(expected), tables)
+
+	afterTest(t, levelManager)
+}
+
+func validateDeadVersions(t *testing.T, lm *LevelManager, rng VersionRange, expected []NonOverlappingTables) {
+	err := lm.RegisterDeadVersionRange(rng, "test_cluster", 0, false, 0)
+	require.NoError(t, err)
+	tables := getInRange(t, lm, 0, 30)
+	require.Equal(t, OverlappingTables(expected), tables)
+}
+
+func regTableInLevel(t *testing.T, lm *LevelManager, level int, keyStart int, keyEnd int, minVersion int, maxVersion int, processorID int) *RegistrationEntry {
+	tabID, err := uuid.New().MarshalBinary()
+	require.NoError(t, err)
+	regEntry := RegistrationEntry{
+		Level:      level,
+		TableID:    tabID,
+		KeyStart:   createKey(keyStart),
+		KeyEnd:     createKey(keyEnd),
+		MinVersion: uint64(minVersion),
+		MaxVersion: uint64(maxVersion),
+	}
+	regBatch := RegistrationBatch{Registrations: []RegistrationEntry{regEntry}, ProcessorID: processorID}
+	err = lm.ApplyChangesNoCheck(regBatch)
+	require.NoError(t, err)
+	return &regEntry
+}
+
+func TestRegisterDeadVersionRangeIdempotency(t *testing.T) {
+	levelManager, tearDown := setupLevelManager(t)
+	defer tearDown(t)
+
+	regEntry := regTableInLevel(t, levelManager, 0, 0, 9, 75, 90, 0)
+
+	rng := VersionRange{
+		VersionStart: 50,
+		VersionEnd:   100,
+	}
+
+	err := levelManager.RegisterDeadVersionRange(rng, "test_cluster", 0, false, 0)
+	require.NoError(t, err)
+	tables := getInRange(t, levelManager, 0, 30)
+
+	expected := []NonOverlappingTables{
+		{
+			{ID: regEntry.TableID, DeadVersions: []VersionRange{rng}},
+		},
+	}
+	require.Equal(t, OverlappingTables(expected), tables)
+
+	// Applying again should not add version range again
+	err = levelManager.RegisterDeadVersionRange(rng, "test_cluster", 0, false, 0)
+	require.NoError(t, err)
+	tables = getInRange(t, levelManager, 0, 30)
+
+	require.Equal(t, OverlappingTables(expected), tables)
+}
+
+func TestRegisterDeadVersionRangeDedup(t *testing.T) {
+	levelManager, tearDown := setupLevelManagerWithDedup(t, false, false, true, func(cfg *conf.Config) {
+	})
+	defer tearDown(t)
+
+	regEntry := regTableInLevel(t, levelManager, 0, 0, 9, 75, 90, 0)
+	rng := VersionRange{
+		VersionStart: 50,
+		VersionEnd:   100,
+	}
+
+	err := levelManager.RegisterDeadVersionRange(rng, "test_cluster", 0, false, 0)
+	require.NoError(t, err)
+	tables := getInRange(t, levelManager, 0, 30)
+	expected := []NonOverlappingTables{
+		{
+			{ID: regEntry.TableID, DeadVersions: []VersionRange{rng}},
+		},
+	}
+	require.Equal(t, OverlappingTables(expected), tables)
+
+	_, _, err = levelManager.Flush(false)
+	require.NoError(t, err)
+
+	levelManager.reset()
+	err = levelManager.Start(true)
+	require.NoError(t, err)
+
+	err = levelManager.RegisterDeadVersionRange(rng, "test_cluster", 0, true, 0)
+	require.NoError(t, err)
+
+	err = levelManager.Activate()
+	require.NoError(t, err)
+
+	tables = getInRange(t, levelManager, 0, 30)
+
+	require.Equal(t, OverlappingTables(expected), tables)
+}
 func TestContainsTable(t *testing.T) {
 	populatedSeg := &segment{
 		format: 26,

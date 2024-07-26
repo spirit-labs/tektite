@@ -181,7 +181,6 @@ func (c *compactionWorker) processJob(job *CompactionJob) ([]RegistrationEntry, 
 		return registrations, deRegistrations, nil
 	}
 	start := time.Now()
-
 	tablesInMerge := 0
 	for _, overlapping := range job.tables {
 		tablesInMerge += len(overlapping)
@@ -200,7 +199,7 @@ func (c *compactionWorker) processJob(job *CompactionJob) ([]RegistrationEntry, 
 					string(t.table.SSTableID))
 			}
 			tables[j] = tableToMerge{
-				deadVersionRanges: t.deadVersionRanges,
+				deadVersionRanges: t.table.DeadVersionRanges,
 				sst:               ssTable,
 				id:                t.table.SSTableID,
 			}

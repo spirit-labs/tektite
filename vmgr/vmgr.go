@@ -376,16 +376,18 @@ func (v *VersionManager) HandleClusterState(cs clustmgr.ClusterState) error {
 				v.flushedVersionTimer.Stop()
 			}
 			v.remotingClient.Stop()
+			bvt := v.broadcastVersionsTimer
+			v.broadcastVersionsTimer = nil
+			fvt := v.flushedVersionTimer
+			v.flushedVersionTimer = nil
 			v.lock.Unlock()
 			unlocked = true
 			// Must wait outside lock
-			if v.broadcastVersionsTimer != nil {
-				v.broadcastVersionsTimer.WaitComplete()
-				v.broadcastVersionsTimer = nil
+			if bvt != nil {
+				bvt.WaitComplete()
 			}
-			if v.flushedVersionTimer != nil {
-				v.flushedVersionTimer.WaitComplete()
-				v.flushedVersionTimer = nil
+			if fvt != nil {
+				fvt.WaitComplete()
 			}
 		} else if v.IsActivating() {
 			// If activating this will prevent activation completing
