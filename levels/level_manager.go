@@ -311,17 +311,18 @@ func (lm *LevelManager) getClusterVersion(clusterName string) int {
 func (lm *LevelManager) getOverlappingTables(keyStart []byte, keyEnd []byte, level int,
 	segmentEntries []segmentEntry) (bool, []*TableEntry, error) {
 	var tables []*TableEntry
-	for _, segEntry := range segmentEntries {
-		if hasOverlap(keyStart, keyEnd, segEntry.rangeStart, segEntry.rangeEnd) {
-			seg, err := lm.getSegment(segEntry.segmentID)
-			if err != nil {
-				return false, nil, err
-			}
-			if seg == nil {
-				log.Warnf("failed to find segment %s", string(segEntry.segmentID))
-				return false, nil, nil
-			}
-			if level == 0 {
+	// can't use binary search in L0
+	if level == 0 {
+		for _, segEntry := range segmentEntries {
+			if hasOverlap(keyStart, keyEnd, segEntry.rangeStart, segEntry.rangeEnd) {
+				seg, err := lm.getSegment(segEntry.segmentID)
+				if err != nil {
+					return false, nil, err
+				}
+				if seg == nil {
+					log.Warnf("failed to find segment %s", string(segEntry.segmentID))
+					return false, nil, nil
+				}
 				// We must add the overlapping entries from newest to oldest
 				for i := len(seg.tableEntries) - 1; i >= 0; i-- {
 					tabEntry := seg.tableEntries[i]
@@ -329,14 +330,49 @@ func (lm *LevelManager) getOverlappingTables(keyStart []byte, keyEnd []byte, lev
 						tables = append(tables, tabEntry)
 					}
 				}
-			} else {
-				// Other levels have no overlap, and there can be > 1 segment, so we just add them in the order they
-				// appear
-				for _, tabEntry := range seg.tableEntries {
-					if hasOverlap(keyStart, keyEnd, tabEntry.RangeStart, tabEntry.RangeEnd) {
-						tables = append(tables, tabEntry)
+			}
+		}
+	} else {
+		numSegEntries := len(segmentEntries)
+		startIndexSegEntry := 0
+		if keyEnd != nil {
+			startIndexSegEntry = sort.Search(numSegEntries, func(i int) bool {
+				return bytes.Compare(segmentEntries[i].rangeEnd, keyStart) >= 0
+			})
+		}
+		// didn't find a legal index
+		if startIndexSegEntry == numSegEntries {
+			return true, nil, nil
+		}
+		for _, segEntry := range segmentEntries[startIndexSegEntry:] {
+			if hasOverlap(keyStart, keyEnd, segEntry.rangeStart, segEntry.rangeEnd) {
+				seg, err := lm.getSegment(segEntry.segmentID)
+				if err != nil {
+					return false, nil, err
+				}
+				if seg == nil {
+					log.Warnf("failed to find segment %s", string(segEntry.segmentID))
+					return false, nil, nil
+				}
+				numTableEntries := len(seg.tableEntries)
+				startIndex := 0
+				if keyEnd != nil {
+					startIndex = sort.Search(numTableEntries, func(i int) bool {
+						return bytes.Compare(seg.tableEntries[i].RangeEnd, keyStart) >= 0
+					})
+				}
+				if startIndex == numTableEntries {
+					return true, nil, nil
+				}
+				for _, tableEntry := range seg.tableEntries[startIndex:] {
+					if hasOverlap(keyStart, keyEnd, tableEntry.RangeStart, tableEntry.RangeEnd) {
+						tables = append(tables, tableEntry)
+					} else {
+						break
 					}
 				}
+			} else {
+				break
 			}
 		}
 	}
