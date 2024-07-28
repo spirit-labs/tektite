@@ -2106,7 +2106,7 @@ func TestGetSegmentForRegistration(t *testing.T) {
 		{name: "key end exactly on range end", registration: RegistrationEntry{KeyStart: []byte("bbb"), KeyEnd: []byte("ccc")}, expected: 0},
 		{name: "key start exactly on range end", registration: RegistrationEntry{KeyStart: []byte("ccc"), KeyEnd: []byte("ddd")}, expected: -1},
 		{name: "key end exactly on range start", registration: RegistrationEntry{KeyStart: []byte("ddd"), KeyEnd: []byte("eee")}, expected: 1},
-		{name: "key start one before range start", registration: RegistrationEntry{KeyStart: []byte("zz"), KeyEnd: []byte("aaa")}, expected: 0},
+		{name: "key start one before range start", registration: RegistrationEntry{KeyStart: []byte("aa"), KeyEnd: []byte("ccb")}, expected: 0},
 		{name: "key end one after range end", registration: RegistrationEntry{KeyStart: []byte("bbb"), KeyEnd: []byte("cccd")}, expected: 0},
 		{name: "key start one after range start", registration: RegistrationEntry{KeyStart: []byte("aab"), KeyEnd: []byte("bbb")}, expected: 0},
 		{name: "key start one before range end", registration: RegistrationEntry{KeyStart: []byte("ccb"), KeyEnd: []byte("ccc")}, expected: 0},
