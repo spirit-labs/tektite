@@ -2101,7 +2101,19 @@ func TestGetSegmentForRegistration(t *testing.T) {
 		{name: "find segment between first and second segment", registration: RegistrationEntry{KeyStart: []byte("ccd"), KeyEnd: []byte("ccdd")}, expected: 0},
 		{name: "find segment between second and third segment", registration: RegistrationEntry{KeyStart: []byte("ffg"), KeyEnd: []byte("ffgg")}, expected: 1},
 		{name: "find segment at the end", registration: RegistrationEntry{KeyStart: []byte("iiii"), KeyEnd: []byte("j")}, expected: 2},
-	}
+
+		{name: "key start exactly on range start", registration: RegistrationEntry{KeyStart: []byte("aaa"), KeyEnd: []byte("bbb")}, expected: 0},
+		{name: "key end exactly on range end", registration: RegistrationEntry{KeyStart: []byte("bbb"), KeyEnd: []byte("ccc")}, expected: 0},
+		{name: "key start exactly on range end", registration: RegistrationEntry{KeyStart: []byte("ccc"), KeyEnd: []byte("ddd")}, expected: -1},
+		{name: "key end exactly on range start", registration: RegistrationEntry{KeyStart: []byte("ddd"), KeyEnd: []byte("eee")}, expected: 1},
+		{name: "key start one before range start", registration: RegistrationEntry{KeyStart: []byte("zz"), KeyEnd: []byte("aaa")}, expected: 0},
+		{name: "key end one after range end", registration: RegistrationEntry{KeyStart: []byte("bbb"), KeyEnd: []byte("cccd")}, expected: 0},
+		{name: "key start one after range start", registration: RegistrationEntry{KeyStart: []byte("aab"), KeyEnd: []byte("bbb")}, expected: 0},
+		{name: "key start one before range end", registration: RegistrationEntry{KeyStart: []byte("ccb"), KeyEnd: []byte("ccc")}, expected: 0},
+		{name: "keystart one after range end", registration: RegistrationEntry{KeyStart: []byte("cccd"), KeyEnd: []byte("ddd")}, expected: 1},
+		{name: "key end one before range end", registration: RegistrationEntry{KeyStart: []byte("bbb"), KeyEnd: []byte("ccb")}, expected: 0},
+		{name: "key end one after range end", registration: RegistrationEntry{KeyStart: []byte("ccc"), KeyEnd: []byte("cccd")}, expected: 0},
+		{name: "key end one before range start", registration: RegistrationEntry{KeyStart: []byte("fff"), KeyEnd: []byte("gg")}, expected: 1}}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -2167,6 +2179,66 @@ func TestGetSegmentEntryForDeregistration(t *testing.T) {
 			segmentEntries: []segmentEntry{},
 			deRegistration: RegistrationEntry{KeyStart: []byte("aaa"), KeyEnd: []byte("bbb")},
 			expected:       -1,
+		},
+		{
+			name:           "key start one after range start",
+			segmentEntries: segmentEntries,
+			deRegistration: RegistrationEntry{KeyStart: []byte("aab"), KeyEnd: []byte("bbb")},
+			expected:       0,
+		},
+		{
+			name:           "key start one before range end",
+			segmentEntries: segmentEntries,
+			deRegistration: RegistrationEntry{KeyStart: []byte("ccb"), KeyEnd: []byte("ccc")},
+			expected:       0,
+		},
+		{
+			name:           "key start one after range end",
+			segmentEntries: segmentEntries,
+			deRegistration: RegistrationEntry{KeyStart: []byte("cccd"), KeyEnd: []byte("ddd")},
+			expected:       -1,
+		},
+		{
+			name:           "key end one before range end",
+			segmentEntries: segmentEntries,
+			deRegistration: RegistrationEntry{KeyStart: []byte("bbb"), KeyEnd: []byte("ccb")},
+			expected:       0,
+		},
+		{
+			name:           "key end one after range end",
+			segmentEntries: segmentEntries,
+			deRegistration: RegistrationEntry{KeyStart: []byte("ccc"), KeyEnd: []byte("cccd")},
+			expected:       -1,
+		},
+		{
+			name:           "key end one before range start",
+			segmentEntries: segmentEntries,
+			deRegistration: RegistrationEntry{KeyStart: []byte("fff"), KeyEnd: []byte("gg")},
+			expected:       -1,
+		},
+		{
+			name:           "key start exactly on range start",
+			segmentEntries: segmentEntries,
+			deRegistration: RegistrationEntry{KeyStart: []byte("aaa"), KeyEnd: []byte("bbb")},
+			expected:       0,
+		},
+		{
+			name:           "key start exactly on range end",
+			segmentEntries: segmentEntries,
+			deRegistration: RegistrationEntry{KeyStart: []byte("ccc"), KeyEnd: []byte("ddd")},
+			expected:       -1,
+		},
+		{
+			name:           "key end exactly on range start",
+			segmentEntries: segmentEntries,
+			deRegistration: RegistrationEntry{KeyStart: []byte("bbb"), KeyEnd: []byte("ddd")},
+			expected:       -1,
+		},
+		{
+			name:           "key end exactly on range end",
+			segmentEntries: segmentEntries,
+			deRegistration: RegistrationEntry{KeyStart: []byte("bbb"), KeyEnd: []byte("ccc")},
+			expected:       0,
 		},
 	}
 
