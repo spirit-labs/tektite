@@ -1719,11 +1719,12 @@ func (lm *LevelManager) dump() {
 }
 
 func containsTable(seg *segment, tabID sst.SSTableID) bool {
-	n := len(seg.tableEntries)
-	index := sort.Search(n, func(i int) bool {
-		return bytes.Compare(seg.tableEntries[i].SSTableID, tabID) >= 0
-	})
-	return index < n && bytes.Equal(seg.tableEntries[index].SSTableID, tabID)
+	for _, te := range seg.tableEntries {
+		if bytes.Equal(te.SSTableID, tabID) {
+			return true
+		}
+	}
+	return false
 }
 
 func getSegmentForRegistration(segmentEntries []segmentEntry, registration RegistrationEntry) int {
