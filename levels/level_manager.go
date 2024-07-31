@@ -12,6 +12,7 @@ import (
 	"github.com/spirit-labs/tektite/objstore"
 	"github.com/spirit-labs/tektite/sst"
 	"github.com/spirit-labs/tektite/tabcache"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -299,17 +300,18 @@ func (lm *LevelManager) getClusterVersion(clusterName string) int {
 func (lm *LevelManager) getOverlappingTables(keyStart []byte, keyEnd []byte, level int,
 	segmentEntries []segmentEntry) (bool, []*TableEntry, error) {
 	var tables []*TableEntry
-	for _, segEntry := range segmentEntries {
-		if hasOverlap(keyStart, keyEnd, segEntry.rangeStart, segEntry.rangeEnd) {
-			seg, err := lm.getSegment(segEntry.segmentID)
-			if err != nil {
-				return false, nil, err
-			}
-			if seg == nil {
-				log.Warnf("failed to find segment %s", string(segEntry.segmentID))
-				return false, nil, nil
-			}
-			if level == 0 {
+	// can't use binary search in L0
+	if level == 0 {
+		for _, segEntry := range segmentEntries {
+			if hasOverlap(keyStart, keyEnd, segEntry.rangeStart, segEntry.rangeEnd) {
+				seg, err := lm.getSegment(segEntry.segmentID)
+				if err != nil {
+					return false, nil, err
+				}
+				if seg == nil {
+					log.Warnf("failed to find segment %s", string(segEntry.segmentID))
+					return false, nil, nil
+				}
 				// We must add the overlapping entries from newest to oldest
 				for i := len(seg.tableEntries) - 1; i >= 0; i-- {
 					tabEntry := seg.tableEntries[i]
@@ -317,14 +319,49 @@ func (lm *LevelManager) getOverlappingTables(keyStart []byte, keyEnd []byte, lev
 						tables = append(tables, tabEntry)
 					}
 				}
-			} else {
-				// Other levels have no overlap, and there can be > 1 segment, so we just add them in the order they
-				// appear
-				for _, tabEntry := range seg.tableEntries {
-					if hasOverlap(keyStart, keyEnd, tabEntry.RangeStart, tabEntry.RangeEnd) {
-						tables = append(tables, tabEntry)
+			}
+		}
+	} else {
+		numSegEntries := len(segmentEntries)
+		startIndexSegEntry := 0
+		if keyEnd != nil {
+			startIndexSegEntry = sort.Search(numSegEntries, func(i int) bool {
+				return bytes.Compare(segmentEntries[i].rangeEnd, keyStart) >= 0
+			})
+		}
+		// didn't find a legal index
+		if startIndexSegEntry == numSegEntries {
+			return true, nil, nil
+		}
+		for _, segEntry := range segmentEntries[startIndexSegEntry:] {
+			if hasOverlap(keyStart, keyEnd, segEntry.rangeStart, segEntry.rangeEnd) {
+				seg, err := lm.getSegment(segEntry.segmentID)
+				if err != nil {
+					return false, nil, err
+				}
+				if seg == nil {
+					log.Warnf("failed to find segment %s", string(segEntry.segmentID))
+					return false, nil, nil
+				}
+				numTableEntries := len(seg.tableEntries)
+				startIndex := 0
+				if keyEnd != nil {
+					startIndex = sort.Search(numTableEntries, func(i int) bool {
+						return bytes.Compare(seg.tableEntries[i].RangeEnd, keyStart) >= 0
+					})
+				}
+				if startIndex == numTableEntries {
+					return true, nil, nil
+				}
+				for _, tableEntry := range seg.tableEntries[startIndex:] {
+					if hasOverlap(keyStart, keyEnd, tableEntry.RangeStart, tableEntry.RangeEnd) {
+						tables = append(tables, tableEntry)
+					} else {
+						break
 					}
 				}
+			} else {
+				break
 			}
 		}
 	}
@@ -897,12 +934,7 @@ func (lm *LevelManager) applyDeRegistrations(deRegistrations []RegistrationEntry
 			found = 0
 		} else {
 			// Find which segment entry the table is in
-			for i, entry := range segmentEntries {
-				if bytes.Compare(deRegistration.KeyStart, entry.rangeStart) >= 0 && bytes.Compare(deRegistration.KeyEnd, entry.rangeEnd) <= 0 {
-					found = i
-					break
-				}
-			}
+			found = getSegmentEntryForDeregistration(segmentEntries, deRegistration)
 			if found == -1 {
 				// This can occur if deRegistration is applied more than once - we are idempotent.
 				// E.g. during reprocessing or if the client resubmits after a network error but it had actually been
@@ -926,13 +958,7 @@ func (lm *LevelManager) applyDeRegistrations(deRegistrations []RegistrationEntry
 		}
 
 		// Find the table entry in the segment entry
-		pos := -1
-		for i, te := range seg.tableEntries {
-			if bytes.Equal(deRegistration.TableID, te.SSTableID) {
-				pos = i
-				break
-			}
-		}
+		pos := getTableEntryForDeregistration(seg, deRegistration)
 		if pos == -1 {
 			// This can occur if deRegistration is applied more than once - we are idempotent.
 			// E.g. during reprocessing or if the client resubmits after a network error but it had actually been
@@ -1124,17 +1150,10 @@ func (lm *LevelManager) applyRegistrations(registrations []RegistrationEntry) ([
 			// Segments in these levels are non overlapping
 
 			// Find which segment the new registration belongs in
-			found := -1
-			for i := 0; i < len(segmentEntries); i++ {
-				// If the new table key start is after the key end of the previous segment (or there is no previous segment)
-				// and the new table key end is before the key start of the next segment (or there is no next segment)
-				// then we add the table entry to the current segment
-				if (i == 0 || bytes.Compare(registration.KeyStart, segmentEntries[i-1].rangeEnd) > 0) &&
-					(i == len(segmentEntries)-1 || bytes.Compare(registration.KeyEnd, segmentEntries[i+1].rangeStart) < 0) {
-					found = i
-					break
-				}
-			}
+			// If the new table key start is after the key end of the previous segment (or there is no previous segment)
+			// and the new table key end is before the key start of the next segment (or there is no next segment)
+			// then we add the table entry to the current segment
+			found := getSegmentForRegistration(segmentEntries, registration)
 			if len(segmentEntries) > 0 && found == -1 {
 				panic("cannot find segment for new table entry")
 			}
@@ -1155,11 +1174,12 @@ func (lm *LevelManager) applyRegistrations(registrations []RegistrationEntry) ([
 				}
 				// Find the insert before point
 				insertPoint := -1
-				for i, te := range seg.tableEntries {
-					if bytes.Compare(registration.KeyEnd, te.RangeStart) < 0 {
-						insertPoint = i
-						break
-					}
+				numTableEntries := len(seg.tableEntries)
+				index := sort.Search(numTableEntries, func(i int) bool {
+					return bytes.Compare(registration.KeyEnd, seg.tableEntries[i].RangeStart) < 0
+				})
+				if index < numTableEntries {
+					insertPoint = index
 				}
 
 				if insertPoint > 0 {
@@ -1705,6 +1725,84 @@ func containsTable(seg *segment, tabID sst.SSTableID) bool {
 		}
 	}
 	return false
+}
+
+func getSegmentForRegistration(segmentEntries []segmentEntry, registration RegistrationEntry) int {
+	n := len(segmentEntries)
+	// if n == 0 then sort.Search considers 0 a legal insertion point
+	// for now we still return -1 to fit in with the current code
+	if n == 0 {
+		return -1
+	}
+	// fits the case i == 0 && i == len(segmentEntries)-1
+	if n == 1 {
+		return 0
+	}
+	// with sort.Search we need a compare function that partitions the array into true/false
+	index := sort.Search(n, func(i int) bool {
+		return i == n-1 || bytes.Compare(registration.KeyEnd, segmentEntries[i+1].rangeStart) < 0
+	})
+	// now we can check if the KeyStart is > than segmentEntries[i-1].rangeEnd
+	if index == 0 {
+		return index
+	}
+	if bytes.Compare(registration.KeyStart, segmentEntries[index-1].rangeEnd) > 0 {
+		if index == n {
+			return index - 1
+		} else {
+			return index
+		}
+	}
+	return -1
+}
+
+func getSegmentEntryForDeregistration(segmentEntries []segmentEntry, deRegistration RegistrationEntry) int {
+	n := len(segmentEntries)
+	if n == 0 {
+		return -1
+	}
+	index := sort.Search(n, func(i int) bool {
+		return bytes.Compare(deRegistration.KeyStart, segmentEntries[i].rangeStart) < 0 ||
+			(bytes.Compare(deRegistration.KeyStart, segmentEntries[i].rangeStart) >= 0 &&
+				bytes.Compare(deRegistration.KeyEnd, segmentEntries[i].rangeEnd) <= 0)
+	})
+	// if index < n it's possible that sort.Search will consider it a legal index
+	// but we still need to test the equality condition
+	if index < n && bytes.Compare(deRegistration.KeyStart, segmentEntries[index].rangeStart) >= 0 &&
+		bytes.Compare(deRegistration.KeyEnd, segmentEntries[index].rangeEnd) <= 0 {
+		return index
+	}
+	return -1
+}
+
+func getTableEntryForDeregistration(seg *segment, deRegistration RegistrationEntry) int {
+	pos := -1
+	if deRegistration.Level == 0 {
+		for i, te := range seg.tableEntries {
+			if bytes.Equal(te.SSTableID, deRegistration.TableID) {
+				pos = i
+				break
+			}
+		}
+		return pos
+	}
+	n := len(seg.tableEntries)
+	// in principle if the ids are equal their ranges should be as well
+	pos = sort.Search(n, func(i int) bool {
+		return bytes.Compare(seg.tableEntries[i].RangeStart, deRegistration.KeyStart) >= 0
+	})
+	if pos >= n {
+		pos = -1
+	}
+	// it's also possible for multiple table entries to have the same range
+	for i := pos; i < n; i++ {
+		te := seg.tableEntries[i]
+		if bytes.Equal(te.SSTableID, deRegistration.TableID) {
+			pos = i
+			break
+		}
+	}
+	return pos
 }
 
 func (lm *LevelManager) GetObjectStore() objstore.Client {

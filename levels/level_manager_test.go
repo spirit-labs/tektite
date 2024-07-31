@@ -2082,3 +2082,172 @@ func TestRegisterDeadVersionRangeDedup(t *testing.T) {
 
 	require.Equal(t, OverlappingTables(expected), tables)
 }
+
+func TestGetSegmentForRegistration(t *testing.T) {
+	segmentEntries := []segmentEntry{
+		{rangeStart: []byte("aaa"), rangeEnd: []byte("ccc")},
+		{rangeStart: []byte("ddd"), rangeEnd: []byte("fff")},
+		{rangeStart: []byte("ggg"), rangeEnd: []byte("iii")},
+	}
+
+	// Test cases
+	testCases := []struct {
+		name         string
+		registration RegistrationEntry
+		expected     int
+	}{
+		{name: "no valid insertion point", registration: RegistrationEntry{KeyStart: []byte("b"), KeyEnd: []byte("e")}, expected: -1},
+		{name: "find segment at the head", registration: RegistrationEntry{KeyStart: []byte("a"), KeyEnd: []byte("aa")}, expected: 0},
+		{name: "find segment between first and second segment", registration: RegistrationEntry{KeyStart: []byte("ccd"), KeyEnd: []byte("ccdd")}, expected: 0},
+		{name: "find segment between second and third segment", registration: RegistrationEntry{KeyStart: []byte("ffg"), KeyEnd: []byte("ffgg")}, expected: 1},
+		{name: "find segment at the end", registration: RegistrationEntry{KeyStart: []byte("iiii"), KeyEnd: []byte("j")}, expected: 2},
+
+		{name: "key start exactly on range start", registration: RegistrationEntry{KeyStart: []byte("aaa"), KeyEnd: []byte("bbb")}, expected: 0},
+		{name: "key end exactly on range end", registration: RegistrationEntry{KeyStart: []byte("bbb"), KeyEnd: []byte("ccc")}, expected: 0},
+		{name: "key start exactly on range end", registration: RegistrationEntry{KeyStart: []byte("ccc"), KeyEnd: []byte("ddd")}, expected: -1},
+		{name: "key end exactly on range start", registration: RegistrationEntry{KeyStart: []byte("ddd"), KeyEnd: []byte("eee")}, expected: 1},
+		{name: "key start one before range start", registration: RegistrationEntry{KeyStart: []byte("aa"), KeyEnd: []byte("ccb")}, expected: 0},
+		{name: "key end one after range end", registration: RegistrationEntry{KeyStart: []byte("bbb"), KeyEnd: []byte("cccd")}, expected: 0},
+		{name: "key start one after range start", registration: RegistrationEntry{KeyStart: []byte("aab"), KeyEnd: []byte("bbb")}, expected: 0},
+		{name: "key start one before range end", registration: RegistrationEntry{KeyStart: []byte("ccb"), KeyEnd: []byte("ccc")}, expected: 0},
+		{name: "keystart one after range end", registration: RegistrationEntry{KeyStart: []byte("cccd"), KeyEnd: []byte("ddd")}, expected: 1},
+		{name: "key end one before range end", registration: RegistrationEntry{KeyStart: []byte("bbb"), KeyEnd: []byte("ccb")}, expected: 0},
+		{name: "key end one after range end", registration: RegistrationEntry{KeyStart: []byte("ccc"), KeyEnd: []byte("cccd")}, expected: 0},
+		{name: "key end one before range start", registration: RegistrationEntry{KeyStart: []byte("fff"), KeyEnd: []byte("gg")}, expected: 1}}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			index := getSegmentForRegistration(segmentEntries, tc.registration)
+			if index != tc.expected {
+				t.Errorf("expected %d, got %d", tc.expected, index)
+			}
+		})
+	}
+}
+
+func TestGetSegmentEntryForDeregistration(t *testing.T) {
+	segmentEntries := []segmentEntry{
+		{rangeStart: []byte("aaa"), rangeEnd: []byte("ccc")},
+		{rangeStart: []byte("ddd"), rangeEnd: []byte("fff")},
+		{rangeStart: []byte("ggg"), rangeEnd: []byte("iii")},
+	}
+
+	testCases := []struct {
+		name           string
+		segmentEntries []segmentEntry
+		deRegistration RegistrationEntry
+		expected       int
+	}{
+		{
+			name:           "exact match first segment",
+			segmentEntries: segmentEntries,
+			deRegistration: RegistrationEntry{KeyStart: []byte("aaa"), KeyEnd: []byte("ccc")},
+			expected:       0,
+		},
+		{
+			name:           "within first segment",
+			segmentEntries: segmentEntries,
+			deRegistration: RegistrationEntry{KeyStart: []byte("bbb"), KeyEnd: []byte("bbb")},
+			expected:       0,
+		},
+		{
+			name:           "overlapping two segments",
+			segmentEntries: segmentEntries,
+			deRegistration: RegistrationEntry{KeyStart: []byte("ccc"), KeyEnd: []byte("ddd")},
+			expected:       -1,
+		},
+		{
+			name:           "before first segment",
+			segmentEntries: segmentEntries,
+			deRegistration: RegistrationEntry{KeyStart: []byte("000"), KeyEnd: []byte("999")},
+			expected:       -1,
+		},
+		{
+			name:           "after last segment",
+			segmentEntries: segmentEntries,
+			deRegistration: RegistrationEntry{KeyStart: []byte("jjj"), KeyEnd: []byte("zzz")},
+			expected:       -1,
+		},
+		{
+			name:           "larger than any segment",
+			segmentEntries: segmentEntries,
+			deRegistration: RegistrationEntry{KeyStart: []byte("aaa"), KeyEnd: []byte("zzz")},
+			expected:       -1,
+		},
+		{
+			name:           "empty segment entries",
+			segmentEntries: []segmentEntry{},
+			deRegistration: RegistrationEntry{KeyStart: []byte("aaa"), KeyEnd: []byte("bbb")},
+			expected:       -1,
+		},
+		{
+			name:           "key start one after range start",
+			segmentEntries: segmentEntries,
+			deRegistration: RegistrationEntry{KeyStart: []byte("aab"), KeyEnd: []byte("bbb")},
+			expected:       0,
+		},
+		{
+			name:           "key start one before range end",
+			segmentEntries: segmentEntries,
+			deRegistration: RegistrationEntry{KeyStart: []byte("ccb"), KeyEnd: []byte("ccc")},
+			expected:       0,
+		},
+		{
+			name:           "key start one after range end",
+			segmentEntries: segmentEntries,
+			deRegistration: RegistrationEntry{KeyStart: []byte("cccd"), KeyEnd: []byte("ddd")},
+			expected:       -1,
+		},
+		{
+			name:           "key end one before range end",
+			segmentEntries: segmentEntries,
+			deRegistration: RegistrationEntry{KeyStart: []byte("bbb"), KeyEnd: []byte("ccb")},
+			expected:       0,
+		},
+		{
+			name:           "key end one after range end",
+			segmentEntries: segmentEntries,
+			deRegistration: RegistrationEntry{KeyStart: []byte("ccc"), KeyEnd: []byte("cccd")},
+			expected:       -1,
+		},
+		{
+			name:           "key end one before range start",
+			segmentEntries: segmentEntries,
+			deRegistration: RegistrationEntry{KeyStart: []byte("fff"), KeyEnd: []byte("gg")},
+			expected:       -1,
+		},
+		{
+			name:           "key start exactly on range start",
+			segmentEntries: segmentEntries,
+			deRegistration: RegistrationEntry{KeyStart: []byte("aaa"), KeyEnd: []byte("bbb")},
+			expected:       0,
+		},
+		{
+			name:           "key start exactly on range end",
+			segmentEntries: segmentEntries,
+			deRegistration: RegistrationEntry{KeyStart: []byte("ccc"), KeyEnd: []byte("ddd")},
+			expected:       -1,
+		},
+		{
+			name:           "key end exactly on range start",
+			segmentEntries: segmentEntries,
+			deRegistration: RegistrationEntry{KeyStart: []byte("bbb"), KeyEnd: []byte("ddd")},
+			expected:       -1,
+		},
+		{
+			name:           "key end exactly on range end",
+			segmentEntries: segmentEntries,
+			deRegistration: RegistrationEntry{KeyStart: []byte("bbb"), KeyEnd: []byte("ccc")},
+			expected:       0,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			result := getSegmentEntryForDeregistration(tc.segmentEntries, tc.deRegistration)
+			if result != tc.expected {
+				t.Errorf("expected %d, got %d", tc.expected, result)
+			}
+		})
+	}
+}
