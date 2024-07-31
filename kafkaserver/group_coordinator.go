@@ -8,6 +8,7 @@ import (
 	encoding2 "github.com/spirit-labs/tektite/asl/encoding"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/evbatch"
+	"github.com/spirit-labs/tektite/kafkaserver/protocol"
 	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/opers"
 	"github.com/spirit-labs/tektite/proc"
@@ -135,11 +136,11 @@ func (gc *GroupCoordinator) groupHasMember(groupID string, memberID string) bool
 func (gc *GroupCoordinator) JoinGroup(apiVersion int16, groupID string, clientID string, memberID string, protocolType string,
 	protocols []ProtocolInfo, sessionTimeout time.Duration, rebalanceTimeout time.Duration, complFunc JoinCompletion) {
 	if !gc.checkLeader(groupID) {
-		gc.sendJoinError(complFunc, ErrorCodeNotCoordinator)
+		gc.sendJoinError(complFunc, protocol.ErrorCodeNotCoordinator)
 		return
 	}
 	if sessionTimeout < gc.cfg.KafkaMinSessionTimeout || sessionTimeout > gc.cfg.KafkaMaxSessionTimeout {
-		gc.sendJoinError(complFunc, ErrorCodeInvalidSessionTimeout)
+		gc.sendJoinError(complFunc, protocol.ErrorCodeInvalidSessionTimeout)
 		return
 	}
 	gc.groupsLock.RLock()
@@ -154,18 +155,18 @@ func (gc *GroupCoordinator) JoinGroup(apiVersion int16, groupID string, clientID
 func (gc *GroupCoordinator) SyncGroup(groupID string, memberID string, generationID int, assignments []AssignmentInfo,
 	complFunc SyncCompletion) {
 	if !gc.checkLeader(groupID) {
-		gc.sendSyncError(complFunc, ErrorCodeNotCoordinator)
+		gc.sendSyncError(complFunc, protocol.ErrorCodeNotCoordinator)
 		return
 	}
 	if memberID == "" {
-		gc.sendSyncError(complFunc, ErrorCodeUnknownMemberID)
+		gc.sendSyncError(complFunc, protocol.ErrorCodeUnknownMemberID)
 		return
 	}
 	gc.groupsLock.RLock()
 	g, ok := gc.groups[groupID]
 	gc.groupsLock.RUnlock()
 	if !ok {
-		gc.sendSyncError(complFunc, ErrorCodeGroupIDNotFound)
+		gc.sendSyncError(complFunc, protocol.ErrorCodeGroupIDNotFound)
 		return
 	}
 	g.Sync(memberID, generationID, assignments, complFunc)
@@ -173,16 +174,16 @@ func (gc *GroupCoordinator) SyncGroup(groupID string, memberID string, generatio
 
 func (gc *GroupCoordinator) HeartbeatGroup(groupID string, memberID string, generationID int) int {
 	if !gc.checkLeader(groupID) {
-		return ErrorCodeNotCoordinator
+		return protocol.ErrorCodeNotCoordinator
 	}
 	if memberID == "" {
-		return ErrorCodeUnknownMemberID
+		return protocol.ErrorCodeUnknownMemberID
 	}
 	gc.groupsLock.RLock()
 	g, ok := gc.groups[groupID]
 	gc.groupsLock.RUnlock()
 	if !ok {
-		return ErrorCodeGroupIDNotFound
+		return protocol.ErrorCodeGroupIDNotFound
 	}
 	return g.Heartbeat(memberID, generationID)
 }
@@ -194,13 +195,13 @@ type MemberLeaveInfo struct {
 
 func (gc *GroupCoordinator) LeaveGroup(groupID string, leaveInfos []MemberLeaveInfo) int16 {
 	if !gc.checkLeader(groupID) {
-		return ErrorCodeNotCoordinator
+		return protocol.ErrorCodeNotCoordinator
 	}
 	gc.groupsLock.RLock()
 	g, ok := gc.groups[groupID]
 	gc.groupsLock.RUnlock()
 	if !ok {
-		return ErrorCodeGroupIDNotFound
+		return protocol.ErrorCodeGroupIDNotFound
 	}
 	return g.Leave(leaveInfos)
 }
@@ -213,13 +214,13 @@ func (gc *GroupCoordinator) OffsetCommit(groupID string, memberID string, genera
 		errorCodes[i] = make([]int16, len(partitionIDs[i]))
 	}
 	if !gc.checkLeader(groupID) {
-		return fillAllErrorCodes(ErrorCodeNotCoordinator, errorCodes)
+		return fillAllErrorCodes(protocol.ErrorCodeNotCoordinator, errorCodes)
 	}
 	gc.groupsLock.RLock()
 	g, ok := gc.groups[groupID]
 	gc.groupsLock.RUnlock()
 	if !ok {
-		return fillAllErrorCodes(ErrorCodeGroupIDNotFound, errorCodes)
+		return fillAllErrorCodes(protocol.ErrorCodeGroupIDNotFound, errorCodes)
 	}
 	return g.offsetCommit(memberID, generationID, topicNames, partitionIDs, offsets, errorCodes)
 }
@@ -232,16 +233,16 @@ func (gc *GroupCoordinator) OffsetFetch(groupID string, topicNames []string,
 		errorCodes[i] = make([]int16, len(partitionIDs[i]))
 	}
 	if !gc.checkLeader(groupID) {
-		return nil, nil, ErrorCodeNotCoordinator
+		return nil, nil, protocol.ErrorCodeNotCoordinator
 	}
 	gc.groupsLock.RLock()
 	g, ok := gc.groups[groupID]
 	gc.groupsLock.RUnlock()
 	if !ok {
-		return nil, nil, ErrorCodeGroupIDNotFound
+		return nil, nil, protocol.ErrorCodeGroupIDNotFound
 	}
 	offsets, errorCodes := g.offsetFetch(topicNames, partitionIDs, errorCodes)
-	return offsets, errorCodes, ErrorCodeNone
+	return offsets, errorCodes, protocol.ErrorCodeNone
 }
 
 func (gc *GroupCoordinator) createGroup(groupID string) *group {
@@ -415,7 +416,7 @@ func (g *group) Join(apiVersion int16, clientID string, memberID string, protoco
 	g.lock.Lock()
 	defer g.lock.Unlock()
 	if g.state != stateEmpty && !g.canSupportProtocols(protocols) {
-		complFunc(JoinResult{ErrorCode: ErrorCodeInconsistentGroupProtocol, MemberID: ""})
+		complFunc(JoinResult{ErrorCode: protocol.ErrorCodeInconsistentGroupProtocol, MemberID: ""})
 		return
 	}
 	if memberID == "" {
@@ -427,7 +428,7 @@ func (g *group) Join(apiVersion int16, clientID string, memberID string, protoco
 			// As of KIP-394 Kafka broker doesn't let members join until they call in with a non-empty member id
 			// We send back and error and the member will call back in with the member-id
 			g.pendingMemberIDs[memberID] = struct{}{}
-			complFunc(JoinResult{ErrorCode: ErrorCodeUnknownMemberID, MemberID: memberID})
+			complFunc(JoinResult{ErrorCode: protocol.ErrorCodeUnknownMemberID, MemberID: memberID})
 			return
 		}
 	}
@@ -494,7 +495,7 @@ func (g *group) Join(apiVersion int16, clientID string, memberID string, protoco
 			}
 		}
 	case stateDead:
-		complFunc(JoinResult{ErrorCode: ErrorCodeCoordinatorNotAvailable, MemberID: memberID})
+		complFunc(JoinResult{ErrorCode: protocol.ErrorCodeCoordinatorNotAvailable, MemberID: memberID})
 		return
 	}
 }
@@ -539,7 +540,7 @@ func (g *group) resetSync() {
 	g.assignments = nil
 	for _, member := range g.members {
 		if member.syncCompletion != nil {
-			member.syncCompletion(ErrorCodeRebalanceInProgress, nil)
+			member.syncCompletion(protocol.ErrorCodeRebalanceInProgress, nil)
 		}
 	}
 	g.triggerRebalance()
@@ -761,7 +762,7 @@ func (g *group) sendJoinResult(memberID string, complFunc JoinCompletion) {
 
 func (g *group) sendJoinResultWithMembers(memberID string, memberInfos []MemberInfo, complFunc JoinCompletion) {
 	jr := JoinResult{
-		ErrorCode:      ErrorCodeNone,
+		ErrorCode:      protocol.ErrorCodeNone,
 		MemberID:       memberID,
 		LeaderMemberID: g.leader,
 		ProtocolName:   g.protocolName,
@@ -778,26 +779,40 @@ func (g *group) Sync(memberID string, generationID int, assignments []Assignment
 	g.lock.Lock()
 	defer g.lock.Unlock()
 	if generationID != g.generationID {
-		complFunc(ErrorCodeIllegalGeneration, nil)
+		complFunc(protocol.ErrorCodeIllegalGeneration, nil)
 		return
 	}
 	switch g.state {
 	case statePreRebalance:
-		complFunc(ErrorCodeRebalanceInProgress, nil)
+		complFunc(protocol.ErrorCodeRebalanceInProgress, nil)
 		return
 	case stateAwaitingRebalance:
-		member, ok := g.members[memberID]
+		m, ok := g.members[memberID]
 		if !ok {
-			complFunc(ErrorCodeUnknownMemberID, nil)
+			complFunc(protocol.ErrorCodeUnknownMemberID, nil)
 			return
 		}
-		member.syncCompletion = complFunc
+		// sanity - validate assignments
+		if len(assignments) > 0 {
+			assignMentsMap := make(map[string]struct{}, len(assignments))
+			for _, assignment := range assignments {
+				_, exists := assignMentsMap[assignment.MemberID]
+				if exists {
+					log.Errorf("memberID %s exists more than once in assignments provided at sync by member %s", assignment.MemberID, memberID)
+					complFunc(protocol.ErrorCodeUnknownServerError, nil)
+					return
+				}
+				assignMentsMap[assignment.MemberID] = struct{}{}
+			}
+		}
+
+		m.syncCompletion = complFunc
 		if g.leader == memberID {
 			g.assignments = assignments
 		}
 		syncWaitersCount := 0
-		for _, member := range g.members {
-			if member.syncCompletion != nil {
+		for _, m2 := range g.members {
+			if m2.syncCompletion != nil {
 				syncWaitersCount++
 			}
 		}
@@ -813,14 +828,14 @@ func (g *group) Sync(memberID string, generationID int, assignments []Assignment
 			}
 		}
 		if assignment == nil {
-			complFunc(ErrorCodeUnknownMemberID, nil)
+			complFunc(protocol.ErrorCodeUnknownMemberID, nil)
 			return
 		}
-		complFunc(ErrorCodeNone, assignment)
+		complFunc(protocol.ErrorCodeNone, assignment)
 		return
 	case stateDead:
 		log.Error("received SyncGroup for dead group")
-		complFunc(ErrorCodeUnknownServerError, nil)
+		complFunc(protocol.ErrorCodeUnknownServerError, nil)
 		return
 	default:
 		// should never occur
@@ -829,15 +844,15 @@ func (g *group) Sync(memberID string, generationID int, assignments []Assignment
 }
 
 func (g *group) completeSync() {
-	for _, assigment := range g.assignments {
-		member, ok := g.members[assigment.MemberID]
+	for _, assignment := range g.assignments {
+		m, ok := g.members[assignment.MemberID]
 		if !ok {
-			panic(fmt.Sprintf("cannot find member in assignments %s", assigment.MemberID))
+			panic(fmt.Sprintf("cannot find member in assignments %s", assignment.MemberID))
 		}
-		member.syncCompletion(ErrorCodeNone, assigment.Assignment)
-		member.syncCompletion = nil
-		memberID := assigment.MemberID
-		g.gc.rescheduleTimer(memberID, member.sessionTimeout, func() {
+		m.syncCompletion(protocol.ErrorCodeNone, assignment.Assignment)
+		m.syncCompletion = nil
+		memberID := assignment.MemberID
+		g.gc.rescheduleTimer(memberID, m.sessionTimeout, func() {
 			g.sessionTimeoutExpired(memberID)
 		})
 	}
@@ -850,26 +865,26 @@ func (g *group) Heartbeat(memberID string, generationID int) int {
 	g.lock.Lock()
 	defer g.lock.Unlock()
 	if generationID != g.generationID {
-		return ErrorCodeIllegalGeneration
+		return protocol.ErrorCodeIllegalGeneration
 	}
 	switch g.state {
 	case stateEmpty:
-		return ErrorCodeUnknownMemberID
+		return protocol.ErrorCodeUnknownMemberID
 	case statePreRebalance:
 		// Re-balance is required - this will cause client to rejoin group
-		return ErrorCodeRebalanceInProgress
+		return protocol.ErrorCodeRebalanceInProgress
 	case stateAwaitingRebalance, stateActive:
 		member, ok := g.members[memberID]
 		if !ok {
-			return ErrorCodeUnknownMemberID
+			return protocol.ErrorCodeUnknownMemberID
 		}
 		g.gc.rescheduleTimer(memberID, member.sessionTimeout, func() {
 			g.sessionTimeoutExpired(memberID)
 		})
-		return ErrorCodeNone
+		return protocol.ErrorCodeNone
 	default:
 		log.Warn("heartbeat on dead group")
-		return ErrorCodeNone
+		return protocol.ErrorCodeNone
 	}
 }
 
@@ -900,7 +915,7 @@ func (g *group) Leave(leaveInfos []MemberLeaveInfo) int16 {
 			g.state = stateEmpty
 		}
 	}
-	return ErrorCodeNone
+	return protocol.ErrorCodeNone
 }
 
 func (g *group) getState() int {
@@ -934,7 +949,7 @@ func (g *group) sessionTimeoutExpired(memberID string) {
 		// New members get timed out in join - send back unknown-member-id and they will retry
 		if member.joinCompletion != nil {
 			jr := JoinResult{
-				ErrorCode: ErrorCodeUnknownMemberID,
+				ErrorCode: protocol.ErrorCodeUnknownMemberID,
 				MemberID:  "",
 			}
 			member.joinCompletion(jr)
@@ -983,11 +998,11 @@ func (g *group) offsetCommit(memberID string, generationID int, topicNames []str
 	g.lock.Lock()
 	defer g.lock.Unlock()
 	if generationID != g.generationID {
-		return fillAllErrorCodes(ErrorCodeIllegalGeneration, errorCodes)
+		return fillAllErrorCodes(protocol.ErrorCodeIllegalGeneration, errorCodes)
 	}
 	_, ok := g.members[memberID]
 	if !ok {
-		return fillAllErrorCodes(ErrorCodeUnknownMemberID, errorCodes)
+		return fillAllErrorCodes(protocol.ErrorCodeUnknownMemberID, errorCodes)
 	}
 	consumerOffsetsPartitionID := g.gc.calcConsumerOffsetsPartition(g.id)
 	processorID, ok := g.gc.consumerOffsetsPPM[consumerOffsetsPartitionID]
@@ -996,16 +1011,16 @@ func (g *group) offsetCommit(memberID string, generationID int, topicNames []str
 	}
 	processor := g.gc.processorProvider.GetProcessor(processorID)
 	if processor == nil {
-		return fillAllErrorCodes(ErrorCodeUnknownTopicOrPartition, errorCodes)
+		return fillAllErrorCodes(protocol.ErrorCodeUnknownTopicOrPartition, errorCodes)
 	}
 	if !processor.IsLeader() {
-		return fillAllErrorCodes(ErrorCodeNotLeaderOrFollower, errorCodes)
+		return fillAllErrorCodes(protocol.ErrorCodeNotLeaderOrFollower, errorCodes)
 	}
 	colBuilders := evbatch.CreateColBuilders(ConsumerOffsetsColumnTypes)
 	for i, topicName := range topicNames {
 		topicInfo, ok := g.topicInfoForName(topicName)
 		if !ok {
-			fillErrorCodes(ErrorCodeUnknownTopicOrPartition, i, errorCodes)
+			fillErrorCodes(protocol.ErrorCodeUnknownTopicOrPartition, i, errorCodes)
 			continue
 		}
 		topicID := int64(topicInfo.ConsumerInfoProvider.SlabID())
@@ -1034,10 +1049,10 @@ func (g *group) offsetCommit(memberID string, generationID int, topicNames []str
 			log.Warnf("failed to replicate offset commit batch %v", err)
 			// If we have a temp error in replicating - e.g. sync in progress, we send back ErrorCodeNotLeaderOrFollower
 			// this causes the client to retry
-			errorCode = ErrorCodeNotLeaderOrFollower
+			errorCode = protocol.ErrorCodeNotLeaderOrFollower
 		} else {
 			log.Errorf("failed to replicate offset commit batch %v", err)
-			errorCode = ErrorCodeUnknownServerError
+			errorCode = protocol.ErrorCodeUnknownServerError
 		}
 		return fillAllErrorCodes(errorCode, errorCodes)
 	}
@@ -1081,7 +1096,7 @@ func (g *group) offsetFetch(topicNames []string, partitionIDs [][]int32, errorCo
 	for i, topicName := range topicNames {
 		topicInfo, ok := g.topicInfoForName(topicName)
 		if !ok {
-			fillErrorCodes(ErrorCodeUnknownTopicOrPartition, i, errorCodes)
+			fillErrorCodes(protocol.ErrorCodeUnknownTopicOrPartition, i, errorCodes)
 			continue
 		}
 		topicID := int64(topicInfo.ConsumerInfoProvider.SlabID())
@@ -1100,7 +1115,7 @@ func (g *group) offsetFetch(topicNames []string, partitionIDs [][]int32, errorCo
 				offset, ok, err = g.loadOffset(topicInfo, partitionID)
 				if err != nil {
 					log.Errorf("failed to load offset %v", err)
-					fillAllErrorCodes(ErrorCodeUnknownServerError, errorCodes)
+					fillAllErrorCodes(protocol.ErrorCodeUnknownServerError, errorCodes)
 					return nil, errorCodes
 				}
 				if !ok {
