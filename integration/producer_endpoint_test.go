@@ -132,7 +132,7 @@ func waitForRowsIgnoreDups(t *testing.T, tableName string, numMessages int, clie
 		if err != nil {
 			return false, err
 		}
-		log.Debugf("got num rows: %d", qr.RowCount())
+		log.Infof("got num rows: %d", qr.RowCount())
 		var lastKey string
 		numUniqueRows := 0
 		for i := 0; i < qr.RowCount(); i++ {

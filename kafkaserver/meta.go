@@ -100,6 +100,7 @@ func (m *metaDataProvider) GetTopicInfo(topicName string) (TopicInfo, bool) {
 func (m *metaDataProvider) GetAllTopics() []*TopicInfo {
 	m.lock.RLock()
 	if !m.gotAllInfos {
+		// We cache the topic infos so we don't request them from stream manager each time
 		m.lock.RUnlock()
 		m.lock.Lock()
 		defer m.lock.Unlock()
@@ -114,7 +115,7 @@ func (m *metaDataProvider) GetAllTopics() []*TopicInfo {
 		return topicInfos
 	}
 	var topicInfos []*TopicInfo
-	for _, topicInfo := range topicInfos {
+	for _, topicInfo := range m.topicInfos {
 		topicInfos = append(topicInfos, topicInfo)
 	}
 	m.lock.RUnlock()

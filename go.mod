@@ -14,7 +14,7 @@ require (
 	github.com/hashicorp/golang-lru v0.5.4
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_golang v1.17.0
-	github.com/segmentio/kafka-go v0.4.42
+	github.com/segmentio/kafka-go v0.4.47
 	github.com/stretchr/testify v1.9.0
 	go.uber.org/atomic v1.7.0 // indirect
 	go.uber.org/zap v1.17.0
@@ -41,6 +41,7 @@ require (
 	github.com/tetratelabs/wazero v1.7.1
 	github.com/tidwall/gjson v1.14.4
 	github.com/timandy/routine v1.1.1
+	github.com/yosuke-furukawa/json5 v0.1.1
 	go.etcd.io/etcd/client/v3 v3.5.9
 	golang.org/x/sync v0.5.0
 )

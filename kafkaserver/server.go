@@ -7,6 +7,7 @@ import (
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/conf"
 	"github.com/spirit-labs/tektite/errors"
+	"github.com/spirit-labs/tektite/kafkaserver/protocol"
 	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/opers"
 	"github.com/spirit-labs/tektite/proc"
@@ -191,7 +192,7 @@ func (c *connection) readMessage() {
 			readPos += n
 		}
 
-		totSize := 4 + int(ReadInt32FromBytes(buff))
+		totSize := 4 + int(binary.BigEndian.Uint32(buff))
 		bytesRequired = totSize - readPos
 		if bytesRequired > 0 {
 			// If we haven't already read enough bytes, read the entire message body
@@ -207,6 +208,8 @@ func (c *connection) readMessage() {
 			}
 			readPos += n
 		}
+		// Note that the buffer is reused so it's up to the protocol structs to copy any data in the message such
+		// as records, uuid, []byte before the call to handleMessage returns
 		c.handleMessage(buff[4:totSize])
 
 		remainingBytes := readPos - totSize
@@ -231,38 +234,9 @@ func (c *connection) readMessage() {
 }
 
 func (c *connection) handleMessage(message []byte) {
-	apiKey := ReadInt16FromBytes(message)
-	apiVersion := ReadInt16FromBytes(message[2:])
-	correlationID := ReadInt32FromBytes(message[4:])
-	offset := 8
-
-	requestVersion := requestHeaderVersion(apiKey, apiVersion)
-	var clientID NullableString
-	if requestVersion >= 1 {
-		var bytesRead int
-		clientID, bytesRead = ReadNullableStringFromBytes(message[offset:])
-		offset += bytesRead
-		if requestVersion >= 2 {
-			offset++ // tag buffer
-		}
+	if err := protocol.HandleRequestBuffer(message, &NewHandler{conn: c}, c.conn); err != nil {
+		log.Errorf("failed to handle produce %v", err)
 	}
-
-	respVersion := responseHeaderVersion(apiKey, apiVersion)
-	var respBuffHeaderSize int
-	if respVersion == 0 {
-		respBuffHeaderSize = 8
-	} else {
-		respBuffHeaderSize = 9 // extra byte for tag buffer
-	}
-
-	c.handleApi(clientID, apiKey, apiVersion, message[offset:], respBuffHeaderSize, func(respBuff []byte) {
-		WriteInt32ToBytes(respBuff, int32(len(respBuff)-4))
-		WriteInt32ToBytes(respBuff[4:], correlationID)
-		_, err := c.conn.Write(respBuff)
-		if err != nil {
-			log.Errorf("failed to write api response %v", err)
-		}
-	})
 }
 
 func (c *connection) stop() {
@@ -273,77 +247,6 @@ func (c *connection) stop() {
 	}
 	c.lock.Unlock()
 	c.closeGroup.Wait()
-}
-
-func AppendStringBytes(buffer []byte, value string) []byte {
-	buffer = binary.BigEndian.AppendUint16(buffer, uint16(len(value)))
-	return append(buffer, []byte(value)...)
-}
-
-func ReadStringFromBytes(buffer []byte) (string, int) {
-	l := binary.BigEndian.Uint16(buffer)
-	//s := common.ByteSliceToStringZeroCopy(buffer[2 : 2+l])
-	s := string(buffer[2 : 2+l])
-	return s, 2 + int(l)
-}
-
-func WriteInt32ToBytes(buffer []byte, value int32) {
-	binary.BigEndian.PutUint32(buffer, uint32(value))
-}
-
-func AppendInt32ToBytes(buffer []byte, value int32) []byte {
-	return binary.BigEndian.AppendUint32(buffer, uint32(value))
-}
-
-func AppendInt16ToBytes(buffer []byte, value int16) []byte {
-	return binary.BigEndian.AppendUint16(buffer, uint16(value))
-}
-
-func AppendInt64ToBytes(buffer []byte, value int64) []byte {
-	return binary.BigEndian.AppendUint64(buffer, uint64(value))
-}
-
-func ReadInt32FromBytes(buffer []byte) int32 {
-	return int32(binary.BigEndian.Uint32(buffer))
-}
-
-func ReadInt64FromBytes(buffer []byte) int64 {
-	return int64(binary.BigEndian.Uint64(buffer))
-}
-
-func ReadInt16FromBytes(buffer []byte) int16 {
-	return int16(binary.BigEndian.Uint16(buffer))
-}
-
-type NullableString *string
-
-func ReadNullableStringFromBytes(buffer []byte) (NullableString, int) {
-	length := ReadInt16FromBytes(buffer)
-	if length == -1 {
-		return nil, 2
-	}
-	str := string(buffer[2 : 2+length])
-	return &str, 2 + int(length)
-}
-
-func AppendNullableStringToBytes(buffer []byte, value NullableString) []byte {
-	if value == nil {
-		return AppendInt16ToBytes(buffer, -1)
-	}
-	buffer = AppendInt16ToBytes(buffer, int16(len(*value)))
-	buffer = append(buffer, []byte(*value)...)
-	return buffer
-}
-
-func ReadCompactStringFromBytes(data []byte) (string, int) {
-	sl, bytesRead := binary.Uvarint(data)
-	if sl == 0 {
-		return "", bytesRead
-	}
-	strLength := int(sl) - 1
-	str := string(data[bytesRead : bytesRead+strLength])
-	bytesRead += strLength
-	return str, bytesRead
 }
 
 type MetadataProvider interface {
