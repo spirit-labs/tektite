@@ -22,7 +22,7 @@ type fetcher struct {
 	lock              sync.RWMutex
 	procProvider      processorProvider
 	topicFetchers     map[string][]*PartitionFetcher
-	allocator         Allocator
+	memController     MemController
 	evictBatchesTimer *time.Timer
 	stopped           bool
 }
@@ -31,7 +31,7 @@ func newFetcher(provider processorProvider, streamMgr streamMgr, maxFetchCacheSi
 	f := &fetcher{
 		procProvider:  provider,
 		topicFetchers: map[string][]*PartitionFetcher{},
-		allocator:     newDefaultAllocator(maxFetchCacheSize),
+		memController: newDefaultMemController(maxFetchCacheSize),
 	}
 	streamMgr.RegisterChangeListener(f.streamChanged)
 	return f
@@ -48,12 +48,6 @@ func (f *fetcher) GetPartitionFetcher(topicInfo *TopicInfo, partitionID int32) (
 	lock := lockWrapper{mut: &f.lock}
 	lock.RLock()
 	defer lock.Unlock()
-	var allocator Allocator
-	if topicInfo.CanCache {
-		allocator = f.allocator
-	} else {
-		allocator = &directAllocator{}
-	}
 	fetchers, ok := f.topicFetchers[topicInfo.Name]
 	if !ok {
 		lock.Lock()
@@ -69,7 +63,7 @@ func (f *fetcher) GetPartitionFetcher(topicInfo *TopicInfo, partitionID int32) (
 				if processor == nil {
 					return nil, common.NewTektiteErrorf(common.Unavailable, "processor not available")
 				}
-				fetchers[i] = NewPartitionFetcher(processor, i, allocator, topicInfo)
+				fetchers[i] = NewPartitionFetcher(processor, i, f.memController, topicInfo)
 			}
 			f.topicFetchers[topicInfo.Name] = fetchers
 		}
@@ -125,7 +119,7 @@ type PartitionFetcher struct {
 	partitionID       uint64
 	topicInfo         *TopicInfo
 	crc32             hash.Hash32
-	allocator         Allocator
+	memController     MemController
 	evictCount        int64
 	partitionHash     []byte
 	processor         proc.Processor
@@ -148,7 +142,7 @@ func (w *Waiter) complete() {
 	w.pf.completeWaiter(w)
 }
 
-func NewPartitionFetcher(processor proc.Processor, partitionID int, allocator Allocator, topicInfo *TopicInfo) *PartitionFetcher {
+func NewPartitionFetcher(processor proc.Processor, partitionID int, allocator MemController, topicInfo *TopicInfo) *PartitionFetcher {
 	partitionHash := proc.CalcPartitionHash(topicInfo.ConsumerInfoProvider.PartitionScheme().MappingID, uint64(partitionID))
 	return &PartitionFetcher{
 		firstCachedOffset: -1,
@@ -156,7 +150,7 @@ func NewPartitionFetcher(processor proc.Processor, partitionID int, allocator Al
 		highWaterMark:     -1,
 		crc32:             crc32.NewIEEE(),
 		partitionID:       uint64(partitionID),
-		allocator:         allocator,
+		memController:     allocator,
 		topicInfo:         topicInfo,
 		partitionHash:     partitionHash,
 		processor:         processor,
@@ -176,10 +170,6 @@ func (f *PartitionFetcher) evictEntry() {
 	// In order to avoid contention on the mutex, we don't truncate the batches here, instead we increment a count
 	// and, they're truncated the next time AddBatch is called
 	atomic.AddInt64(&f.evictCount, 1)
-}
-
-func (f *PartitionFetcher) Allocate(size int) ([]byte, error) {
-	return f.allocator.Allocate(size, f.evictEntry)
 }
 
 // CheckEvictBatches is called periodically on a timer as we usually truncate old batches in the AddBatch function
@@ -222,6 +212,7 @@ func (f *PartitionFetcher) AddBatch(startOffset int64, endOffset int64, batch []
 	if f.lastCachedOffset != -1 && startOffset <= f.lastCachedOffset {
 		panic(fmt.Sprintf("batch added with overlapping offset, startOffset:%d lastcached:%d", startOffset, f.lastCachedOffset))
 	}
+	f.memController.Reserve(len(batch), f.evictEntry)
 	f.checkEvictBatches()
 	binary.BigEndian.PutUint64(batch, uint64(startOffset)) // fill in baseOffset
 	f.batches = append(f.batches, entry{

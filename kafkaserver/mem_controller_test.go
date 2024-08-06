@@ -6,9 +6,9 @@ import (
 	"testing"
 )
 
-func TestAllocator(t *testing.T) {
+func TestReserve(t *testing.T) {
 	maxSize := 1000000
-	allocator := newDefaultAllocator(maxSize)
+	allocator := newDefaultMemController(maxSize)
 	i := 0
 	as := &allocateState{}
 	totalAllocates := 0
@@ -16,7 +16,7 @@ func TestAllocator(t *testing.T) {
 		size := rand.Intn(10000)
 		as.totSize += size
 		ii := i
-		buff, err := allocator.Allocate(size, func() {
+		allocator.Reserve(size, func() {
 			// Make sure callback is not called unless totSize > maxSize
 			require.Greater(t, as.totSize, maxSize)
 			// Make sure callbacks are called in correct order
@@ -24,8 +24,6 @@ func TestAllocator(t *testing.T) {
 			as.expectedCallback++
 			as.totSize -= size
 		})
-		require.NoError(t, err)
-		require.Equal(t, size, len(buff))
 		i++
 		totalAllocates += size
 	}
