@@ -3,9 +3,10 @@ package query
 import (
 	"fmt"
 	"github.com/google/uuid"
+	"github.com/spirit-labs/tektite/asl/encoding"
+	"github.com/spirit-labs/tektite/asl/errwrap"
+	"github.com/spirit-labs/tektite/asl/remoting"
 	"github.com/spirit-labs/tektite/common"
-	"github.com/spirit-labs/tektite/encoding"
-	"github.com/spirit-labs/tektite/errors"
 	"github.com/spirit-labs/tektite/evbatch"
 	"github.com/spirit-labs/tektite/expr"
 	"github.com/spirit-labs/tektite/iteration"
@@ -14,7 +15,6 @@ import (
 	"github.com/spirit-labs/tektite/parser"
 	"github.com/spirit-labs/tektite/proc"
 	"github.com/spirit-labs/tektite/protos/clustermsgs"
-	"github.com/spirit-labs/tektite/remoting"
 	"github.com/spirit-labs/tektite/types"
 	"sync"
 	"sync/atomic"
@@ -212,7 +212,7 @@ func (m *manager) PrepareQuery(prepareQuery parser.PrepareQueryDesc) error {
 	defer m.lock.Unlock()
 	_, exists := m.preparedQueries[prepareQuery.QueryName]
 	if exists {
-		return errors.NewQueryErrorf("query with name '%s' has already been prepared", prepareQuery.QueryName)
+		return common.NewQueryErrorf("query with name '%s' has already been prepared", prepareQuery.QueryName)
 	}
 	pqi, err := m.createQueryInfo(prepareQuery.Query.OperatorDescs, prepareQuery.Params)
 	if err != nil {
@@ -373,7 +373,7 @@ func (m *manager) createAndValidateLookupParamExprs(schema *evbatch.EventSchema,
 	if len(exprDescs) > len(slabInfo.KeyColIndexes) {
 		msg := fmt.Sprintf("failed to prepare/execute query: number of key elements specified (%d) is greater than number of columns in key (%d)",
 			len(exprDescs), len(slabInfo.KeyColIndexes))
-		return nil, errors.NewTektiteErrorf(errors.PrepareQueryError, msg)
+		return nil, common.NewTektiteErrorf(common.PrepareQueryError, msg)
 	}
 	for i, keyExpr := range exprDescs {
 		e, err := m.expressionFactory.CreateExpression(keyExpr, schema)
@@ -417,7 +417,7 @@ func (m *manager) calcNodePartitions(info *QInfo, args *evbatch.Batch) (map[int]
 			count += len(parts)
 		}
 		if count != partitionScheme.Partitions {
-			return nil, 0, errors.NewTektiteErrorf(errors.Unavailable, "not all partitions available, expected %d actual %d mapping slab name %s",
+			return nil, 0, common.NewTektiteErrorf(common.Unavailable, "not all partitions available, expected %d actual %d mapping slab name %s",
 				partitionScheme.Partitions, count, partitionScheme.MappingID)
 		}
 		return nodePartitions, partitionScheme.Partitions, nil
@@ -490,7 +490,7 @@ func (m *manager) ExecutePreparedQueryWithHighestVersion(queryName string, args 
 	defer m.lock.RUnlock()
 	info, exists := m.preparedQueries[queryName]
 	if !exists {
-		return 0, errors.Errorf("query `%s` does not exist", queryName)
+		return 0, errwrap.Errorf("query `%s` does not exist", queryName)
 	}
 	return m.executeQuery(info, queryName, "", args, highestVersion, outputFunc)
 }
@@ -662,7 +662,7 @@ func (m *manager) ExecuteRemoteQuery(msg *clustermsgs.QueryMessage) error {
 	if !m.active {
 		// This can happen if a query comes in before the manager is activated - this is called from the
 		// command manager after it has prepared system queries
-		return errors.NewTektiteErrorf(errors.Unavailable, "query manager not active")
+		return common.NewTektiteErrorf(common.Unavailable, "query manager not active")
 	}
 	var info *QInfo
 	if msg.QueryName != "" {
@@ -670,7 +670,7 @@ func (m *manager) ExecuteRemoteQuery(msg *clustermsgs.QueryMessage) error {
 		var exists bool
 		info, exists = m.preparedQueries[msg.QueryName]
 		if !exists {
-			return errors.Errorf("query %s does not exist", msg.QueryName)
+			return errwrap.Errorf("query %s does not exist", msg.QueryName)
 		}
 	} else {
 		// direct query
@@ -691,7 +691,7 @@ func (m *manager) ExecuteRemoteQuery(msg *clustermsgs.QueryMessage) error {
 		// This protects against the case where a query is issued, is received on the remote node, but a processor
 		// is still in the process of failing over and reprocessing batches from the replication queue. We need
 		// to wait until the processor is initialised or the query could miss committed data
-		return errors.NewTektiteErrorf(errors.Unavailable,
+		return common.NewTektiteErrorf(common.Unavailable,
 			"cannot handle remote query, remote node is not ready at required version")
 	}
 
@@ -711,7 +711,7 @@ func (m *manager) ExecuteRemoteQuery(msg *clustermsgs.QueryMessage) error {
 		processor := m.procProvider.GetProcessor(processorID)
 		if processor == nil {
 			time.Sleep(500 * time.Millisecond)
-			return errors.NewTektiteErrorf(errors.Unavailable, "processor not available")
+			return common.NewTektiteErrorf(common.Unavailable, "processor not available")
 		}
 		ql := &queryLoader{
 			info:           info,
@@ -984,5 +984,5 @@ type errMsgAtPositionProvider interface {
 func queryErrorAtTokenf(tokenName string, provider errMsgAtPositionProvider, msg string, args ...interface{}) error {
 	msg = fmt.Sprintf(msg, args...)
 	msg = provider.ErrorMsgAtToken(msg, tokenName)
-	return errors.NewQueryErrorf(msg)
+	return common.NewQueryErrorf(msg)
 }

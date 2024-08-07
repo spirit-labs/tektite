@@ -2,8 +2,8 @@ package mem
 
 import (
 	"fmt"
+	"github.com/spirit-labs/tektite/asl/encoding"
 	"github.com/spirit-labs/tektite/common"
-	"github.com/spirit-labs/tektite/encoding"
 	"github.com/stretchr/testify/require"
 	"math/rand"
 	"testing"

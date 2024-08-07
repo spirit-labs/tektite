@@ -2,8 +2,8 @@ package sst
 
 import (
 	"fmt"
+	"github.com/spirit-labs/tektite/asl/encoding"
 	"github.com/spirit-labs/tektite/common"
-	"github.com/spirit-labs/tektite/encoding"
 	iteration2 "github.com/spirit-labs/tektite/iteration"
 	"github.com/stretchr/testify/require"
 	"math"

@@ -1,9 +1,9 @@
 package levels
 
 import (
+	"github.com/spirit-labs/tektite/asl/conf"
+	"github.com/spirit-labs/tektite/asl/errwrap"
 	"github.com/spirit-labs/tektite/clustmgr"
-	"github.com/spirit-labs/tektite/conf"
-	"github.com/spirit-labs/tektite/errors"
 	"github.com/spirit-labs/tektite/evbatch"
 	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/objstore"
@@ -131,7 +131,7 @@ func (l *LevelManagerService) Shutdown() (bool, error) {
 	l.lock.RLock()
 	defer l.lock.RUnlock()
 	if l.stopped {
-		return false, errors.New("LevelManager service is stopped")
+		return false, errwrap.New("LevelManager service is stopped")
 	}
 	if l.levelManager != nil {
 		// Flush all level manager changes to object store
@@ -147,7 +147,7 @@ func (l *LevelManagerService) AddFlushedCallback(callback func(err error)) error
 	l.lock.RLock()
 	defer l.lock.RUnlock()
 	if l.stopped {
-		return errors.New("LevelManager service is stopped")
+		return errwrap.New("LevelManager service is stopped")
 	}
 	if l.levelManager != nil {
 		l.levelManager.AddFlushedCallback(callback)

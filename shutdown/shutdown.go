@@ -3,12 +3,12 @@ package shutdown
 import (
 	"context"
 	"fmt"
+	"github.com/spirit-labs/tektite/asl/conf"
+	"github.com/spirit-labs/tektite/asl/errwrap"
+	"github.com/spirit-labs/tektite/asl/remoting"
 	"github.com/spirit-labs/tektite/common"
-	"github.com/spirit-labs/tektite/conf"
-	"github.com/spirit-labs/tektite/errors"
 	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/protos/clustermsgs"
-	"github.com/spirit-labs/tektite/remoting"
 	clientv3 "go.etcd.io/etcd/client/v3"
 	"go.uber.org/zap"
 	"time"
@@ -69,7 +69,7 @@ func doShutdown(cfg *conf.Config, client *remoting.Client, succeedIfNodeDown boo
 			pResp := <-ch
 			if pResp.err != nil {
 				var perr remoting.Error
-				if errors.As(pResp.err, &perr) {
+				if errwrap.As(pResp.err, &perr) {
 					if phase == 8 {
 						// In the last phase we shut down the server which shuts down the remoting system - this is likely
 						// to give a connection closed error, or similar. This is expected and we can ignore it.
@@ -90,11 +90,11 @@ func doShutdown(cfg *conf.Config, client *remoting.Client, succeedIfNodeDown boo
 		if !flushed {
 			if phase == 4 {
 				// version manager must be flushed to ensure last flushed version written to level manager
-				return errors.New("version-manager was not flushed")
+				return errwrap.New("version-manager was not flushed")
 			}
 			if phase == 6 {
 				// level manager must be flushed to ensure all level info incl last flushed version flushed to cloud
-				return errors.New("level-manager was not flushed")
+				return errwrap.New("level-manager was not flushed")
 			}
 		}
 		log.Debugf("shutdown phase %d complete", phase)

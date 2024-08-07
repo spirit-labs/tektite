@@ -6,10 +6,10 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"github.com/spirit-labs/tektite/asl/conf"
+	"github.com/spirit-labs/tektite/client"
 	"github.com/spirit-labs/tektite/common"
-	"github.com/spirit-labs/tektite/conf"
 	log "github.com/spirit-labs/tektite/logger"
-	"github.com/spirit-labs/tektite/tekclient"
 	"github.com/stretchr/testify/require"
 	"net"
 	"testing"
@@ -79,7 +79,7 @@ func TestBrokerSendsAdvertisedAddress(t *testing.T) {
 
 	for _, tc := range tcs {
 		t.Run(tc.name, func(t *testing.T) {
-			clientTLSConfig := tekclient.TLSConfig{
+			clientTLSConfig := client.TLSConfig{
 				TrustedCertsPath: serverCertPath,
 			}
 			servers, tearDown := startClusterWithConfigSetter(t, 3, nil, func(cfg *conf.Config) {
@@ -97,7 +97,7 @@ func TestBrokerSendsAdvertisedAddress(t *testing.T) {
 				}
 			})
 			defer tearDown(t)
-			client, err := tekclient.NewClient(servers[0].GetConfig().HttpApiAddresses[0], clientTLSConfig)
+			client, err := client.NewClient(servers[0].GetConfig().HttpApiAddresses[0], clientTLSConfig)
 			require.NoError(t, err)
 			defer client.Close()
 

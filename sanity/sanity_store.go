@@ -2,7 +2,7 @@ package sanity
 
 import (
 	"fmt"
-	"github.com/spirit-labs/tektite/encoding"
+	"github.com/spirit-labs/tektite/asl/encoding"
 	"github.com/spirit-labs/tektite/levels"
 	log "github.com/spirit-labs/tektite/logger"
 	"sync"

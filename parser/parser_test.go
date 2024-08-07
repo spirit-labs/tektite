@@ -3,7 +3,6 @@ package parser
 import (
 	"github.com/alecthomas/participle/v2/lexer"
 	"github.com/spirit-labs/tektite/common"
-	"github.com/spirit-labs/tektite/errors"
 	"github.com/stretchr/testify/require"
 	"testing"
 )
@@ -42,7 +41,7 @@ func testLexInvalidInput(t *testing.T, input string, expectedMsg string) {
 	tokens, err := Lex(input, true)
 	require.Nil(t, tokens)
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.ParseError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.ParseError))
 	require.Equal(t, expectedMsg, err.Error())
 }
 
@@ -254,6 +253,6 @@ func TestParseEmptyStatement(t *testing.T) {
 	cs := NewCreateStreamDesc()
 	err := NewParser(nil).Parse("", cs)
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.ParseError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.ParseError))
 	require.Equal(t, "statement is empty", err.Error())
 }

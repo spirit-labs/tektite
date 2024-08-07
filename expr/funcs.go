@@ -4,8 +4,8 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"github.com/spirit-labs/tektite/asl/errwrap"
 	"github.com/spirit-labs/tektite/common"
-	"github.com/spirit-labs/tektite/errors"
 	"github.com/spirit-labs/tektite/evbatch"
 	"github.com/spirit-labs/tektite/parser"
 	"github.com/spirit-labs/tektite/types"
@@ -1003,7 +1003,7 @@ func (d *DecimalShiftFunction) EvalDecimal(rowIndex int, batch *evbatch.Batch) (
 		if r == nil {
 			return
 		}
-		err = errors.Errorf("failed to shift decimal %s by %d places: %v", val.String(), places, r)
+		err = errwrap.Errorf("failed to shift decimal %s by %d places: %v", val.String(), places, r)
 	}()
 	res := val.Shift(int(places), round)
 	return res, false, nil
@@ -1777,7 +1777,7 @@ func (d *ToIntFunction) EvalInt(rowIndex int, batch *evbatch.Batch) (int64, bool
 			// other types e.g. to_int of a float where the float is rounded to the int value
 			f, err := strconv.ParseFloat(s, 64)
 			if err != nil {
-				return 0, false, errors.Errorf("function 'to_int' - cannot convert %s to int", s)
+				return 0, false, errwrap.Errorf("function 'to_int' - cannot convert %s to int", s)
 			}
 			return int64(f), false, nil
 		}
@@ -1864,7 +1864,7 @@ func (d *ToFloatFunction) EvalFloat(rowIndex int, batch *evbatch.Batch) (float64
 		}
 		val, err := strconv.ParseFloat(s, 64)
 		if err != nil {
-			return 0, false, errors.Errorf("function 'to_float' - cannot convert %s to float", s)
+			return 0, false, errwrap.Errorf("function 'to_float' - cannot convert %s to float", s)
 		}
 		return val, false, nil
 	case types.ColumnTypeIDTimestamp:
@@ -2081,7 +2081,7 @@ func (d *ToDecimalFunction) EvalDecimal(rowIndex int, batch *evbatch.Batch) (typ
 		}
 		d, err := types.NewDecimalFromString(s, d.prec, d.scale)
 		if err != nil {
-			return types.Decimal{}, false, errors.Errorf("cannot create decimal from string: '%s'", s)
+			return types.Decimal{}, false, errwrap.Errorf("cannot create decimal from string: '%s'", s)
 		}
 		return d, false, nil
 	case types.ColumnTypeIDTimestamp:
@@ -3157,7 +3157,7 @@ func (d *KafkaHeaderFunction) EvalBytes(rowIndex int, batch *evbatch.Batch) ([]b
 func kafkaGetHeader(headerName string, kafkaHeaders []byte) ([]byte, error) {
 	numHeaders, off := binary.Varint(kafkaHeaders)
 	if off <= 0 {
-		return nil, errors.Errorf("failed to decode uvarint from kafka headers: %d", off)
+		return nil, errwrap.Errorf("failed to decode uvarint from kafka headers: %d", off)
 	}
 	hl := len(headerName)
 	in := int(numHeaders)
@@ -3165,7 +3165,7 @@ func kafkaGetHeader(headerName string, kafkaHeaders []byte) ([]byte, error) {
 	for i := 0; i < in; i++ {
 		headerNameLen, n := binary.Varint(kafkaHeaders[off:])
 		if n <= 0 {
-			return nil, errors.Errorf("failed to decode uvarint from kafka headers: %d", n)
+			return nil, errwrap.Errorf("failed to decode uvarint from kafka headers: %d", n)
 		}
 		off += n
 		hNameOff := off
@@ -3173,7 +3173,7 @@ func kafkaGetHeader(headerName string, kafkaHeaders []byte) ([]byte, error) {
 		off += iHNameLen
 		headerValLen, n := binary.Varint(kafkaHeaders[off:])
 		if n <= 0 {
-			return nil, errors.Errorf("failed to decode uvarint from kafka headers: %d", n)
+			return nil, errwrap.Errorf("failed to decode uvarint from kafka headers: %d", n)
 		}
 		off += n
 		hValOff := off

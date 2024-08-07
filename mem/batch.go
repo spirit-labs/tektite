@@ -1,7 +1,7 @@
 package mem
 
 import (
-	"github.com/spirit-labs/tektite/arenaskl"
+	"github.com/spirit-labs/tektite/asl/arenaskl"
 	"github.com/spirit-labs/tektite/common"
 	"math"
 )

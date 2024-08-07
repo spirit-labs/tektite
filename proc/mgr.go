@@ -2,16 +2,17 @@ package proc
 
 import (
 	"fmt"
+	"github.com/spirit-labs/tektite/asl/arista"
+	"github.com/spirit-labs/tektite/asl/conf"
+	"github.com/spirit-labs/tektite/asl/errwrap"
+	"github.com/spirit-labs/tektite/asl/remoting"
 	"github.com/spirit-labs/tektite/clustmgr"
 	"github.com/spirit-labs/tektite/common"
-	"github.com/spirit-labs/tektite/conf"
 	"github.com/spirit-labs/tektite/debug"
-	"github.com/spirit-labs/tektite/errors"
 	"github.com/spirit-labs/tektite/levels"
 	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/objstore"
 	"github.com/spirit-labs/tektite/protos/clustermsgs"
-	"github.com/spirit-labs/tektite/remoting"
 	"github.com/spirit-labs/tektite/tabcache"
 	"github.com/spirit-labs/tektite/vmgr"
 	"sync"
@@ -287,7 +288,7 @@ func (m *ProcessorManager) EnsureReplicatorsReady() error {
 			}
 			if dur >= 5*time.Minute {
 				log.Errorf("%s: timed out waiting for replicators to be ready:\n%s", m.cfg.LogScope, common.GetAllStacks())
-				return errors.Errorf("%s: timed out waiting for replicators to be ready", m.cfg.LogScope)
+				return errwrap.Errorf("%s: timed out waiting for replicators to be ready", m.cfg.LogScope)
 			}
 		}
 	}
@@ -433,7 +434,7 @@ func (m *ProcessorManager) GetLeaderNode(processorID int) (int, error) {
 	o, ok := m.processorNodeMap.Load(processorID)
 	if !ok {
 		// This can occur if cluster not ready - client will retry, and it will resolve
-		return 0, errors.WithStack(errors.NewTektiteErrorf(errors.Unavailable,
+		return 0, errwrap.WithStack(common.NewTektiteErrorf(common.Unavailable,
 			"no processor available when getting leader node for processor %d", processorID))
 	}
 	groupState := o.(clustmgr.GroupState) //nolint:forcetypeassert
@@ -538,7 +539,7 @@ func (m *ProcessorManager) maybeSetVersionsForProcessors(doNotDelay bool) {
 		// Timer already waiting to inject
 		return
 	}
-	durSinceLastInject := int64(common.NanoTime()) - m.lastBarrierInjectionTime
+	durSinceLastInject := int64(arista.NanoTime()) - m.lastBarrierInjectionTime
 	if doNotDelay || (m.lastBarrierInjectionTime == -1 || durSinceLastInject >= int64(m.cfg.MinSnapshotInterval)) {
 		// It's been enough time since last injection so inject now, or we're skipping versions
 		m.setVersionForProcessors()
@@ -558,7 +559,7 @@ func (m *ProcessorManager) maybeSetVersionsForProcessors(doNotDelay bool) {
 }
 
 func (m *ProcessorManager) setVersionForProcessors() {
-	m.lastBarrierInjectionTime = int64(common.NanoTime())
+	m.lastBarrierInjectionTime = int64(arista.NanoTime())
 	// Set version on all leaders
 	m.processors.Range(func(_, value any) bool {
 		processor := value.(Processor)
@@ -1098,7 +1099,7 @@ func (m *ProcessorManager) AcquiesceLevelManagerProcessor() error {
 	if m.cfg.LevelManagerEnabled {
 		p, ok := m.processors.Load(m.cfg.ProcessorCount)
 		if !ok {
-			return errors.New("cannot find level manager processor")
+			return errwrap.New("cannot find level manager processor")
 		}
 		proc := p.(*processor)
 		m.acquiesceProcessor(proc)

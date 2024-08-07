@@ -4,12 +4,12 @@ package integration
 
 import (
 	"fmt"
-	"github.com/spirit-labs/tektite/command"
+	"github.com/spirit-labs/tektite/asl/conf"
+	"github.com/spirit-labs/tektite/asl/server"
+	"github.com/spirit-labs/tektite/cmdmgr"
 	"github.com/spirit-labs/tektite/common"
-	"github.com/spirit-labs/tektite/conf"
 	"github.com/spirit-labs/tektite/kafka/fake"
 	"github.com/spirit-labs/tektite/objstore/dev"
-	"github.com/spirit-labs/tektite/server"
 	"github.com/spirit-labs/tektite/shutdown"
 	"github.com/spirit-labs/tektite/testutils"
 	"github.com/spirit-labs/tektite/types"
@@ -17,10 +17,10 @@ import (
 	"testing"
 )
 
-func getManagers(servers []*server.Server) []command.ManagerTest {
-	var mgrs []command.ManagerTest
+func getManagers(servers []*server.Server) []cmdmgr.ManagerTest {
+	var mgrs []cmdmgr.ManagerTest
 	for _, s := range servers {
-		mgrs = append(mgrs, s.GetCommandManager().(command.ManagerTest))
+		mgrs = append(mgrs, s.GetCommandManager().(cmdmgr.ManagerTest))
 	}
 	return mgrs
 }

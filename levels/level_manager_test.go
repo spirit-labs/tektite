@@ -3,10 +3,9 @@ package levels
 import (
 	"fmt"
 	"github.com/google/uuid"
+	"github.com/spirit-labs/tektite/asl/conf"
+	encoding2 "github.com/spirit-labs/tektite/asl/encoding"
 	"github.com/spirit-labs/tektite/common"
-	"github.com/spirit-labs/tektite/conf"
-	"github.com/spirit-labs/tektite/encoding"
-	"github.com/spirit-labs/tektite/errors"
 	"github.com/spirit-labs/tektite/objstore/dev"
 	"github.com/spirit-labs/tektite/sst"
 	"github.com/spirit-labs/tektite/tabcache"
@@ -592,7 +591,7 @@ func testAddRemoveNonOverlapping(t *testing.T, ordered bool, level int, rangeGap
 			// Get the table ids to make sure they were added ok
 			for i := 0; i < len(regBatch.Registrations); i++ {
 				oIDs, err := levelManager.QueryTablesInRange(regBatch.Registrations[i].KeyStart,
-					common.IncrementBytesBigEndian(regBatch.Registrations[i].KeyEnd))
+					common.IncBigEndianBytes(regBatch.Registrations[i].KeyEnd))
 				require.NoError(t, err)
 				require.Equal(t, 1, len(oIDs))
 				nIDs := oIDs[0]
@@ -633,7 +632,7 @@ func testAddRemoveNonOverlapping(t *testing.T, ordered bool, level int, rangeGap
 			// Get the table ids to make sure they were removed ok
 			for i := 0; i < len(regBatch.DeRegistrations); i++ {
 				oIDs, err := levelManager.QueryTablesInRange(regBatch.DeRegistrations[i].KeyStart,
-					common.IncrementBytesBigEndian(regBatch.DeRegistrations[i].KeyEnd))
+					common.IncBigEndianBytes(regBatch.DeRegistrations[i].KeyEnd))
 				require.NoError(t, err)
 				require.Equal(t, 0, len(oIDs))
 			}
@@ -778,10 +777,10 @@ func setupLevelManagerWithDedup(t *testing.T, enableCompaction bool, validate bo
 func createKey(i int) []byte {
 	// First 24 bytes is the [partition_hash, slab_id] - we just add a constant prefix
 	prefix := make([]byte, 0, 24)
-	prefix = append(prefix, []byte("xxxxxxxxxxxxxxxx")...) // partition hash
-	prefix = encoding.AppendUint64ToBufferBE(prefix, 1234) // slab id
+	prefix = append(prefix, []byte("xxxxxxxxxxxxxxxx")...)  // partition hash
+	prefix = encoding2.AppendUint64ToBufferBE(prefix, 1234) // slab id
 	prefix = append(prefix, []byte(fmt.Sprintf("key-%010d", i))...)
-	return encoding.EncodeVersion(prefix, 0)
+	return encoding2.EncodeVersion(prefix, 0)
 }
 
 func removeTables(t *testing.T, levelManager *LevelManager, level int, tabIDs []QueryTableInfo, pairs ...int) {
@@ -1334,7 +1333,7 @@ func TestVersionOnApplyChanges(t *testing.T) {
 	}
 	err = callRegisterL0Tables(levelManager, regBatch)
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.Unavailable))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.Unavailable))
 
 	afterTest(t, levelManager)
 }
@@ -1630,8 +1629,8 @@ func createBatch(i int) RegistrationBatch {
 			TableID:    []byte(fmt.Sprintf("sst-%d", i)),
 			MinVersion: 10,
 			MaxVersion: 12,
-			KeyStart:   encoding.EncodeVersion([]byte("key000"), 0),
-			KeyEnd:     encoding.EncodeVersion([]byte("key100"), 0),
+			KeyStart:   encoding2.EncodeVersion([]byte("key000"), 0),
+			KeyEnd:     encoding2.EncodeVersion([]byte("key100"), 0),
 		}},
 	}
 }

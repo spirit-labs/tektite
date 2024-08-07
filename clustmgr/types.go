@@ -1,6 +1,8 @@
 package clustmgr
 
-import "github.com/spirit-labs/tektite/encoding"
+import (
+	"github.com/spirit-labs/tektite/asl/encoding"
+)
 
 type ClusterState struct {
 	Version     int

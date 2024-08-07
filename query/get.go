@@ -2,9 +2,8 @@ package query
 
 import (
 	"encoding/binary"
+	encoding2 "github.com/spirit-labs/tektite/asl/encoding"
 	"github.com/spirit-labs/tektite/common"
-	"github.com/spirit-labs/tektite/encoding"
-	"github.com/spirit-labs/tektite/errors"
 	"github.com/spirit-labs/tektite/evbatch"
 	"github.com/spirit-labs/tektite/expr"
 	"github.com/spirit-labs/tektite/iteration"
@@ -88,13 +87,13 @@ func (g *GetOperator) CreateIterator(mappingID string, partID uint64, args *evba
 		if err != nil {
 			return nil, err
 		}
-		prefix := encoding.EncodeEntryPrefix(partitionHash, uint64(g.slabID), 24+len(keyStart))
+		prefix := encoding2.EncodeEntryPrefix(partitionHash, uint64(g.slabID), 24+len(keyStart))
 		start = append(prefix, keyStart...)
-		end = common.IncrementBytesBigEndian(start)
+		end = common.IncBigEndianBytes(start)
 	} else if g.rangeStartExprs == nil && g.rangeEndExprs == nil {
 		// scan all
-		start = encoding.EncodeEntryPrefix(partitionHash, uint64(g.slabID), 24)
-		end = common.IncrementBytesBigEndian(start)
+		start = encoding2.EncodeEntryPrefix(partitionHash, uint64(g.slabID), 24)
+		end = common.IncBigEndianBytes(start)
 	} else {
 		// scan range
 		if g.rangeStartExprs != nil {
@@ -103,12 +102,12 @@ func (g *GetOperator) CreateIterator(mappingID string, partID uint64, args *evba
 				return nil, err
 			}
 			if !g.startInclusive {
-				keyStart = common.IncrementBytesBigEndian(keyStart)
+				keyStart = common.IncBigEndianBytes(keyStart)
 			}
-			start = encoding.EncodeEntryPrefix(partitionHash, uint64(g.slabID), 24+len(keyStart))
+			start = encoding2.EncodeEntryPrefix(partitionHash, uint64(g.slabID), 24+len(keyStart))
 			start = append(start, keyStart...)
 		} else {
-			start = encoding.EncodeEntryPrefix(partitionHash, uint64(g.slabID), 24)
+			start = encoding2.EncodeEntryPrefix(partitionHash, uint64(g.slabID), 24)
 		}
 		if g.rangeEndExprs != nil {
 			keyEnd, err := g.CreateRangeEndKey(args)
@@ -116,12 +115,12 @@ func (g *GetOperator) CreateIterator(mappingID string, partID uint64, args *evba
 				return nil, err
 			}
 			if g.endInclusive {
-				keyEnd = common.IncrementBytesBigEndian(keyEnd)
+				keyEnd = common.IncBigEndianBytes(keyEnd)
 			}
-			end = encoding.EncodeEntryPrefix(partitionHash, uint64(g.slabID), 24+len(keyEnd))
+			end = encoding2.EncodeEntryPrefix(partitionHash, uint64(g.slabID), 24+len(keyEnd))
 			end = append(end, keyEnd...)
 		} else {
-			end = encoding.EncodeEntryPrefix(partitionHash, uint64(g.slabID+1), 24)
+			end = encoding2.EncodeEntryPrefix(partitionHash, uint64(g.slabID+1), 24)
 		}
 	}
 	log.Debugf("node:%d processor:%d creating query iterator start:%v end:%v with max version:%d", g.nodeID, processor.ID(), start, end, highestVersion)
@@ -154,7 +153,7 @@ func (g *GetOperator) createKey(exprs []expr.Expression, args *evbatch.Batch) ([
 				continue
 			}
 			buff = append(buff, 1)
-			buff = encoding.KeyEncodeInt(buff, val)
+			buff = encoding2.KeyEncodeInt(buff, val)
 		case types.ColumnTypeIDFloat:
 			val, null, err := e.EvalFloat(0, args)
 			if err != nil {
@@ -165,7 +164,7 @@ func (g *GetOperator) createKey(exprs []expr.Expression, args *evbatch.Batch) ([
 				continue
 			}
 			buff = append(buff, 1)
-			buff = encoding.KeyEncodeFloat(buff, val)
+			buff = encoding2.KeyEncodeFloat(buff, val)
 		case types.ColumnTypeIDBool:
 			val, null, err := e.EvalBool(0, args)
 			if err != nil {
@@ -176,7 +175,7 @@ func (g *GetOperator) createKey(exprs []expr.Expression, args *evbatch.Batch) ([
 				continue
 			}
 			buff = append(buff, 1)
-			buff = encoding.AppendBoolToBuffer(buff, val)
+			buff = encoding2.AppendBoolToBuffer(buff, val)
 		case types.ColumnTypeIDDecimal:
 			val, null, err := e.EvalDecimal(0, args)
 			if err != nil {
@@ -187,7 +186,7 @@ func (g *GetOperator) createKey(exprs []expr.Expression, args *evbatch.Batch) ([
 				continue
 			}
 			buff = append(buff, 1)
-			buff = encoding.KeyEncodeDecimal(buff, val)
+			buff = encoding2.KeyEncodeDecimal(buff, val)
 		case types.ColumnTypeIDString:
 			val, null, err := e.EvalString(0, args)
 			if err != nil {
@@ -198,7 +197,7 @@ func (g *GetOperator) createKey(exprs []expr.Expression, args *evbatch.Batch) ([
 				continue
 			}
 			buff = append(buff, 1)
-			buff = encoding.KeyEncodeString(buff, val)
+			buff = encoding2.KeyEncodeString(buff, val)
 		case types.ColumnTypeIDBytes:
 			val, null, err := e.EvalBytes(0, args)
 			if err != nil {
@@ -209,7 +208,7 @@ func (g *GetOperator) createKey(exprs []expr.Expression, args *evbatch.Batch) ([
 				continue
 			}
 			buff = append(buff, 1)
-			buff = encoding.KeyEncodeBytes(buff, val)
+			buff = encoding2.KeyEncodeBytes(buff, val)
 		case types.ColumnTypeIDTimestamp:
 			val, null, err := e.EvalTimestamp(0, args)
 			if err != nil {
@@ -220,7 +219,7 @@ func (g *GetOperator) createKey(exprs []expr.Expression, args *evbatch.Batch) ([
 				continue
 			}
 			buff = append(buff, 1)
-			buff = encoding.KeyEncodeTimestamp(buff, val)
+			buff = encoding2.KeyEncodeTimestamp(buff, val)
 		default:
 			panic("unknown type")
 		}
@@ -230,11 +229,11 @@ func (g *GetOperator) createKey(exprs []expr.Expression, args *evbatch.Batch) ([
 
 func (g *GetOperator) CreateRawPartitionKey(args *evbatch.Batch) ([]byte, error) {
 	if len(g.rangeStartExprs) != 1 {
-		return nil, errors.NewQueryErrorf("query on a raw partition key must have a single expression")
+		return nil, common.NewQueryErrorf("query on a raw partition key must have a single expression")
 	}
 	e := g.rangeStartExprs[0]
 	if e.ResultType() != types.ColumnTypeBytes {
-		return nil, errors.NewTektiteErrorf(errors.ExecuteQueryError,
+		return nil, common.NewTektiteErrorf(common.ExecuteQueryError,
 			"invalid get expression type %s for lookup in raw partition - the get expression must return type bytes",
 			e.ResultType().String())
 	}

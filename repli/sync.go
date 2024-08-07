@@ -5,7 +5,6 @@ import (
 	"github.com/spirit-labs/tektite/clustmgr"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/debug"
-	"github.com/spirit-labs/tektite/errors"
 	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/proc"
 	"sync/atomic"
@@ -295,18 +294,18 @@ func (r *replicator) receiveReplicatedSync(batch *proc.ProcessBatch, clusterVers
 	defer r.lock.Unlock()
 	if joinedClusterVersion != r.joinedClusterVersion {
 		r.replicaSyncing = false
-		return errors.NewTektiteErrorf(errors.Unavailable, "invalid joined cluster version")
+		return common.NewTektiteErrorf(common.Unavailable, "invalid joined cluster version")
 	}
 	if r.processor.IsLeader() {
 		r.replicaSyncing = false
 		log.Warnf("node %d processor %d batch %d rejecting replicate sync as replica promoted to leader",
 			r.cfg.NodeID, r.id, batch.ReplSeq)
-		return errors.NewTektiteErrorf(errors.Unavailable, "replica has been promoted to leader")
+		return common.NewTektiteErrorf(common.Unavailable, "replica has been promoted to leader")
 	}
 	if r.IsValid() {
 		log.Warnf("node %d processor %d batch %d replica already synced", r.cfg.NodeID, r.id, batch.ReplSeq)
 		r.replicaSyncing = false
-		return errors.NewTektiteErrorf(errors.Unavailable, "replica already synced")
+		return common.NewTektiteErrorf(common.Unavailable, "replica already synced")
 	}
 	if r.leaderClusterVersion == -1 {
 		// Set cluster version
@@ -318,7 +317,7 @@ func (r *replicator) receiveReplicatedSync(batch *proc.ProcessBatch, clusterVers
 		// reset - if a previous sync failed because of leader failure, another leader may try to sync
 		// in this case we need to reset the replicated state
 		if clusterVersion < r.leaderClusterVersion {
-			return errors.NewTektiteErrorf(errors.Unavailable, "sync start with old cluster version")
+			return common.NewTektiteErrorf(common.Unavailable, "sync start with old cluster version")
 		}
 		r.checkNotSyncing()
 		r.replicatedBatches = nil
@@ -336,11 +335,11 @@ func (r *replicator) receiveReplicatedSync(batch *proc.ProcessBatch, clusterVers
 			r.cfg.NodeID, r.id,
 			batch.ReplSeq, clusterVersion, r.leaderClusterVersion)
 		r.replicaSyncing = false
-		return errors.NewTektiteErrorf(errors.Unavailable, "replication with incorrect cluster version")
+		return common.NewTektiteErrorf(common.Unavailable, "replication with incorrect cluster version")
 	}
 	if !r.replicaSyncing {
 		// Sync batches from a sync which already returned an error
-		return errors.NewTektiteErrorf(errors.Unavailable, "not syncing")
+		return common.NewTektiteErrorf(common.Unavailable, "not syncing")
 	}
 	if replicationType == replicationTypeSync {
 		if len(r.replicatedBatches) > 0 {
@@ -349,7 +348,7 @@ func (r *replicator) receiveReplicatedSync(batch *proc.ProcessBatch, clusterVers
 				// We can get batches out of sequence, e.g. if batch sent, then received but sender gets error and retries, or
 				// if sent on different connections and earlier batch "overtakes" later one. In this case we return an
 				// error, and it will be resent
-				return errors.NewTektiteErrorf(errors.Unavailable, "processor %d sync batch out of sequence %d last batch %d", r.id,
+				return common.NewTektiteErrorf(common.Unavailable, "processor %d sync batch out of sequence %d last batch %d", r.id,
 					batch.ReplSeq, lbs)
 			}
 		}

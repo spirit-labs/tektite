@@ -3,8 +3,8 @@ package proc
 import (
 	"crypto/sha256"
 	"encoding/binary"
+	"github.com/spirit-labs/tektite/asl/encoding"
 	"github.com/spirit-labs/tektite/common"
-	"github.com/spirit-labs/tektite/encoding"
 	"math/big"
 	"sync"
 )

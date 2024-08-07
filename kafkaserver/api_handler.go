@@ -3,8 +3,8 @@ package kafkaserver
 import (
 	"encoding/binary"
 	"fmt"
+	"github.com/spirit-labs/tektite/asl/errwrap"
 	"github.com/spirit-labs/tektite/common"
-	"github.com/spirit-labs/tektite/errors"
 	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/types"
 	"net"
@@ -322,7 +322,7 @@ func (c *connection) handleFetch(apiVersion int16, reqBuff []byte, respBuffHeade
 							errorCode := ErrorCodeNone
 							if err != nil {
 								var kerr KafkaProtocolError
-								if errors.As(err, &kerr) {
+								if errwrap.As(err, &kerr) {
 									errorCode = kerr.ErrorCode
 								} else {
 									errorCode = ErrorCodeUnknownServerError

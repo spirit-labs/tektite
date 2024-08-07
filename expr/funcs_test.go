@@ -4,7 +4,6 @@ import (
 	"encoding/binary"
 	"github.com/apache/arrow/go/v11/arrow/decimal128"
 	"github.com/spirit-labs/tektite/common"
-	"github.com/spirit-labs/tektite/errors"
 	"github.com/spirit-labs/tektite/evbatch"
 	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/parser"
@@ -220,7 +219,7 @@ func TestIfFunctionArgs(t *testing.T) {
 		&ColumnExpr{colIndex: 3, exprType: types.ColumnTypeInt},
 	}, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'if' function requires 3 arguments"))
 
 	_, err = NewIfFunction([]Expression{
@@ -228,7 +227,7 @@ func TestIfFunctionArgs(t *testing.T) {
 		&ColumnExpr{colIndex: 1, exprType: types.ColumnTypeInt},
 	}, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'if' function requires 3 arguments"))
 
 	_, err = NewIfFunction([]Expression{
@@ -237,7 +236,7 @@ func TestIfFunctionArgs(t *testing.T) {
 		&ColumnExpr{colIndex: 2, exprType: types.ColumnTypeInt},
 	}, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'if' function first argument must be of type bool"))
 
 	_, err = NewIfFunction([]Expression{
@@ -246,7 +245,7 @@ func TestIfFunctionArgs(t *testing.T) {
 		&ColumnExpr{colIndex: 2, exprType: types.ColumnTypeString},
 	}, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'if' function second and third arguments must be of same type"))
 }
 
@@ -394,7 +393,7 @@ func TestIsNullFunctionArgs(t *testing.T) {
 		&ColumnExpr{colIndex: 1, exprType: types.ColumnTypeInt},
 	}, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'is_null' function requires 1 argument"))
 }
 
@@ -542,7 +541,7 @@ func TestIsNotNullFunctionArgs(t *testing.T) {
 		&ColumnExpr{colIndex: 1, exprType: types.ColumnTypeInt},
 	}, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'is_not_null' function requires 1 argument"))
 }
 
@@ -750,7 +749,7 @@ func TestInFunctionArgs(t *testing.T) {
 
 	_, err := NewInFunction([]Expression{&ColumnExpr{colIndex: 1, exprType: types.ColumnTypeInt}}, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'in' function requires at least 3 arguments"))
 
 	_, err = NewInFunction([]Expression{
@@ -760,7 +759,7 @@ func TestInFunctionArgs(t *testing.T) {
 		&ColumnExpr{colIndex: 1, exprType: types.ColumnTypeInt},
 	}, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'in' function arguments must have same type - first arg has type int - arg at position 2 has type bool"))
 }
 
@@ -1087,7 +1086,7 @@ func TestCaseFunctionArgs(t *testing.T) {
 	}
 	_, err := NewCaseFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'case' function requires at least 4 arguments"))
 
 	args = []Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeInt},
@@ -1098,7 +1097,7 @@ func TestCaseFunctionArgs(t *testing.T) {
 	}
 	_, err = NewCaseFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'case' function requires an even number of arguments"))
 
 	args = []Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeInt},
@@ -1110,7 +1109,7 @@ func TestCaseFunctionArgs(t *testing.T) {
 	}
 	_, err = NewCaseFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'case' function cases must have same type as test expression - test expression has type int - arg at position 1 has type bool"))
 
 	args = []Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeInt},
@@ -1122,7 +1121,7 @@ func TestCaseFunctionArgs(t *testing.T) {
 	}
 	_, err = NewCaseFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'case' function return expressions must have same type as default expression - default expression has type string - arg at position 0 has type float"))
 }
 
@@ -1155,35 +1154,35 @@ func TestDecimalShiftArgs(t *testing.T) {
 	args := []Expression{&ColumnExpr{colIndex: 0, exprType: decType}}
 	_, err := NewDecimalShiftFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'decimal_shift' requires 2 or 3 arguments - 1 found"))
 
 	args = []Expression{&ColumnExpr{colIndex: 0, exprType: decType}, &ColumnExpr{colIndex: 1, exprType: types.ColumnTypeInt},
 		&ColumnExpr{colIndex: 1, exprType: types.ColumnTypeBool}, &ColumnExpr{colIndex: 1, exprType: types.ColumnTypeInt}}
 	_, err = NewDecimalShiftFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'decimal_shift' requires 2 or 3 arguments - 4 found"))
 
 	args = []Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeInt}, &ColumnExpr{colIndex: 1, exprType: types.ColumnTypeInt},
 		&ColumnExpr{colIndex: 1, exprType: types.ColumnTypeBool}}
 	_, err = NewDecimalShiftFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "decimal_shift' first argument must be of type decimal - it is of type int"))
 
 	args = []Expression{&ColumnExpr{colIndex: 0, exprType: decType}, &ColumnExpr{colIndex: 1, exprType: types.ColumnTypeFloat},
 		&ColumnExpr{colIndex: 1, exprType: types.ColumnTypeBool}}
 	_, err = NewDecimalShiftFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "decimal_shift' second argument must be of type int - it is of type float"))
 
 	args = []Expression{&ColumnExpr{colIndex: 0, exprType: decType}, &ColumnExpr{colIndex: 1, exprType: types.ColumnTypeInt},
 		&ColumnExpr{colIndex: 1, exprType: types.ColumnTypeInt}}
 	_, err = NewDecimalShiftFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "decimal_shift' third argument must be of type bool - it is of type int"))
 }
 
@@ -1265,18 +1264,18 @@ func TestLenFunctionArgs(t *testing.T) {
 	args := []Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeString}, &ColumnExpr{colIndex: 0, exprType: types.ColumnTypeInt}}
 	_, err := NewLenFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'len' requires 1 argument - 2 found"))
 
 	_, err = NewLenFunction([]Expression{}, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'len' requires 1 argument - 0 found"))
 
 	args = []Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeInt}}
 	_, err = NewLenFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'len' argument must be of type string or bytes - it is of type int"))
 }
 
@@ -1328,19 +1327,19 @@ func TestConcatFunctionArgs(t *testing.T) {
 	args := []Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeString}}
 	_, err := NewConcatFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'concat' requires 2 arguments - 1 found"))
 
 	args = []Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeBool}, &ColumnExpr{colIndex: 0, exprType: types.ColumnTypeBool}}
 	_, err = NewConcatFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'concat' first argument must be of type string or bytes - it is of type bool"))
 
 	args = []Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeString}, &ColumnExpr{colIndex: 0, exprType: types.ColumnTypeBytes}}
 	_, err = NewConcatFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'concat' arguments must be of same type - first is string and second is bytes"))
 }
 
@@ -1370,19 +1369,19 @@ func TestStartsWithFunctionArgs(t *testing.T) {
 	args := []Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeString}}
 	_, err := NewStartsWithFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'starts_with' requires 2 arguments - 1 found"))
 
 	args = []Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeBool}, &ColumnExpr{colIndex: 0, exprType: types.ColumnTypeString}}
 	_, err = NewStartsWithFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'starts_with' first argument must be of type string - it is of type bool"))
 
 	args = []Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeString}, &ColumnExpr{colIndex: 0, exprType: types.ColumnTypeBool}}
 	_, err = NewStartsWithFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'starts_with' second argument must be of type string - it is of type bool"))
 }
 
@@ -1412,19 +1411,19 @@ func TestEndsWithFunctionArgs(t *testing.T) {
 	args := []Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeString}}
 	_, err := NewEndsWithFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'ends_with' requires 2 arguments - 1 found"))
 
 	args = []Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeBool}, &ColumnExpr{colIndex: 0, exprType: types.ColumnTypeString}}
 	_, err = NewEndsWithFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'ends_with' first argument must be of type string - it is of type bool"))
 
 	args = []Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeString}, &ColumnExpr{colIndex: 0, exprType: types.ColumnTypeBool}}
 	_, err = NewEndsWithFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'ends_with' second argument must be of type string - it is of type bool"))
 }
 
@@ -1452,19 +1451,19 @@ func TestMatchesFunctionArgs(t *testing.T) {
 	args := []Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeString}}
 	_, err := NewMatchesFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'matches' requires 2 arguments - 1 found"))
 
 	args = []Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeBool}, &ColumnExpr{colIndex: 0, exprType: types.ColumnTypeString}}
 	_, err = NewMatchesFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'matches' first argument must be of type string - it is of type bool"))
 
 	args = []Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeString}, &ColumnExpr{colIndex: 0, exprType: types.ColumnTypeBool}}
 	_, err = NewMatchesFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'matches' second argument must be a string literal"))
 }
 
@@ -1495,19 +1494,19 @@ func TestTrimFunctionArgs(t *testing.T) {
 	args := []Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeString}}
 	_, err := NewTrimFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'trim' requires 2 arguments - 1 found"))
 
 	args = []Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeBool}, &ColumnExpr{colIndex: 0, exprType: types.ColumnTypeString}}
 	_, err = NewTrimFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'trim' first argument must be of type string - it is of type bool"))
 
 	args = []Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeString}, &ColumnExpr{colIndex: 0, exprType: types.ColumnTypeBool}}
 	_, err = NewTrimFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'trim' arguments must be of same type - first is string and second is bool"))
 }
 
@@ -1538,19 +1537,19 @@ func TestLTrimFunctionArgs(t *testing.T) {
 	args := []Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeString}}
 	_, err := NewLTrimFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'ltrim' requires 2 arguments - 1 found"))
 
 	args = []Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeBool}, &ColumnExpr{colIndex: 0, exprType: types.ColumnTypeString}}
 	_, err = NewLTrimFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'ltrim' first argument must be of type string - it is of type bool"))
 
 	args = []Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeString}, &ColumnExpr{colIndex: 0, exprType: types.ColumnTypeBool}}
 	_, err = NewLTrimFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'ltrim' arguments must be of same type - first is string and second is bool"))
 }
 
@@ -1581,19 +1580,19 @@ func TestRTrimFunctionArgs(t *testing.T) {
 	args := []Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeString}}
 	_, err := NewRTrimFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'rtrim' requires 2 arguments - 1 found"))
 
 	args = []Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeBool}, &ColumnExpr{colIndex: 0, exprType: types.ColumnTypeString}}
 	_, err = NewRTrimFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'rtrim' first argument must be of type string - it is of type bool"))
 
 	args = []Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeString}, &ColumnExpr{colIndex: 0, exprType: types.ColumnTypeBool}}
 	_, err = NewRTrimFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'rtrim' arguments must be of same type - first is string and second is bool"))
 }
 
@@ -1621,18 +1620,18 @@ func TestToLowerFunctionArgs(t *testing.T) {
 	args := []Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeString}, &ColumnExpr{colIndex: 0, exprType: types.ColumnTypeString}}
 	_, err := NewToLowerFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'to_lower' requires 1 argument - 2 found"))
 
 	_, err = NewToLowerFunction([]Expression{}, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'to_lower' requires 1 argument - 0 found"))
 
 	args = []Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeInt}}
 	_, err = NewToLowerFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'to_lower' argument must be of type string - it is of type int"))
 }
 
@@ -1660,18 +1659,18 @@ func TestToUpperFunctionArgs(t *testing.T) {
 	args := []Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeString}, &ColumnExpr{colIndex: 0, exprType: types.ColumnTypeString}}
 	_, err := NewToUpperFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'to_upper' requires 1 argument - 2 found"))
 
 	_, err = NewToUpperFunction([]Expression{}, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'to_upper' requires 1 argument - 0 found"))
 
 	args = []Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeInt}}
 	_, err = NewToUpperFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'to_upper' argument must be of type string - it is of type int"))
 }
 
@@ -1707,33 +1706,33 @@ func TestSubStrFunctionArgs(t *testing.T) {
 	args := []Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeString}, &ColumnExpr{colIndex: 0, exprType: types.ColumnTypeString}}
 	_, err := NewSubStrFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'sub_str' requires 3 arguments - 2 found"))
 
 	_, err = NewSubStrFunction([]Expression{}, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'sub_str' requires 3 arguments - 0 found"))
 
 	args = []Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeInt}, &ColumnExpr{colIndex: 1, exprType: types.ColumnTypeInt},
 		&ColumnExpr{colIndex: 2, exprType: types.ColumnTypeInt}}
 	_, err = NewSubStrFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'sub_str' first argument must be of type string - it is of type int"))
 
 	args = []Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeString}, &ColumnExpr{colIndex: 1, exprType: types.ColumnTypeBytes},
 		&ColumnExpr{colIndex: 2, exprType: types.ColumnTypeInt}}
 	_, err = NewSubStrFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'sub_str' second argument must be of type int - it is of type bytes"))
 
 	args = []Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeString}, &ColumnExpr{colIndex: 1, exprType: types.ColumnTypeInt},
 		&ColumnExpr{colIndex: 2, exprType: types.ColumnTypeBytes}}
 	_, err = NewSubStrFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'sub_str' third argument must be of type int - it is of type bytes"))
 }
 
@@ -1763,33 +1762,33 @@ func TestReplaceFunctionArgs(t *testing.T) {
 	args := []Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeString}, &ColumnExpr{colIndex: 0, exprType: types.ColumnTypeString}}
 	_, err := NewReplaceFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'replace' requires 3 arguments - 2 found"))
 
 	_, err = NewReplaceFunction([]Expression{}, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'replace' requires 3 arguments - 0 found"))
 
 	args = []Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeInt}, &ColumnExpr{colIndex: 1, exprType: types.ColumnTypeString},
 		&ColumnExpr{colIndex: 2, exprType: types.ColumnTypeString}}
 	_, err = NewReplaceFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'replace' first argument must be of type string - it is of type int"))
 
 	args = []Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeString}, &ColumnExpr{colIndex: 1, exprType: types.ColumnTypeBytes},
 		&ColumnExpr{colIndex: 2, exprType: types.ColumnTypeString}}
 	_, err = NewReplaceFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'replace' second argument must be of type string - it is of type bytes"))
 
 	args = []Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeString}, &ColumnExpr{colIndex: 1, exprType: types.ColumnTypeString},
 		&ColumnExpr{colIndex: 2, exprType: types.ColumnTypeBytes}}
 	_, err = NewReplaceFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'replace' third argument must be of type string - it is of type bytes"))
 }
 
@@ -1844,18 +1843,18 @@ func TestSprintfFunctionArgs(t *testing.T) {
 	args := []Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeString}}
 	_, err := NewSprintfFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'sprintf' requires at least 2 arguments - 1 found"))
 
 	_, err = NewSprintfFunction([]Expression{}, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'sprintf' requires at least 2 arguments - 0 found"))
 
 	args = []Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeInt}, &ColumnExpr{colIndex: 1, exprType: types.ColumnTypeInt}}
 	_, err = NewSprintfFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'sprintf' first argument must be of type string - it is of type int"))
 }
 
@@ -1918,22 +1917,22 @@ func TestToIntFunctionArgs(t *testing.T) {
 	args := []Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeString}, &ColumnExpr{colIndex: 0, exprType: types.ColumnTypeString}}
 	_, err := NewToIntFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'to_int' requires 1 argument"))
 
 	_, err = NewToIntFunction([]Expression{}, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'to_int' requires 1 argument"))
 
 	_, err = NewToIntFunction([]Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeBool}}, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "to_int' has operand with unsupported type bool"))
 
 	_, err = NewToIntFunction([]Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeBytes}}, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "to_int' has operand with unsupported type bytes"))
 }
 
@@ -1996,22 +1995,22 @@ func TestToFloatFunctionArgs(t *testing.T) {
 	args := []Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeString}, &ColumnExpr{colIndex: 0, exprType: types.ColumnTypeString}}
 	_, err := NewToFloatFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'to_float' requires 1 argument"))
 
 	_, err = NewToFloatFunction([]Expression{}, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'to_float' requires 1 argument"))
 
 	_, err = NewToFloatFunction([]Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeBool}}, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "to_float' has operand with unsupported type bool"))
 
 	_, err = NewToFloatFunction([]Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeBytes}}, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "to_float' has operand with unsupported type bytes"))
 }
 
@@ -2074,12 +2073,12 @@ func TestToStringFunctionArgs(t *testing.T) {
 	args := []Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeString}, &ColumnExpr{colIndex: 0, exprType: types.ColumnTypeString}}
 	_, err := NewToStringFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'to_string' requires 1 argument"))
 
 	_, err = NewToStringFunction([]Expression{}, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'to_string' requires 1 argument"))
 }
 
@@ -2157,61 +2156,61 @@ func TestToDecimalFunctionArgs(t *testing.T) {
 	args := []Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeString}, &ColumnExpr{colIndex: 0, exprType: types.ColumnTypeString}}
 	_, err := NewToDecimalFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'to_decimal' requires 3 arguments"))
 
 	_, err = NewToDecimalFunction([]Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeBool},
 		&ColumnExpr{colIndex: 1, exprType: types.ColumnTypeInt}, &ColumnExpr{colIndex: 2, exprType: types.ColumnTypeInt}}, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "to_decimal' has operand with unsupported type bool"))
 
 	_, err = NewToDecimalFunction([]Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeBytes},
 		&ColumnExpr{colIndex: 1, exprType: types.ColumnTypeInt}, &ColumnExpr{colIndex: 2, exprType: types.ColumnTypeInt}}, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'to_decimal' has operand with unsupported type bytes"))
 
 	_, err = NewToDecimalFunction([]Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeString},
 		&ColumnExpr{colIndex: 1, exprType: types.ColumnTypeString}, NewIntegerConstantExpr(10)}, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'to_decimal' second argument must be an int constant"))
 
 	_, err = NewToDecimalFunction([]Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeString},
 		NewIntegerConstantExpr(38), &ColumnExpr{colIndex: 2, exprType: types.ColumnTypeInt}}, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'to_decimal' third argument must be an int constant"))
 
 	_, err = NewToDecimalFunction([]Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeString},
 		NewIntegerConstantExpr(39), NewIntegerConstantExpr(6)}, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'to_decimal' precision must be between 1 and 38 inclusive"))
 
 	_, err = NewToDecimalFunction([]Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeString},
 		NewIntegerConstantExpr(0), NewIntegerConstantExpr(6)}, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'to_decimal' precision must be between 1 and 38 inclusive"))
 
 	_, err = NewToDecimalFunction([]Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeString},
 		NewIntegerConstantExpr(38), NewIntegerConstantExpr(39)}, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'to_decimal' scale must be between 0 and 38 inclusive"))
 
 	_, err = NewToDecimalFunction([]Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeString},
 		NewIntegerConstantExpr(38), NewIntegerConstantExpr(-1)}, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'to_decimal' scale must be between 0 and 38 inclusive"))
 
 	_, err = NewToDecimalFunction([]Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeString},
 		NewIntegerConstantExpr(10), NewIntegerConstantExpr(11)}, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'to_decimal' scale cannot be greater than precision"))
 }
 
@@ -2247,18 +2246,18 @@ func TestToBytesFunctionArgs(t *testing.T) {
 	args := []Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeString}, &ColumnExpr{colIndex: 0, exprType: types.ColumnTypeString}}
 	_, err := NewToBytesFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'to_bytes' requires 1 argument"))
 
 	_, err = NewToBytesFunction([]Expression{}, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'to_bytes' requires 1 argument"))
 
 	args = []Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeTimestamp}}
 	_, err = NewToBytesFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'to_bytes' has operand with unsupported type timestamp"))
 }
 
@@ -2294,18 +2293,18 @@ func TestToTimestampFunctionArgs(t *testing.T) {
 	args := []Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeInt}, &ColumnExpr{colIndex: 0, exprType: types.ColumnTypeInt}}
 	_, err := NewToTimestampFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'to_timestamp' requires 1 argument"))
 
 	_, err = NewToTimestampFunction([]Expression{}, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'to_timestamp' requires 1 argument"))
 
 	args = []Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeFloat}}
 	_, err = NewToTimestampFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'to_timestamp' has operand with unsupported type float"))
 }
 
@@ -2348,24 +2347,24 @@ func TestFormatDateFunctionArgs(t *testing.T) {
 		&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeString}}
 	_, err := NewFormatDateFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'format_date' requires 2 arguments"))
 
 	_, err = NewFormatDateFunction([]Expression{}, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'format_date' requires 2 arguments"))
 
 	args = []Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeInt}, &ColumnExpr{colIndex: 0, exprType: types.ColumnTypeString}}
 	_, err = NewFormatDateFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'format_date' first argument must be of type timestamp - it is int"))
 
 	args = []Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeTimestamp}, &ColumnExpr{colIndex: 0, exprType: types.ColumnTypeInt}}
 	_, err = NewFormatDateFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'format_date' second argument must be of type string - it is int"))
 }
 
@@ -2405,24 +2404,24 @@ func TestParseDateFunctionArgs(t *testing.T) {
 		&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeString}}
 	_, err := NewParseDateFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'parse_date' requires 2 arguments"))
 
 	_, err = NewParseDateFunction([]Expression{}, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'parse_date' requires 2 arguments"))
 
 	args = []Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeInt}, &ColumnExpr{colIndex: 0, exprType: types.ColumnTypeString}}
 	_, err = NewParseDateFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'parse_date' first argument must be of type string - it is int"))
 
 	args = []Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeString}, &ColumnExpr{colIndex: 0, exprType: types.ColumnTypeInt}}
 	_, err = NewParseDateFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'parse_date' second argument must be of type string - it is int"))
 }
 
@@ -2458,18 +2457,18 @@ func TestParseYearFunctionArgs(t *testing.T) {
 	args := []Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeTimestamp}, &ColumnExpr{colIndex: 0, exprType: types.ColumnTypeString}}
 	_, err := NewYearFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'year' requires 1 argument"))
 
 	_, err = NewYearFunction([]Expression{}, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'year' requires 1 argument"))
 
 	args = []Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeString}}
 	_, err = NewYearFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'year' argument must be of type timestamp - it is string"))
 }
 
@@ -2505,18 +2504,18 @@ func TestParseMonthFunctionArgs(t *testing.T) {
 	args := []Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeTimestamp}, &ColumnExpr{colIndex: 0, exprType: types.ColumnTypeString}}
 	_, err := NewMonthFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'month' requires 1 argument"))
 
 	_, err = NewMonthFunction([]Expression{}, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'month' requires 1 argument"))
 
 	args = []Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeString}}
 	_, err = NewMonthFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'month' argument must be of type timestamp - it is string"))
 }
 
@@ -2552,18 +2551,18 @@ func TestParseDayFunctionArgs(t *testing.T) {
 	args := []Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeTimestamp}, &ColumnExpr{colIndex: 0, exprType: types.ColumnTypeString}}
 	_, err := NewDayFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'day' requires 1 argument"))
 
 	_, err = NewDayFunction([]Expression{}, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'day' requires 1 argument"))
 
 	args = []Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeString}}
 	_, err = NewDayFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'day' argument must be of type timestamp - it is string"))
 }
 
@@ -2599,18 +2598,18 @@ func TestParseHourFunctionArgs(t *testing.T) {
 	args := []Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeTimestamp}, &ColumnExpr{colIndex: 0, exprType: types.ColumnTypeString}}
 	_, err := NewHourFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'hour' requires 1 argument"))
 
 	_, err = NewHourFunction([]Expression{}, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'hour' requires 1 argument"))
 
 	args = []Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeString}}
 	_, err = NewHourFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'hour' argument must be of type timestamp - it is string"))
 }
 
@@ -2646,18 +2645,18 @@ func TestParseMinuteFunctionArgs(t *testing.T) {
 	args := []Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeTimestamp}, &ColumnExpr{colIndex: 0, exprType: types.ColumnTypeString}}
 	_, err := NewMinuteFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'minute' requires 1 argument"))
 
 	_, err = NewMinuteFunction([]Expression{}, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'minute' requires 1 argument"))
 
 	args = []Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeString}}
 	_, err = NewMinuteFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'minute' argument must be of type timestamp - it is string"))
 }
 
@@ -2693,18 +2692,18 @@ func TestParseSecondFunctionArgs(t *testing.T) {
 	args := []Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeTimestamp}, &ColumnExpr{colIndex: 0, exprType: types.ColumnTypeString}}
 	_, err := NewSecondFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'second' requires 1 argument"))
 
 	_, err = NewSecondFunction([]Expression{}, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'second' requires 1 argument"))
 
 	args = []Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeString}}
 	_, err = NewSecondFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'second' argument must be of type timestamp - it is string"))
 }
 
@@ -2740,18 +2739,18 @@ func TestParseMillisFunctionArgs(t *testing.T) {
 	args := []Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeTimestamp}, &ColumnExpr{colIndex: 0, exprType: types.ColumnTypeString}}
 	_, err := NewMillisFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'millis' requires 1 argument"))
 
 	_, err = NewMillisFunction([]Expression{}, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'millis' requires 1 argument"))
 
 	args = []Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeString}}
 	_, err = NewMillisFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'millis' argument must be of type timestamp - it is string"))
 }
 
@@ -2782,7 +2781,7 @@ func TestParseNowFunctionArgs(t *testing.T) {
 	args := []Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeTimestamp}}
 	_, err := NewNowFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'now' does not take any arguments"))
 }
 
@@ -2842,21 +2841,21 @@ func TestJsonIntFunctionArgs(t *testing.T) {
 		&ColumnExpr{colIndex: 1, exprType: types.ColumnTypeBytes}, &ColumnExpr{colIndex: 2, exprType: types.ColumnTypeString}}
 	_, err := NewJsonIntFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'json_int' requires 2 arguments"))
 
 	args = []Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeInt},
 		&ColumnExpr{colIndex: 1, exprType: types.ColumnTypeBytes}}
 	_, err = NewJsonIntFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'json_int' first argument must be of type string - it is int"))
 
 	args = []Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeString},
 		&ColumnExpr{colIndex: 1, exprType: types.ColumnTypeFloat}}
 	_, err = NewJsonIntFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'json_int' second argument must be of type string or bytes - it is float"))
 }
 
@@ -2916,21 +2915,21 @@ func TestJsonFloatFunctionArgs(t *testing.T) {
 		&ColumnExpr{colIndex: 1, exprType: types.ColumnTypeBytes}, &ColumnExpr{colIndex: 2, exprType: types.ColumnTypeString}}
 	_, err := NewJsonFloatFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'json_float' requires 2 arguments"))
 
 	args = []Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeInt},
 		&ColumnExpr{colIndex: 1, exprType: types.ColumnTypeBytes}}
 	_, err = NewJsonFloatFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'json_float' first argument must be of type string - it is int"))
 
 	args = []Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeString},
 		&ColumnExpr{colIndex: 1, exprType: types.ColumnTypeFloat}}
 	_, err = NewJsonFloatFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'json_float' second argument must be of type string or bytes - it is float"))
 }
 
@@ -2989,21 +2988,21 @@ func TestJsonBoolFunctionArgs(t *testing.T) {
 		&ColumnExpr{colIndex: 1, exprType: types.ColumnTypeBytes}, &ColumnExpr{colIndex: 2, exprType: types.ColumnTypeString}}
 	_, err := NewJsonBoolFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'json_bool' requires 2 arguments"))
 
 	args = []Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeInt},
 		&ColumnExpr{colIndex: 1, exprType: types.ColumnTypeBytes}}
 	_, err = NewJsonBoolFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'json_bool' first argument must be of type string - it is int"))
 
 	args = []Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeString},
 		&ColumnExpr{colIndex: 1, exprType: types.ColumnTypeFloat}}
 	_, err = NewJsonBoolFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'json_bool' second argument must be of type string or bytes - it is float"))
 }
 
@@ -3062,21 +3061,21 @@ func TestJsonStringFunctionArgs(t *testing.T) {
 		&ColumnExpr{colIndex: 1, exprType: types.ColumnTypeBytes}, &ColumnExpr{colIndex: 2, exprType: types.ColumnTypeString}}
 	_, err := NewJsonStringFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'json_string' requires 2 arguments"))
 
 	args = []Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeInt},
 		&ColumnExpr{colIndex: 1, exprType: types.ColumnTypeBytes}}
 	_, err = NewJsonStringFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'json_string' first argument must be of type string - it is int"))
 
 	args = []Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeString},
 		&ColumnExpr{colIndex: 1, exprType: types.ColumnTypeFloat}}
 	_, err = NewJsonStringFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'json_string' second argument must be of type string or bytes - it is float"))
 }
 
@@ -3135,21 +3134,21 @@ func TestJsonRawFunctionArgs(t *testing.T) {
 		&ColumnExpr{colIndex: 1, exprType: types.ColumnTypeBytes}, &ColumnExpr{colIndex: 2, exprType: types.ColumnTypeString}}
 	_, err := NewJsonRawFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'json_raw' requires 2 arguments"))
 
 	args = []Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeInt},
 		&ColumnExpr{colIndex: 1, exprType: types.ColumnTypeBytes}}
 	_, err = NewJsonRawFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'json_raw' first argument must be of type string - it is int"))
 
 	args = []Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeString},
 		&ColumnExpr{colIndex: 1, exprType: types.ColumnTypeFloat}}
 	_, err = NewJsonRawFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'json_raw' second argument must be of type string or bytes - it is float"))
 }
 
@@ -3208,21 +3207,21 @@ func TestJsonIsNullFunctionArgs(t *testing.T) {
 		&ColumnExpr{colIndex: 1, exprType: types.ColumnTypeBytes}, &ColumnExpr{colIndex: 2, exprType: types.ColumnTypeString}}
 	_, err := NewJsonIsNullFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'json_is_null' requires 2 arguments"))
 
 	args = []Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeInt},
 		&ColumnExpr{colIndex: 1, exprType: types.ColumnTypeBytes}}
 	_, err = NewJsonIsNullFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'json_is_null' first argument must be of type string - it is int"))
 
 	args = []Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeString},
 		&ColumnExpr{colIndex: 1, exprType: types.ColumnTypeFloat}}
 	_, err = NewJsonIsNullFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'json_is_null' second argument must be of type string or bytes - it is float"))
 }
 
@@ -3281,21 +3280,21 @@ func TestJsonTypeFunctionArgs(t *testing.T) {
 		&ColumnExpr{colIndex: 1, exprType: types.ColumnTypeBytes}, &ColumnExpr{colIndex: 2, exprType: types.ColumnTypeString}}
 	_, err := NewJsonTypeFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'json_type' requires 2 arguments"))
 
 	args = []Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeInt},
 		&ColumnExpr{colIndex: 1, exprType: types.ColumnTypeBytes}}
 	_, err = NewJsonTypeFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'json_type' first argument must be of type string - it is int"))
 
 	args = []Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeString},
 		&ColumnExpr{colIndex: 1, exprType: types.ColumnTypeFloat}}
 	_, err = NewJsonTypeFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'json_type' second argument must be of type string or bytes - it is float"))
 }
 
@@ -3369,28 +3368,28 @@ func TestKafkaBuildHeadersArgs(t *testing.T) {
 	args := []Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeString}}
 	_, err := NewKafkaBuildHeadersFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'kafka_build_headers' requires at least 2 arguments"))
 
 	args = []Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeString}, &ColumnExpr{colIndex: 1, exprType: types.ColumnTypeBytes},
 		&ColumnExpr{colIndex: 2, exprType: types.ColumnTypeString}}
 	_, err = NewKafkaBuildHeadersFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'kafka_build_headers' requires an even number of arguments"))
 
 	args = []Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeString}, &ColumnExpr{colIndex: 1, exprType: types.ColumnTypeBytes},
 		&ColumnExpr{colIndex: 2, exprType: types.ColumnTypeFloat}, &ColumnExpr{colIndex: 1, exprType: types.ColumnTypeBytes}}
 	_, err = NewKafkaBuildHeadersFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'kafka_build_headers' header name expression must be of type string - expression at position 2 is of type float"))
 
 	args = []Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeString}, &ColumnExpr{colIndex: 1, exprType: types.ColumnTypeBytes},
 		&ColumnExpr{colIndex: 2, exprType: types.ColumnTypeString}, &ColumnExpr{colIndex: 1, exprType: types.ColumnTypeTimestamp}}
 	_, err = NewKafkaBuildHeadersFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'kafka_build_headers' header value expression must be of type string or bytes - expression at position 2 is of type timestamp"))
 }
 
@@ -3398,19 +3397,19 @@ func TestKafkaHeaderArgs(t *testing.T) {
 	args := []Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeString}}
 	_, err := NewKafkaHeaderFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'kafka_header' requires 2 arguments"))
 
 	args = []Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeFloat}, &ColumnExpr{colIndex: 1, exprType: types.ColumnTypeBytes}}
 	_, err = NewKafkaHeaderFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'kafka_header' first argument must be of type string"))
 
 	args = []Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeString}, &ColumnExpr{colIndex: 1, exprType: types.ColumnTypeFloat}}
 	_, err = NewKafkaHeaderFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'kafka_header' second argument must be of type bytes"))
 }
 
@@ -3446,33 +3445,33 @@ func TestBytesSliceFunctionArgs(t *testing.T) {
 	args := []Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeBytes}, &ColumnExpr{colIndex: 0, exprType: types.ColumnTypeString}}
 	_, err := NewBytesSliceFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'bytes_slice' requires 3 arguments - 2 found"))
 
 	_, err = NewBytesSliceFunction([]Expression{}, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'bytes_slice' requires 3 arguments - 0 found"))
 
 	args = []Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeInt}, &ColumnExpr{colIndex: 1, exprType: types.ColumnTypeInt},
 		&ColumnExpr{colIndex: 2, exprType: types.ColumnTypeInt}}
 	_, err = NewBytesSliceFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'bytes_slice' first argument must be of type bytes - it is of type int"))
 
 	args = []Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeBytes}, &ColumnExpr{colIndex: 1, exprType: types.ColumnTypeBytes},
 		&ColumnExpr{colIndex: 2, exprType: types.ColumnTypeInt}}
 	_, err = NewBytesSliceFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'bytes_slice' second argument must be of type int - it is of type bytes"))
 
 	args = []Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeBytes}, &ColumnExpr{colIndex: 1, exprType: types.ColumnTypeInt},
 		&ColumnExpr{colIndex: 2, exprType: types.ColumnTypeBytes}}
 	_, err = NewBytesSliceFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'bytes_slice' third argument must be of type int - it is of type bytes"))
 }
 
@@ -3532,19 +3531,19 @@ func TestUint64BEFunctionArgs(t *testing.T) {
 	args := []Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeBytes}}
 	_, err := NewUint64BEFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'uint64_be' requires 2 arguments - 1 found"))
 
 	args = []Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeInt}, &ColumnExpr{colIndex: 1, exprType: types.ColumnTypeInt}}
 	_, err = NewUint64BEFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'uint64_be' first argument must be of type bytes - it is of type int"))
 
 	args = []Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeBytes}, &ColumnExpr{colIndex: 1, exprType: types.ColumnTypeBytes}}
 	_, err = NewUint64BEFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'uint64_be' second argument must be of type int - it is of type bytes"))
 }
 
@@ -3552,19 +3551,19 @@ func TestUint64LEFunctionArgs(t *testing.T) {
 	args := []Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeBytes}}
 	_, err := NewUint64LEFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'uint64_le' requires 2 arguments - 1 found"))
 
 	args = []Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeInt}, &ColumnExpr{colIndex: 1, exprType: types.ColumnTypeInt}}
 	_, err = NewUint64LEFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'uint64_le' first argument must be of type bytes - it is of type int"))
 
 	args = []Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeBytes}, &ColumnExpr{colIndex: 1, exprType: types.ColumnTypeBytes}}
 	_, err = NewUint64LEFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'uint64_le' second argument must be of type int - it is of type bytes"))
 }
 
@@ -3630,13 +3629,13 @@ func TestAbsFunctionArgs(t *testing.T) {
 	args := []Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeInt}, &ColumnExpr{colIndex: 1, exprType: types.ColumnTypeInt}}
 	_, err := NewAbsFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'abs' requires 1 argument - 2 found"))
 
 	args = []Expression{&ColumnExpr{colIndex: 0, exprType: types.ColumnTypeString}}
 	_, err = NewAbsFunction(args, &parser.FunctionExprDesc{})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.True(t, strings.Contains(err.Error(), "'abs' argument must be of type int, float or decimal - it is of type string"))
 }
 

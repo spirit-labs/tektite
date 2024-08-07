@@ -2,13 +2,13 @@ package repli
 
 import (
 	"fmt"
+	"github.com/spirit-labs/tektite/asl/conf"
+	"github.com/spirit-labs/tektite/asl/remoting"
 	"github.com/spirit-labs/tektite/clustmgr"
-	"github.com/spirit-labs/tektite/conf"
+	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/debug"
-	"github.com/spirit-labs/tektite/errors"
 	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/proc"
-	"github.com/spirit-labs/tektite/remoting"
 	"sync"
 	"sync/atomic"
 )
@@ -149,7 +149,7 @@ func (r *replicator) ReplicateBatch(processBatch *proc.ProcessBatch, completionF
 		return nil
 	})
 	if !ok {
-		completionFunc(errors.NewTektiteErrorf(errors.Unavailable, "unable to submit action on processor. stopped: %t leader: %t", r.processor.IsStopped(), r.processor.IsLeader()))
+		completionFunc(common.NewTektiteErrorf(common.Unavailable, "unable to submit action on processor. stopped: %t leader: %t", r.processor.IsStopped(), r.processor.IsLeader()))
 	}
 }
 
@@ -158,29 +158,29 @@ func (r *replicator) replicateBatch(processBatch *proc.ProcessBatch, completionF
 	r.checkInProcessorLoop()
 
 	if r.acquiescing {
-		completionFunc(errors.NewTektiteErrorf(errors.Unavailable, "cluster is acquiescing"))
+		completionFunc(common.NewTektiteErrorf(common.Unavailable, "cluster is acquiescing"))
 		// Note, we must let levelManager batches through as store flush is called during shutdown and this needs to apply
 		// changes on levelManager
 		return
 	}
 
 	if !r.initialised {
-		completionFunc(errors.NewTektiteErrorf(errors.Unavailable, "replicator is not initialised"))
+		completionFunc(common.NewTektiteErrorf(common.Unavailable, "replicator is not initialised"))
 		return
 	}
 
 	if r.paused {
-		completionFunc(errors.NewTektiteErrorf(errors.Unavailable, "replicator is paused"))
+		completionFunc(common.NewTektiteErrorf(common.Unavailable, "replicator is paused"))
 		return
 	}
 
 	if r.replicationFailing {
-		completionFunc(errors.NewTektiteErrorf(errors.Unavailable, "replication failing"))
+		completionFunc(common.NewTektiteErrorf(common.Unavailable, "replication failing"))
 		return
 	}
 
 	if r.syncsInProgressOrRequested() {
-		completionFunc(errors.NewTektiteErrorf(errors.Unavailable, "sync in progress"))
+		completionFunc(common.NewTektiteErrorf(common.Unavailable, "sync in progress"))
 		return
 	}
 
@@ -193,7 +193,7 @@ func (r *replicator) performReplication(processBatch *proc.ProcessBatch, complet
 	groupState, ok := r.manager.GetGroupState(r.id)
 	if !ok {
 		// This can occur if cluster not ready - client will retry, and it should resolve
-		completionFunc(errors.NewTektiteErrorf(errors.Unavailable, "no processor available"))
+		completionFunc(common.NewTektiteErrorf(common.Unavailable, "no processor available"))
 		return
 	}
 
@@ -363,7 +363,7 @@ func (r *replicator) checkReplicationError(err error, completionFunc func(error)
 			log.Debugf("node %d processor %d replication failed %v -no more replications reset batch sequence to %d",
 				r.cfg.NodeID, r.id, err, r.batchSequence)
 		}
-		completionFunc(errors.NewTektiteErrorf(errors.Unavailable, "replication failing"))
+		completionFunc(common.NewTektiteErrorf(common.Unavailable, "replication failing"))
 		return false
 	}
 	if err != nil {
@@ -457,18 +457,18 @@ func (r *replicator) receiveReplicatedCommit(lastSuccessfulReplicationSeq int, c
 
 func (r *replicator) checkErrors(clusterVersion int, joinedClusterVersion int) error {
 	if !r.IsValid() {
-		return errors.NewTektiteErrorf(errors.Unavailable, "requires sync")
+		return common.NewTektiteErrorf(common.Unavailable, "requires sync")
 	}
 	if clusterVersion < r.leaderClusterVersion {
 		// This prevents the replica picking up a replication from an old leader
-		return errors.NewTektiteErrorf(errors.Unavailable, "replication with older cluster version")
+		return common.NewTektiteErrorf(common.Unavailable, "replication with older cluster version")
 	}
 	if joinedClusterVersion != r.joinedClusterVersion {
 		// This prevents an old replica picking up a replication from the leader
-		return errors.NewTektiteErrorf(errors.Unavailable, "invalid joined cluster version")
+		return common.NewTektiteErrorf(common.Unavailable, "invalid joined cluster version")
 	}
 	if r.processor.IsLeader() {
-		return errors.NewTektiteErrorf(errors.Unavailable, "replica has been promoted to leader")
+		return common.NewTektiteErrorf(common.Unavailable, "replica has been promoted to leader")
 	}
 	return nil
 }
@@ -591,7 +591,7 @@ func (r *replicator) GetLastCommitted(clusterVersion int, joinedVersion int) (in
 	defer r.lock.Unlock()
 	if joinedVersion != r.joinedClusterVersion {
 		// check that the message is for the correct replica
-		return 0, errors.NewTektiteErrorf(errors.Unavailable, "incorrect joined version %d on GetLastCommitted expected %d",
+		return 0, common.NewTektiteErrorf(common.Unavailable, "incorrect joined version %d on GetLastCommitted expected %d",
 			r.leaderClusterVersion, joinedVersion)
 	}
 	// We set the cluster version of the new leader here - this is checked on replication to prevent any replications
@@ -606,7 +606,7 @@ func (r *replicator) SetLastCommittedSequence(lastCommitted int, joinedVersion i
 	defer r.lock.Unlock()
 	if joinedVersion != r.joinedClusterVersion {
 		// check that the message is for the correct replica
-		return errors.NewTektiteErrorf(errors.Unavailable, "incorrect joined version on SetLastCommittedSequence %d expected %d",
+		return common.NewTektiteErrorf(common.Unavailable, "incorrect joined version on SetLastCommittedSequence %d expected %d",
 			r.leaderClusterVersion, joinedVersion)
 	}
 	log.Debugf("node %d processor %d setting last received committed to %d was %d", r.cfg.NodeID, r.id, lastCommitted, r.lastReceivedCommittedSeq)

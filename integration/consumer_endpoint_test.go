@@ -4,10 +4,10 @@ package integration
 
 import (
 	kafkago "github.com/confluentinc/confluent-kafka-go/kafka"
+	"github.com/spirit-labs/tektite/asl/conf"
+	"github.com/spirit-labs/tektite/client"
 	"github.com/spirit-labs/tektite/common"
-	"github.com/spirit-labs/tektite/conf"
 	log "github.com/spirit-labs/tektite/logger"
-	"github.com/spirit-labs/tektite/tekclient"
 	"github.com/stretchr/testify/require"
 	"testing"
 	"time"
@@ -25,7 +25,7 @@ func testConsumerEndpoint(t *testing.T, ct clientType) {
 
 	numMessages := 100
 
-	clientTLSConfig := tekclient.TLSConfig{
+	clientTLSConfig := client.TLSConfig{
 		TrustedCertsPath: serverCertPath,
 	}
 	servers, tearDown := startClusterWithConfigSetter(t, 3, nil, func(cfg *conf.Config) {
@@ -39,7 +39,7 @@ func testConsumerEndpoint(t *testing.T, ct clientType) {
 		cfg.KafkaServerListenerConfig.Addresses = kafkaListenAddresses
 	})
 	defer tearDown(t)
-	client, err := tekclient.NewClient(servers[0].GetConfig().HttpApiAddresses[0], clientTLSConfig)
+	client, err := client.NewClient(servers[0].GetConfig().HttpApiAddresses[0], clientTLSConfig)
 	require.NoError(t, err)
 	defer client.Close()
 

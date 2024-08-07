@@ -4,8 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/spirit-labs/tektite/asl/arista"
+	"github.com/spirit-labs/tektite/asl/conf"
 	"github.com/spirit-labs/tektite/common"
-	"github.com/spirit-labs/tektite/conf"
 	"github.com/spirit-labs/tektite/levels"
 	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/opers"
@@ -85,7 +86,7 @@ func NewServer(cfg *conf.Config, levelMgrClient levels.Client, streamManager ope
 		streamsTemplate:  streamsTemplate,
 		configTemplate:   configTemplate,
 		clusterTemplate:  clusterTemplate,
-		startTime:        common.NanoTime(),
+		startTime:        arista.NanoTime(),
 	}, nil
 }
 
@@ -153,7 +154,7 @@ func (s *Server) ServeHome(response http.ResponseWriter, _ *http.Request) {
 	memStats := runtime.MemStats{}
 	runtime.ReadMemStats(&memStats)
 	memUsage := memStats.Alloc / 1024 / 1024 // Memory usage in MB
-	ut := time.Duration(common.NanoTime() - s.startTime)
+	ut := time.Duration(arista.NanoTime() - s.startTime)
 	ut = 1e9 * (ut / 1e9) // round to seconds
 	data := homeData{
 		Date:   now,

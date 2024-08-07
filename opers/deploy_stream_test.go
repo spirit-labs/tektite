@@ -2,8 +2,8 @@ package opers
 
 import (
 	"fmt"
-	"github.com/spirit-labs/tektite/conf"
-	"github.com/spirit-labs/tektite/encoding"
+	"github.com/spirit-labs/tektite/asl/conf"
+	encoding2 "github.com/spirit-labs/tektite/asl/encoding"
 	"github.com/spirit-labs/tektite/expr"
 	"github.com/spirit-labs/tektite/kafka/fake"
 	log "github.com/spirit-labs/tektite/logger"
@@ -706,8 +706,8 @@ func loadRowsFromPartition(t *testing.T, keyColumnTypes []types.ColumnType, outK
 	rowColumnTypes []types.ColumnType, outRowColIndexes []int, mappingID string, slabID int,
 	partitionID int, store tppm.Store) [][]any {
 	partitionHash := proc.CalcPartitionHash(mappingID, uint64(partitionID))
-	keyStart := encoding.EncodeEntryPrefix(partitionHash, uint64(slabID), 24)
-	keyEnd := encoding.EncodeEntryPrefix(partitionHash, uint64(slabID)+1, 24)
+	keyStart := encoding2.EncodeEntryPrefix(partitionHash, uint64(slabID), 24)
+	keyEnd := encoding2.EncodeEntryPrefix(partitionHash, uint64(slabID)+1, 24)
 	iter, err := store.NewIterator(keyStart, keyEnd, math.MaxInt64, false)
 	require.NoError(t, err)
 	defer iter.Close()
@@ -720,9 +720,9 @@ func loadRowsFromPartition(t *testing.T, keyColumnTypes []types.ColumnType, outK
 			break
 		}
 		row := make([]any, numCols)
-		keySlice, _, err := encoding.DecodeKeyToSlice(curr.Key, 24, keyColumnTypes)
+		keySlice, _, err := encoding2.DecodeKeyToSlice(curr.Key, 24, keyColumnTypes)
 		require.NoError(t, err)
-		rowSlice, _ := encoding.DecodeRowToSlice(curr.Value, 0, rowColumnTypes)
+		rowSlice, _ := encoding2.DecodeRowToSlice(curr.Value, 0, rowColumnTypes)
 		for i, keyCol := range outKeyColIndexes {
 			row[keyCol] = keySlice[i]
 		}

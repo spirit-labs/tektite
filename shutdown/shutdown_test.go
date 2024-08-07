@@ -3,14 +3,14 @@ package shutdown
 import (
 	"fmt"
 	"github.com/google/uuid"
+	"github.com/spirit-labs/tektite/asl/conf"
+	"github.com/spirit-labs/tektite/asl/server"
+	"github.com/spirit-labs/tektite/client"
 	"github.com/spirit-labs/tektite/common"
-	"github.com/spirit-labs/tektite/conf"
 	"github.com/spirit-labs/tektite/kafka"
 	"github.com/spirit-labs/tektite/kafka/fake"
 	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/objstore/dev"
-	"github.com/spirit-labs/tektite/server"
-	"github.com/spirit-labs/tektite/tekclient"
 	"github.com/spirit-labs/tektite/testutils"
 	"github.com/stretchr/testify/require"
 	"testing"
@@ -172,17 +172,17 @@ func TestShutdownWithData(t *testing.T) {
 	topic, err := fk.CreateTopic("test_topic", 10)
 	require.NoError(t, err)
 
-	clientTLSConfig := tekclient.TLSConfig{
+	clientTLSConfig := client.TLSConfig{
 		TrustedCertsPath: serverCertPath,
 	}
 
-	client, err := tekclient.NewClient(servers[0].GetConfig().HttpApiAddresses[0], clientTLSConfig)
+	cl, err := client.NewClient(servers[0].GetConfig().HttpApiAddresses[0], clientTLSConfig)
 	require.NoError(t, err)
 
-	err = client.ExecuteStatement(`test_stream := (bridge from test_topic partitions = 10 props = ()) -> (store stream)`)
+	err = cl.ExecuteStatement(`test_stream := (bridge from test_topic partitions = 10 props = ()) -> (store stream)`)
 	require.NoError(t, err)
 
-	qr, err := client.ExecuteQuery("(scan all from test_stream)")
+	qr, err := cl.ExecuteQuery("(scan all from test_stream)")
 	require.NoError(t, err)
 	require.Equal(t, 0, qr.RowCount())
 
@@ -197,7 +197,7 @@ func TestShutdownWithData(t *testing.T) {
 	}
 
 	ok, err := testutils.WaitUntilWithError(func() (bool, error) {
-		qr, err = client.ExecuteQuery("(scan all from test_stream)")
+		qr, err = cl.ExecuteQuery("(scan all from test_stream)")
 		if err != nil {
 			return false, err
 		}
@@ -211,19 +211,19 @@ func TestShutdownWithData(t *testing.T) {
 	err = PerformShutdown(&cfg, false)
 	require.NoError(t, err)
 
-	client.Close()
+	cl.Close()
 
 	// Now we restart the cluster
 	servers, tearDown := startCluster(t, objStoreAddress, fk, clusterName)
 	defer tearDown(t)
 
-	client, err = tekclient.NewClient(servers[0].GetConfig().HttpApiAddresses[0], clientTLSConfig)
+	cl, err = client.NewClient(servers[0].GetConfig().HttpApiAddresses[0], clientTLSConfig)
 	require.NoError(t, err)
-	defer client.Close()
+	defer cl.Close()
 
 	// Data should still be there
 	ok, err = testutils.WaitUntilWithError(func() (bool, error) {
-		qr, err = client.ExecuteQuery("(scan all from test_stream)")
+		qr, err = cl.ExecuteQuery("(scan all from test_stream)")
 		if err != nil {
 			return false, err
 		}

@@ -2,11 +2,11 @@ package repli
 
 import (
 	"fmt"
+	"github.com/spirit-labs/tektite/asl/remoting"
 	"github.com/spirit-labs/tektite/clustmgr"
-	"github.com/spirit-labs/tektite/errors"
+	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/proc"
 	"github.com/spirit-labs/tektite/protos/clustermsgs"
-	"github.com/spirit-labs/tektite/remoting"
 )
 
 func SetClusterMessageHandlers(remotingServer remoting.Server, manager proc.Manager) {
@@ -57,7 +57,7 @@ func (l *lastCommittedRequestHandler) HandleMessage(messageHolder remoting.Messa
 		return nil, err
 	}
 	if !replic.IsValid() {
-		return nil, errors.NewTektiteErrorf(errors.Unavailable, "not valid")
+		return nil, common.NewTektiteErrorf(common.Unavailable, "not valid")
 	}
 	lastCommitted, err := replic.GetLastCommitted(int(msg.ClusterVersion), int(msg.JoinedVersion))
 	if err != nil {
@@ -77,7 +77,7 @@ func (s *setLastCommittedHandler) HandleMessage(messageHolder remoting.MessageHo
 		return nil, err
 	}
 	if !replic.IsValid() {
-		return nil, errors.NewTektiteErrorf(errors.Unavailable, "not valid")
+		return nil, common.NewTektiteErrorf(common.Unavailable, "not valid")
 	}
 	return nil, replic.SetLastCommittedSequence(int(msg.LastCommitted), int(msg.JoinedVersion))
 }
@@ -162,7 +162,7 @@ func (r *replicator) sendFlush(processorID int, clusterVersion int, batchSeq int
 	groupState, ok := r.manager.GetGroupState(processorID)
 	if !ok {
 		// This can occur if cluster not ready - client will retry and it should resolve
-		completionFunc(errors.NewTektiteErrorf(errors.Unavailable, "no processor available when sending flush"))
+		completionFunc(common.NewTektiteErrorf(common.Unavailable, "no processor available when sending flush"))
 		return
 	}
 	groupNodes := groupState.GroupNodes
@@ -226,12 +226,12 @@ func checkErrorAndCallCompletion(completionFunc func(error), err error) {
 func getReplicator(manager proc.Manager, processorID int) (*replicator, error) {
 	processor := manager.GetProcessor(processorID)
 	if processor == nil {
-		return nil, errors.NewTektiteErrorf(errors.Unavailable, "no processor available when getting replicator")
+		return nil, common.NewTektiteErrorf(common.Unavailable, "no processor available when getting replicator")
 	}
 	if processor.IsLeader() {
 		repl := processor.GetReplicator().(*replicator)
 
-		return nil, errors.NewTektiteErrorf(errors.Unavailable, "not a replica on node %d",
+		return nil, common.NewTektiteErrorf(common.Unavailable, "not a replica on node %d",
 			repl.cfg.NodeID)
 	}
 	return processor.GetReplicator().(*replicator), nil

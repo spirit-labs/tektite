@@ -10,7 +10,8 @@ import (
 	"github.com/confluentinc/confluent-kafka-go/kafka"
 	"github.com/google/uuid"
 	segment "github.com/segmentio/kafka-go"
-	"github.com/spirit-labs/tektite/errors"
+	"github.com/spirit-labs/tektite/asl/errwrap"
+	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/evbatch"
 	log "github.com/spirit-labs/tektite/logger"
 	"strings"
@@ -30,7 +31,7 @@ func NewMessageProviderFactory(topicName string, props map[string]string) (Messa
 		} else if sAutoOffsetReset == "latest" {
 			earliest = false
 		} else {
-			return nil, errors.NewTektiteErrorf(errors.InvalidConfiguration, "invalid value for auto.offset.reset: %s - must be one of 'earliest' or 'latest'", sAutoOffsetReset)
+			return nil, common.NewTektiteErrorf(common.InvalidConfiguration, "invalid value for auto.offset.reset: %s - must be one of 'earliest' or 'latest'", sAutoOffsetReset)
 		}
 	}
 	return &DefaultMessageProviderFactory{
@@ -123,7 +124,7 @@ func (dmp *DefaultMessageProducer) Stop() error {
 func (dmp *DefaultMessageProducer) Start() error {
 	bs, ok := dmp.dmpf.props["bootstrap.servers"]
 	if !ok {
-		return errors.NewStatementError("cannot start message producer - bootstrap.servers must be specified")
+		return common.NewStatementError("cannot start message producer - bootstrap.servers must be specified")
 	}
 	split := strings.Split(bs, ",")
 	for _, s := range split {
@@ -140,7 +141,7 @@ func (dmp *DefaultMessageProducer) Start() error {
 		case "all":
 			acks = -1
 		default:
-			return errors.NewStatementError("invalid value for acks")
+			return common.NewStatementError("invalid value for acks")
 		}
 	}
 	dmp.acks = acks
@@ -211,14 +212,14 @@ func (dmp *DefaultMessageProducer) createMessages(batch *evbatch.Batch) ([]segme
 func decodeHeaders(kafkaHeaders []byte) ([]segment.Header, error) {
 	numHeaders, off := binary.Varint(kafkaHeaders)
 	if off <= 0 {
-		return nil, errors.Errorf("failed to decode uvarint from kafka headers: %d", off)
+		return nil, errwrap.Errorf("failed to decode uvarint from kafka headers: %d", off)
 	}
 	in := int(numHeaders)
 	headers := make([]segment.Header, in)
 	for i := 0; i < in; i++ {
 		headerNameLen, n := binary.Varint(kafkaHeaders[off:])
 		if n <= 0 {
-			return nil, errors.Errorf("failed to decode uvarint from kafka headers: %d", n)
+			return nil, errwrap.Errorf("failed to decode uvarint from kafka headers: %d", n)
 		}
 		off += n
 		hNameOff := off
@@ -226,7 +227,7 @@ func decodeHeaders(kafkaHeaders []byte) ([]segment.Header, error) {
 		off += iHNameLen
 		headerValLen, n := binary.Varint(kafkaHeaders[off:])
 		if n <= 0 {
-			return nil, errors.Errorf("failed to decode uvarint from kafka headers: %d", n)
+			return nil, errwrap.Errorf("failed to decode uvarint from kafka headers: %d", n)
 		}
 		off += n
 		hValOff := off
@@ -262,7 +263,7 @@ func (dmp *DefaultMessageProducer) createConnection() (*segment.Conn, error) {
 		}
 		log.Warnf("failed to connect to kafka server %s - %v", address, err)
 		if dmp.bootstrapPos == startPos {
-			return nil, errors.Errorf("unable to connection to any of the kafka bootstrap servers: %v", dmp.bootstrapServers)
+			return nil, errwrap.Errorf("unable to connection to any of the kafka bootstrap servers: %v", dmp.bootstrapServers)
 		}
 	}
 }
@@ -315,7 +316,7 @@ func (dmp *DefaultMessageProvider) GetMessage(pollTimeout time.Duration) (*Messa
 	case kafka.Error:
 		return nil, e
 	default:
-		return nil, errors.Errorf("unexpected result from poll %+v", e)
+		return nil, errwrap.Errorf("unexpected result from poll %+v", e)
 	}
 }
 
@@ -324,7 +325,7 @@ func (dmp *DefaultMessageProvider) Stop() error {
 	defer dmp.lock.Unlock()
 	err := dmp.consumer.Close()
 	dmp.consumer = nil
-	return errors.WithStack(err)
+	return errwrap.WithStack(err)
 }
 
 func (dmp *DefaultMessageProvider) Start() error {
@@ -339,19 +340,19 @@ func (dmp *DefaultMessageProvider) Start() error {
 	}
 	_, ok := dmp.krpf.props["bootstrap.servers"]
 	if !ok {
-		return errors.NewStatementError("cannot start message provider - bootstrap.servers must be specified")
+		return common.NewStatementError("cannot start message provider - bootstrap.servers must be specified")
 	}
 	for k, v := range dmp.krpf.props {
 		if err := cm.SetKey(k, v); err != nil {
-			return errors.WithStack(err)
+			return errwrap.WithStack(err)
 		}
 	}
 	consumer, err := kafka.NewConsumer(cm)
 	if err != nil {
-		return errors.WithStack(err)
+		return errwrap.WithStack(err)
 	}
 	if err := consumer.Assign(dmp.partitions); err != nil {
-		return errors.WithStack(err)
+		return errwrap.WithStack(err)
 	}
 	dmp.consumer = consumer
 	return nil

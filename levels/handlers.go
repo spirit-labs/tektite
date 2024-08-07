@@ -2,10 +2,10 @@ package levels
 
 import (
 	"encoding/binary"
-	"github.com/spirit-labs/tektite/encoding"
-	"github.com/spirit-labs/tektite/errors"
+	"github.com/spirit-labs/tektite/asl/encoding"
+	"github.com/spirit-labs/tektite/asl/remoting"
+	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/protos/clustermsgs"
-	"github.com/spirit-labs/tektite/remoting"
 )
 
 type getTableIDsInRangeMessageHandler struct {
@@ -239,7 +239,7 @@ func createNotLeaderError(lms *LevelManagerService) error {
 	}
 	buff := make([]byte, 4)
 	binary.LittleEndian.PutUint32(buff, uint32(leaderNode))
-	terr := errors.NewTektiteErrorf(errors.LevelManagerNotLeaderNode, "no level manager on node")
+	terr := common.NewTektiteErrorf(common.LevelManagerNotLeaderNode, "no level manager on node")
 	terr.ExtraData = buff
 	return terr
 }

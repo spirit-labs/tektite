@@ -3,8 +3,8 @@ package opers
 import (
 	"fmt"
 	"github.com/alecthomas/participle/v2/lexer"
+	encoding2 "github.com/spirit-labs/tektite/asl/encoding"
 	"github.com/spirit-labs/tektite/common"
-	"github.com/spirit-labs/tektite/encoding"
 	"github.com/spirit-labs/tektite/evbatch"
 	"github.com/spirit-labs/tektite/iteration"
 	log "github.com/spirit-labs/tektite/logger"
@@ -456,14 +456,14 @@ func (j *JoinOperator) handleIncomingStreamTable(batch *evbatch.Batch, execCtx S
 	eventTimeCol := batch.GetTimestampColumn(ctx.eventTimeColIndex)
 	var outBuilders []evbatch.ColumnBuilder
 	for i := 0; i < rc; i++ {
-		lookupStart := encoding.EncodeEntryPrefix(partitionHash, uint64(j.externalTableID), keyInitialBufferSize)
+		lookupStart := encoding2.EncodeEntryPrefix(partitionHash, uint64(j.externalTableID), keyInitialBufferSize)
 		lookupStart = evbatch.EncodeKeyCols(batch, i, ctx.incomingKeyCols, lookupStart)
 		// If all key values are null then there will just be a 0 null marker for each key col plus the prefix
 		if len(lookupStart) == 24+len(ctx.incomingKeyCols) {
 			// We don't join on null (result of null == null is false, same in SQL)
 			continue
 		}
-		lookupEnd := common.IncrementBytesBigEndian(lookupStart)
+		lookupEnd := common.IncBigEndianBytes(lookupStart)
 		log.Debugf("looking up row in external table start %v end %v version %d", lookupStart, lookupEnd, execCtx.WriteVersion())
 		incomingET := eventTimeCol.Get(i).Val
 		iter, err := execCtx.Processor().NewIterator(lookupStart, lookupEnd, uint64(execCtx.WriteVersion()), false)
@@ -495,7 +495,7 @@ func (j *JoinOperator) handleIncomingStreamStream(batch *evbatch.Batch, execCtx 
 	var outBuilders []evbatch.ColumnBuilder
 	for i := 0; i < rc; i++ {
 		// We store the incoming in the internal table
-		persistKeyBuff := encoding.EncodeEntryPrefix(partitionHash, uint64(ctx.incomingSlabID), keyInitialBufferSize)
+		persistKeyBuff := encoding2.EncodeEntryPrefix(partitionHash, uint64(ctx.incomingSlabID), keyInitialBufferSize)
 		persistKeyBuff = evbatch.EncodeKeyCols(batch, i, ctx.incomingKeyCols, persistKeyBuff)
 
 		// If all key values are null then there will just be a 0 null marker for each key col plus the prefix plus the
@@ -510,10 +510,10 @@ func (j *JoinOperator) handleIncomingStreamStream(batch *evbatch.Batch, execCtx 
 		// stored events would overwrite earlier ones. We therefore add an incrementing sequence on the key to make the
 		// stored keys unique.
 		procID := execCtx.Processor().ID()
-		persistKeyBuff = encoding.AppendUint64ToBufferBE(persistKeyBuff, j.keySequences[procID])
+		persistKeyBuff = encoding2.AppendUint64ToBufferBE(persistKeyBuff, j.keySequences[procID])
 		j.keySequences[procID]++ // Safe to increment with no lock, as processor always on same GR
 
-		persistKeyBuff = encoding.EncodeVersion(persistKeyBuff, uint64(execCtx.WriteVersion()))
+		persistKeyBuff = encoding2.EncodeVersion(persistKeyBuff, uint64(execCtx.WriteVersion()))
 
 		persistRowBuff := evbatch.EncodeRowCols(batch, i, ctx.incomingRowCols, make([]byte, 0, rowInitialBufferSize))
 
@@ -534,7 +534,7 @@ func (j *JoinOperator) handleIncomingStreamStream(batch *evbatch.Batch, execCtx 
 
 		// We lookup from (et - within) to (et + within)
 
-		lookupStart := encoding.EncodeEntryPrefix(partitionHash, uint64(ctx.lookupSlabID), lpkb)
+		lookupStart := encoding2.EncodeEntryPrefix(partitionHash, uint64(ctx.lookupSlabID), lpkb)
 		lookupStart = append(lookupStart, persistKeyBuff[24:lpkb-24]...) // append the key without the prefix and event_time, sequence and version
 		incomingET := eventTimeCol.Get(i).Val
 
@@ -548,11 +548,11 @@ func (j *JoinOperator) handleIncomingStreamStream(batch *evbatch.Batch, execCtx 
 			log.Debugf("looking up from et %s to et %s (excl)", tFrom.Format(time.RFC3339), tTo.Format(time.RFC3339))
 		}
 		// The event time part of the key is always the last element on the key
-		lookupStart = encoding.KeyEncodeInt(lookupStart, etBoundFrom) // note iterator upper bound is exclusive
+		lookupStart = encoding2.KeyEncodeInt(lookupStart, etBoundFrom) // note iterator upper bound is exclusive
 
 		lookupEnd := make([]byte, lpkb-24, lpkb-16)
 		copy(lookupEnd, lookupStart)
-		lookupEnd = encoding.KeyEncodeInt(lookupEnd, etBoundTo)
+		lookupEnd = encoding2.KeyEncodeInt(lookupEnd, etBoundTo)
 
 		log.Debugf("lookup start %v end %v maxVersion %d", lookupStart, lookupEnd, execCtx.WriteVersion())
 		iter, err := execCtx.Processor().NewIterator(lookupStart, lookupEnd, uint64(execCtx.WriteVersion()), false)
@@ -600,7 +600,7 @@ func (j *JoinOperator) appendRows(iter iteration.Iterator, batch *evbatch.Batch,
 			// stream-stream join - lookup includes event_time on the key
 			// The event_time is always the last entry on the key, so we can extract it directly
 			lk := len(curr.Key)
-			etLookup, _ = encoding.KeyDecodeInt(curr.Key, lk-24) // after the event_time is sequence then version
+			etLookup, _ = encoding2.KeyDecodeInt(curr.Key, lk-24) // after the event_time is sequence then version
 		}
 
 		if ctx.incomingLeft {

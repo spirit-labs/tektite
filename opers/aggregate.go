@@ -4,9 +4,9 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	encoding2 "github.com/spirit-labs/tektite/asl/encoding"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/debug"
-	"github.com/spirit-labs/tektite/encoding"
 	"github.com/spirit-labs/tektite/evbatch"
 	"github.com/spirit-labs/tektite/expr"
 	log "github.com/spirit-labs/tektite/logger"
@@ -352,9 +352,9 @@ func (a *AggregateOperator) augmentWithWindows(batch *evbatch.Batch, execCtx Str
 				// store the open window - we need to do this, so if we crash and restart, we don't end up with open windows
 				// never being closed
 				partitionHash := a.hashCache.getHash(partitionID)
-				key := encoding.EncodeEntryPrefix(partitionHash, a.openWindowsSlabID, 40)
-				key = encoding.KeyEncodeTimestamp(key, types.NewTimestamp(int64(ws)))
-				key = encoding.EncodeVersion(key, uint64(execCtx.WriteVersion()))
+				key := encoding2.EncodeEntryPrefix(partitionHash, a.openWindowsSlabID, 40)
+				key = encoding2.KeyEncodeTimestamp(key, types.NewTimestamp(int64(ws)))
+				key = encoding2.EncodeVersion(key, uint64(execCtx.WriteVersion()))
 				val := make([]byte, 8)
 				binary.LittleEndian.PutUint64(val, uint64(we))
 				execCtx.StoreEntry(common.KV{Key: key, Value: val}, false)
@@ -455,8 +455,8 @@ func addWindow(toAdd windowEntry, windows []windowEntry) []windowEntry {
 
 func (a *AggregateOperator) loadOpenWindows(partitionID int, processor proc.Processor) ([]windowEntry, error) {
 	partitionHash := a.hashCache.getHash(partitionID)
-	key := encoding.EncodeEntryPrefix(partitionHash, a.openWindowsSlabID, 24)
-	iter, err := processor.NewIterator(key, common.IncrementBytesBigEndian(key), math.MaxUint64, false)
+	key := encoding2.EncodeEntryPrefix(partitionHash, a.openWindowsSlabID, 24)
+	iter, err := processor.NewIterator(key, common.IncBigEndianBytes(key), math.MaxUint64, false)
 	if err != nil {
 		return nil, err
 	}
@@ -470,8 +470,8 @@ func (a *AggregateOperator) loadOpenWindows(partitionID int, processor proc.Proc
 		if !valid {
 			break
 		}
-		ws, _ := encoding.KeyDecodeTimestamp(curr.Key, 24)
-		we, _ := encoding.ReadUint64FromBufferLE(curr.Value, 0)
+		ws, _ := encoding2.KeyDecodeTimestamp(curr.Key, 24)
+		we, _ := encoding2.ReadUint64FromBufferLE(curr.Value, 0)
 		entry := windowEntry{
 			ws: ws.Val,
 			we: int64(we),
@@ -553,10 +553,10 @@ func (a *AggregateOperator) closeWindow(entry windowEntry, partitionID int, exec
 	// Note that `ws` must be the first column for us to be able to load the window efficiently
 
 	partitionHash := a.hashCache.getHash(partitionID)
-	keyStart := encoding.EncodeEntryPrefix(partitionHash, a.aggStateSlabID, 33)
+	keyStart := encoding2.EncodeEntryPrefix(partitionHash, a.aggStateSlabID, 33)
 	keyStart = append(keyStart, 1) // not null
-	keyStart = encoding.KeyEncodeTimestamp(keyStart, types.NewTimestamp(entry.ws))
-	keyEnd := common.IncrementBytesBigEndian(keyStart)
+	keyStart = encoding2.KeyEncodeTimestamp(keyStart, types.NewTimestamp(entry.ws))
+	keyEnd := common.IncBigEndianBytes(keyStart)
 	iter, err := execCtx.Processor().NewIterator(keyStart, keyEnd, math.MaxUint64, false)
 	if err != nil {
 		return false, err
@@ -764,7 +764,7 @@ func (a *AggregateOperator) computeAggs(grouped map[string][]any, execCtx Stream
 	for key, groupedArr := range grouped {
 		rowBytes := make([]byte, 0, 64)
 		partitionHash := a.hashCache.getHash(execCtx.PartitionID())
-		storeKey := encoding.EncodeEntryPrefix(partitionHash, a.aggStateSlabID, 24+len(key))
+		storeKey := encoding2.EncodeEntryPrefix(partitionHash, a.aggStateSlabID, 24+len(key))
 		storeKey = append(storeKey, common.StringToByteSliceZeroCopy(key)...)
 		state, err := a.maybeLoadState(storeKey, execCtx)
 		if err != nil {
@@ -847,11 +847,11 @@ func (a *AggregateOperator) computeAggs(grouped map[string][]any, execCtx Stream
 		if a.hasExtraStateAggs {
 			for _, index := range a.extraStateAggs {
 				extra := state.extraData[index]
-				rowBytes = encoding.AppendUint32ToBufferLE(rowBytes, uint32(len(extra)))
+				rowBytes = encoding2.AppendUint32ToBufferLE(rowBytes, uint32(len(extra)))
 				rowBytes = append(rowBytes, extra...)
 			}
 		}
-		storeKey = encoding.EncodeVersion(storeKey, uint64(execCtx.WriteVersion()))
+		storeKey = encoding2.EncodeVersion(storeKey, uint64(execCtx.WriteVersion()))
 		kv := common.KV{
 			Key:   storeKey,
 			Value: rowBytes,
@@ -871,19 +871,19 @@ func encodeAggResult(aggColType types.ColumnType, rowBytes []byte, res any) []by
 	rowBytes = append(rowBytes, 1) // Not null
 	switch aggColType.ID() {
 	case types.ColumnTypeIDInt:
-		rowBytes = encoding.AppendUint64ToBufferLE(rowBytes, uint64(res.(int64)))
+		rowBytes = encoding2.AppendUint64ToBufferLE(rowBytes, uint64(res.(int64)))
 	case types.ColumnTypeIDFloat:
-		rowBytes = encoding.AppendFloat64ToBufferLE(rowBytes, res.(float64))
+		rowBytes = encoding2.AppendFloat64ToBufferLE(rowBytes, res.(float64))
 	case types.ColumnTypeIDBool:
-		rowBytes = encoding.AppendBoolToBuffer(rowBytes, res.(bool))
+		rowBytes = encoding2.AppendBoolToBuffer(rowBytes, res.(bool))
 	case types.ColumnTypeIDDecimal:
-		rowBytes = encoding.AppendDecimalToBuffer(rowBytes, res.(types.Decimal))
+		rowBytes = encoding2.AppendDecimalToBuffer(rowBytes, res.(types.Decimal))
 	case types.ColumnTypeIDString:
-		rowBytes = encoding.AppendStringToBufferLE(rowBytes, res.(string))
+		rowBytes = encoding2.AppendStringToBufferLE(rowBytes, res.(string))
 	case types.ColumnTypeIDBytes:
-		rowBytes = encoding.AppendBytesToBufferLE(rowBytes, res.([]byte))
+		rowBytes = encoding2.AppendBytesToBufferLE(rowBytes, res.([]byte))
 	case types.ColumnTypeIDTimestamp:
-		rowBytes = encoding.AppendUint64ToBufferLE(rowBytes, uint64(res.(types.Timestamp).Val))
+		rowBytes = encoding2.AppendUint64ToBufferLE(rowBytes, uint64(res.(types.Timestamp).Val))
 	default:
 		panic("unknown type")
 	}
@@ -907,15 +907,15 @@ func (a *AggregateOperator) maybeLoadState(key []byte, execCtx StreamExecContext
 	if v == nil {
 		return nil, nil
 	}
-	data, offset := encoding.DecodeRowToSlice(v, 0, a.aggColTypes)
+	data, offset := encoding2.DecodeRowToSlice(v, 0, a.aggColTypes)
 	var extraData [][]byte
 	if a.hasExtraStateAggs {
 		extraData = make([][]byte, len(a.aggFuncHolders))
 		for _, index := range a.extraStateAggs {
 			var el uint32
-			el, offset = encoding.ReadUint32FromBufferLE(v, offset)
+			el, offset = encoding2.ReadUint32FromBufferLE(v, offset)
 			extra := v[offset : offset+int(el)]
-			extraData[index] = common.CopyByteSlice(extra)
+			extraData[index] = common.ByteSliceCopy(extra)
 			offset += int(el)
 		}
 	}
@@ -955,20 +955,20 @@ func (a *AggregateOperator) ReceiveBatch(batch *evbatch.Batch, execCtx StreamExe
 	partitionHash := a.hashCache.getHash(execCtx.PartitionID())
 	if a.storeResults {
 		// store the batch
-		prefix := encoding.EncodeEntryPrefix(partitionHash, a.resultsSlabID, 64)
+		prefix := encoding2.EncodeEntryPrefix(partitionHash, a.resultsSlabID, 64)
 		storeBatchInTable(batch, a.outKeyColIndexes, a.outAggColIndexes, prefix, execCtx, -1)
 	}
 	keyPrefix := execCtx.EventBatchBytes()
-	ws, _ := encoding.KeyDecodeInt(keyPrefix, 25)
+	ws, _ := encoding2.KeyDecodeInt(keyPrefix, 25)
 	// delete the open window from storage
-	key := encoding.EncodeEntryPrefix(partitionHash, a.openWindowsSlabID, 40)
-	key = encoding.KeyEncodeTimestamp(key, types.NewTimestamp(ws))
-	key = encoding.EncodeVersion(key, uint64(execCtx.WriteVersion()))
+	key := encoding2.EncodeEntryPrefix(partitionHash, a.openWindowsSlabID, 40)
+	key = encoding2.KeyEncodeTimestamp(key, types.NewTimestamp(ws))
+	key = encoding2.EncodeVersion(key, uint64(execCtx.WriteVersion()))
 	execCtx.StoreEntry(common.KV{
 		Key: key,
 	}, false)
 	// create a tombstone and endmarker to delete the data from the window
-	endMarker := append(common.IncrementBytesBigEndian(keyPrefix), 0)
+	endMarker := append(common.IncBigEndianBytes(keyPrefix), 0)
 	execCtx.StoreEntry(common.KV{
 		Key: keyPrefix,
 	}, false)

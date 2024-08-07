@@ -2,11 +2,12 @@ package levels
 
 import (
 	"encoding/binary"
-	"github.com/spirit-labs/tektite/conf"
-	"github.com/spirit-labs/tektite/encoding"
-	"github.com/spirit-labs/tektite/errors"
+	"github.com/spirit-labs/tektite/asl/conf"
+	"github.com/spirit-labs/tektite/asl/encoding"
+	"github.com/spirit-labs/tektite/asl/errwrap"
+	"github.com/spirit-labs/tektite/asl/remoting"
+	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/protos/clustermsgs"
-	"github.com/spirit-labs/tektite/remoting"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -187,9 +188,9 @@ func (c *externalClient) sendRpcWithRetryOnNoLeader(req remoting.ClusterMessage)
 		if err == nil {
 			return resp, nil
 		}
-		var terr errors.TektiteError
-		if errors.As(err, &terr) {
-			if terr.Code == errors.LevelManagerNotLeaderNode {
+		var terr common.TektiteError
+		if errwrap.As(err, &terr) {
+			if terr.Code == common.LevelManagerNotLeaderNode {
 				leaderNode := binary.LittleEndian.Uint32(terr.ExtraData)
 				c.setLeaderNode(int(leaderNode))
 				// We will retry on the correct leader

@@ -2,7 +2,7 @@ package common
 
 import (
 	"fmt"
-	"github.com/spirit-labs/tektite/errors"
+	"github.com/spirit-labs/tektite/asl/errwrap"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -43,7 +43,7 @@ func (t *testPorts) listen(address string) (net.Listener, error) {
 	defer t.lock.Unlock()
 	listener, ok := t.listeners[address]
 	if !ok {
-		return nil, errors.Errorf("test ports is enabled and there is no registered listener for address %s", address)
+		return nil, errwrap.Errorf("test ports is enabled and there is no registered listener for address %s", address)
 	}
 	return listener, nil
 }

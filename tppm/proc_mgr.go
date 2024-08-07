@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"github.com/emirpasic/gods/maps/treemap"
 	"github.com/spirit-labs/tektite/common"
-	"github.com/spirit-labs/tektite/errors"
 	"github.com/spirit-labs/tektite/iteration"
 	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/mem"
@@ -325,7 +324,7 @@ func (t *TestProcessor) IngestBatch(processBatch *proc.ProcessBatch, cf func(err
 		t.lock.Unlock()
 	}()
 	if t.closed {
-		cf(errors.NewTektiteErrorf(errors.Unavailable, "processor is closed"))
+		cf(common.NewTektiteErrorf(common.Unavailable, "processor is closed"))
 		return
 	}
 	t.ingestCh <- ingestBatchHolder{

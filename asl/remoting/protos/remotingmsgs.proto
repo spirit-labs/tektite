@@ -1,0 +1,7 @@
+syntax = "proto3";
+
+option go_package = "remotingmsgs/";
+
+message RemotingTestMessage {
+  string some_field = 1;
+}

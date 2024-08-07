@@ -2,11 +2,11 @@ package repli
 
 import (
 	"fmt"
+	"github.com/spirit-labs/tektite/asl/errwrap"
+	"github.com/spirit-labs/tektite/asl/remoting"
 	"github.com/spirit-labs/tektite/common"
-	"github.com/spirit-labs/tektite/errors"
 	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/protos/clustermsgs"
-	"github.com/spirit-labs/tektite/remoting"
 	"math"
 	"sync"
 	"time"
@@ -193,7 +193,7 @@ func (r *replicator) reprocessQueue(lastProcessedSequence int) error {
 func (r *replicator) findAndSetMinLastCommittedSequence() error {
 	groupState, ok := r.manager.GetGroupState(r.id)
 	if !ok {
-		return errors.New("no processor in map")
+		return errwrap.New("no processor in map")
 	}
 
 	type validReplica struct {
@@ -206,7 +206,7 @@ func (r *replicator) findAndSetMinLastCommittedSequence() error {
 		if gn.Valid && !gn.Leader {
 			if gn.NodeID == r.cfg.NodeID {
 				// Another node has become leader before this one has finished initialising as leader
-				return errors.Errorf("failed to promote replica as leader ont node %d - it is not leader any more", r.cfg.NodeID)
+				return errwrap.Errorf("failed to promote replica as leader ont node %d - it is not leader any more", r.cfg.NodeID)
 			}
 			replicas = append(replicas, validReplica{
 				nid:           gn.NodeID,

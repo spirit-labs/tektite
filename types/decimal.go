@@ -3,7 +3,7 @@ package types
 import (
 	"fmt"
 	"github.com/apache/arrow/go/v11/arrow/decimal128"
-	"github.com/spirit-labs/tektite/errors"
+	"github.com/spirit-labs/tektite/asl/errwrap"
 	"math/big"
 )
 
@@ -262,7 +262,7 @@ func (d *Decimal) String() string {
 
 func checkResultFits(n decimal128.Num, prec int) error {
 	if !n.FitsInPrecision(int32(prec)) {
-		return errors.New(fmt.Sprintf("result of decimal arithmetic does not fit in precision %d", prec))
+		return errwrap.New(fmt.Sprintf("result of decimal arithmetic does not fit in precision %d", prec))
 	}
 	return nil
 }

@@ -2,15 +2,15 @@ package admin
 
 import (
 	"fmt"
+	"github.com/spirit-labs/tektite/asl/conf"
+	"github.com/spirit-labs/tektite/asl/remoting"
 	"github.com/spirit-labs/tektite/clustmgr"
 	"github.com/spirit-labs/tektite/common"
-	"github.com/spirit-labs/tektite/conf"
 	"github.com/spirit-labs/tektite/levels"
 	"github.com/spirit-labs/tektite/mem"
 	"github.com/spirit-labs/tektite/opers"
 	"github.com/spirit-labs/tektite/parser"
 	"github.com/spirit-labs/tektite/proc"
-	"github.com/spirit-labs/tektite/remoting"
 	"github.com/spirit-labs/tektite/vmgr"
 	"github.com/stretchr/testify/require"
 	"io"

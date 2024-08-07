@@ -2,7 +2,7 @@ package opers
 
 import (
 	"github.com/apache/arrow/go/v11/arrow/decimal128"
-	"github.com/spirit-labs/tektite/conf"
+	"github.com/spirit-labs/tektite/asl/conf"
 	"github.com/spirit-labs/tektite/evbatch"
 	"github.com/spirit-labs/tektite/iteration"
 	"github.com/spirit-labs/tektite/parser"

@@ -3,7 +3,7 @@ package kafkaserver
 import (
 	"fmt"
 	"github.com/google/uuid"
-	"github.com/spirit-labs/tektite/conf"
+	"github.com/spirit-labs/tektite/asl/conf"
 	"github.com/spirit-labs/tektite/opers"
 	"github.com/spirit-labs/tektite/types"
 	"github.com/stretchr/testify/require"

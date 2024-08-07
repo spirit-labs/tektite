@@ -1,13 +1,14 @@
 package opers
 
 import (
+	"github.com/spirit-labs/tektite/asl/arista"
+	"github.com/spirit-labs/tektite/asl/errwrap"
 	log "github.com/spirit-labs/tektite/logger"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/spirit-labs/tektite/common"
-	"github.com/spirit-labs/tektite/errors"
 	"github.com/spirit-labs/tektite/kafka"
 )
 
@@ -37,7 +38,7 @@ func NewMessageConsumer(receiver BatchReceiver, msgProvider kafka.MessageProvide
 	}
 	mc.stopWg.Add(1)
 	if err := msgProvider.Start(); err != nil {
-		return nil, errors.WithStack(err)
+		return nil, errwrap.WithStack(err)
 	}
 	mc.start()
 	return mc, nil
@@ -57,7 +58,7 @@ func (m *MessageConsumer) Stop(fromLoop bool) error {
 }
 
 func (m *MessageConsumer) pollLoop() {
-	defer common.PanicHandler()
+	defer common.TektitePanicHandler()
 	defer func() {
 		m.running.Store(false)
 		m.stopWg.Done()
@@ -80,7 +81,7 @@ func (m *MessageConsumer) pollLoop() {
 }
 
 func (m *MessageConsumer) getBatch(pollTimeout time.Duration) ([]*kafka.Message, error) {
-	start := common.NanoTime()
+	start := arista.NanoTime()
 	remaining := int64(pollTimeout)
 
 	m.msgBatch = m.msgBatch[:0]
@@ -91,13 +92,13 @@ func (m *MessageConsumer) getBatch(pollTimeout time.Duration) ([]*kafka.Message,
 	for len(m.msgBatch) < m.maxMessages {
 		msg, err := m.msgProvider.GetMessage(time.Duration(remaining))
 		if err != nil {
-			return nil, errors.WithStack(err)
+			return nil, errwrap.WithStack(err)
 		}
 		if msg == nil {
 			break
 		}
 		m.msgBatch = append(m.msgBatch, msg)
-		remaining -= int64(common.NanoTime() - start)
+		remaining -= int64(arista.NanoTime() - start)
 		if remaining <= 0 {
 			break
 		}

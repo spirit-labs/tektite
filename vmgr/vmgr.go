@@ -2,14 +2,14 @@ package vmgr
 
 import (
 	"fmt"
+	"github.com/spirit-labs/tektite/asl/conf"
+	"github.com/spirit-labs/tektite/asl/errwrap"
+	"github.com/spirit-labs/tektite/asl/remoting"
 	"github.com/spirit-labs/tektite/clustmgr"
 	"github.com/spirit-labs/tektite/common"
-	"github.com/spirit-labs/tektite/conf"
-	"github.com/spirit-labs/tektite/errors"
 	"github.com/spirit-labs/tektite/levels"
 	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/protos/clustermsgs"
-	"github.com/spirit-labs/tektite/remoting"
 	"github.com/spirit-labs/tektite/sequence"
 	"math"
 	"reflect"
@@ -197,9 +197,9 @@ func (v *VersionManager) doActivate() error {
 			break
 		}
 		log.Debugf("vmgr got error from level manager: %v", err)
-		var terr errors.TektiteError
-		if errors.As(err, &terr) {
-			if terr.Code == errors.Unavailable || terr.Code == errors.LevelManagerNotLeaderNode {
+		var terr common.TektiteError
+		if errwrap.As(err, &terr) {
+			if terr.Code == common.Unavailable || terr.Code == common.LevelManagerNotLeaderNode {
 				// The level manager is temporarily unavailable - retry after delay
 				time.Sleep(levelManagerRetryDelay)
 				continue
@@ -305,11 +305,11 @@ func (v *VersionManager) Shutdown() (bool, error) {
 			break
 		}
 		if v.isStopped() {
-			return false, errors.New("version manager failed over during shutdown")
+			return false, errwrap.New("version manager failed over during shutdown")
 		}
-		var terr errors.TektiteError
-		if errors.As(err, &terr) {
-			if terr.Code == errors.Unavailable || terr.Code == errors.LevelManagerNotLeaderNode {
+		var terr common.TektiteError
+		if errwrap.As(err, &terr) {
+			if terr.Code == common.Unavailable || terr.Code == common.LevelManagerNotLeaderNode {
 				// The level manager is temporarily unavailable - retry after delay
 				time.Sleep(levelManagerRetryDelay)
 				continue
@@ -594,11 +594,11 @@ func (v *VersionManager) checkActive() error {
 	if v.shutdown {
 		// We don't return an unavailable as that would cause clients to retry - and then that can cause shutdown to
 		// hang, e.g. waiting for stores to close who are trying to flush a version.
-		return errors.NewTektiteErrorf(errors.VersionManagerShutdown,
+		return common.NewTektiteErrorf(common.VersionManagerShutdown,
 			fmt.Sprintf("version manager is shutdown on node %d", v.cfg.NodeID))
 	}
 	if !v.active {
-		return errors.NewTektiteErrorf(errors.Unavailable,
+		return common.NewTektiteErrorf(common.Unavailable,
 			fmt.Sprintf("version manager is not active on node %d", v.cfg.NodeID))
 	}
 	return nil

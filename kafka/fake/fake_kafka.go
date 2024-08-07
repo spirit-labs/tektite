@@ -2,14 +2,12 @@ package fake
 
 import (
 	"encoding/binary"
-
+	"github.com/spirit-labs/tektite/asl/errwrap"
 	"github.com/spirit-labs/tektite/evbatch"
 	"github.com/spirit-labs/tektite/kafka"
 	"sync"
 	"sync/atomic"
 	"time"
-
-	"github.com/spirit-labs/tektite/errors"
 
 	log "github.com/spirit-labs/tektite/logger"
 
@@ -25,7 +23,7 @@ func (f *Kafka) CreateTopic(name string, partitions int) (*Topic, error) {
 	f.topicLock.Lock()
 	defer f.topicLock.Unlock()
 	if _, ok := f.getTopic(name); ok {
-		return nil, errors.Errorf("topic with name %s already exists", name)
+		return nil, errwrap.Errorf("topic with name %s already exists", name)
 	}
 	parts := make([]*Partition, partitions)
 	for i := 0; i < partitions; i++ {
@@ -50,7 +48,7 @@ func (f *Kafka) DeleteTopic(name string) error {
 	defer f.topicLock.Unlock()
 	topic, ok := f.getTopic(name)
 	if !ok {
-		return errors.Errorf("no such topic %s", name)
+		return errwrap.Errorf("no such topic %s", name)
 	}
 	topic.close()
 	f.topics.Delete(name)
@@ -108,7 +106,7 @@ func (p *Partition) push(message *kafka.Message) {
 func (t *Topic) Push(message *kafka.Message) error {
 	part, err := t.calcPartition(message)
 	if err != nil {
-		return errors.WithStack(err)
+		return errwrap.WithStack(err)
 	}
 	t.partitions[part].push(message)
 	return nil
@@ -117,7 +115,7 @@ func (t *Topic) Push(message *kafka.Message) error {
 func (t *Topic) calcPartition(message *kafka.Message) (int, error) {
 	h, err := hash(message.Key)
 	if err != nil {
-		return 0, errors.WithStack(err)
+		return 0, errwrap.WithStack(err)
 	}
 	partID := int(h % uint32(len(t.partitions)))
 	return partID, nil
@@ -216,7 +214,7 @@ type MessageProviderFactory struct {
 func (fmpf *MessageProviderFactory) NewMessageProvider(partitions []int, offsets []int64) (kafka.MessageProvider, error) {
 	topic, ok := fmpf.fk.GetTopic(fmpf.topicName)
 	if !ok {
-		return nil, errors.Errorf("no such topic %s", fmpf.topicName)
+		return nil, errwrap.Errorf("no such topic %s", fmpf.topicName)
 	}
 	return &MessageProvider{
 		topic:        topic,
@@ -252,7 +250,7 @@ func (f *MessageProvider) Start() error {
 	defer f.lock.Unlock()
 	subscriber, err := f.topic.CreateSubscriber(f.partitionIDs, f.offsets)
 	if err != nil {
-		return errors.WithStack(err)
+		return errwrap.WithStack(err)
 	}
 	f.subscriber = subscriber
 	return nil
@@ -284,7 +282,7 @@ type MessageProducer struct {
 func (f *MessageProducer) SendBatch(batch *evbatch.Batch) error {
 	topic, ok := f.fk.GetTopic(f.topicName)
 	if !ok {
-		return errors.Errorf("no such topic %s", f.topicName)
+		return errwrap.Errorf("no such topic %s", f.topicName)
 	}
 	msgs, err := createMessages(batch)
 	if err != nil {
@@ -342,14 +340,14 @@ func createMessages(batch *evbatch.Batch) ([]kafka.Message, error) {
 func decodeHeaders(kafkaHeaders []byte) ([]kafka.MessageHeader, error) {
 	numHeaders, off := binary.Varint(kafkaHeaders)
 	if off <= 0 {
-		return nil, errors.Errorf("failed to decode uvarint from kafka headers: %d", off)
+		return nil, errwrap.Errorf("failed to decode uvarint from kafka headers: %d", off)
 	}
 	in := int(numHeaders)
 	headers := make([]kafka.MessageHeader, in)
 	for i := 0; i < in; i++ {
 		headerNameLen, n := binary.Varint(kafkaHeaders[off:])
 		if n <= 0 {
-			return nil, errors.Errorf("failed to decode uvarint from kafka headers: %d", n)
+			return nil, errwrap.Errorf("failed to decode uvarint from kafka headers: %d", n)
 		}
 		off += n
 		hNameOff := off
@@ -357,7 +355,7 @@ func decodeHeaders(kafkaHeaders []byte) ([]kafka.MessageHeader, error) {
 		off += iHNameLen
 		headerValLen, n := binary.Varint(kafkaHeaders[off:])
 		if n <= 0 {
-			return nil, errors.Errorf("failed to decode uvarint from kafka headers: %d", n)
+			return nil, errwrap.Errorf("failed to decode uvarint from kafka headers: %d", n)
 		}
 		off += n
 		hValOff := off

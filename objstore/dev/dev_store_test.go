@@ -1,8 +1,8 @@
 package dev
 
 import (
+	"github.com/spirit-labs/tektite/asl/errwrap"
 	"github.com/spirit-labs/tektite/common"
-	"github.com/spirit-labs/tektite/errors"
 	"github.com/stretchr/testify/require"
 	"testing"
 )
@@ -85,27 +85,27 @@ func TestDevStoreUnavailable(t *testing.T) {
 
 	_, err = devClient.Get([]byte("key1"))
 	require.Error(t, err)
-	var perr errors.TektiteError
-	if errors.As(err, &perr) {
-		require.Equal(t, errors.Unavailable, perr.Code)
+	var perr common.TektiteError
+	if errwrap.As(err, &perr) {
+		require.Equal(t, common.Unavailable, perr.Code)
 	} else {
 		require.Fail(t, "not a TektiteError")
 	}
 
 	err = devClient.Put([]byte("key1"), []byte("val1"))
 	require.Error(t, err)
-	perr = errors.TektiteError{}
-	if errors.As(err, &perr) {
-		require.Equal(t, errors.Unavailable, perr.Code)
+	perr = common.TektiteError{}
+	if errwrap.As(err, &perr) {
+		require.Equal(t, common.Unavailable, perr.Code)
 	} else {
 		require.Fail(t, "not a TektiteError")
 	}
 
 	err = devClient.Delete([]byte("key1"))
 	require.Error(t, err)
-	perr = errors.TektiteError{}
-	if errors.As(err, &perr) {
-		require.Equal(t, errors.Unavailable, perr.Code)
+	perr = common.TektiteError{}
+	if errwrap.As(err, &perr) {
+		require.Equal(t, common.Unavailable, perr.Code)
 	} else {
 		require.Fail(t, "not a TektiteError")
 	}

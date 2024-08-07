@@ -2,7 +2,6 @@ package expr
 
 import (
 	"github.com/spirit-labs/tektite/common"
-	"github.com/spirit-labs/tektite/errors"
 	"github.com/spirit-labs/tektite/evbatch"
 	"github.com/spirit-labs/tektite/parser"
 	"github.com/spirit-labs/tektite/types"
@@ -131,7 +130,7 @@ func testAddOperatorUnsupportedTypes(t *testing.T, ct types.ColumnType) {
 	left := &ColumnExpr{colIndex: 1, exprType: ct}
 	right := &ColumnExpr{colIndex: 0, exprType: ct}
 	_, err := NewAddOperator(left, right, &parser.BinaryOperatorExprDesc{})
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.Error(t, err)
 }
 
@@ -148,7 +147,7 @@ func testAddOperatorDifferentTypes(t *testing.T, ct1 types.ColumnType, ct2 types
 	left := &ColumnExpr{colIndex: 1, exprType: ct1}
 	right := &ColumnExpr{colIndex: 0, exprType: ct2}
 	_, err := NewAddOperator(left, right, &parser.BinaryOperatorExprDesc{})
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.Error(t, err)
 }
 
@@ -273,7 +272,7 @@ func testSubtractOperatorUnsupportedTypes(t *testing.T, ct types.ColumnType) {
 	left := &ColumnExpr{colIndex: 1, exprType: ct}
 	right := &ColumnExpr{colIndex: 0, exprType: ct}
 	_, err := NewSubtractOperator(left, right, &parser.BinaryOperatorExprDesc{})
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.Error(t, err)
 }
 
@@ -290,7 +289,7 @@ func testSubtractOperatorDifferentTypes(t *testing.T, ct1 types.ColumnType, ct2 
 	left := &ColumnExpr{colIndex: 1, exprType: ct1}
 	right := &ColumnExpr{colIndex: 0, exprType: ct2}
 	_, err := NewSubtractOperator(left, right, &parser.BinaryOperatorExprDesc{})
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.Error(t, err)
 }
 
@@ -413,7 +412,7 @@ func testMultiplyOperatorUnsupportedTypes(t *testing.T, ct types.ColumnType) {
 	left := &ColumnExpr{colIndex: 1, exprType: ct}
 	right := &ColumnExpr{colIndex: 0, exprType: ct}
 	_, err := NewMultiplyOperator(left, right, &parser.BinaryOperatorExprDesc{})
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.Error(t, err)
 }
 
@@ -430,7 +429,7 @@ func testMultiplyOperatorDifferentTypes(t *testing.T, ct1 types.ColumnType, ct2 
 	left := &ColumnExpr{colIndex: 1, exprType: ct1}
 	right := &ColumnExpr{colIndex: 0, exprType: ct2}
 	_, err := NewSubtractOperator(left, right, &parser.BinaryOperatorExprDesc{})
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.Error(t, err)
 }
 
@@ -527,7 +526,7 @@ func testDivideOperatorUnsupportedTypes(t *testing.T, ct types.ColumnType) {
 	left := &ColumnExpr{colIndex: 1, exprType: ct}
 	right := &ColumnExpr{colIndex: 0, exprType: ct}
 	_, err := NewDivideOperator(left, right, &parser.BinaryOperatorExprDesc{})
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.Error(t, err)
 }
 
@@ -540,7 +539,7 @@ func testDivideOperatorDifferentTypes(t *testing.T, ct1 types.ColumnType, ct2 ty
 	left := &ColumnExpr{colIndex: 1, exprType: ct1}
 	right := &ColumnExpr{colIndex: 0, exprType: ct2}
 	_, err := NewSubtractOperator(left, right, &parser.BinaryOperatorExprDesc{})
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.Error(t, err)
 }
 
@@ -600,7 +599,7 @@ func testModulusOperatorUnsupportedTypes(t *testing.T, ct types.ColumnType) {
 	left := &ColumnExpr{colIndex: 1, exprType: ct}
 	right := &ColumnExpr{colIndex: 0, exprType: ct}
 	_, err := NewModulusOperator(left, right, &parser.BinaryOperatorExprDesc{})
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.Error(t, err)
 }
 
@@ -640,7 +639,7 @@ func TestLogicalNotOperatorUnsupportedTypes(t *testing.T) {
 func testLogicalNotOperatorUnsupportedTypes(t *testing.T, ct types.ColumnType) {
 	operand := &ColumnExpr{colIndex: 0, exprType: ct}
 	_, err := NewLogicalNotOperator(operand, &parser.UnaryOperatorExprDesc{})
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.Error(t, err)
 }
 
@@ -823,7 +822,7 @@ func testEqualsOperatorDifferentTypes(t *testing.T, ct1 types.ColumnType, ct2 ty
 	left := &ColumnExpr{colIndex: 1, exprType: ct1}
 	right := &ColumnExpr{colIndex: 0, exprType: ct2}
 	_, err := NewEqualsOperator(left, right, &parser.BinaryOperatorExprDesc{})
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.Error(t, err)
 }
 
@@ -1007,7 +1006,7 @@ func testNotEqualsOperatorDifferentTypes(t *testing.T, ct1 types.ColumnType, ct2
 	left := &ColumnExpr{colIndex: 1, exprType: ct1}
 	right := &ColumnExpr{colIndex: 0, exprType: ct2}
 	_, err := NewEqualsOperator(left, right, &parser.BinaryOperatorExprDesc{})
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.Error(t, err)
 }
 
@@ -1163,7 +1162,7 @@ func testGreaterThanOperatorUnsupportedTypes(t *testing.T, ct types.ColumnType) 
 	left := &ColumnExpr{colIndex: 1, exprType: ct}
 	right := &ColumnExpr{colIndex: 0, exprType: ct}
 	_, err := NewGreaterThanOperator(left, right, &parser.BinaryOperatorExprDesc{})
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.Error(t, err)
 }
 
@@ -1180,7 +1179,7 @@ func testGreaterThanOperatorDifferentTypes(t *testing.T, ct1 types.ColumnType, c
 	left := &ColumnExpr{colIndex: 1, exprType: ct1}
 	right := &ColumnExpr{colIndex: 0, exprType: ct2}
 	_, err := NewGreaterThanOperator(left, right, &parser.BinaryOperatorExprDesc{})
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.Error(t, err)
 }
 
@@ -1336,7 +1335,7 @@ func testGreaterOrEqualsOperatorUnsupportedTypes(t *testing.T, ct types.ColumnTy
 	left := &ColumnExpr{colIndex: 1, exprType: ct}
 	right := &ColumnExpr{colIndex: 0, exprType: ct}
 	_, err := NewGreaterOrEqualsOperator(left, right, &parser.BinaryOperatorExprDesc{})
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.Error(t, err)
 }
 
@@ -1353,7 +1352,7 @@ func testGreaterOrEqualsOperatorDifferentTypes(t *testing.T, ct1 types.ColumnTyp
 	left := &ColumnExpr{colIndex: 1, exprType: ct1}
 	right := &ColumnExpr{colIndex: 0, exprType: ct2}
 	_, err := NewGreaterOrEqualsOperator(left, right, &parser.BinaryOperatorExprDesc{})
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.Error(t, err)
 }
 
@@ -1509,7 +1508,7 @@ func testLessThanOperatorUnsupportedTypes(t *testing.T, ct types.ColumnType) {
 	left := &ColumnExpr{colIndex: 1, exprType: ct}
 	right := &ColumnExpr{colIndex: 0, exprType: ct}
 	_, err := NewLessThanOperator(left, right, &parser.BinaryOperatorExprDesc{})
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.Error(t, err)
 }
 
@@ -1526,7 +1525,7 @@ func testLessThanOperatorDifferentTypes(t *testing.T, ct1 types.ColumnType, ct2 
 	left := &ColumnExpr{colIndex: 1, exprType: ct1}
 	right := &ColumnExpr{colIndex: 0, exprType: ct2}
 	_, err := NewLessThanOperator(left, right, &parser.BinaryOperatorExprDesc{})
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.Error(t, err)
 }
 
@@ -1682,7 +1681,7 @@ func testLessOrEqualsOperatorUnsupportedTypes(t *testing.T, ct types.ColumnType)
 	left := &ColumnExpr{colIndex: 1, exprType: ct}
 	right := &ColumnExpr{colIndex: 0, exprType: ct}
 	_, err := NewLessOrEqualsOperator(left, right, &parser.BinaryOperatorExprDesc{})
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.Error(t, err)
 }
 
@@ -1699,7 +1698,7 @@ func testLessOrEqualsOperatorDifferentTypes(t *testing.T, ct1 types.ColumnType, 
 	left := &ColumnExpr{colIndex: 1, exprType: ct1}
 	right := &ColumnExpr{colIndex: 0, exprType: ct2}
 	_, err := NewLessOrEqualsOperator(left, right, &parser.BinaryOperatorExprDesc{})
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.Error(t, err)
 }
 
@@ -1737,7 +1736,7 @@ func testLogicalAndOperatorUnsupportedTypes(t *testing.T, ct types.ColumnType) {
 	left := &ColumnExpr{colIndex: 1, exprType: ct}
 	right := &ColumnExpr{colIndex: 0, exprType: ct}
 	_, err := NewLogicalAndOperator(left, right, &parser.BinaryOperatorExprDesc{})
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.Error(t, err)
 }
 
@@ -1754,7 +1753,7 @@ func testLogicalAndOperatorUnsupportedTypesDifferentTypes(t *testing.T, ct1 type
 	left := &ColumnExpr{colIndex: 1, exprType: ct1}
 	right := &ColumnExpr{colIndex: 0, exprType: ct2}
 	_, err := NewLogicalAndOperator(left, right, &parser.BinaryOperatorExprDesc{})
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.Error(t, err)
 }
 
@@ -1792,7 +1791,7 @@ func testLogicalOrOperatorUnsupportedTypes(t *testing.T, ct types.ColumnType) {
 	left := &ColumnExpr{colIndex: 1, exprType: ct}
 	right := &ColumnExpr{colIndex: 0, exprType: ct}
 	_, err := NewLogicalOrOperator(left, right, &parser.BinaryOperatorExprDesc{})
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.Error(t, err)
 }
 
@@ -1809,6 +1808,6 @@ func testLogicalOrOperatorUnsupportedTypesDifferentTypes(t *testing.T, ct1 types
 	left := &ColumnExpr{colIndex: 1, exprType: ct1}
 	right := &ColumnExpr{colIndex: 0, exprType: ct2}
 	_, err := NewLogicalOrOperator(left, right, &parser.BinaryOperatorExprDesc{})
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.StatementError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.StatementError))
 	require.Error(t, err)
 }

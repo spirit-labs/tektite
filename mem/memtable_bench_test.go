@@ -2,7 +2,7 @@ package mem
 
 import (
 	"fmt"
-	"github.com/spirit-labs/tektite/arenaskl"
+	"github.com/spirit-labs/tektite/asl/arenaskl"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/stretchr/testify/require"
 	"math/rand"

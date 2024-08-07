@@ -4,7 +4,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"github.com/google/uuid"
-	"github.com/spirit-labs/tektite/arenaskl"
+	arenaskl2 "github.com/spirit-labs/tektite/asl/arenaskl"
 	log "github.com/spirit-labs/tektite/logger"
 	"math"
 	"sync"
@@ -20,8 +20,8 @@ type Memtable struct {
 	Uuid                 string
 	nodeID               int
 	maxSizeBytes         int
-	arena                *arenaskl.Arena
-	sl                   *arenaskl.Skiplist
+	arena                *arenaskl2.Arena
+	sl                   *arenaskl2.Skiplist
 	flushedCallbacksLock sync.Mutex
 	flushedCallbacks     []func(error)
 	hasWrites            atomic.Bool
@@ -31,12 +31,12 @@ type Memtable struct {
 var MemtableSizeOverhead int64
 
 func init() {
-	arena := arenaskl.NewArena(8192)
-	arenaskl.NewSkiplist(arena)
+	arena := arenaskl2.NewArena(8192)
+	arenaskl2.NewSkiplist(arena)
 	MemtableSizeOverhead = int64(arena.Size())
 }
 
-func NewMemtable(arena *arenaskl.Arena, nodeID int, maxSizeBytes int) *Memtable {
+func NewMemtable(arena *arenaskl2.Arena, nodeID int, maxSizeBytes int) *Memtable {
 
 	uu, err := uuid.NewRandom()
 	if err != nil {
@@ -45,7 +45,7 @@ func NewMemtable(arena *arenaskl.Arena, nodeID int, maxSizeBytes int) *Memtable 
 
 	log.Debugf("node %d creating memtable %s", nodeID, uu.String())
 
-	sl := arenaskl.NewSkiplist(arena)
+	sl := arenaskl2.NewSkiplist(arena)
 	mt := &Memtable{
 		Uuid:         uu.String(),
 		nodeID:       nodeID,
@@ -74,7 +74,7 @@ type writeBatch interface {
 
 func (m *Memtable) Write(batch writeBatch) (bool, error) {
 
-	writeIter := arenaskl.Iterator{}
+	writeIter := arenaskl2.Iterator{}
 	writeIter.Init(m.sl)
 
 	// Try and reserve some space - the memtable is arena based so has a hard bound on size and does not expand to
@@ -94,11 +94,11 @@ func (m *Memtable) Write(batch writeBatch) (bool, error) {
 	batch.Range(func(key []byte, value []byte) bool {
 		if err = writeIter.Add(key, value, 0); err != nil {
 			if //goland:noinspection GoDirectComparisonOfErrors
-			err == arenaskl.ErrRecordExists {
+			err == arenaskl2.ErrRecordExists {
 				err = writeIter.Set(value, 0)
 				if err != nil {
 					if //goland:noinspection GoDirectComparisonOfErrors
-					err == arenaskl.ErrRecordUpdated {
+					err == arenaskl2.ErrRecordUpdated {
 						curr := writeIter.Value()
 						// Should never occur as same key should always be written from same processor
 						panic(fmt.Sprintf("concurrent update for key %s curr is %v", key, curr))

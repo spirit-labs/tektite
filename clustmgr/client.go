@@ -3,10 +3,10 @@ package clustmgr
 import (
 	"context"
 	"fmt"
+	"github.com/spirit-labs/tektite/asl/conf"
+	"github.com/spirit-labs/tektite/asl/encoding"
+	"github.com/spirit-labs/tektite/asl/errwrap"
 	"github.com/spirit-labs/tektite/common"
-	"github.com/spirit-labs/tektite/conf"
-	"github.com/spirit-labs/tektite/encoding"
-	"github.com/spirit-labs/tektite/errors"
 	log "github.com/spirit-labs/tektite/logger"
 	clientv3 "go.etcd.io/etcd/client/v3"
 	"go.etcd.io/etcd/client/v3/concurrency"
@@ -372,7 +372,7 @@ func (c *client) handleNodeAdd(key string, revision int64) error {
 	key = strings.TrimPrefix(key, c.nodesKey)
 	nodeID, err := strconv.Atoi(key)
 	if err != nil {
-		return errors.Errorf("invalid key %s", key)
+		return errwrap.Errorf("invalid key %s", key)
 	}
 	c.activeNodes[nodeID] = revision
 	if revision > c.maxNodesRevision {
@@ -386,7 +386,7 @@ func (c *client) handleNodeDelete(key string, revision int64) error {
 	key = strings.TrimPrefix(key, c.nodesKey)
 	nodeID, err := strconv.Atoi(key)
 	if err != nil {
-		return errors.Errorf("invalid key %s", key)
+		return errwrap.Errorf("invalid key %s", key)
 	}
 	delete(c.activeNodes, nodeID)
 	if revision > c.maxNodesRevision {
@@ -588,7 +588,7 @@ func (c *client) GetLock(lockName string, timeout time.Duration) (bool, error) {
 	c.locksLock.Lock()
 	defer c.locksLock.Unlock()
 	if c.isStopped() {
-		return false, errors.New("cluster client is stopped")
+		return false, errwrap.New("cluster client is stopped")
 	}
 	// create a session for distributed locking
 	session, err := concurrency.NewSession(c.cli)
@@ -609,7 +609,7 @@ func (c *client) GetLock(lockName string, timeout time.Duration) (bool, error) {
 
 	// attempt to acquire the lock
 	if err := mutex.TryLock(ctx); err != nil {
-		if errors.Is(err, concurrency.ErrLocked) {
+		if errwrap.Is(err, concurrency.ErrLocked) {
 			return false, nil
 		}
 		return false, convertEtcdError(err)
@@ -652,7 +652,7 @@ func (c *client) ReleaseLock(lockName string) error {
 	c.locksLock.Lock()
 	defer c.locksLock.Unlock()
 	if c.isStopped() {
-		return errors.New("cluster client is stopped")
+		return errwrap.New("cluster client is stopped")
 	}
 	lockKey := c.createLockKey(lockName)
 	ctx, cancel := context.WithTimeout(context.Background(), c.callTimeout)
@@ -738,12 +738,12 @@ func convertEtcdError(err error) error {
 	if err == nil {
 		return nil
 	}
-	if errors.Is(err, context.DeadlineExceeded) {
-		return errors.NewTektiteErrorf(errors.Unavailable, "etcd appears to be unavailable - timed out making call")
+	if errwrap.Is(err, context.DeadlineExceeded) {
+		return common.NewTektiteErrorf(common.Unavailable, "etcd appears to be unavailable - timed out making call")
 	}
 	if e, ok := status.FromError(err); ok {
 		if e.Code() == codes.Unavailable || e.Code() == codes.Canceled || e.Code() == codes.DeadlineExceeded {
-			return errors.NewTektiteErrorf(errors.Unavailable, "etcd unavailable %v", e)
+			return common.NewTektiteErrorf(common.Unavailable, "etcd unavailable %v", e)
 		}
 	}
 	return err

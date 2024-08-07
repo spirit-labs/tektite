@@ -1,8 +1,8 @@
 package opers
 
 import (
+	"github.com/spirit-labs/tektite/asl/conf"
 	"github.com/spirit-labs/tektite/common"
-	"github.com/spirit-labs/tektite/conf"
 	"github.com/spirit-labs/tektite/expr"
 	"github.com/spirit-labs/tektite/kafka"
 	"github.com/spirit-labs/tektite/parser"

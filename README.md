@@ -37,4 +37,5 @@ Please see [the docs](http://www.tektitedb.com) to learn more about Tektite.
 
 ## License and Contributor License Agreement
 
-Tektite is licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) for the full license text. The project also requires a Contributor License Agreement (CLA) to be signed before contributions can be accepted. See [CONTRIBUTING](CONTRIBUTING.MD) for more information.
+Tektite is licensed under the The Business Source License (BSL). See [LICENSE.md](LICENSE.md) for the full license text.
+The project also requires a Contributor License Agreement (CLA) to be signed before contributions can be accepted. See [CONTRIBUTING](CONTRIBUTING.MD) for more information.

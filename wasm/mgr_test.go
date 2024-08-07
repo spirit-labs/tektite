@@ -3,9 +3,8 @@ package wasm
 import (
 	"encoding/json"
 	"github.com/apache/arrow/go/v11/arrow/decimal128"
+	"github.com/spirit-labs/tektite/asl/conf"
 	"github.com/spirit-labs/tektite/common"
-	"github.com/spirit-labs/tektite/conf"
-	"github.com/spirit-labs/tektite/errors"
 	"github.com/spirit-labs/tektite/expr"
 	"github.com/spirit-labs/tektite/lock"
 	"github.com/spirit-labs/tektite/objstore/dev"
@@ -296,11 +295,11 @@ func TestRegisterUnRegisterModules(t *testing.T) {
 
 	res, err = invokerFoo.Invoke([]any{int64(23)})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.WasmError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.WasmError))
 
 	res, err = invokerBar.Invoke([]any{int64(23)})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.WasmError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.WasmError))
 
 	res, err = invokerQuux.Invoke([]any{int64(23)})
 	require.NoError(t, err)
@@ -315,11 +314,11 @@ func TestRegisterUnRegisterModules(t *testing.T) {
 
 	res, err = invokerQuux.Invoke([]any{int64(23)})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.WasmError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.WasmError))
 
 	res, err = invokerKweep.Invoke([]any{int64(23)})
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.WasmError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.WasmError))
 }
 
 func TestCreateInvokerUnknownModule(t *testing.T) {
@@ -336,7 +335,7 @@ func TestCreateInvokerUnknownModule(t *testing.T) {
 
 	_, err := mgr.CreateInvoker("test_mod2.foo")
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.WasmError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.WasmError))
 	require.Equal(t, "module 'test_mod2' is not registered", err.Error())
 }
 
@@ -354,7 +353,7 @@ func TestCreateInvokerUnknownFunction(t *testing.T) {
 
 	_, err := mgr.CreateInvoker("test_mod1.wibble")
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.WasmError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.WasmError))
 	require.Equal(t, "function 'wibble' not exported from module 'test_mod1'", err.Error())
 }
 
@@ -378,7 +377,7 @@ func TestMetaWithUnknownFunction(t *testing.T) {
 	}
 	err = mgr.RegisterModule(meta, modBytes)
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.WasmError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.WasmError))
 	require.Equal(t, "module 'test_mod1' does not contain function 'foo'", err.Error())
 }
 
@@ -397,7 +396,7 @@ func TestMetaWithNoFunctions(t *testing.T) {
 	}
 	err = mgr.RegisterModule(meta, modBytes)
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.WasmError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.WasmError))
 	require.Equal(t, "module 'test_mod1' does not export any functions", err.Error())
 }
 
@@ -421,7 +420,7 @@ func TestMetaWithIncorrectParamTypes(t *testing.T) {
 	}
 	err = mgr.RegisterModule(meta, modBytes)
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.WasmError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.WasmError))
 	require.Equal(t, "function 'funcArgsAllTypes' as defined in the json metadata would require a wasm function with wasm parameter types [i64,f64,i32,i64,i64,i64]. But the actual wasm function has parameter types [i64,f64,i32,i64,i64,i64,i64]", err.Error())
 }
 
@@ -449,7 +448,7 @@ func TestMetaWithIncorrectReturnType(t *testing.T) {
 	}
 	err = mgr.RegisterModule(meta, modBytes)
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.WasmError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.WasmError))
 	require.Equal(t, "function 'funcArgsAllTypes' as defined in the json metadata would require a wasm function with return type i32. But the actual wasm function has return type i64", err.Error())
 }
 

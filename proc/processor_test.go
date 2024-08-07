@@ -5,15 +5,14 @@ import (
 	"encoding/binary"
 	"fmt"
 	"github.com/emirpasic/gods/maps/treemap"
+	"github.com/spirit-labs/tektite/asl/conf"
+	"github.com/spirit-labs/tektite/asl/encoding"
+	"github.com/spirit-labs/tektite/asl/remoting"
 	"github.com/spirit-labs/tektite/clustmgr"
 	"github.com/spirit-labs/tektite/common"
-	"github.com/spirit-labs/tektite/conf"
-	"github.com/spirit-labs/tektite/encoding"
-	"github.com/spirit-labs/tektite/errors"
 	"github.com/spirit-labs/tektite/evbatch"
 	"github.com/spirit-labs/tektite/iteration"
 	"github.com/spirit-labs/tektite/mem"
-	"github.com/spirit-labs/tektite/remoting"
 	"github.com/spirit-labs/tektite/testutils"
 	"github.com/spirit-labs/tektite/vmgr"
 	"github.com/stretchr/testify/require"
@@ -1092,7 +1091,7 @@ type testBatchForwarder struct {
 
 func (t *testBatchForwarder) ForwardBatch(batch *ProcessBatch, _ bool, completionFunc func(error)) {
 	if t.failing.Load() {
-		completionFunc(errors.NewTektiteErrorf(errors.Unavailable, "test inject failure"))
+		completionFunc(common.NewTektiteErrorf(common.Unavailable, "test inject failure"))
 		atomic.AddInt64(&t.failCount, 1)
 		return
 	}

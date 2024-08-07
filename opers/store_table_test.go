@@ -1,7 +1,7 @@
 package opers
 
 import (
-	"github.com/spirit-labs/tektite/encoding"
+	encoding2 "github.com/spirit-labs/tektite/asl/encoding"
 	"github.com/spirit-labs/tektite/evbatch"
 	"github.com/spirit-labs/tektite/parser"
 	"github.com/spirit-labs/tektite/proc"
@@ -113,15 +113,15 @@ func testTableOperator(t *testing.T, to *StoreTableOperator, columnNamesIn []str
 			partitionHash := kv.Key[:16]
 			expectedPartitionHash := proc.CalcPartitionHash(to.OutSchema().MappingID, uint64(partID))
 			require.Equal(t, expectedPartitionHash, partitionHash)
-			slabID, _ := encoding.ReadUint64FromBufferBE(kv.Key, 16)
-			ver, _ := encoding.ReadUint64FromBufferBE(kv.Key, len(kv.Key)-8)
+			slabID, _ := encoding2.ReadUint64FromBufferBE(kv.Key, 16)
+			ver, _ := encoding2.ReadUint64FromBufferBE(kv.Key, len(kv.Key)-8)
 			ver = math.MaxUint64 - ver
 			require.Equal(t, 1001, int(slabID))
 			require.Equal(t, version, int(ver))
 			key := kv.Key[24:]
-			keySlice, _, err := encoding.DecodeKeyToSlice(key, 0, keyTypes)
+			keySlice, _, err := encoding2.DecodeKeyToSlice(key, 0, keyTypes)
 			require.NoError(t, err)
-			rowSlice, _ := encoding.DecodeRowToSlice(kv.Value, 0, rowTypes)
+			rowSlice, _ := encoding2.DecodeRowToSlice(kv.Value, 0, rowTypes)
 			actualOut := make([]any, len(to.OutSchema().EventSchema.ColumnTypes()))
 			for i, keyCol := range to.outKeyCols {
 				actualOut[keyCol] = keySlice[i]

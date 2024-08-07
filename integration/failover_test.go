@@ -5,14 +5,14 @@ package integration
 import (
 	"fmt"
 	kafkago "github.com/confluentinc/confluent-kafka-go/kafka"
+	"github.com/spirit-labs/tektite/asl/conf"
+	"github.com/spirit-labs/tektite/asl/server"
+	"github.com/spirit-labs/tektite/client"
 	"github.com/spirit-labs/tektite/common"
-	"github.com/spirit-labs/tektite/conf"
 	"github.com/spirit-labs/tektite/kafka"
 	"github.com/spirit-labs/tektite/kafka/fake"
 	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/sanity"
-	"github.com/spirit-labs/tektite/server"
-	"github.com/spirit-labs/tektite/tekclient"
 	"github.com/spirit-labs/tektite/testutils"
 	"github.com/stretchr/testify/require"
 	"math/rand"
@@ -150,9 +150,9 @@ func testFailoverWithKafkaIn(t *testing.T, failLevelManager bool) {
 	waitForIncrementingRows(t, "test_stream", numMessages, client, startTime)
 }
 
-func waitForIncrementingRows(t *testing.T, tableName string, numMessages int, client tekclient.Client, startTime time.Time) {
+func waitForIncrementingRows(t *testing.T, tableName string, numMessages int, cl client.Client, startTime time.Time) {
 	waitForRowsWithVerifier(t, fmt.Sprintf("(scan all from %s) -> (sort by key)", tableName),
-		func(qr tekclient.QueryResult) bool {
+		func(qr client.QueryResult) bool {
 			for i := 0; i < qr.RowCount(); i++ {
 				row := qr.Row(i)
 				expectedKey := fmt.Sprintf("key%05d", i)
@@ -174,7 +174,7 @@ func waitForIncrementingRows(t *testing.T, tableName string, numMessages int, cl
 			}
 			log.Debugf("waited and got %d rows", qr.RowCount())
 			return qr.RowCount() == numMessages
-		}, client)
+		}, cl)
 }
 
 func TestFailoverReplicationQueuesWithAggregation(t *testing.T) {
@@ -375,7 +375,7 @@ func sendMessagesForAggregation(numMessages int, topicName string, producer *kaf
 	return msgs, nil
 }
 
-func waitForAggRows(t *testing.T, tableName string, numRows int, client tekclient.Client) {
+func waitForAggRows(t *testing.T, tableName string, numRows int, cl client.Client) {
 	expected := []string{"country:country-00000 avg:6.800000 max:22 min:-8",
 		"country:country-00001 avg:7.800000 max:23 min:-7",
 		"country:country-00002 avg:8.800000 max:24 min:-6",
@@ -398,7 +398,7 @@ func waitForAggRows(t *testing.T, tableName string, numRows int, client tekclien
 		"country:country-00019 avg:6.200000 max:21 min:-9"}
 
 	waitForRowsWithVerifier(t, fmt.Sprintf("(scan all from %s) -> (sort by country)", tableName),
-		func(qr tekclient.QueryResult) bool {
+		func(qr client.QueryResult) bool {
 			for i := 0; i < qr.RowCount(); i++ {
 				row := qr.Row(i)
 				country := row.StringVal(1)
@@ -414,10 +414,10 @@ func waitForAggRows(t *testing.T, tableName string, numRows int, client tekclien
 			}
 			log.Debugf("waited and got %d rows", qr.RowCount())
 			return qr.RowCount() == numRows
-		}, client)
+		}, cl)
 }
 
-func waitForRowsWithVerifier(t *testing.T, query string, verifier func(tekclient.QueryResult) bool, cl tekclient.Client) {
+func waitForRowsWithVerifier(t *testing.T, query string, verifier func(client.QueryResult) bool, cl client.Client) {
 	ok, err := testutils.WaitUntilWithError(func() (bool, error) {
 		log.Debug("************ waiting for rows")
 		qr, err := cl.ExecuteQuery(query)
@@ -455,11 +455,11 @@ func setupServers(t *testing.T, fk *fake.Kafka) ([]*server.Server, func(t *testi
 	})
 }
 
-func createClient(t *testing.T, node int, servers []*server.Server) tekclient.Client {
-	clientTLSConfig := tekclient.TLSConfig{
+func createClient(t *testing.T, node int, servers []*server.Server) client.Client {
+	clientTLSConfig := client.TLSConfig{
 		TrustedCertsPath: serverCertPath,
 	}
-	client, err := tekclient.NewClient(servers[node].GetConfig().HttpApiAddresses[node], clientTLSConfig)
+	client, err := client.NewClient(servers[node].GetConfig().HttpApiAddresses[node], clientTLSConfig)
 	require.NoError(t, err)
 	return client
 }

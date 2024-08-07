@@ -5,10 +5,9 @@ import (
 	"testing"
 )
 
-// This test file doesn't contain any tests, just the test main and tlsKeysInfo
+// This test file doesn't contain any tests, just the test main
 // We put it in another file because it needs to be in the package but not in the other test files which
 // are controlled by build flags
-var tlsKeysInfo *TLSKeysInfo
 
 var etcdAddress string
 

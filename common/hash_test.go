@@ -2,6 +2,7 @@ package common
 
 import (
 	"fmt"
+	"github.com/spirit-labs/tektite/mit"
 	"github.com/stretchr/testify/require"
 	"testing"
 )
@@ -15,7 +16,7 @@ func TestHashSha256(t *testing.T) {
 }
 
 func TestHashMurmur2(t *testing.T) {
-	testHash(t, KafkaCompatibleMurmur2Hash)
+	testHash(t, mit.KafkaCompatibleMurmur2Hash)
 }
 
 func testHash(t *testing.T, hashFunc HashFunc) {
@@ -34,7 +35,7 @@ var hashTestBytes = []byte("uiwiuhqwduqhduwdqwd")
 
 func BenchmarkMurmur(b *testing.B) {
 	for i := 0; i < b.N; i++ {
-		KafkaCompatibleMurmur2Hash(hashTestBytes)
+		mit.KafkaCompatibleMurmur2Hash(hashTestBytes)
 	}
 }
 

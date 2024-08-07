@@ -2,15 +2,15 @@ package proc
 
 import (
 	"encoding/binary"
+	"github.com/spirit-labs/tektite/asl/conf"
+	"github.com/spirit-labs/tektite/asl/encoding"
+	"github.com/spirit-labs/tektite/asl/errwrap"
+	"github.com/spirit-labs/tektite/asl/remoting"
 	"github.com/spirit-labs/tektite/common"
-	"github.com/spirit-labs/tektite/conf"
-	"github.com/spirit-labs/tektite/encoding"
-	"github.com/spirit-labs/tektite/errors"
 	"github.com/spirit-labs/tektite/evbatch"
 	"github.com/spirit-labs/tektite/levels"
 	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/protos/clustermsgs"
-	"github.com/spirit-labs/tektite/remoting"
 	"sync/atomic"
 	"time"
 )
@@ -190,7 +190,7 @@ func (l *LevelManagerLocalClient) sendLevelManagerRequestWithRetry(request remot
 		resp, err := l.sendLevelManagerRequest(request)
 		if err != nil {
 			if l.stopped.Load() {
-				return nil, errors.New("client is stopped")
+				return nil, errwrap.New("client is stopped")
 			}
 			if common.IsUnavailableError(err) {
 				log.Warnf("failed to send levelManager request. Will retry. %v", err)

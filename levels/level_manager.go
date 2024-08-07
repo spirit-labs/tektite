@@ -5,9 +5,10 @@ import (
 	"bytes"
 	"fmt"
 	"github.com/google/uuid"
+	"github.com/spirit-labs/tektite/asl/arista"
+	"github.com/spirit-labs/tektite/asl/conf"
+	"github.com/spirit-labs/tektite/asl/errwrap"
 	"github.com/spirit-labs/tektite/common"
-	"github.com/spirit-labs/tektite/conf"
-	"github.com/spirit-labs/tektite/errors"
 	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/objstore"
 	"github.com/spirit-labs/tektite/sst"
@@ -154,7 +155,7 @@ func (lm *LevelManager) initialiseMasterRecord() (*masterRecord, error) {
 				time.Sleep(objStoreRetryInterval)
 				continue
 			}
-			return nil, errors.Errorf("levelManager failed to get master record from object store %v", err)
+			return nil, errwrap.Errorf("levelManager failed to get master record from object store %v", err)
 		}
 		var mr *masterRecord
 		if buff != nil {
@@ -177,7 +178,7 @@ func (lm *LevelManager) initialiseMasterRecord() (*masterRecord, error) {
 					time.Sleep(objStoreRetryInterval)
 					continue
 				}
-				return nil, errors.Errorf("levelManager failed to get master record from object store %v", err)
+				return nil, errwrap.Errorf("levelManager failed to get master record from object store %v", err)
 			}
 			log.Debug("no master record found in store")
 		}
@@ -271,7 +272,7 @@ func (lm *LevelManager) Activate() error {
 	lm.lock.Lock()
 	defer lm.lock.Unlock()
 	if lm.getState() != stateLoaded {
-		return errors.NewTektiteErrorf(errors.Unavailable, "levelManager not loaded")
+		return common.NewTektiteErrorf(common.Unavailable, "levelManager not loaded")
 	}
 	lm.setState(stateActive)
 	log.Debugf("level manager activated on node %d", lm.conf.NodeID)
@@ -372,7 +373,7 @@ const maxRetries = 100
 
 func (lm *LevelManager) QueryTablesInRange(keyStart []byte, keyEnd []byte) (OverlappingTables, error) {
 	if lm.getState() != stateActive {
-		return nil, errors.NewTektiteErrorf(errors.Unavailable, "levelManager not active")
+		return nil, common.NewTektiteErrorf(common.Unavailable, "levelManager not active")
 	}
 	retryCount := 0
 outer:
@@ -422,19 +423,19 @@ func (lm *LevelManager) RegisterL0Tables(registrationBatch RegistrationBatch, co
 	lm.lock.Lock()
 	defer lm.lock.Unlock()
 	if lm.getState() != stateActive {
-		completionFunc(errors.NewTektiteErrorf(errors.Unavailable, "levelManager not active"))
+		completionFunc(common.NewTektiteErrorf(common.Unavailable, "levelManager not active"))
 		return
 	}
 	if !(len(registrationBatch.DeRegistrations) == 0 && len(registrationBatch.Registrations) == 1) ||
 		registrationBatch.Registrations[0].Level != 0 || registrationBatch.Compaction {
-		completionFunc(errors.Errorf("not an L0 registration %v", registrationBatch))
+		completionFunc(errwrap.Errorf("not an L0 registration %v", registrationBatch))
 		return
 	}
 	// we check cluster version - this protects against network partition where node is lost but is still running, new
 	// node takes over, but old store tries to register tables after new node is active.
 	lowestVersion := lm.clusterVersions[registrationBatch.ClusterName]
 	if registrationBatch.ClusterVersion < lowestVersion {
-		completionFunc(errors.NewTektiteErrorf(errors.Unavailable, "registration batch version is too low"))
+		completionFunc(common.NewTektiteErrorf(common.Unavailable, "registration batch version is too low"))
 		return
 	}
 	lm.clusterVersions[registrationBatch.ClusterName] = registrationBatch.ClusterVersion
@@ -511,11 +512,11 @@ func (lm *LevelManager) checkStateForCommand(reprocess bool) error {
 	if reprocess {
 		// reprocess batches must be received after loaded and before active
 		if lm.getState() != stateLoaded {
-			return errors.NewTektiteErrorf(errors.Unavailable, fmt.Sprintf("invalid state:%d", lm.getState()))
+			return common.NewTektiteErrorf(common.Unavailable, fmt.Sprintf("invalid state:%d", lm.getState()))
 		}
 	} else {
 		if lm.getState() != stateActive {
-			return errors.NewTektiteErrorf(errors.Unavailable, fmt.Sprintf("invalid state:%d", lm.getState()))
+			return common.NewTektiteErrorf(common.Unavailable, fmt.Sprintf("invalid state:%d", lm.getState()))
 		}
 	}
 	return nil
@@ -564,7 +565,7 @@ func (lm *LevelManager) applyCompactionChanges(regBatch RegistrationBatch, repro
 		if reprocess {
 			return nil
 		}
-		return errors.NewTektiteErrorf(errors.CompactionJobNotFound, "job not found %s. possible level manager failover", regBatch.JobID)
+		return common.NewTektiteErrorf(common.CompactionJobNotFound, "job not found %s. possible level manager failover", regBatch.JobID)
 	}
 	if err := lm.doApplyChanges(regBatch); err != nil {
 		return err
@@ -575,7 +576,7 @@ func (lm *LevelManager) applyCompactionChanges(regBatch RegistrationBatch, repro
 		registeredTables[string(registration.TableID)] = struct{}{}
 	}
 	tablesToDelete := make([]deleteTableEntry, 0, len(regBatch.DeRegistrations))
-	now := common.NanoTime()
+	now := arista.NanoTime()
 	// For each deRegistration we add the table id to the tables to delete UNLESS the same table has also been
 	// registered in the batch - this can happen when a table is moved from one level to the next - we do not want to
 	// delete it then.
@@ -657,7 +658,7 @@ func (lm *LevelManager) RegisterDeadVersionRange(versionRange VersionRange, clus
 	if clusterVersion < lowestVersion {
 		// Note we send back RegisterDeadVersionWrongClusterVersion as we do not want the sender to retry - failure
 		// should be cancelled
-		return errors.NewTektiteErrorf(errors.RegisterDeadVersionWrongClusterVersion,
+		return common.NewTektiteErrorf(common.RegisterDeadVersionWrongClusterVersion,
 			"RegisterDeadVersionRange - cluster version is too low %d expected %d", clusterVersion, lowestVersion)
 	}
 
@@ -916,7 +917,7 @@ func (lm *LevelManager) validateNoOverlappingL0Groups() {
 func (lm *LevelManager) applyDeRegistrations(deRegistrations []RegistrationEntry) error { //nolint:gocyclo
 	for _, deRegistration := range deRegistrations {
 		if len(deRegistration.KeyStart) == 0 || len(deRegistration.KeyEnd) <= 8 {
-			return errors.Errorf("deregistration, key start/end does not have a version: %v", deRegistration)
+			return errwrap.Errorf("deregistration, key start/end does not have a version: %v", deRegistration)
 		}
 		entries := lm.getLevelSegmentEntries(deRegistration.Level)
 		segmentEntries := entries.segmentEntries
@@ -928,7 +929,7 @@ func (lm *LevelManager) applyDeRegistrations(deRegistrations []RegistrationEntry
 		found := -1
 		if deRegistration.Level == 0 {
 			if len(segmentEntries) == 0 {
-				return errors.Error("no segment for level 0")
+				return common.Error("no segment for level 0")
 			}
 			segEntry = &segmentEntries[0]
 			found = 0
@@ -1052,7 +1053,7 @@ func (lm *LevelManager) applyRegistrations(registrations []RegistrationEntry) ([
 		log.Debugf("got reg keystart %v keyend %v", registration.KeyStart, registration.KeyEnd)
 
 		if len(registration.KeyStart) == 0 || len(registration.KeyEnd) <= 8 {
-			return nil, errors.Errorf("registration, key start/end does not have a version: %v", registration)
+			return nil, errwrap.Errorf("registration, key start/end does not have a version: %v", registration)
 		}
 
 		log.Debugf("LevelManager registering new table %v (%s) from %s to %s in level %d",
@@ -1094,7 +1095,7 @@ func (lm *LevelManager) applyRegistrations(registrations []RegistrationEntry) ([
 					return nil, err
 				}
 				if segCurr == nil {
-					return nil, errors.Errorf("cannot find l0 segment %s", string(l0SegmentEntry.segmentID))
+					return nil, errwrap.Errorf("cannot find l0 segment %s", string(l0SegmentEntry.segmentID))
 				}
 				if containsTable(segCurr, registration.TableID) {
 					// Already added - this con occur on recovery or if client resubmits request after
@@ -1164,7 +1165,7 @@ func (lm *LevelManager) applyRegistrations(registrations []RegistrationEntry) ([
 					return nil, err
 				}
 				if seg == nil {
-					return nil, errors.Errorf("cannot find segment %s", string(segEntry.segmentID))
+					return nil, errwrap.Errorf("cannot find segment %s", string(segEntry.segmentID))
 				}
 				if containsTable(seg, registration.TableID) {
 					// Already added - this con occur on recovery or if client resubmits request after a previous
@@ -1189,7 +1190,7 @@ func (lm *LevelManager) applyRegistrations(registrations []RegistrationEntry) ([
 						msg := fmt.Sprintf("got overlap with previous table id %s, prev key end %s inserting key start %s inserting key end %s",
 							string(l.SSTableID), string(l.RangeEnd), string(registration.KeyStart),
 							string(registration.KeyEnd))
-						return nil, errors.Error(msg)
+						return nil, common.Error(msg)
 					}
 				}
 
@@ -1406,7 +1407,7 @@ func (lm *LevelManager) maybeDeleteTables() {
 		return
 	}
 	pos := -1
-	now := common.NanoTime()
+	now := arista.NanoTime()
 	for i, entry := range lm.tablesToDelete {
 		age := time.Duration(now - entry.addedTime)
 		if age < lm.conf.SSTableDeleteDelay {
@@ -1569,7 +1570,7 @@ func (lm *LevelManager) GetSlabRetention(slabID int) (time.Duration, error) {
 	lm.lock.Lock()
 	defer lm.lock.Unlock()
 	if lm.getState() != stateActive {
-		return 0, errors.NewTektiteErrorf(errors.Unavailable, "levelManager not active")
+		return 0, common.NewTektiteErrorf(common.Unavailable, "levelManager not active")
 	}
 	ret := time.Duration(lm.masterRecord.slabRetentions[uint64(slabID)])
 	return ret, nil
@@ -1640,7 +1641,7 @@ func (lm *LevelManager) LoadLastFlushedVersion() (int64, error) {
 	lm.lock.Lock()
 	defer lm.lock.Unlock()
 	if lm.getState() != stateActive {
-		return 0, errors.NewTektiteErrorf(errors.Unavailable, "levelManager not active")
+		return 0, common.NewTektiteErrorf(common.Unavailable, "levelManager not active")
 	}
 	log.Debugf("levelManager LoadLastFlushedVersion: %d", lm.masterRecord.lastFlushedVersion)
 	return lm.masterRecord.lastFlushedVersion, nil
