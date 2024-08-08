@@ -5,6 +5,7 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"github.com/spirit-labs/tektite/kafkagen"
 	"os"
 	"os/exec"
 	"strings"
@@ -137,4 +138,9 @@ func Loop() error {
 func Run() error {
 	fmt.Println("Running tektited in a standalone setup...")
 	return g0("run", "cmd/tektited/main.go", "--config", "cfg/standalone.conf")
+}
+
+// GenKafkaProtocol generates the Kafka protocol code from the protocol JSON descriptors
+func GenKafkaProtocol() error {
+	return kafkagen.Generate("kafkagen/spec", "kafkaserver/protocol")
 }
