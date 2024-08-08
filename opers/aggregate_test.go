@@ -2,8 +2,8 @@ package opers
 
 import (
 	"github.com/apache/arrow/go/v11/arrow/decimal128"
+	encoding2 "github.com/spirit-labs/tektite/asl/encoding"
 	"github.com/spirit-labs/tektite/common"
-	"github.com/spirit-labs/tektite/encoding"
 	"github.com/spirit-labs/tektite/evbatch"
 	"github.com/spirit-labs/tektite/expr"
 	"github.com/spirit-labs/tektite/parser"
@@ -1198,18 +1198,18 @@ func verifyOutDataFromEntries(t *testing.T, entries []common.KV, outData [][]any
 	require.Equal(t, len(outData), len(entries))
 	var actualOutData [][]any
 	for _, entry := range entries {
-		outValue, _ := encoding.DecodeRowToSlice(entry.Value, 0, agg.aggColTypes)
+		outValue, _ := encoding2.DecodeRowToSlice(entry.Value, 0, agg.aggColTypes)
 		outKey := make([]any, len(agg.keyColHolders))
 		partHash := entry.Key[:16]
-		tabID, _ := encoding.ReadUint64FromBufferBE(entry.Key, 16)
-		ver, _ := encoding.ReadUint64FromBufferBE(entry.Key, len(entry.Key)-8)
+		tabID, _ := encoding2.ReadUint64FromBufferBE(entry.Key, 16)
+		ver, _ := encoding2.ReadUint64FromBufferBE(entry.Key, len(entry.Key)-8)
 		ver = math.MaxUint64 - ver
 		require.Equal(t, tableID, int(tabID))
 		expectedPartHash := proc.CalcPartitionHash(agg.outSchema.MappingID, uint64(partitionID))
 		require.Equal(t, expectedPartHash, partHash)
 		require.Equal(t, version, int(ver))
 		key := entry.Key[24:]
-		outKey, _, err := encoding.DecodeKeyToSlice(key, 0, agg.keyColTypes)
+		outKey, _, err := encoding2.DecodeKeyToSlice(key, 0, agg.keyColTypes)
 		require.NoError(t, err)
 		actualOut := make([]any, len(agg.aggStateSchema.ColumnTypes()))
 		for i, keyCol := range agg.keyColHolders {

@@ -4,9 +4,10 @@ import (
 	"bytes"
 	"fmt"
 	"github.com/apache/arrow/go/v11/arrow/decimal128"
+	"github.com/spirit-labs/tektite/asl/conf"
+	encoding2 "github.com/spirit-labs/tektite/asl/encoding"
+	"github.com/spirit-labs/tektite/asl/remoting"
 	"github.com/spirit-labs/tektite/common"
-	"github.com/spirit-labs/tektite/conf"
-	"github.com/spirit-labs/tektite/encoding"
 	"github.com/spirit-labs/tektite/evbatch"
 	"github.com/spirit-labs/tektite/expr"
 	"github.com/spirit-labs/tektite/mem"
@@ -14,7 +15,6 @@ import (
 	"github.com/spirit-labs/tektite/parser"
 	"github.com/spirit-labs/tektite/proc"
 	"github.com/spirit-labs/tektite/protos/clustermsgs"
-	"github.com/spirit-labs/tektite/remoting"
 	"github.com/spirit-labs/tektite/testutils"
 	"github.com/spirit-labs/tektite/tppm"
 	"github.com/spirit-labs/tektite/types"
@@ -1300,19 +1300,19 @@ func writeDataToSlabWithVersion(t *testing.T, mappingID string, slabID int, sche
 			ft := schema.ColumnTypes()[keyCol]
 			switch ft.ID() {
 			case types.ColumnTypeIDInt:
-				keyBuff = encoding.KeyEncodeInt(keyBuff, row[keyCol].(int64))
+				keyBuff = encoding2.KeyEncodeInt(keyBuff, row[keyCol].(int64))
 			case types.ColumnTypeIDFloat:
-				keyBuff = encoding.KeyEncodeFloat(keyBuff, row[keyCol].(float64))
+				keyBuff = encoding2.KeyEncodeFloat(keyBuff, row[keyCol].(float64))
 			case types.ColumnTypeIDBool:
-				keyBuff = encoding.AppendBoolToBuffer(keyBuff, row[keyCol].(bool))
+				keyBuff = encoding2.AppendBoolToBuffer(keyBuff, row[keyCol].(bool))
 			case types.ColumnTypeIDDecimal:
-				keyBuff = encoding.KeyEncodeDecimal(keyBuff, row[keyCol].(types.Decimal))
+				keyBuff = encoding2.KeyEncodeDecimal(keyBuff, row[keyCol].(types.Decimal))
 			case types.ColumnTypeIDString:
-				keyBuff = encoding.KeyEncodeString(keyBuff, row[keyCol].(string))
+				keyBuff = encoding2.KeyEncodeString(keyBuff, row[keyCol].(string))
 			case types.ColumnTypeIDBytes:
-				keyBuff = encoding.KeyEncodeBytes(keyBuff, row[keyCol].([]byte))
+				keyBuff = encoding2.KeyEncodeBytes(keyBuff, row[keyCol].([]byte))
 			case types.ColumnTypeIDTimestamp:
-				keyBuff = encoding.KeyEncodeTimestamp(keyBuff, row[keyCol].(types.Timestamp))
+				keyBuff = encoding2.KeyEncodeTimestamp(keyBuff, row[keyCol].(types.Timestamp))
 			default:
 				panic(fmt.Sprintf("unexpected column type %d", ft.ID()))
 			}
@@ -1322,7 +1322,7 @@ func writeDataToSlabWithVersion(t *testing.T, mappingID string, slabID int, sche
 		partID := common.CalcPartition(hash, numPartitions)
 
 		partitionHash := proc.CalcPartitionHash(mappingID, uint64(partID))
-		prefix := encoding.EncodeEntryPrefix(partitionHash, uint64(slabID), 24+len(keyBuff))
+		prefix := encoding2.EncodeEntryPrefix(partitionHash, uint64(slabID), 24+len(keyBuff))
 		keyBuff = append(prefix, keyBuff...)
 
 		var valueBuff []byte
@@ -1339,24 +1339,24 @@ func writeDataToSlabWithVersion(t *testing.T, mappingID string, slabID int, sche
 			}
 			switch ft.ID() {
 			case types.ColumnTypeIDInt:
-				valueBuff = encoding.AppendUint64ToBufferLE(valueBuff, uint64(row[i].(int64)))
+				valueBuff = encoding2.AppendUint64ToBufferLE(valueBuff, uint64(row[i].(int64)))
 			case types.ColumnTypeIDFloat:
-				valueBuff = encoding.AppendFloat64ToBufferLE(valueBuff, row[i].(float64))
+				valueBuff = encoding2.AppendFloat64ToBufferLE(valueBuff, row[i].(float64))
 			case types.ColumnTypeIDBool:
-				valueBuff = encoding.AppendBoolToBuffer(valueBuff, row[i].(bool))
+				valueBuff = encoding2.AppendBoolToBuffer(valueBuff, row[i].(bool))
 			case types.ColumnTypeIDDecimal:
-				valueBuff = encoding.AppendDecimalToBuffer(valueBuff, row[i].(types.Decimal))
+				valueBuff = encoding2.AppendDecimalToBuffer(valueBuff, row[i].(types.Decimal))
 			case types.ColumnTypeIDString:
-				valueBuff = encoding.AppendStringToBufferLE(valueBuff, row[i].(string))
+				valueBuff = encoding2.AppendStringToBufferLE(valueBuff, row[i].(string))
 			case types.ColumnTypeIDBytes:
-				valueBuff = encoding.AppendBytesToBufferLE(valueBuff, row[i].([]byte))
+				valueBuff = encoding2.AppendBytesToBufferLE(valueBuff, row[i].([]byte))
 			case types.ColumnTypeIDTimestamp:
-				valueBuff = encoding.AppendUint64ToBufferLE(valueBuff, uint64(row[i].(types.Timestamp).Val))
+				valueBuff = encoding2.AppendUint64ToBufferLE(valueBuff, uint64(row[i].(types.Timestamp).Val))
 			default:
 				panic(fmt.Sprintf("unexpected column type %d", ft.ID()))
 			}
 		}
-		keyBuff = encoding.EncodeVersion(keyBuff, version)
+		keyBuff = encoding2.EncodeVersion(keyBuff, version)
 		mb.AddEntry(common.KV{
 			Key:   keyBuff,
 			Value: valueBuff,

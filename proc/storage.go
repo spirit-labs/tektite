@@ -6,9 +6,10 @@ import (
 	"encoding/binary"
 	"fmt"
 	"github.com/google/uuid"
-	"github.com/spirit-labs/tektite/arenaskl"
+	"github.com/spirit-labs/tektite/asl/arenaskl"
+	"github.com/spirit-labs/tektite/asl/arista"
+	"github.com/spirit-labs/tektite/asl/errwrap"
 	"github.com/spirit-labs/tektite/common"
-	"github.com/spirit-labs/tektite/errors"
 	"github.com/spirit-labs/tektite/iteration"
 	"github.com/spirit-labs/tektite/levels"
 	log "github.com/spirit-labs/tektite/logger"
@@ -118,7 +119,7 @@ func (ps *ProcessorStore) Write(batch *mem.Batch) error {
 	ps.lock.Lock() // Note, largely uncontended so minimal overhead
 	defer ps.lock.Unlock()
 	if !ps.started {
-		return errors.New("processor store not started")
+		return errwrap.New("processor store not started")
 	}
 	if ps.mt == nil {
 		ps.createNewMemtable()
@@ -142,7 +143,7 @@ func (ps *ProcessorStore) Write(batch *mem.Batch) error {
 		return err
 	}
 	if !ok {
-		return errors.Errorf("batch is too large to be written in memtable")
+		return errwrap.Errorf("batch is too large to be written in memtable")
 	}
 	return nil
 }
@@ -157,7 +158,7 @@ func (ps *ProcessorStore) maybeReplaceMemtable() error {
 		// We already have a periodic-replace queued, don't queue another one
 		return nil
 	}
-	now := common.NanoTime()
+	now := arista.NanoTime()
 	if ps.lastMTReplaceTime == 0 {
 		ps.lastMTReplaceTime = now
 		return nil
@@ -177,7 +178,7 @@ func (ps *ProcessorStore) flush(cb func(error)) error {
 	ps.lock.Lock()
 	defer ps.lock.Unlock()
 	if !ps.started {
-		return errors.New("processor store not started")
+		return errwrap.New("processor store not started")
 	}
 	return ps.replaceMemtable(false, cb)
 }
@@ -207,7 +208,7 @@ func (ps *ProcessorStore) clear() error {
 	ps.lock.Lock()
 	defer ps.lock.Unlock()
 	if !ps.started {
-		return errors.New("processor store not started")
+		return errwrap.New("processor store not started")
 	}
 	// We lock queueLock too to make sure no pushes in progress
 	ps.queueLock.Lock()
@@ -337,9 +338,9 @@ func (ps *ProcessorStore) buildAndPushTable(entry *flushQueueEntry) error {
 				}},
 				DeRegistrations: nil,
 			}); err != nil {
-				var tektiteErr errors.TektiteError
-				if errors.As(err, &tektiteErr) {
-					if tektiteErr.Code == errors.Unavailable || tektiteErr.Code == errors.LevelManagerNotLeaderNode {
+				var tektiteErr common.TektiteError
+				if errwrap.As(err, &tektiteErr) {
+					if tektiteErr.Code == common.Unavailable || tektiteErr.Code == common.LevelManagerNotLeaderNode {
 						if ps.stopping.Load() {
 							// Allow to break out of the loop if stopped or clearing
 							return nil
@@ -379,9 +380,9 @@ func (ps *ProcessorStore) GetWithMaxVersion(key []byte, maxVersion uint64) ([]by
 		}
 	}()
 	if !ps.started {
-		return nil, errors.New("processor store not started")
+		return nil, errwrap.New("processor store not started")
 	}
-	keyEnd := common.IncrementBytesBigEndian(key)
+	keyEnd := common.IncBigEndianBytes(key)
 	log.Debugf("seq:%d node: %d store GetWithMaxVersion key start:%v key end:%v maxVersion:%d", ps.pm.cfg.NodeID,
 		key, keyEnd, maxVersion)
 	if ps.mt != nil {
@@ -538,7 +539,7 @@ func (ps *ProcessorStore) NewIterator(keyStart []byte, keyEnd []byte, highestVer
 		}
 	}()
 	if !ps.started {
-		return nil, errors.New("processor store not started")
+		return nil, errwrap.New("processor store not started")
 	}
 	iters := make([]iteration.Iterator, 0, 4)
 	// First we add the current memtable

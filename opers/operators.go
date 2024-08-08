@@ -2,8 +2,8 @@ package opers
 
 import (
 	"fmt"
+	encoding2 "github.com/spirit-labs/tektite/asl/encoding"
 	"github.com/spirit-labs/tektite/common"
-	"github.com/spirit-labs/tektite/encoding"
 	"github.com/spirit-labs/tektite/evbatch"
 	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/types"
@@ -99,11 +99,11 @@ func createInColIndexMap(schema *evbatch.EventSchema) map[string]int {
 func storeBatchInTable(batch *evbatch.Batch, keyCols []int, rowCols []int,
 	keyPrefix []byte, execCtx StreamExecContext, nodeID int) {
 	for i := 0; i < batch.RowCount; i++ {
-		keyBuff := common.CopyByteSlice(keyPrefix)
+		keyBuff := common.ByteSliceCopy(keyPrefix)
 		keyBuff = evbatch.EncodeKeyCols(batch, i, keyCols, keyBuff)
 		rowBuff := make([]byte, 0, rowInitialBufferSize)
 		rowBuff = evbatch.EncodeRowCols(batch, i, rowCols, rowBuff)
-		keyBuff = encoding.EncodeVersion(keyBuff, uint64(execCtx.WriteVersion()))
+		keyBuff = encoding2.EncodeVersion(keyBuff, uint64(execCtx.WriteVersion()))
 		if execCtx.WriteVersion() < 0 {
 			panic(fmt.Sprintf("invalid write version: %d", execCtx.WriteVersion()))
 		}
@@ -224,37 +224,37 @@ func LoadColsFromKey(colBuilders []evbatch.ColumnBuilder, keyColumnTypes []types
 		switch colType.ID() {
 		case types.ColumnTypeIDInt:
 			var val int64
-			val, off = encoding.KeyDecodeInt(keyBuff, off)
+			val, off = encoding2.KeyDecodeInt(keyBuff, off)
 			colBuilder.(*evbatch.IntColBuilder).Append(val)
 		case types.ColumnTypeIDFloat:
 			var val float64
-			val, off = encoding.KeyDecodeFloat(keyBuff, off)
+			val, off = encoding2.KeyDecodeFloat(keyBuff, off)
 			colBuilder.(*evbatch.FloatColBuilder).Append(val)
 		case types.ColumnTypeIDBool:
 			var val bool
-			val, off = encoding.DecodeBool(keyBuff, off)
+			val, off = encoding2.DecodeBool(keyBuff, off)
 			colBuilder.(*evbatch.BoolColBuilder).Append(val)
 		case types.ColumnTypeIDDecimal:
 			var val types.Decimal
-			val, off = encoding.KeyDecodeDecimal(keyBuff, off)
+			val, off = encoding2.KeyDecodeDecimal(keyBuff, off)
 			colBuilder.(*evbatch.DecimalColBuilder).Append(val)
 		case types.ColumnTypeIDString:
 			var val string
-			val, off, err = encoding.KeyDecodeString(keyBuff, off)
+			val, off, err = encoding2.KeyDecodeString(keyBuff, off)
 			if err != nil {
 				return err
 			}
 			colBuilder.(*evbatch.StringColBuilder).Append(val)
 		case types.ColumnTypeIDBytes:
 			var val []byte
-			val, off, err = encoding.KeyDecodeBytes(keyBuff, off)
+			val, off, err = encoding2.KeyDecodeBytes(keyBuff, off)
 			if err != nil {
 				return err
 			}
 			colBuilder.(*evbatch.BytesColBuilder).Append(val)
 		case types.ColumnTypeIDTimestamp:
 			var val types.Timestamp
-			val, off = encoding.KeyDecodeTimestamp(keyBuff, off)
+			val, off = encoding2.KeyDecodeTimestamp(keyBuff, off)
 			colBuilder.(*evbatch.TimestampColBuilder).Append(val)
 		default:
 			panic("unknown type")
@@ -277,31 +277,31 @@ func LoadColsFromValue(colBuilders []evbatch.ColumnBuilder, rowColumnTypes []typ
 		switch colType.ID() {
 		case types.ColumnTypeIDInt:
 			var val uint64
-			val, off = encoding.ReadUint64FromBufferLE(valueBuff, off)
+			val, off = encoding2.ReadUint64FromBufferLE(valueBuff, off)
 			colBuilder.(*evbatch.IntColBuilder).Append(int64(val))
 		case types.ColumnTypeIDFloat:
 			var val float64
-			val, off = encoding.ReadFloat64FromBufferLE(valueBuff, off)
+			val, off = encoding2.ReadFloat64FromBufferLE(valueBuff, off)
 			colBuilder.(*evbatch.FloatColBuilder).Append(val)
 		case types.ColumnTypeIDBool:
 			var val bool
-			val, off = encoding.ReadBoolFromBuffer(valueBuff, off)
+			val, off = encoding2.ReadBoolFromBuffer(valueBuff, off)
 			colBuilder.(*evbatch.BoolColBuilder).Append(val)
 		case types.ColumnTypeIDDecimal:
 			var val types.Decimal
-			val, off = encoding.ReadDecimalFromBuffer(valueBuff, off)
+			val, off = encoding2.ReadDecimalFromBuffer(valueBuff, off)
 			colBuilder.(*evbatch.DecimalColBuilder).Append(val)
 		case types.ColumnTypeIDString:
 			var val string
-			val, off = encoding.ReadStringFromBufferLE(valueBuff, off)
+			val, off = encoding2.ReadStringFromBufferLE(valueBuff, off)
 			colBuilder.(*evbatch.StringColBuilder).Append(val)
 		case types.ColumnTypeIDBytes:
 			var val []byte
-			val, off = encoding.ReadBytesFromBufferLE(valueBuff, off)
+			val, off = encoding2.ReadBytesFromBufferLE(valueBuff, off)
 			colBuilder.(*evbatch.BytesColBuilder).Append(val)
 		case types.ColumnTypeIDTimestamp:
 			var u uint64
-			u, off = encoding.ReadUint64FromBufferLE(valueBuff, off)
+			u, off = encoding2.ReadUint64FromBufferLE(valueBuff, off)
 			ts := types.NewTimestamp(int64(u))
 			colBuilder.(*evbatch.TimestampColBuilder).Append(ts)
 		default:

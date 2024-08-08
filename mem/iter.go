@@ -2,7 +2,7 @@ package mem
 
 import (
 	"bytes"
-	"github.com/spirit-labs/tektite/arenaskl"
+	"github.com/spirit-labs/tektite/asl/arenaskl"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/iteration"
 )

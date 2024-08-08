@@ -2,7 +2,7 @@ package opers
 
 import (
 	"fmt"
-	"github.com/spirit-labs/tektite/conf"
+	"github.com/spirit-labs/tektite/asl/conf"
 	"github.com/spirit-labs/tektite/iteration"
 	"github.com/spirit-labs/tektite/kafka"
 	"github.com/spirit-labs/tektite/mem"

@@ -3,9 +3,8 @@ package kafkaserver
 import (
 	"encoding/binary"
 	"fmt"
+	encoding2 "github.com/spirit-labs/tektite/asl/encoding"
 	"github.com/spirit-labs/tektite/common"
-	"github.com/spirit-labs/tektite/encoding"
-	"github.com/spirit-labs/tektite/errors"
 	"github.com/spirit-labs/tektite/kafkaencoding"
 	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/proc"
@@ -67,7 +66,7 @@ func (f *fetcher) GetPartitionFetcher(topicInfo *TopicInfo, partitionID int32) (
 				}
 				processor := f.procProvider.GetProcessor(processorID)
 				if processor == nil {
-					return nil, errors.NewTektiteErrorf(errors.Unavailable, "processor not available")
+					return nil, common.NewTektiteErrorf(common.Unavailable, "processor not available")
 				}
 				fetchers[i] = NewPartitionFetcher(processor, i, allocator, topicInfo)
 			}
@@ -351,15 +350,15 @@ type KafkaProtocolError struct {
 }
 
 func (kpe KafkaProtocolError) Error() string {
-	return fmt.Sprintf("KafkaProtocolError ErrorCode:%d %s", kpe.ErrorCode, kpe.Message)
+	return fmt.Sprintf("KafkaProtocolError ErrCode:%d %s", kpe.ErrorCode, kpe.Message)
 }
 
 func (f *PartitionFetcher) fetchFromStore(fetchOffset int64, maxBytes int) ([]byte, error) {
 	slabId := uint64(f.topicInfo.ConsumerInfoProvider.SlabID())
-	iterStart := encoding.EncodeEntryPrefix(f.partitionHash, slabId, 33)
+	iterStart := encoding2.EncodeEntryPrefix(f.partitionHash, slabId, 33)
 	iterStart = append(iterStart, 1) // not null
-	iterStart = encoding.KeyEncodeInt(iterStart, fetchOffset)
-	iterEnd := encoding.EncodeEntryPrefix(f.partitionHash, slabId+1, 24)
+	iterStart = encoding2.KeyEncodeInt(iterStart, fetchOffset)
+	iterEnd := encoding2.EncodeEntryPrefix(f.partitionHash, slabId+1, 24)
 	iter, err := f.processor.NewIterator(iterStart, iterEnd, math.MaxUint64, false)
 	if err != nil {
 		return nil, err
@@ -379,7 +378,7 @@ func (f *PartitionFetcher) fetchFromStore(fetchOffset int64, maxBytes int) ([]by
 			break
 		}
 
-		offset, _ := encoding.KeyDecodeInt(kv.Key, 25)
+		offset, _ := encoding2.KeyDecodeInt(kv.Key, 25)
 		if firstOffset == -1 {
 			firstOffset = offset
 		}
@@ -389,14 +388,14 @@ func (f *PartitionFetcher) fetchFromStore(fetchOffset int64, maxBytes int) ([]by
 
 		var ts types.Timestamp
 		var u uint64
-		u, off = encoding.ReadUint64FromBufferLE(kv.Value, off)
+		u, off = encoding2.ReadUint64FromBufferLE(kv.Value, off)
 		ts = types.NewTimestamp(int64(u))
 
 		isNull := kv.Value[off] == 0
 		off++
 		var key []byte
 		if !isNull {
-			key, off = encoding.ReadBytesFromBufferLE(kv.Value, off)
+			key, off = encoding2.ReadBytesFromBufferLE(kv.Value, off)
 		}
 
 		if first {
@@ -409,14 +408,14 @@ func (f *PartitionFetcher) fetchFromStore(fetchOffset int64, maxBytes int) ([]by
 		off++
 		var hdrs []byte
 		if !isNull {
-			hdrs, off = encoding.ReadBytesFromBufferLE(kv.Value, off)
+			hdrs, off = encoding2.ReadBytesFromBufferLE(kv.Value, off)
 		}
 
 		isNull = kv.Value[off] == 0
 		off++
 		var val []byte
 		if !isNull {
-			val, off = encoding.ReadBytesFromBufferLE(kv.Value, off)
+			val, off = encoding2.ReadBytesFromBufferLE(kv.Value, off)
 		}
 
 		batchBytes, ok = kafkaencoding.AppendToBatch(batchBytes, offset, key, hdrs, val, ts, firstTimestamp, firstOffset, maxBytes, first)

@@ -1,7 +1,7 @@
 package logger
 
 import (
-	"github.com/spirit-labs/tektite/errors"
+	"github.com/spirit-labs/tektite/asl/errwrap"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"strings"
@@ -30,7 +30,7 @@ func (cfg *Config) Configure() error {
 	}
 	format := strings.ToLower(strings.TrimSpace(cfg.Format))
 	if format != "console" && format != "json" {
-		return errors.NewInvalidConfigurationError("log-format must be one of 'console' or 'json'")
+		return errwrap.New("log-format must be one of 'console' or 'json'")
 	}
 	Initialise(level, format)
 	return nil

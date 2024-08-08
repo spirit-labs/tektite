@@ -3,8 +3,8 @@
 package integration
 
 import (
+	"github.com/spirit-labs/tektite/asl/conf"
 	"github.com/spirit-labs/tektite/clustmgr"
-	"github.com/spirit-labs/tektite/conf"
 	"github.com/spirit-labs/tektite/evbatch"
 	"github.com/spirit-labs/tektite/expr"
 	"github.com/spirit-labs/tektite/levels"

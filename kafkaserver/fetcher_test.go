@@ -4,9 +4,9 @@ import (
 	"crypto/rand"
 	"encoding/binary"
 	"fmt"
+	"github.com/spirit-labs/tektite/asl/conf"
+	encoding2 "github.com/spirit-labs/tektite/asl/encoding"
 	"github.com/spirit-labs/tektite/common"
-	"github.com/spirit-labs/tektite/conf"
-	"github.com/spirit-labs/tektite/encoding"
 	"github.com/spirit-labs/tektite/mem"
 	"github.com/spirit-labs/tektite/opers"
 	"github.com/spirit-labs/tektite/proc"
@@ -491,10 +491,10 @@ func insertRowsInStore(t *testing.T, st tppm.Store, mappingID string, slabID int
 	mb := mem.NewBatch()
 	for i := 0; i < numRows; i++ {
 		partitionHash := proc.CalcPartitionHash(mappingID, uint64(partitionID))
-		key := encoding.EncodeEntryPrefix(partitionHash, uint64(slabID), 41)
+		key := encoding2.EncodeEntryPrefix(partitionHash, uint64(slabID), 41)
 		key = append(key, 1) // not null
-		key = encoding.KeyEncodeInt(key, int64(offset))
-		key = encoding.EncodeVersion(key, 0)
+		key = encoding2.KeyEncodeInt(key, int64(offset))
+		key = encoding2.EncodeVersion(key, 0)
 		messageKey := fmt.Sprintf("key-%05d", i)
 		var messageValue string
 		if paddingBytes == 0 {
@@ -508,13 +508,13 @@ func insertRowsInStore(t *testing.T, st tppm.Store, mappingID string, slabID int
 		}
 		var val []byte
 		val = append(val, 1)
-		val = encoding.AppendUint64ToBufferLE(val, uint64(i)) // event_time
+		val = encoding2.AppendUint64ToBufferLE(val, uint64(i)) // event_time
 		val = append(val, 1)
-		val = encoding.AppendBytesToBufferLE(val, []byte(messageKey))
+		val = encoding2.AppendBytesToBufferLE(val, []byte(messageKey))
 		val = append(val, 1)
-		val = encoding.AppendBytesToBufferLE(val, []byte{}) // headers
+		val = encoding2.AppendBytesToBufferLE(val, []byte{}) // headers
 		val = append(val, 1)
-		val = encoding.AppendBytesToBufferLE(val, []byte(messageValue))
+		val = encoding2.AppendBytesToBufferLE(val, []byte(messageValue))
 
 		mb.AddEntry(common.KV{
 			Key:   key,

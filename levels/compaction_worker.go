@@ -4,9 +4,9 @@ import (
 	"bytes"
 	"fmt"
 	"github.com/google/uuid"
+	"github.com/spirit-labs/tektite/asl/conf"
+	"github.com/spirit-labs/tektite/asl/errwrap"
 	"github.com/spirit-labs/tektite/common"
-	"github.com/spirit-labs/tektite/conf"
-	"github.com/spirit-labs/tektite/errors"
 	iteration2 "github.com/spirit-labs/tektite/iteration"
 	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/objstore"
@@ -126,14 +126,14 @@ func (c *compactionWorker) loop() {
 	for c.started.Load() {
 		job, err := c.client.PollForJob()
 		if err != nil {
-			var tErr errors.TektiteError
-			if errors.As(err, &tErr) {
-				if tErr.Code == errors.Unavailable || tErr.Code == errors.LevelManagerNotLeaderNode {
+			var tErr common.TektiteError
+			if errwrap.As(err, &tErr) {
+				if tErr.Code == common.Unavailable || tErr.Code == common.LevelManagerNotLeaderNode {
 					// transient unavailability
 					time.Sleep(workerRetryInterval)
 					continue
 				}
-				if tErr.Code == errors.CompactionPollTimeout {
+				if tErr.Code == common.CompactionPollTimeout {
 					// OK
 					continue
 				}
@@ -156,9 +156,9 @@ func (c *compactionWorker) loop() {
 					break
 				}
 			}
-			var tErr errors.TektiteError
-			if errors.As(err, &tErr) {
-				if tErr.Code == errors.Unavailable || tErr.Code == errors.LevelManagerNotLeaderNode {
+			var tErr common.TektiteError
+			if errwrap.As(err, &tErr) {
+				if tErr.Code == common.Unavailable || tErr.Code == common.LevelManagerNotLeaderNode {
 					// transient unavailability - retry after delay
 					log.Debugf("transient error in compaction. will retry: %v", err)
 					time.Sleep(workerRetryInterval)
@@ -195,7 +195,7 @@ func (c *compactionWorker) processJob(job *CompactionJob) ([]RegistrationEntry, 
 				return nil, nil, err
 			}
 			if ssTable == nil {
-				return nil, nil, errors.Errorf("cannot process compaction job as cannot find sstable: %v (%s)", t.table.SSTableID,
+				return nil, nil, errwrap.Errorf("cannot process compaction job as cannot find sstable: %v (%s)", t.table.SSTableID,
 					string(t.table.SSTableID))
 			}
 			tables[j] = tableToMerge{

@@ -2,8 +2,8 @@ package perf
 
 import (
 	"github.com/confluentinc/confluent-kafka-go/kafka"
-	"github.com/spirit-labs/tektite/common"
-	"github.com/spirit-labs/tektite/errors"
+	"github.com/spirit-labs/tektite/asl/arista"
+	"github.com/spirit-labs/tektite/asl/errwrap"
 	log "github.com/spirit-labs/tektite/logger"
 	"time"
 )
@@ -36,7 +36,7 @@ func (p *Consumer) Run() error {
 	if err := consumer.Subscribe(p.Args.Topic, nil); err != nil {
 		return err
 	}
-	start := common.NanoTime()
+	start := arista.NanoTime()
 	totBytes := 0
 	lastDisplayBytes := 0
 	totMessages := 0
@@ -58,9 +58,9 @@ func (p *Consumer) Run() error {
 		case kafka.OffsetsCommitted:
 			continue
 		default:
-			return errors.Errorf("unexpected result from poll %+v", e)
+			return errwrap.Errorf("unexpected result from poll %+v", e)
 		}
-		now := common.NanoTime()
+		now := arista.NanoTime()
 		if now-lastDisplay >= displayInterval {
 			displayRate(lastDisplayBytes, now-lastDisplay)
 			lastDisplay = now

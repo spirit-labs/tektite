@@ -2,7 +2,6 @@ package dev
 
 import (
 	"github.com/spirit-labs/tektite/common"
-	"github.com/spirit-labs/tektite/errors"
 	log "github.com/spirit-labs/tektite/logger"
 	"sync"
 	"sync/atomic"
@@ -68,7 +67,7 @@ func (f *InMemStore) SetUnavailable(unavailable bool) {
 
 func (f *InMemStore) checkUnavailable() error {
 	if f.unavailable.Load() {
-		return errors.NewTektiteErrorf(errors.Unavailable, "cloud store is unavailable")
+		return common.NewTektiteErrorf(common.Unavailable, "cloud store is unavailable")
 	}
 	return nil
 }

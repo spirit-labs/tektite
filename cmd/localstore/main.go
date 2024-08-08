@@ -19,7 +19,7 @@ func main() {
 }
 
 func run() error {
-	defer common.PanicHandler()
+	defer common.TektitePanicHandler()
 	kong.Parse(&CLI)
 	localStore := dev.NewDevStore(CLI.ListenAddr)
 	if err := localStore.Start(); err != nil {

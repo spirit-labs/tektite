@@ -1,9 +1,9 @@
 package query
 
 import (
-	"github.com/spirit-labs/tektite/conf"
+	"github.com/spirit-labs/tektite/asl/conf"
+	"github.com/spirit-labs/tektite/asl/remoting"
 	"github.com/spirit-labs/tektite/protos/clustermsgs"
-	"github.com/spirit-labs/tektite/remoting"
 )
 
 type DefaultRemoting struct {

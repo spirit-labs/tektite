@@ -1,7 +1,7 @@
 package opers
 
 import (
-	"github.com/spirit-labs/tektite/errors"
+	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/evbatch"
 	"github.com/spirit-labs/tektite/types"
 	"sync"
@@ -124,7 +124,7 @@ func (k *KafkaOutOperator) LatestOffset(partitionID int) (int64, int64, bool, er
 	processorID := k.schema.PartitionProcessorMapping[partitionID]
 	processor := k.procMgr.GetProcessor(processorID)
 	if processor == nil {
-		return 0, 0, false, errors.NewTektiteErrorf(errors.Unavailable, "cannot find processor %d", processorID)
+		return 0, 0, false, common.NewTektiteErrorf(common.Unavailable, "cannot find processor %d", processorID)
 	}
 	offset, err := loadOffset(partitionHash, k.offsetsSlabID, processor)
 	if err != nil {

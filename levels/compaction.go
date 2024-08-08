@@ -6,9 +6,9 @@ import (
 	"encoding/binary"
 	"fmt"
 	"github.com/google/uuid"
+	"github.com/spirit-labs/tektite/asl/arista"
+	"github.com/spirit-labs/tektite/asl/encoding"
 	"github.com/spirit-labs/tektite/common"
-	"github.com/spirit-labs/tektite/encoding"
-	"github.com/spirit-labs/tektite/errors"
 	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/sst"
 	"math"
@@ -103,7 +103,7 @@ outer:
 		var overlapping []*TableEntry
 		if destLevelExists {
 			// note: rangeEnd param to getOverlappingTables is exclusive, so we need to increment
-			rangeEnd := common.IncrementBytesBigEndian(sourceRangeEnd)
+			rangeEnd := common.IncBigEndianBytes(sourceRangeEnd)
 			var err error
 			var ok bool
 			ok, overlapping, err = lm.getOverlappingTables(sourceRangeStart, rangeEnd, level+1, segmentEntries)
@@ -208,7 +208,7 @@ outer:
 			tables:             tablesToCompact,
 			isMove:             move,
 			preserveTombstones: preserveTombstones,
-			scheduleTime:       common.NanoTime(),
+			scheduleTime:       arista.NanoTime(),
 			serverTime:         uint64(time.Now().UTC().UnixMilli()),
 			lastFlushedVersion: lm.masterRecord.lastFlushedVersion,
 			sourceRange:        sourceRange,
@@ -553,7 +553,7 @@ func (lm *LevelManager) compactionComplete(jobID string) error {
 	lm.unlockTablesForJob(job)
 	lm.stats.InProgressJobs--
 	lm.stats.CompletedJobs++
-	dur := time.Duration(common.NanoTime() - job.scheduleTime)
+	dur := time.Duration(arista.NanoTime() - job.scheduleTime)
 	log.Debugf("compaction complete job %s - time from schedule %d ms", job.id, dur.Milliseconds())
 	cf := compactionJob.jobHolder.completionFunc
 	if cf != nil {
@@ -588,7 +588,7 @@ func (lm *LevelManager) pollForJob(connectionID int, completionFunc func(job *Co
 		return
 	}
 	poller := &poller{
-		addedTime:      common.NanoTime(),
+		addedTime:      arista.NanoTime(),
 		completionFunc: completionFunc,
 		connectionID:   connectionID,
 	}
@@ -607,7 +607,7 @@ func (lm *LevelManager) schedulePollerTimeout(poller *poller) {
 				return
 			}
 			lm.pollers.remove(poller)
-			poller.completionFunc(nil, errors.NewTektiteErrorf(errors.CompactionPollTimeout, "no job available"))
+			poller.completionFunc(nil, common.NewTektiteErrorf(common.CompactionPollTimeout, "no job available"))
 		})
 	})
 	poller.timer = timer

@@ -6,9 +6,9 @@ import (
 	crand "crypto/rand"
 	"fmt"
 	kafkago "github.com/confluentinc/confluent-kafka-go/kafka"
+	"github.com/spirit-labs/tektite/asl/conf"
+	"github.com/spirit-labs/tektite/client"
 	"github.com/spirit-labs/tektite/common"
-	"github.com/spirit-labs/tektite/conf"
-	"github.com/spirit-labs/tektite/tekclient"
 	"github.com/spirit-labs/tektite/testutils"
 	"github.com/stretchr/testify/require"
 	"math/rand"
@@ -22,7 +22,7 @@ func init() {
 
 func TestCompaction(t *testing.T) {
 
-	clientTLSConfig := tekclient.TLSConfig{
+	clientTLSConfig := client.TLSConfig{
 		TrustedCertsPath: serverCertPath,
 	}
 	servers, tearDown := startClusterWithConfigSetter(t, 3, nil, func(cfg *conf.Config) {
@@ -44,7 +44,7 @@ func TestCompaction(t *testing.T) {
 		cfg.SSTableRegisterRetryDelay = 500 * time.Millisecond
 	})
 	defer tearDown(t)
-	client, err := tekclient.NewClient(servers[0].GetConfig().HttpApiAddresses[0], clientTLSConfig)
+	client, err := client.NewClient(servers[0].GetConfig().HttpApiAddresses[0], clientTLSConfig)
 	require.NoError(t, err)
 	defer client.Close()
 

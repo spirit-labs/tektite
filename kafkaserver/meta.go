@@ -1,9 +1,9 @@
 package kafkaserver
 
 import (
+	"github.com/spirit-labs/tektite/asl/conf"
 	"github.com/spirit-labs/tektite/clustmgr"
-	"github.com/spirit-labs/tektite/conf"
-	"github.com/spirit-labs/tektite/errors"
+	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/opers"
 	"github.com/spirit-labs/tektite/proc"
 	"net"
@@ -34,7 +34,7 @@ func NewMetaDataProvider(cfg *conf.Config, procMgr proc.Manager, streamMgr opers
 			port, err = strconv.Atoi(sPort)
 		}
 		if err != nil {
-			return nil, errors.NewTektiteErrorf(errors.InvalidConfiguration, "invalid KafkaListenAddress: %s", address)
+			return nil, common.NewTektiteErrorf(common.InvalidConfiguration, "invalid KafkaListenAddress: %s", address)
 		}
 		brokerInfos[nodeID] = BrokerInfo{
 			NodeID: nodeID,

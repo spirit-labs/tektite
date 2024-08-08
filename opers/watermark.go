@@ -1,7 +1,7 @@
 package opers
 
 import (
-	"github.com/spirit-labs/tektite/common"
+	"github.com/spirit-labs/tektite/asl/arista"
 	"github.com/spirit-labs/tektite/evbatch"
 	"time"
 )
@@ -80,7 +80,7 @@ func (w *WaterMarkOperator) HandleStreamBatch(batch *evbatch.Batch, execCtx Stre
 
 func (w *WaterMarkOperator) updateMaxEventTime(maxEventTime int, procID int) {
 	w.processorMaxEventTimes[procID] = maxEventTime
-	w.processorLastBatchHandled[procID] = common.NanoTime()
+	w.processorLastBatchHandled[procID] = arista.NanoTime()
 }
 
 func (w *WaterMarkOperator) HandleQueryBatch(*evbatch.Batch, QueryExecContext) (*evbatch.Batch, error) {
@@ -103,7 +103,7 @@ func (w *WaterMarkOperator) setWatermark(execCtx StreamExecContext) {
 		procID := execCtx.Processor().ID()
 		maxEventTime := w.processorMaxEventTimes[procID]
 		lastHandledTime := w.processorLastBatchHandled[procID]
-		now := common.NanoTime()
+		now := arista.NanoTime()
 		if w.testIdleProcessors && w.idleProcessors[procID] {
 			// used in testing to force idle watermark
 			waterMark = -1

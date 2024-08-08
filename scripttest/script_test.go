@@ -3,6 +3,7 @@
 package scripttest
 
 import (
+	"github.com/spirit-labs/tektite/asl/scripttest"
 	"testing"
 )
 
@@ -11,7 +12,7 @@ func TestScriptStandalone(t *testing.T) {
 	if testing.Short() {
 		t.Skip("-short: skipped")
 	}
-	testScript(t, 1, 1, false, tlsKeysInfo, etcdAddress)
+	scripttest.TestScript(t, 1, 1, false, nil, etcdAddress)
 }
 
 func TestScriptThreeNodes(t *testing.T) {
@@ -19,12 +20,5 @@ func TestScriptThreeNodes(t *testing.T) {
 	if testing.Short() {
 		t.Skip("-short: skipped")
 	}
-	testScript(t, 3, 3, false, tlsKeysInfo, etcdAddress)
+	scripttest.TestScript(t, 3, 3, false, nil, etcdAddress)
 }
-
-//	func TestScriptFiveNodes(t *testing.T) {
-//		if testing.Short() {
-//			t.Skip("-short: skipped")
-//		}
-//		testScript(t, 5, 3, false, tlsKeysInfo)
-//	}

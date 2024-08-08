@@ -2,7 +2,7 @@ package expr
 
 import (
 	"encoding/json"
-	"github.com/spirit-labs/tektite/errors"
+	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/evbatch"
 	"github.com/spirit-labs/tektite/parser"
 	"github.com/spirit-labs/tektite/types"
@@ -56,17 +56,17 @@ func (f *FunctionMetadata) UnmarshalJSON(buff []byte) error {
 	}
 	pTypes, ok := funcMetaMap["paramTypes"]
 	if !ok {
-		return errors.Error("json object is missing a 'paramTypes' field")
+		return common.Error("json object is missing a 'paramTypes' field")
 	}
 	pTypesArr, ok := pTypes.([]any)
 	if !ok {
-		return errors.Error("'paramTypes' field must contain a json array")
+		return common.Error("'paramTypes' field must contain a json array")
 	}
 	var paramTypes []types.ColumnType
 	for _, pType := range pTypesArr {
 		pTypeStr, ok := pType.(string)
 		if !ok {
-			return errors.Error("paramTypes must be strings")
+			return common.Error("paramTypes must be strings")
 		}
 		paramType, err := types.StringToColumnType(pTypeStr)
 		if err != nil {
@@ -76,11 +76,11 @@ func (f *FunctionMetadata) UnmarshalJSON(buff []byte) error {
 	}
 	retType, ok := funcMetaMap["returnType"]
 	if !ok {
-		return errors.Error("json object is missing a 'returnType' field")
+		return common.Error("json object is missing a 'returnType' field")
 	}
 	retTypeStr, ok := retType.(string)
 	if !ok {
-		return errors.Error("'returnType' field must contain a string")
+		return common.Error("'returnType' field must contain a string")
 	}
 	returnType, err := types.StringToColumnType(retTypeStr)
 	if err != nil {

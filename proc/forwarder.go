@@ -2,9 +2,9 @@ package proc
 
 import (
 	"fmt"
-	"github.com/spirit-labs/tektite/errors"
+	"github.com/spirit-labs/tektite/asl/remoting"
+	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/protos/clustermsgs"
-	"github.com/spirit-labs/tektite/remoting"
 )
 
 type forwardMessageHandler struct {
@@ -15,7 +15,7 @@ func (f *forwardMessageHandler) HandleMessage(messageHolder remoting.MessageHold
 	forwardMsg := messageHolder.Message.(*clustermsgs.ForwardBatchMessage)
 	o, ok := f.m.processors.Load(int(forwardMsg.ProcessorId))
 	if !ok {
-		completionFunc(nil, errors.NewTektiteErrorf(errors.Unavailable, "no processor available on receipt of forward message"))
+		completionFunc(nil, common.NewTektiteErrorf(common.Unavailable, "no processor available on receipt of forward message"))
 		return
 	}
 	processor := o.(Processor)
@@ -54,7 +54,7 @@ func (m *ProcessorManager) ForwardBatch(batch *ProcessBatch, replicate bool, com
 		// Processor is local
 		processor := m.GetProcessor(batch.ProcessorID)
 		if processor == nil {
-			completionFunc(errors.NewTektiteErrorf(errors.Unavailable, "processor not available locally"))
+			completionFunc(common.NewTektiteErrorf(common.Unavailable, "processor not available locally"))
 			return
 		}
 		if replicate {

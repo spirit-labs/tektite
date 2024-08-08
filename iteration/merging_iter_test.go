@@ -2,11 +2,11 @@ package iteration
 
 import (
 	"fmt"
+	"github.com/spirit-labs/tektite/asl/encoding"
 	"math"
 	"testing"
 
 	"github.com/spirit-labs/tektite/common"
-	"github.com/spirit-labs/tektite/encoding"
 	log "github.com/spirit-labs/tektite/logger"
 	"github.com/stretchr/testify/require"
 )

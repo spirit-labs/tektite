@@ -5,15 +5,15 @@ package integration
 import (
 	"fmt"
 	"github.com/google/uuid"
+	"github.com/spirit-labs/tektite/asl/conf"
+	"github.com/spirit-labs/tektite/asl/server"
+	"github.com/spirit-labs/tektite/client"
 	"github.com/spirit-labs/tektite/common"
-	"github.com/spirit-labs/tektite/conf"
 	"github.com/spirit-labs/tektite/kafka"
 	"github.com/spirit-labs/tektite/kafka/fake"
 	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/objstore/dev"
-	"github.com/spirit-labs/tektite/server"
 	"github.com/spirit-labs/tektite/shutdown"
-	"github.com/spirit-labs/tektite/tekclient"
 	"github.com/spirit-labs/tektite/testutils"
 	"github.com/stretchr/testify/require"
 	"testing"
@@ -156,12 +156,12 @@ func startServers(t *testing.T, servers []*server.Server) {
 func TestServer(t *testing.T) {
 	fk := &fake.Kafka{}
 
-	clientTLSConfig := tekclient.TLSConfig{
+	clientTLSConfig := client.TLSConfig{
 		TrustedCertsPath: serverCertPath,
 	}
 	servers, tearDown := startCluster(t, 3, fk)
 	defer tearDown(t)
-	client, err := tekclient.NewClient(servers[0].GetConfig().HttpApiAddresses[0], clientTLSConfig)
+	client, err := client.NewClient(servers[0].GetConfig().HttpApiAddresses[0], clientTLSConfig)
 	require.NoError(t, err)
 	defer client.Close()
 

@@ -230,9 +230,3 @@ message ShutdownMessage {
 message ShutdownResponse {
   bool flushed = 1;
 }
-
-// test messages
-
-message RemotingTestMessage {
-  string some_field = 1;
-}

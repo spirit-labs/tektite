@@ -3,7 +3,7 @@ package parser
 import (
 	"fmt"
 	"github.com/alecthomas/participle/v2/lexer"
-	"github.com/spirit-labs/tektite/errors"
+	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/types"
 	"strconv"
 	"strings"
@@ -80,7 +80,7 @@ type TSLDesc struct {
 func (t *TSLDesc) parse(context *ParseContext) error {
 	token, ok := context.PeekToken()
 	if !ok {
-		return errors.NewParseError("statement is empty")
+		return common.NewParseError("statement is empty")
 	}
 	if token.Type != IdentTokenType {
 		return foundUnexpectedTokenError("identifier", token, context.input)
@@ -2010,7 +2010,7 @@ func (pc *ParseContext) expectToken(expected ...string) (lexer.Token, error) {
 }
 
 func endOfInputError() error {
-	return errors.NewParseError(`reached end of statement`)
+	return common.NewParseError(`reached end of statement`)
 }
 
 func foundUnexpectedTokenError(expectedType string, token lexer.Token, input string) error {
@@ -2025,7 +2025,7 @@ func duplicateArgumentError(token lexer.Token, context *ParseContext) error {
 
 func errorAtPosition(msg string, pos lexer.Position, input string) error {
 	msg = MessageWithPosition(msg, pos, input)
-	return errors.NewParseError(msg)
+	return common.NewParseError(msg)
 }
 
 func MessageWithPosition(msg string, pos lexer.Position, input string) string {

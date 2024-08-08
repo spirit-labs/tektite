@@ -2,8 +2,8 @@ package proc
 
 import (
 	"encoding/binary"
-	"github.com/spirit-labs/tektite/encoding"
-	"github.com/spirit-labs/tektite/errors"
+	"github.com/spirit-labs/tektite/asl/encoding"
+	"github.com/spirit-labs/tektite/asl/errwrap"
 	"github.com/spirit-labs/tektite/levels"
 	"github.com/spirit-labs/tektite/mem"
 	"time"
@@ -24,7 +24,7 @@ func (m *levelManagerBatchHandler) HandleProcessBatch(_ Processor,
 	}
 	levelManager := m.levelManagerService.GetLevelManager()
 	if levelManager == nil {
-		return false, nil, nil, errors.New("cannot process levelManager batch, no levelManager on node")
+		return false, nil, nil, errwrap.New("cannot process levelManager batch, no levelManager on node")
 	}
 	processBatch.CheckDeserializeEvBatch(levels.CommandSchema)
 	batch := processBatch.EvBatch

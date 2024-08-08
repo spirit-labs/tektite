@@ -5,11 +5,10 @@ import (
 	"fmt"
 	"github.com/alecthomas/participle/v2/lexer"
 	"github.com/emirpasic/gods/maps/treemap"
+	"github.com/spirit-labs/tektite/asl/conf"
+	"github.com/spirit-labs/tektite/asl/encoding"
 	"github.com/spirit-labs/tektite/common"
-	"github.com/spirit-labs/tektite/conf"
 	"github.com/spirit-labs/tektite/debug"
-	"github.com/spirit-labs/tektite/encoding"
-	"github.com/spirit-labs/tektite/errors"
 	"github.com/spirit-labs/tektite/evbatch"
 	"github.com/spirit-labs/tektite/expr"
 	"github.com/spirit-labs/tektite/iteration"
@@ -371,7 +370,7 @@ func (sm *streamManager) deployStream(streamDesc parser.CreateStreamDesc, receiv
 	sm.shutdownLock.Lock()
 	defer sm.shutdownLock.Unlock()
 	if sm.shuttingDown {
-		return errors.NewTektiteErrorf(errors.ShutdownError, "cluster is shutting down")
+		return common.NewTektiteErrorf(common.ShutdownError, "cluster is shutting down")
 	}
 	sm.lock.Lock()
 	defer sm.lock.Unlock()
@@ -1215,7 +1214,7 @@ func (sm *streamManager) UndeployStream(deleteStreamDesc parser.DeleteStreamDesc
 	sm.shutdownLock.Lock()
 	defer sm.shutdownLock.Unlock()
 	if sm.shuttingDown {
-		return errors.NewTektiteErrorf(errors.ShutdownError, "cluster is shutting down")
+		return common.NewTektiteErrorf(common.ShutdownError, "cluster is shutting down")
 	}
 	sm.lock.Lock()
 	unlocked := false
@@ -1233,7 +1232,7 @@ func (sm *streamManager) UndeployStream(deleteStreamDesc parser.DeleteStreamDesc
 		return statementErrorAtTokenNamef(deleteStreamDesc.StreamName, &deleteStreamDesc, "unknown stream '%s'", deleteStreamDesc.StreamName)
 	}
 	if info.Undeploying {
-		return errors.NewTektiteErrorf(errors.InternalError, "stream is already beiung undeployed")
+		return common.NewTektiteErrorf(common.InternalError, "stream is already beiung undeployed")
 	}
 	if len(info.DownstreamStreamNames) > 0 {
 		var dsNames []string
@@ -2171,20 +2170,20 @@ type errMsgAtPositionProvider interface {
 
 func statementErrorAtTokenNamef(tokenName string, provider errMsgAtPositionProvider, msg string, args ...interface{}) error {
 	if provider == nil {
-		return errors.NewStatementError(fmt.Sprintf(msg, args...))
+		return common.NewStatementError(fmt.Sprintf(msg, args...))
 	}
 	msg = fmt.Sprintf(msg, args...)
 	msg = provider.ErrorMsgAtToken(msg, tokenName)
-	return errors.NewStatementError(msg)
+	return common.NewStatementError(msg)
 }
 
 func statementErrorAtPositionf(token lexer.Token, provider errMsgAtPositionProvider, msg string, args ...interface{}) error {
 	if provider == nil {
-		return errors.NewStatementError(fmt.Sprintf(msg, args...))
+		return common.NewStatementError(fmt.Sprintf(msg, args...))
 	}
 	msg = fmt.Sprintf(msg, args...)
 	msg = provider.ErrorMsgAtPosition(msg, token.Pos)
-	return errors.NewStatementError(msg)
+	return common.NewStatementError(msg)
 }
 
 type TestSourceDesc struct {

@@ -2,7 +2,7 @@ package evbatch
 
 import (
 	"fmt"
-	"github.com/spirit-labs/tektite/encoding"
+	encoding2 "github.com/spirit-labs/tektite/asl/encoding"
 	"github.com/spirit-labs/tektite/types"
 )
 
@@ -19,25 +19,25 @@ func EncodeRowCols(batch *Batch, rowIndex int, rowCols []int, buffer []byte) []b
 		switch ft.ID() {
 		case types.ColumnTypeIDInt:
 			val := (col.(*IntColumn)).Get(rowIndex)
-			buffer = encoding.AppendUint64ToBufferLE(buffer, uint64(val))
+			buffer = encoding2.AppendUint64ToBufferLE(buffer, uint64(val))
 		case types.ColumnTypeIDFloat:
 			val := (col.(*FloatColumn)).Get(rowIndex)
-			buffer = encoding.AppendFloat64ToBufferLE(buffer, val)
+			buffer = encoding2.AppendFloat64ToBufferLE(buffer, val)
 		case types.ColumnTypeIDBool:
 			val := (col.(*BoolColumn)).Get(rowIndex)
-			buffer = encoding.AppendBoolToBuffer(buffer, val)
+			buffer = encoding2.AppendBoolToBuffer(buffer, val)
 		case types.ColumnTypeIDDecimal:
 			val := (col.(*DecimalColumn)).Get(rowIndex)
-			buffer = encoding.AppendDecimalToBuffer(buffer, val)
+			buffer = encoding2.AppendDecimalToBuffer(buffer, val)
 		case types.ColumnTypeIDString:
 			val := (col.(*StringColumn)).Get(rowIndex)
-			buffer = encoding.AppendStringToBufferLE(buffer, val)
+			buffer = encoding2.AppendStringToBufferLE(buffer, val)
 		case types.ColumnTypeIDBytes:
 			val := (col.(*BytesColumn)).Get(rowIndex)
-			buffer = encoding.AppendBytesToBufferLE(buffer, val)
+			buffer = encoding2.AppendBytesToBufferLE(buffer, val)
 		case types.ColumnTypeIDTimestamp:
 			val := (col.(*TimestampColumn)).Get(rowIndex)
-			buffer = encoding.AppendUint64ToBufferLE(buffer, uint64(val.Val))
+			buffer = encoding2.AppendUint64ToBufferLE(buffer, uint64(val.Val))
 		default:
 			panic(fmt.Sprintf("unexpected column type %d", ft))
 		}
@@ -66,25 +66,25 @@ func EncodeKeyCol(rowIndex int, col Column, colType types.ColumnType, buffer []b
 	case types.ColumnTypeIDInt:
 		// We store as unsigned so convert signed to unsigned
 		val := col.(*IntColumn).Get(rowIndex)
-		buffer = encoding.KeyEncodeInt(buffer, val)
+		buffer = encoding2.KeyEncodeInt(buffer, val)
 	case types.ColumnTypeIDFloat:
 		val := col.(*FloatColumn).Get(rowIndex)
-		buffer = encoding.KeyEncodeFloat(buffer, val)
+		buffer = encoding2.KeyEncodeFloat(buffer, val)
 	case types.ColumnTypeIDBool:
 		val := col.(*BoolColumn).Get(rowIndex)
-		buffer = encoding.AppendBoolToBuffer(buffer, val)
+		buffer = encoding2.AppendBoolToBuffer(buffer, val)
 	case types.ColumnTypeIDDecimal:
 		val := col.(*DecimalColumn).Get(rowIndex)
-		buffer = encoding.KeyEncodeDecimal(buffer, val)
+		buffer = encoding2.KeyEncodeDecimal(buffer, val)
 	case types.ColumnTypeIDString:
 		val := col.(*StringColumn).Get(rowIndex)
-		buffer = encoding.KeyEncodeString(buffer, val)
+		buffer = encoding2.KeyEncodeString(buffer, val)
 	case types.ColumnTypeIDBytes:
 		val := col.(*BytesColumn).Get(rowIndex)
-		buffer = encoding.KeyEncodeBytes(buffer, val)
+		buffer = encoding2.KeyEncodeBytes(buffer, val)
 	case types.ColumnTypeIDTimestamp:
 		val := col.(*TimestampColumn).Get(rowIndex)
-		buffer = encoding.KeyEncodeTimestamp(buffer, val)
+		buffer = encoding2.KeyEncodeTimestamp(buffer, val)
 	default:
 		panic(fmt.Sprintf("unexpected column type %d", colType))
 	}

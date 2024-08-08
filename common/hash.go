@@ -2,6 +2,7 @@ package common
 
 import (
 	"crypto/sha256"
+	"github.com/spirit-labs/tektite/mit"
 	"hash/fnv"
 )
 
@@ -33,5 +34,5 @@ func HashFnv(key []byte) uint32 {
 }
 
 func DefaultHash(key []byte) uint32 {
-	return KafkaCompatibleMurmur2Hash(key)
+	return mit.KafkaCompatibleMurmur2Hash(key)
 }

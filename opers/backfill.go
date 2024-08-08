@@ -3,9 +3,9 @@ package opers
 import (
 	"encoding/binary"
 	"github.com/google/uuid"
+	"github.com/spirit-labs/tektite/asl/conf"
+	encoding2 "github.com/spirit-labs/tektite/asl/encoding"
 	"github.com/spirit-labs/tektite/common"
-	"github.com/spirit-labs/tektite/conf"
-	"github.com/spirit-labs/tektite/encoding"
 	"github.com/spirit-labs/tektite/evbatch"
 	"github.com/spirit-labs/tektite/iteration"
 	log "github.com/spirit-labs/tektite/logger"
@@ -77,7 +77,7 @@ func NewBackfillOperator(schema *OperatorSchema, cfg *conf.Config, fromSlabID in
 
 func (b *BackfillOperator) loadCommittedOffsetForPartition(execCtx StreamExecContext) (int64, bool, error) {
 	partitionHash := b.hashCache.getHash(execCtx.PartitionID())
-	key := encoding.EncodeEntryPrefix(partitionHash, uint64(b.offsetsSlabID), 24)
+	key := encoding2.EncodeEntryPrefix(partitionHash, uint64(b.offsetsSlabID), 24)
 	value, err := execCtx.Get(key)
 	if err != nil {
 		return 0, false, err
@@ -93,10 +93,10 @@ func (b *BackfillOperator) loadCommittedOffsetForPartition(execCtx StreamExecCon
 
 func (b *BackfillOperator) storeCommittedOffSetForPartition(partitionID int, offset int64, execCtx StreamExecContext) {
 	partitionHash := b.hashCache.getHash(partitionID)
-	key := encoding.EncodeEntryPrefix(partitionHash, uint64(b.offsetsSlabID), 32)
-	key = encoding.EncodeVersion(key, uint64(execCtx.WriteVersion()))
+	key := encoding2.EncodeEntryPrefix(partitionHash, uint64(b.offsetsSlabID), 32)
+	key = encoding2.EncodeVersion(key, uint64(execCtx.WriteVersion()))
 	value := make([]byte, 0, 8)
-	value = encoding.AppendUint64ToBufferLE(value, uint64(offset))
+	value = encoding2.AppendUint64ToBufferLE(value, uint64(offset))
 	execCtx.StoreEntry(common.KV{
 		Key:   key,
 		Value: value,
@@ -355,10 +355,10 @@ func (b *BackfillOperator) initialiseIterator(execCtx StreamExecContext, info *i
 
 func (b *BackfillOperator) initialiseIteratorAtOffset(execCtx StreamExecContext, offset int64, info *iteratorInfo) error {
 	partitionHash := b.hashCache.getHash(execCtx.PartitionID())
-	keyStart := encoding.EncodeEntryPrefix(partitionHash, uint64(b.fromSlabID), 33)
+	keyStart := encoding2.EncodeEntryPrefix(partitionHash, uint64(b.fromSlabID), 33)
 	keyStart = append(keyStart, 1) // not null
-	keyStart = encoding.KeyEncodeInt(keyStart, offset)
-	keyEnd := encoding.EncodeEntryPrefix(partitionHash, uint64(b.fromSlabID)+1, 24)
+	keyStart = encoding2.KeyEncodeInt(keyStart, offset)
+	keyEnd := encoding2.EncodeEntryPrefix(partitionHash, uint64(b.fromSlabID)+1, 24)
 	fact := func(ks []byte, ke []byte) (iteration.Iterator, error) {
 		return execCtx.Processor().NewIterator(ks, ke, math.MaxInt64, false)
 	}
@@ -391,7 +391,7 @@ func (b *BackfillOperator) loadBatchForPartition(partID int) (*evbatch.Batch, er
 			info.lagging = false
 			break
 		}
-		k, _ := encoding.KeyDecodeInt(curr.Key, 25) // 17 as 1 byte null marker before offset
+		k, _ := encoding2.KeyDecodeInt(curr.Key, 25) // 17 as 1 byte null marker before offset
 		colBuilders[0].(*evbatch.IntColBuilder).Append(k)
 		buff := curr.Value
 		byteOff := 0
@@ -406,34 +406,34 @@ func (b *BackfillOperator) loadBatchForPartition(partID int) (*evbatch.Batch, er
 			switch colType.ID() {
 			case types.ColumnTypeIDInt:
 				var u uint64
-				u, byteOff = encoding.ReadUint64FromBufferLE(buff, byteOff)
+				u, byteOff = encoding2.ReadUint64FromBufferLE(buff, byteOff)
 				colBuilders[rowCol].(*evbatch.IntColBuilder).Append(int64(u))
 			case types.ColumnTypeIDFloat:
 				var f float64
-				f, byteOff = encoding.ReadFloat64FromBufferLE(buff, byteOff)
+				f, byteOff = encoding2.ReadFloat64FromBufferLE(buff, byteOff)
 				colBuilders[rowCol].(*evbatch.FloatColBuilder).Append(f)
 			case types.ColumnTypeIDBool:
 				var b bool
-				b, byteOff = encoding.DecodeBool(buff, byteOff)
+				b, byteOff = encoding2.DecodeBool(buff, byteOff)
 				colBuilders[rowCol].(*evbatch.BoolColBuilder).Append(b)
 			case types.ColumnTypeIDDecimal:
 				decType := colType.(*types.DecimalType)
 				var dec types.Decimal
-				dec, byteOff = encoding.ReadDecimalFromBuffer(buff, byteOff)
+				dec, byteOff = encoding2.ReadDecimalFromBuffer(buff, byteOff)
 				dec.Precision = decType.Precision
 				dec.Scale = decType.Scale
 				colBuilders[rowCol].(*evbatch.DecimalColBuilder).Append(dec)
 			case types.ColumnTypeIDString:
 				var s string
-				s, byteOff = encoding.ReadStringFromBufferLE(buff, byteOff)
+				s, byteOff = encoding2.ReadStringFromBufferLE(buff, byteOff)
 				colBuilders[rowCol].(*evbatch.StringColBuilder).Append(s)
 			case types.ColumnTypeIDBytes:
 				var b []byte
-				b, byteOff = encoding.ReadBytesFromBufferLE(buff, byteOff)
+				b, byteOff = encoding2.ReadBytesFromBufferLE(buff, byteOff)
 				colBuilders[rowCol].(*evbatch.BytesColBuilder).Append(b)
 			case types.ColumnTypeIDTimestamp:
 				var u uint64
-				u, byteOff = encoding.ReadUint64FromBufferLE(buff, byteOff)
+				u, byteOff = encoding2.ReadUint64FromBufferLE(buff, byteOff)
 				ts := types.NewTimestamp(int64(u))
 				colBuilders[rowCol].(*evbatch.TimestampColBuilder).Append(ts)
 			default:
@@ -481,7 +481,7 @@ func (u *updatableIterator) Next() (bool, common.KV, error) {
 	u.iter.Close()
 	start := u.keyStart
 	if u.lastKey != nil {
-		start = common.IncrementBytesBigEndian(u.lastKey)
+		start = common.IncBigEndianBytes(u.lastKey)
 	}
 	u.iter, err = u.iterFactory(start, u.keyEnd)
 	if err != nil {

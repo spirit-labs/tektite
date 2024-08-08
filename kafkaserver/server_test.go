@@ -3,8 +3,8 @@ package kafkaserver
 import (
 	"fmt"
 	"github.com/confluentinc/confluent-kafka-go/kafka"
+	"github.com/spirit-labs/tektite/asl/conf"
 	"github.com/spirit-labs/tektite/common"
-	"github.com/spirit-labs/tektite/conf"
 	"github.com/spirit-labs/tektite/evbatch"
 	"github.com/spirit-labs/tektite/iteration"
 	"github.com/spirit-labs/tektite/opers"

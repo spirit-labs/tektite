@@ -2,7 +2,7 @@ package types
 
 import (
 	"fmt"
-	"github.com/spirit-labs/tektite/errors"
+	"github.com/spirit-labs/tektite/asl/errwrap"
 	"strconv"
 	"strings"
 )
@@ -84,7 +84,7 @@ func StringToColumnType(sColumnType string) (ColumnType, error) {
 			}
 			cType = decType
 		} else {
-			return nil, errors.Errorf("invalid type '%s'", sColumnType)
+			return nil, errwrap.Errorf("invalid type '%s'", sColumnType)
 		}
 	}
 	return cType, nil
@@ -111,20 +111,20 @@ func parseDecimalType(sargtype string) (ColumnType, error) {
 				sScale := strings.Trim(rem[comIndex+1:], " \t")
 				prec, err := strconv.Atoi(sPrec)
 				if err != nil {
-					return nil, errors.Errorf("invalid decimal precision, not a valid integer %s", sPrec)
+					return nil, errwrap.Errorf("invalid decimal precision, not a valid integer %s", sPrec)
 				}
 				if prec < 1 || prec > 38 {
-					return nil, errors.Errorf("invalid decimal precision, must be > 1 and <= 38 %s", sargtype)
+					return nil, errwrap.Errorf("invalid decimal precision, must be > 1 and <= 38 %s", sargtype)
 				}
 				scale, err := strconv.Atoi(sScale)
 				if err != nil {
-					return nil, errors.Errorf("invalid decimal scale, not a valid integer %s", sScale)
+					return nil, errwrap.Errorf("invalid decimal scale, not a valid integer %s", sScale)
 				}
 				if scale < 0 || scale > 38 {
-					return nil, errors.Errorf("invalid decimal scale, must be >= 0 and <= 38 %s", sargtype)
+					return nil, errwrap.Errorf("invalid decimal scale, must be >= 0 and <= 38 %s", sargtype)
 				}
 				if scale > prec {
-					return nil, errors.Errorf("invalid decimal scale cannot be > precision %s", sargtype)
+					return nil, errwrap.Errorf("invalid decimal scale cannot be > precision %s", sargtype)
 				}
 				return &DecimalType{
 					Precision: prec,
@@ -133,7 +133,7 @@ func parseDecimalType(sargtype string) (ColumnType, error) {
 			}
 		}
 	}
-	return nil, errors.Errorf("invalid decimal argument type: %s", sargtype)
+	return nil, errwrap.Errorf("invalid decimal argument type: %s", sargtype)
 }
 
 type ColumnType interface {

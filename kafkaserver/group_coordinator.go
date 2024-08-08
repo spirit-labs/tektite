@@ -4,10 +4,9 @@ import (
 	"bytes"
 	"fmt"
 	"github.com/google/uuid"
+	"github.com/spirit-labs/tektite/asl/conf"
+	encoding2 "github.com/spirit-labs/tektite/asl/encoding"
 	"github.com/spirit-labs/tektite/common"
-	"github.com/spirit-labs/tektite/conf"
-	"github.com/spirit-labs/tektite/encoding"
-	"github.com/spirit-labs/tektite/errors"
 	"github.com/spirit-labs/tektite/evbatch"
 	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/opers"
@@ -1119,20 +1118,20 @@ func (g *group) loadOffset(topicInfo *TopicInfo, partitionID int32) (int64, bool
 	consumerOffsetsPartitionID := g.gc.calcConsumerOffsetsPartition(g.id)
 
 	partitionHash := proc.CalcPartitionHash(ConsumerOffsetsMappingID, uint64(consumerOffsetsPartitionID))
-	iterStart := encoding.EncodeEntryPrefix(partitionHash, common.KafkaOffsetsSlabID, 128)
+	iterStart := encoding2.EncodeEntryPrefix(partitionHash, common.KafkaOffsetsSlabID, 128)
 
 	// keyCols := []string{"group_id", "topic_id", "partition_id"}
 	iterStart = append(iterStart, 1) // not null
-	iterStart = encoding.KeyEncodeString(iterStart, g.id)
+	iterStart = encoding2.KeyEncodeString(iterStart, g.id)
 
 	iterStart = append(iterStart, 1) // not null
 	topicID := int64(topicInfo.ConsumerInfoProvider.SlabID())
-	iterStart = encoding.KeyEncodeInt(iterStart, topicID)
+	iterStart = encoding2.KeyEncodeInt(iterStart, topicID)
 
 	iterStart = append(iterStart, 1) // not null
-	iterStart = encoding.KeyEncodeInt(iterStart, int64(partitionID))
+	iterStart = encoding2.KeyEncodeInt(iterStart, int64(partitionID))
 
-	iterEnd := common.IncrementBytesBigEndian(iterStart)
+	iterEnd := common.IncBigEndianBytes(iterStart)
 
 	processorID, ok := g.gc.consumerOffsetsPPM[consumerOffsetsPartitionID]
 	if !ok {
@@ -1140,7 +1139,7 @@ func (g *group) loadOffset(topicInfo *TopicInfo, partitionID int32) (int64, bool
 	}
 	processor := g.gc.processorProvider.GetProcessor(processorID)
 	if processor == nil {
-		return 0, false, errors.NewTektiteErrorf(errors.Unavailable, "processor not available")
+		return 0, false, common.NewTektiteErrorf(common.Unavailable, "processor not available")
 	}
 	iter, err := processor.NewIterator(iterStart, iterEnd, math.MaxUint64, false)
 	if err != nil {
@@ -1154,7 +1153,7 @@ func (g *group) loadOffset(topicInfo *TopicInfo, partitionID int32) (int64, bool
 	if !valid {
 		return 0, false, nil
 	}
-	offset, _ := encoding.ReadUint64FromBufferLE(curr.Value, 1)
+	offset, _ := encoding2.ReadUint64FromBufferLE(curr.Value, 1)
 	log.Debugf("group:%d topic:%d partition:%d loaded committed offset:%d", g.id, topicID, partitionID, offset)
 	return int64(offset), true, nil
 }

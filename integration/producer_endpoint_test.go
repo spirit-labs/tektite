@@ -6,10 +6,10 @@ import (
 	"errors"
 	"fmt"
 	kafkago "github.com/confluentinc/confluent-kafka-go/kafka"
+	"github.com/spirit-labs/tektite/asl/conf"
+	"github.com/spirit-labs/tektite/client"
 	"github.com/spirit-labs/tektite/common"
-	"github.com/spirit-labs/tektite/conf"
 	log "github.com/spirit-labs/tektite/logger"
-	"github.com/spirit-labs/tektite/tekclient"
 	"github.com/spirit-labs/tektite/testutils"
 	"github.com/stretchr/testify/require"
 	"os"
@@ -35,7 +35,7 @@ func TestProducerEndpointJavaClient(t *testing.T) {
 
 func testProducerEndpoint(t *testing.T, ct clientType) {
 
-	clientTLSConfig := tekclient.TLSConfig{
+	clientTLSConfig := client.TLSConfig{
 		TrustedCertsPath: serverCertPath,
 	}
 	servers, tearDown := startClusterWithConfigSetter(t, 3, nil, func(cfg *conf.Config) {
@@ -49,7 +49,7 @@ func testProducerEndpoint(t *testing.T, ct clientType) {
 		cfg.KafkaServerListenerConfig.Addresses = kafkaListenAddresses
 	})
 	defer tearDown(t)
-	client, err := tekclient.NewClient(servers[0].GetConfig().HttpApiAddresses[0], clientTLSConfig)
+	client, err := client.NewClient(servers[0].GetConfig().HttpApiAddresses[0], clientTLSConfig)
 	require.NoError(t, err)
 	defer client.Close()
 
@@ -121,11 +121,11 @@ func testProducerEndpoint(t *testing.T, ct clientType) {
 	}
 }
 
-func waitForRows(t *testing.T, tableName string, numMessages int, client tekclient.Client, startTime time.Time) {
+func waitForRows(t *testing.T, tableName string, numMessages int, client client.Client, startTime time.Time) {
 	waitForRowsIgnoreDups(t, tableName, numMessages, client, startTime, false)
 }
 
-func waitForRowsIgnoreDups(t *testing.T, tableName string, numMessages int, client tekclient.Client, startTime time.Time, ignoreDups bool) {
+func waitForRowsIgnoreDups(t *testing.T, tableName string, numMessages int, client client.Client, startTime time.Time, ignoreDups bool) {
 	ok, err := testutils.WaitUntilWithError(func() (bool, error) {
 		log.Debug("************ waiting for rows")
 		qr, err := client.ExecuteQuery(fmt.Sprintf("(scan all from %s) -> (sort by key)", tableName))
@@ -163,7 +163,7 @@ func waitForRowsIgnoreDups(t *testing.T, tableName string, numMessages int, clie
 	require.True(t, ok)
 }
 
-func waitForNumRows(t *testing.T, topicName string, numMessages int, client tekclient.Client) {
+func waitForNumRows(t *testing.T, topicName string, numMessages int, client client.Client) {
 	ok, err := testutils.WaitUntilWithError(func() (bool, error) {
 		qr, err := client.ExecuteQuery(fmt.Sprintf("(scan all from %s)", topicName))
 		if err != nil {

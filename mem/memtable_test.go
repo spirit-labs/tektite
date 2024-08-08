@@ -2,16 +2,16 @@ package mem
 
 import (
 	"fmt"
-	"github.com/spirit-labs/tektite/arenaskl"
+	arenaskl2 "github.com/spirit-labs/tektite/asl/arenaskl"
+	"github.com/spirit-labs/tektite/asl/encoding"
 	"github.com/spirit-labs/tektite/common"
-	"github.com/spirit-labs/tektite/encoding"
 	"github.com/spirit-labs/tektite/iteration"
 	"github.com/stretchr/testify/require"
 	"testing"
 )
 
 func TestMTIteratorPicksUpNewRecordsGreaterKeyAlreadyExists(t *testing.T) {
-	memTable := NewMemtable(arenaskl.NewArena(1024*1024), 0, 1024*1024)
+	memTable := NewMemtable(arenaskl2.NewArena(1024*1024), 0, 1024*1024)
 
 	// We test the case where a greater than iterator range already exists, then create iterator, then add
 	// data in range, then iterate
@@ -36,7 +36,7 @@ func TestMTIteratorPicksUpNewRecordsGreaterKeyAlreadyExists(t *testing.T) {
 }
 
 func TestMTIteratorAddNonKeyOrder(t *testing.T) {
-	memTable := NewMemtable(arenaskl.NewArena(1024*1024), 0, 1024*1024)
+	memTable := NewMemtable(arenaskl2.NewArena(1024*1024), 0, 1024*1024)
 
 	addToMemtable(t, memTable, "key0", "val0")
 	addToMemtable(t, memTable, "key1", "val1")
@@ -53,7 +53,7 @@ func TestMTIteratorAddNonKeyOrder(t *testing.T) {
 }
 
 func TestMTIteratorAddInNonKeyOrder(t *testing.T) {
-	memTable := NewMemtable(arenaskl.NewArena(1024*1024), 0, 1024*1024)
+	memTable := NewMemtable(arenaskl2.NewArena(1024*1024), 0, 1024*1024)
 
 	addToMemtable(t, memTable, "key3", "val3")
 	addToMemtable(t, memTable, "key2", "val2")
@@ -70,7 +70,7 @@ func TestMTIteratorAddInNonKeyOrder(t *testing.T) {
 }
 
 func TestMTIteratorOverwriteKeys(t *testing.T) {
-	memTable := NewMemtable(arenaskl.NewArena(1024*1024), 0, 1024*1024)
+	memTable := NewMemtable(arenaskl2.NewArena(1024*1024), 0, 1024*1024)
 
 	addToMemtable(t, memTable, "key3", "val3")
 	addToMemtable(t, memTable, "key2", "val2")
@@ -95,7 +95,7 @@ func TestMTIteratorOverwriteKeys(t *testing.T) {
 }
 
 func TestMTIteratorTombstones(t *testing.T) {
-	memTable := NewMemtable(arenaskl.NewArena(1024*1024), 0, 1024*1024)
+	memTable := NewMemtable(arenaskl2.NewArena(1024*1024), 0, 1024*1024)
 
 	addToMemtable(t, memTable, "key3", "val3")
 	addToMemtable(t, memTable, "key2", "val2")
@@ -117,7 +117,7 @@ func TestMTIteratorTombstones(t *testing.T) {
 
 // TestMTIteratorCurrent - Make sure Current() has correct behaviour
 func TestMTIteratorCurrentIterateFullRange(t *testing.T) {
-	memTable := NewMemtable(arenaskl.NewArena(1024*1024), 0, 1024*1024)
+	memTable := NewMemtable(arenaskl2.NewArena(1024*1024), 0, 1024*1024)
 	batch := &testBatch{}
 	for i := 0; i < 10; i++ {
 		key := []byte(fmt.Sprintf("prefix/key%010d", i))
@@ -144,7 +144,7 @@ func TestMTIteratorCurrentIterateFullRange(t *testing.T) {
 
 // TestMTIteratorCurrent - Make sure Current() has correct behaviour on partial range
 func TestMTIteratorCurrentIteratePartialRange(t *testing.T) {
-	memTable := NewMemtable(arenaskl.NewArena(1024*1024), 0, 1024*1024)
+	memTable := NewMemtable(arenaskl2.NewArena(1024*1024), 0, 1024*1024)
 	batch := &testBatch{}
 	for i := 0; i < 10; i++ {
 		key := []byte(fmt.Sprintf("prefix/key%010d", i))
@@ -185,7 +185,7 @@ func TestMTIteratorIterateInRange(t *testing.T) {
 
 func testMTIteratorIterateInRange(t *testing.T, keyStart []byte, keyEnd []byte, expectedFirst int, expectedLast int) {
 	t.Helper()
-	memTable := NewMemtable(arenaskl.NewArena(1024*1024), 0, 1024*1024)
+	memTable := NewMemtable(arenaskl2.NewArena(1024*1024), 0, 1024*1024)
 	numEntries := 100
 	batch := &testBatch{}
 	for i := 0; i < numEntries; i++ {
@@ -270,7 +270,7 @@ type testBatch struct {
 
 func (t *testBatch) AddEntry(kv common.KV) {
 	t.entries = append(t.entries, kv)
-	t.memtableBytes += arenaskl.MaxEntrySize(int64(len(kv.Key)), int64(len(kv.Value)))
+	t.memtableBytes += arenaskl2.MaxEntrySize(int64(len(kv.Key)), int64(len(kv.Value)))
 }
 
 func (t *testBatch) MemTableBytes() int64 {
@@ -289,7 +289,7 @@ func (t *testBatch) Len() int {
 
 func TestMemtableMaxSize(t *testing.T) {
 	size := 10000
-	memTable := NewMemtable(arenaskl.NewArena(uint32(size)), 0, size)
+	memTable := NewMemtable(arenaskl2.NewArena(uint32(size)), 0, size)
 
 	batch := &testBatch{}
 	i := 0

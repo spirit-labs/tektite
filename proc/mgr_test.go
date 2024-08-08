@@ -1,10 +1,11 @@
 package proc
 
 import (
+	"github.com/spirit-labs/tektite/asl/arista"
+	"github.com/spirit-labs/tektite/asl/conf"
+	"github.com/spirit-labs/tektite/asl/remoting"
 	"github.com/spirit-labs/tektite/clustmgr"
 	"github.com/spirit-labs/tektite/common"
-	"github.com/spirit-labs/tektite/conf"
-	"github.com/spirit-labs/tektite/remoting"
 	"github.com/spirit-labs/tektite/testutils"
 	"github.com/stretchr/testify/require"
 	"sync"
@@ -534,14 +535,14 @@ func testVersionDelay(t *testing.T, increaseCompletedVersion bool) {
 	vmgrClient.vHandler.waitForVersionToComplete(t, 100)
 	completedVersion := 100
 	for version := 101; version < 110; version++ {
-		start := common.NanoTime()
+		start := arista.NanoTime()
 		if increaseCompletedVersion {
 			mgr.HandleVersionBroadcast(version, completedVersion, 0)
 		} else {
 			mgr.HandleVersionBroadcast(version, 0, 0)
 		}
 		vmgrClient.vHandler.waitForVersionToComplete(t, version)
-		dur := common.NanoTime() - start
+		dur := arista.NanoTime() - start
 		// Allow for a 10% margin of error
 		min := 0.90 * float64(minSnapshotInterval)
 		if increaseCompletedVersion {

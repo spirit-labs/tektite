@@ -3,7 +3,6 @@ package vmgr
 import (
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/debug"
-	"github.com/spirit-labs/tektite/errors"
 	"github.com/spirit-labs/tektite/levels"
 	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/sanity"
@@ -38,7 +37,7 @@ func (v *VersionManager) FailureDetected(liveProcessorCount int, clusterVersion 
 		} else {
 			log.Debug("failure at lower cluster version")
 			// Failure at lower cluster version - reject this call
-			return errors.NewTektiteError(errors.FailureCancelled, "failureDetected at lower version")
+			return common.NewTektiteError(common.FailureCancelled, "failureDetected at lower version")
 		}
 	}
 
@@ -88,7 +87,7 @@ func (v *VersionManager) GetLastFailureFlushedVersion(clusterVersion int) (int, 
 	log.Debugf("vmgr in GetLastFailureFlushedVersion for clusterVersion %d. lastFailureFlushedVersion %d versionWaitComplete %t",
 		clusterVersion, v.lastFailureFlushedVersion, v.versionWaitComplete)
 	if clusterVersion != v.failureClusterVersion {
-		return 0, errors.NewTektiteErrorf(errors.FailureCancelled, "wrong clusterVersion")
+		return 0, common.NewTektiteErrorf(common.FailureCancelled, "wrong clusterVersion")
 	}
 	if v.versionWaitComplete {
 		return v.lastFailureFlushedVersion, nil
@@ -107,10 +106,10 @@ func (v *VersionManager) FailureComplete(liveProcessorCount int, clusterVersion 
 		return err
 	}
 	if clusterVersion != v.failureClusterVersion {
-		return errors.NewTektiteErrorf(errors.FailureCancelled, "wrong clusterVersion")
+		return common.NewTektiteErrorf(common.FailureCancelled, "wrong clusterVersion")
 	}
 	if !v.versionWaitComplete {
-		return errors.NewTektiteErrorf(errors.FailureCancelled, "version wait not complete")
+		return common.NewTektiteErrorf(common.FailureCancelled, "version wait not complete")
 	}
 	v.failureProcessorCount += liveProcessorCount
 	if v.failureProcessorCount == v.requiredProcessorCount {
@@ -127,7 +126,7 @@ func (v *VersionManager) IsFailureComplete(clusterVersion int) (bool, error) {
 		return false, err
 	}
 	if clusterVersion != v.failureClusterVersion {
-		return false, errors.NewTektiteErrorf(errors.FailureCancelled, "wrong clusterVersion")
+		return false, common.NewTektiteErrorf(common.FailureCancelled, "wrong clusterVersion")
 	}
 	return v.failureComplete, nil
 }

@@ -6,7 +6,7 @@ import (
 	"github.com/apache/arrow/go/v11/arrow"
 	"github.com/apache/arrow/go/v11/arrow/array"
 	"github.com/apache/arrow/go/v11/arrow/memory"
-	"github.com/spirit-labs/tektite/encoding"
+	"github.com/spirit-labs/tektite/asl/encoding"
 	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/types"
 	"strings"

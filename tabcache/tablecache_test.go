@@ -2,8 +2,8 @@ package tabcache
 
 import (
 	"fmt"
+	"github.com/spirit-labs/tektite/asl/conf"
 	"github.com/spirit-labs/tektite/common"
-	"github.com/spirit-labs/tektite/conf"
 	"github.com/spirit-labs/tektite/iteration"
 	"github.com/spirit-labs/tektite/objstore/dev"
 	"github.com/spirit-labs/tektite/sst"

@@ -3,7 +3,6 @@ package parser
 import (
 	"fmt"
 	"github.com/spirit-labs/tektite/common"
-	"github.com/spirit-labs/tektite/errors"
 	"github.com/spirit-labs/tektite/types"
 	"github.com/stretchr/testify/require"
 	"testing"
@@ -417,7 +416,7 @@ func testFailedToParseCreateStream(t *testing.T, input string, expectedMsg strin
 	cs := NewCreateStreamDesc()
 	err := NewParser(nil).Parse(input, cs)
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.ParseError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.ParseError))
 	require.Equal(t, expectedMsg, err.Error())
 }
 
@@ -2217,7 +2216,7 @@ func testFailedToParseQuery(t *testing.T, input string, expectedMsg string) {
 	cs := NewQueryDesc()
 	err := NewParser(nil).Parse(input, cs)
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.ParseError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.ParseError))
 	require.Equal(t, expectedMsg, err.Error())
 }
 
@@ -2696,7 +2695,7 @@ func testFailedToParseDeleteStream(t *testing.T, input string, expectedMsg strin
 	cs := NewDeleteStreamDesc()
 	err := NewParser(nil).Parse(input, cs)
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.ParseError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.ParseError))
 	require.Equal(t, expectedMsg, err.Error())
 }
 
@@ -2746,7 +2745,7 @@ func testFailedToParseTSL(t *testing.T, input string, expectedMsg string) {
 	cs := NewTSLDesc()
 	err := NewParser(nil).Parse(input, cs)
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.ParseError))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.ParseError))
 	require.Equal(t, expectedMsg, err.Error())
 }
 

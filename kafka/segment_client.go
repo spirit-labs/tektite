@@ -5,13 +5,12 @@ package kafka
 
 import (
 	"context"
-	"fmt"
+	"github.com/spirit-labs/tektite/asl/errwrap"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/segmentio/kafka-go"
-	"github.com/spirit-labs/tektite/errors"
 )
 
 // Kafka Message Provider implementation that uses the SegmentIO golang client
@@ -66,10 +65,10 @@ func (smp *SegmentKafkaMessageProvider) GetMessage(pollTimeout time.Duration) (*
 
 	msg, err := smp.reader.FetchMessage(ctx)
 	if err != nil {
-		if errors.Is(err, context.DeadlineExceeded) {
+		if errwrap.Is(err, context.DeadlineExceeded) {
 			return nil, nil
 		}
-		return nil, errors.WithStack(err)
+		return nil, errwrap.WithStack(err)
 	}
 
 	headers := make([]MessageHeader, len(msg.Headers))
@@ -120,7 +119,7 @@ func (smp *SegmentKafkaMessageProvider) Close() error {
 	defer smp.lock.Unlock()
 	err := smp.reader.Close()
 	smp.reader = nil
-	return errors.WithStack(err)
+	return errwrap.WithStack(err)
 }
 
 func (smp *SegmentKafkaMessageProvider) Start() error {
@@ -134,7 +133,7 @@ func (smp *SegmentKafkaMessageProvider) Start() error {
 	}
 	for k, v := range smp.krpf.props {
 		if err := setProperty(cfg, k, v); err != nil {
-			return errors.WithStack(err)
+			return errwrap.WithStack(err)
 		}
 	}
 	reader := kafka.NewReader(*cfg)
@@ -147,7 +146,7 @@ func setProperty(cfg *kafka.ReaderConfig, k, v string) error {
 	case "bootstrap.servers":
 		cfg.Brokers = strings.Split(v, ",")
 	default:
-		return errors.NewInvalidConfigurationError(fmt.Sprintf("unsupported segmentio/kafka-go client option: %s", v))
+		return errwrap.Errorf("invalid configuration: unsupported segmentio/kafka-go client option: %s", v)
 	}
 	return nil
 }

@@ -5,8 +5,9 @@ import (
 	"context"
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
-	"github.com/spirit-labs/tektite/conf"
-	"github.com/spirit-labs/tektite/errors"
+	"github.com/spirit-labs/tektite/asl/conf"
+	"github.com/spirit-labs/tektite/asl/errwrap"
+	"github.com/spirit-labs/tektite/common"
 	"io"
 )
 
@@ -32,7 +33,7 @@ func (m *Client) Get(key []byte) ([]byte, error) {
 	buff, err := io.ReadAll(obj)
 	if err != nil {
 		var merr minio.ErrorResponse
-		if errors.As(err, &merr) {
+		if errwrap.As(err, &merr) {
 			if merr.StatusCode == 404 {
 				// does not exist
 				return nil, nil
@@ -77,5 +78,5 @@ func maybeConvertError(err error) error {
 	if err == nil {
 		return err
 	}
-	return errors.NewTektiteErrorf(errors.Unavailable, err.Error())
+	return common.NewTektiteErrorf(common.Unavailable, err.Error())
 }

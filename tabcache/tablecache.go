@@ -2,8 +2,8 @@ package tabcache
 
 import (
 	"github.com/dgraph-io/ristretto"
+	"github.com/spirit-labs/tektite/asl/conf"
 	"github.com/spirit-labs/tektite/common"
-	"github.com/spirit-labs/tektite/conf"
 	"github.com/spirit-labs/tektite/objstore"
 	"github.com/spirit-labs/tektite/sst"
 	"sync"

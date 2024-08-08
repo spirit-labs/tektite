@@ -5,10 +5,10 @@ import (
 	"encoding/binary"
 	"fmt"
 	"github.com/google/uuid"
+	"github.com/spirit-labs/tektite/asl/conf"
+	encoding2 "github.com/spirit-labs/tektite/asl/encoding"
+	"github.com/spirit-labs/tektite/asl/errwrap"
 	"github.com/spirit-labs/tektite/common"
-	"github.com/spirit-labs/tektite/conf"
-	"github.com/spirit-labs/tektite/encoding"
-	"github.com/spirit-labs/tektite/errors"
 	"github.com/spirit-labs/tektite/iteration"
 	"github.com/spirit-labs/tektite/sst"
 	"github.com/spirit-labs/tektite/testutils"
@@ -42,10 +42,10 @@ func TestPollerTimeout(t *testing.T) {
 		err := <-ch
 		require.Error(t, err)
 		require.True(t, time.Now().Sub(start) >= pollerTimeout)
-		var perr errors.TektiteError
-		isTektiteError := errors.As(err, &perr)
+		var perr common.TektiteError
+		isTektiteError := errwrap.As(err, &perr)
 		require.True(t, isTektiteError)
-		require.Equal(t, errors.CompactionPollTimeout, perr.Code)
+		require.Equal(t, common.CompactionPollTimeout, perr.Code)
 	}
 }
 
@@ -246,14 +246,14 @@ func TestPollJobAndCompleteItLevel0To1(t *testing.T) {
 	newTables := []TableEntry{
 		{
 			SSTableID:   []byte("sst2-6"),
-			RangeStart:  encoding.EncodeVersion([]byte("key00008"), 0),
-			RangeEnd:    encoding.EncodeVersion([]byte("key00033"), 0),
+			RangeStart:  encoding2.EncodeVersion([]byte("key00008"), 0),
+			RangeEnd:    encoding2.EncodeVersion([]byte("key00033"), 0),
 			DeleteRatio: 1.23,
 		},
 		{
 			SSTableID:   []byte("sst2-7"),
-			RangeStart:  encoding.EncodeVersion([]byte("key00034"), 0),
-			RangeEnd:    encoding.EncodeVersion([]byte("key00050"), 0),
+			RangeStart:  encoding2.EncodeVersion([]byte("key00034"), 0),
+			RangeEnd:    encoding2.EncodeVersion([]byte("key00050"), 0),
 			DeleteRatio: 1.33,
 		},
 	}
@@ -294,32 +294,32 @@ func TestPollJobAndCompleteItLevel0To1EmptyL1(t *testing.T) {
 
 	sst1_1 := TableEntry{
 		SSTableID:   []byte("sst1-1"),
-		RangeStart:  encoding.EncodeVersion([]byte("key00011"), 0),
-		RangeEnd:    encoding.EncodeVersion([]byte("key00050"), 0),
+		RangeStart:  encoding2.EncodeVersion([]byte("key00011"), 0),
+		RangeEnd:    encoding2.EncodeVersion([]byte("key00050"), 0),
 		DeleteRatio: 0.1,
 	}
 	sst1_2 := TableEntry{
 		SSTableID:   []byte("sst1-2"),
-		RangeStart:  encoding.EncodeVersion([]byte("key00035"), 0),
-		RangeEnd:    encoding.EncodeVersion([]byte("key00040"), 0),
+		RangeStart:  encoding2.EncodeVersion([]byte("key00035"), 0),
+		RangeEnd:    encoding2.EncodeVersion([]byte("key00040"), 0),
 		DeleteRatio: 0.1,
 	}
 	sst1_3 := TableEntry{
 		SSTableID:   []byte("sst1-3"),
-		RangeStart:  encoding.EncodeVersion([]byte("key00009"), 0),
-		RangeEnd:    encoding.EncodeVersion([]byte("key00022"), 0),
+		RangeStart:  encoding2.EncodeVersion([]byte("key00009"), 0),
+		RangeEnd:    encoding2.EncodeVersion([]byte("key00022"), 0),
 		DeleteRatio: 0.1,
 	}
 	sst1_4 := TableEntry{
 		SSTableID:   []byte("sst1-4"),
-		RangeStart:  encoding.EncodeVersion([]byte("key00033"), 0),
-		RangeEnd:    encoding.EncodeVersion([]byte("key00048"), 0),
+		RangeStart:  encoding2.EncodeVersion([]byte("key00033"), 0),
+		RangeEnd:    encoding2.EncodeVersion([]byte("key00048"), 0),
 		DeleteRatio: 0.1,
 	}
 	sst1_5 := TableEntry{
 		SSTableID:   []byte("sst1-5"),
-		RangeStart:  encoding.EncodeVersion([]byte("key00008"), 0),
-		RangeEnd:    encoding.EncodeVersion([]byte("key00031"), 0),
+		RangeStart:  encoding2.EncodeVersion([]byte("key00008"), 0),
+		RangeEnd:    encoding2.EncodeVersion([]byte("key00031"), 0),
 		DeleteRatio: 0.11,
 	}
 	populateLevel(t, lm, 0, sst1_1, sst1_2, sst1_3, sst1_4, sst1_5)
@@ -345,28 +345,28 @@ func TestPollJobAndCompleteItLevel0To1EmptyL1(t *testing.T) {
 
 	require.Equal(t, 1, len(job.tables[0]))
 	require.Equal(t, "sst1-5", string(job.tables[0][0].table.SSTableID))
-	require.Equal(t, encoding.EncodeVersion([]byte("key00008"), 0), job.tables[0][0].table.RangeStart)
-	require.Equal(t, encoding.EncodeVersion([]byte("key00031"), 0), job.tables[0][0].table.RangeEnd)
+	require.Equal(t, encoding2.EncodeVersion([]byte("key00008"), 0), job.tables[0][0].table.RangeStart)
+	require.Equal(t, encoding2.EncodeVersion([]byte("key00031"), 0), job.tables[0][0].table.RangeEnd)
 
 	require.Equal(t, 1, len(job.tables[1]))
 	require.Equal(t, "sst1-4", string(job.tables[1][0].table.SSTableID))
-	require.Equal(t, encoding.EncodeVersion([]byte("key00033"), 0), job.tables[1][0].table.RangeStart)
-	require.Equal(t, encoding.EncodeVersion([]byte("key00048"), 0), job.tables[1][0].table.RangeEnd)
+	require.Equal(t, encoding2.EncodeVersion([]byte("key00033"), 0), job.tables[1][0].table.RangeStart)
+	require.Equal(t, encoding2.EncodeVersion([]byte("key00048"), 0), job.tables[1][0].table.RangeEnd)
 
 	require.Equal(t, 1, len(job.tables[2]))
 	require.Equal(t, "sst1-3", string(job.tables[2][0].table.SSTableID))
-	require.Equal(t, encoding.EncodeVersion([]byte("key00009"), 0), job.tables[2][0].table.RangeStart)
-	require.Equal(t, encoding.EncodeVersion([]byte("key00022"), 0), job.tables[2][0].table.RangeEnd)
+	require.Equal(t, encoding2.EncodeVersion([]byte("key00009"), 0), job.tables[2][0].table.RangeStart)
+	require.Equal(t, encoding2.EncodeVersion([]byte("key00022"), 0), job.tables[2][0].table.RangeEnd)
 
 	require.Equal(t, 1, len(job.tables[3]))
 	require.Equal(t, "sst1-2", string(job.tables[3][0].table.SSTableID))
-	require.Equal(t, encoding.EncodeVersion([]byte("key00035"), 0), job.tables[3][0].table.RangeStart)
-	require.Equal(t, encoding.EncodeVersion([]byte("key00040"), 0), job.tables[3][0].table.RangeEnd)
+	require.Equal(t, encoding2.EncodeVersion([]byte("key00035"), 0), job.tables[3][0].table.RangeStart)
+	require.Equal(t, encoding2.EncodeVersion([]byte("key00040"), 0), job.tables[3][0].table.RangeEnd)
 
 	require.Equal(t, 1, len(job.tables[4]))
 	require.Equal(t, "sst1-1", string(job.tables[4][0].table.SSTableID))
-	require.Equal(t, encoding.EncodeVersion([]byte("key00011"), 0), job.tables[4][0].table.RangeStart)
-	require.Equal(t, encoding.EncodeVersion([]byte("key00050"), 0), job.tables[4][0].table.RangeEnd)
+	require.Equal(t, encoding2.EncodeVersion([]byte("key00011"), 0), job.tables[4][0].table.RangeStart)
+	require.Equal(t, encoding2.EncodeVersion([]byte("key00050"), 0), job.tables[4][0].table.RangeEnd)
 
 	newTables := []TableEntry{
 		createTableEntryWithDeleteRatio("sst2-6", 8, 33, 1.23),
@@ -477,22 +477,22 @@ func TestCompactionTimeout(t *testing.T) {
 
 	sst1 := TableEntry{
 		SSTableID:   []byte("sst1"),
-		RangeStart:  encoding.EncodeVersion([]byte("key00000"), 0),
-		RangeEnd:    encoding.EncodeVersion([]byte("key00009"), 0),
+		RangeStart:  encoding2.EncodeVersion([]byte("key00000"), 0),
+		RangeEnd:    encoding2.EncodeVersion([]byte("key00009"), 0),
 		DeleteRatio: 0.1,
 	}
 	sst2 := TableEntry{
 		SSTableID:   []byte("sst2"),
-		RangeStart:  encoding.EncodeVersion([]byte("key00010"), 0),
-		RangeEnd:    encoding.EncodeVersion([]byte("key00019"), 0),
+		RangeStart:  encoding2.EncodeVersion([]byte("key00010"), 0),
+		RangeEnd:    encoding2.EncodeVersion([]byte("key00019"), 0),
 		DeleteRatio: 0.11,
 	}
 	populateLevel(t, lm, 1, sst1, sst2)
 
 	sst3 := TableEntry{
 		SSTableID:   []byte("sst3"),
-		RangeStart:  encoding.EncodeVersion([]byte("key00010"), 0),
-		RangeEnd:    encoding.EncodeVersion([]byte("key00019"), 0),
+		RangeStart:  encoding2.EncodeVersion([]byte("key00010"), 0),
+		RangeEnd:    encoding2.EncodeVersion([]byte("key00019"), 0),
 		DeleteRatio: 0.5,
 	}
 	populateLevel(t, lm, 2, sst3)
@@ -882,8 +882,8 @@ func addTablesToLevel(t *testing.T, lm *LevelManager, level int, numTables int, 
 		}
 		te := TableEntry{
 			SSTableID:   []byte(fmt.Sprintf("sst-%d-%d", level, i)),
-			RangeStart:  encoding.EncodeVersion([]byte(fmt.Sprintf("key-%05d", rangeStart)), 0),
-			RangeEnd:    encoding.EncodeVersion([]byte(fmt.Sprintf("key-%05d", rangeStart+rangePerLevel-1)), 0),
+			RangeStart:  encoding2.EncodeVersion([]byte(fmt.Sprintf("key-%05d", rangeStart)), 0),
+			RangeEnd:    encoding2.EncodeVersion([]byte(fmt.Sprintf("key-%05d", rangeStart+rangePerLevel-1)), 0),
 			DeleteRatio: dr,
 		}
 		entries = append(entries, te)
@@ -1252,7 +1252,7 @@ func TestMergeIntoMultipleTables(t *testing.T) {
 			if !valid {
 				break
 			}
-			expectedKey := encoding.EncodeVersion([]byte(fmt.Sprintf("xxxxxxxxxxxxxxxxsssssssskey%05d", i)), 1)
+			expectedKey := encoding2.EncodeVersion([]byte(fmt.Sprintf("xxxxxxxxxxxxxxxxsssssssskey%05d", i)), 1)
 			expectedValue := []byte(fmt.Sprintf("val%05d", i))
 			require.Equal(t, expectedKey, curr.Key)
 			require.Equal(t, expectedValue, curr.Value)
@@ -1303,7 +1303,7 @@ func TestMergeSameKeysDifferentVersions(t *testing.T) {
 		if !valid {
 			break
 		}
-		expectedKey := encoding.EncodeVersion([]byte(key), uint64(i))
+		expectedKey := encoding2.EncodeVersion([]byte(key), uint64(i))
 		expectedValue := []byte(fmt.Sprintf("val%05d", i))
 		require.Equal(t, expectedKey, curr.Key)
 		require.Equal(t, expectedValue, curr.Value)
@@ -1477,7 +1477,7 @@ func TestRemoveDeadVersionsIterator(t *testing.T) {
 	for i := 0; i < numEntries; i++ {
 		key := []byte(fmt.Sprintf("key-%05d", i))
 		val := []byte(fmt.Sprintf("val-%05d", i))
-		key = encoding.EncodeVersion(key, uint64(i))
+		key = encoding2.EncodeVersion(key, uint64(i))
 		si.AddKV(key, val)
 	}
 	deadRange1 := VersionRange{
@@ -1526,8 +1526,8 @@ func (t *testSlabRetentions) GetSlabRetention(slabID int) (time.Duration, error)
 }
 
 func createExpiredEntryKey(slabID int, i int) []byte {
-	key := []byte("xxxxxxxxxxxxxxxx")                          // partition hash
-	key = encoding.AppendUint64ToBufferBE(key, uint64(slabID)) // slab id
+	key := []byte("xxxxxxxxxxxxxxxx")                           // partition hash
+	key = encoding2.AppendUint64ToBufferBE(key, uint64(slabID)) // slab id
 	return append(key, []byte(fmt.Sprintf("key-%04d", i))...)
 }
 
@@ -1737,22 +1737,22 @@ type ssTableBuilder struct {
 }
 
 func (tb *ssTableBuilder) addEntry(key string, val string) {
-	kb := encoding.EncodeVersion([]byte(key), 0)
+	kb := encoding2.EncodeVersion([]byte(key), 0)
 	tb.si.AddKV(kb, []byte(val))
 }
 
 func (tb *ssTableBuilder) addEntryWithVersion(key string, val string, version uint64) {
-	kb := encoding.EncodeVersion([]byte(key), version)
+	kb := encoding2.EncodeVersion([]byte(key), version)
 	tb.si.AddKV(kb, []byte(val))
 }
 
 func (tb *ssTableBuilder) addTombstone(key string) {
-	kb := encoding.EncodeVersion([]byte(key), 0)
+	kb := encoding2.EncodeVersion([]byte(key), 0)
 	tb.si.AddKV(kb, nil)
 }
 
 func (tb *ssTableBuilder) addTombstoneWithVersion(key string, version uint64) {
-	kb := encoding.EncodeVersion([]byte(key), version)
+	kb := encoding2.EncodeVersion([]byte(key), version)
 	tb.si.AddKV(kb, nil)
 }
 
@@ -1771,8 +1771,8 @@ func createTableEntry(tableName string, rangeStart int, rangeEnd int) TableEntry
 func createTableEntryWithDeleteRatio(tableName string, rangeStart int, rangeEnd int, deleteRatio float64) TableEntry {
 	return TableEntry{
 		SSTableID:   []byte(tableName),
-		RangeStart:  encoding.EncodeVersion([]byte(fmt.Sprintf("key%05d", rangeStart)), 0),
-		RangeEnd:    encoding.EncodeVersion([]byte(fmt.Sprintf("key%05d", rangeEnd)), 0),
+		RangeStart:  encoding2.EncodeVersion([]byte(fmt.Sprintf("key%05d", rangeStart)), 0),
+		RangeEnd:    encoding2.EncodeVersion([]byte(fmt.Sprintf("key%05d", rangeEnd)), 0),
 		DeleteRatio: deleteRatio,
 	}
 }

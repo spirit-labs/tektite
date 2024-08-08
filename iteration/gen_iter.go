@@ -1,8 +1,8 @@
 package iteration
 
 import (
+	"github.com/spirit-labs/tektite/asl/encoding"
 	"github.com/spirit-labs/tektite/common"
-	"github.com/spirit-labs/tektite/encoding"
 )
 
 func NewStaticIterator(entries []common.KV) *StaticIterator {

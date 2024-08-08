@@ -2,8 +2,9 @@ package proc
 
 import (
 	"fmt"
+	"github.com/spirit-labs/tektite/asl/errwrap"
 	"github.com/spirit-labs/tektite/clustmgr"
-	"github.com/spirit-labs/tektite/errors"
+	"github.com/spirit-labs/tektite/common"
 	log "github.com/spirit-labs/tektite/logger"
 	"reflect"
 	"sync"
@@ -111,13 +112,13 @@ func (f *failureHandler) execFailureStage() error {
 		panic("unknown failure state")
 	}
 	if err != nil {
-		var terr errors.TektiteError
-		if errors.As(err, &terr) {
-			if terr.Code == errors.FailureCancelled {
+		var terr common.TektiteError
+		if errwrap.As(err, &terr) {
+			if terr.Code == common.FailureCancelled {
 				// failure cancelled as version manager notified us we sent wrong cluster version
 				f.cancelFailure()
 				return nil
-			} else if terr.Code == errors.Unavailable {
+			} else if terr.Code == common.Unavailable {
 				// temp unavailability - we will retry after delay
 				return nil
 			}

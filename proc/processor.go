@@ -3,11 +3,10 @@ package proc
 import (
 	"encoding/binary"
 	"fmt"
+	"github.com/spirit-labs/tektite/asl/conf"
+	encoding2 "github.com/spirit-labs/tektite/asl/encoding"
 	"github.com/spirit-labs/tektite/common"
-	"github.com/spirit-labs/tektite/conf"
 	"github.com/spirit-labs/tektite/debug"
-	"github.com/spirit-labs/tektite/encoding"
-	"github.com/spirit-labs/tektite/errors"
 	"github.com/spirit-labs/tektite/iteration"
 	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/mem"
@@ -102,7 +101,7 @@ func NewProcessor(id int, cfg *conf.Config, store Store, batchForwarder BatchFor
 	// We choose cache max size to 25% of the available space in a newly created memtable
 	cacheMaxSize := int(0.25 * float64(int64(cfg.MemtableMaxSizeBytes)-mem.MemtableSizeOverhead))
 	levelManagerProcessor := cfg.LevelManagerEnabled && id == cfg.ProcessorCount
-	replSeqKey := encoding.EncodeEntryPrefix(keyRangeStart, common.ReplSeqSlabID, 24)
+	replSeqKey := encoding2.EncodeEntryPrefix(keyRangeStart, common.ReplSeqSlabID, 24)
 	proc := &processor{
 		id:                        id,
 		cfg:                       cfg,
@@ -294,7 +293,7 @@ func (p *processor) IngestBatch(batch *ProcessBatch, completionFunc func(error))
 	if !p.IsLeader() {
 		// It's possible that leader has changed by the time this request is handled
 		// we return an error and the caller should retry on the new leader
-		completionFunc(errors.NewTektiteErrorf(errors.Unavailable, "processor is not leader"))
+		completionFunc(common.NewTektiteErrorf(common.Unavailable, "processor is not leader"))
 		return
 	}
 	p.SubmitAction(func() error {
@@ -322,7 +321,7 @@ func (p *processor) ProcessBatch(batch *ProcessBatch, completionFunc func(error)
 	if p.shuttingDown && batch.ForwardingProcessorID == -1 && !batch.Barrier && batch.ReceiverID != common.LevelManagerReceiverID {
 		// Note, we must let levelManager batches through as store flush is called during shutdown and this needs to apply
 		// changes on levelManager
-		completionFunc(errors.NewTektiteErrorf(errors.Unavailable, "cluster is shutting down"))
+		completionFunc(common.NewTektiteErrorf(common.Unavailable, "cluster is shutting down"))
 		return
 	}
 
@@ -358,7 +357,7 @@ func (p *processor) doHandleBatch(batch *ProcessBatch, reprocess bool, completio
 				// for level manager processor we allow batches to be handled when initial version not set - the
 				// level manager does not need versions, and if it waited for initial version to be set it would
 				// never initialise
-				completionFunc(errors.NewTektiteErrorf(errors.Unavailable, "initial version not set"))
+				completionFunc(common.NewTektiteErrorf(common.Unavailable, "initial version not set"))
 				return
 			}
 			// Assign a version
@@ -710,7 +709,7 @@ func (p *processor) SetLeader() {
 }
 
 func (p *processor) runLoop(ch chan struct{}) {
-	defer common.PanicHandler()
+	defer common.TektitePanicHandler()
 	goID := routine.Goid()
 	atomic.StoreInt64(&p.goID, goID)
 	ch <- struct{}{}
@@ -757,7 +756,7 @@ func (p *processor) prepareForShutdown() {
 func (p *processor) persistReplBatchSeq(batch *ProcessBatch, memBatch *mem.Batch) *mem.Batch {
 	key := make([]byte, 24, 32)
 	copy(key, p.replSeqKey)
-	key = encoding.EncodeVersion(key, uint64(batch.Version))
+	key = encoding2.EncodeVersion(key, uint64(batch.Version))
 	val := make([]byte, 8)
 	binary.LittleEndian.PutUint64(val, uint64(batch.ReplSeq))
 	if memBatch == nil {
@@ -780,20 +779,20 @@ func (p *processor) LoadLastProcessedReplBatchSeq(version int) (int64, error) {
 	if value == nil {
 		return -1, nil
 	}
-	seq, _ := encoding.ReadUint64FromBufferLE(value, 0)
+	seq, _ := encoding2.ReadUint64FromBufferLE(value, 0)
 	return int64(seq), nil
 }
 
 func (p *processor) GetWithMaxVersion(key []byte, maxVersion uint64) ([]byte, error) {
 	if !p.IsLeader() {
-		return nil, errors.NewTektiteErrorf(errors.Unavailable, "processor %d is not leader", p.id)
+		return nil, common.NewTektiteErrorf(common.Unavailable, "processor %d is not leader", p.id)
 	}
 	return p.store.GetWithMaxVersion(key, maxVersion)
 }
 
 func (p *processor) NewIterator(keyStart []byte, keyEnd []byte, highestVersion uint64, preserveTombstones bool) (iteration.Iterator, error) {
 	if !p.IsLeader() {
-		return nil, errors.NewTektiteErrorf(errors.Unavailable, "processor %d is not leader", p.id)
+		return nil, common.NewTektiteErrorf(common.Unavailable, "processor %d is not leader", p.id)
 	}
 	return p.store.NewIterator(keyStart, keyEnd, highestVersion, preserveTombstones)
 }

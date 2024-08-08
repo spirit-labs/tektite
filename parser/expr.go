@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"github.com/alecthomas/participle/v2/lexer"
 	"github.com/spirit-labs/tektite/common"
-	"github.com/spirit-labs/tektite/errors"
 	"strconv"
 )
 
@@ -23,7 +22,7 @@ func (b *BaseExprDesc) clearTokenState() {
 
 func (b *BaseExprDesc) ErrorAtPosition(msg string, args ...interface{}) error {
 	msg = fmt.Sprintf(msg, args...)
-	return errors.NewStatementError(MessageWithPosition(msg, b.tokenInfo.token.Pos, b.tokenInfo.input))
+	return common.NewStatementError(MessageWithPosition(msg, b.tokenInfo.token.Pos, b.tokenInfo.input))
 }
 
 type tokenInfo struct {

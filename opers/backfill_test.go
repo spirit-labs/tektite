@@ -2,10 +2,10 @@ package opers
 
 import (
 	"fmt"
-	"github.com/spirit-labs/tektite/arenaskl"
+	"github.com/spirit-labs/tektite/asl/arenaskl"
+	"github.com/spirit-labs/tektite/asl/conf"
+	encoding2 "github.com/spirit-labs/tektite/asl/encoding"
 	"github.com/spirit-labs/tektite/common"
-	"github.com/spirit-labs/tektite/conf"
-	"github.com/spirit-labs/tektite/encoding"
 	"github.com/spirit-labs/tektite/evbatch"
 	"github.com/spirit-labs/tektite/iteration"
 	"github.com/spirit-labs/tektite/mem"
@@ -239,7 +239,7 @@ func TestUpdatableIterator(t *testing.T) {
 	mb := mem.NewBatch()
 	for i := 0; i < 10; i++ {
 		mb.AddEntry(common.KV{
-			Key:   encoding.EncodeVersion([]byte(fmt.Sprintf("key%05d", i)), 0),
+			Key:   encoding2.EncodeVersion([]byte(fmt.Sprintf("key%05d", i)), 0),
 			Value: []byte(fmt.Sprintf("val%05d", i)),
 		})
 	}
@@ -257,7 +257,7 @@ func TestUpdatableIterator(t *testing.T) {
 		valid, curr, err := ua.Next()
 		require.NoError(t, err)
 		require.True(t, valid)
-		expectedKey := encoding.EncodeVersion([]byte(fmt.Sprintf("key%05d", i)), 0)
+		expectedKey := encoding2.EncodeVersion([]byte(fmt.Sprintf("key%05d", i)), 0)
 		expectedValue := []byte(fmt.Sprintf("val%05d", i))
 		require.Equal(t, expectedKey, curr.Key)
 		require.Equal(t, expectedValue, curr.Value)
@@ -268,7 +268,7 @@ func TestUpdatableIterator(t *testing.T) {
 	mb = mem.NewBatch()
 	for i := 10; i < 20; i++ {
 		mb.AddEntry(common.KV{
-			Key:   encoding.EncodeVersion([]byte(fmt.Sprintf("key%05d", i)), 0),
+			Key:   encoding2.EncodeVersion([]byte(fmt.Sprintf("key%05d", i)), 0),
 			Value: []byte(fmt.Sprintf("val%05d", i)),
 		})
 	}
@@ -282,7 +282,7 @@ func TestUpdatableIterator(t *testing.T) {
 		valid, curr, err := ua.Next()
 		require.NoError(t, err)
 		require.True(t, valid)
-		expectedKey := encoding.EncodeVersion([]byte(fmt.Sprintf("key%05d", i)), 0)
+		expectedKey := encoding2.EncodeVersion([]byte(fmt.Sprintf("key%05d", i)), 0)
 		expectedValue := []byte(fmt.Sprintf("val%05d", i))
 		require.Equal(t, expectedKey, curr.Key)
 		require.Equal(t, expectedValue, curr.Value)
@@ -403,16 +403,16 @@ func writeRowsToPartition(t *testing.T, partID int, numRows int, tableID int, st
 	mb := mem.NewBatch()
 	for j := 0; j < numRows; j++ {
 		partitionHash := proc.CalcPartitionHash("bar", uint64(partID))
-		keyPrefix := encoding.EncodeEntryPrefix(partitionHash, uint64(tableID), 41)
+		keyPrefix := encoding2.EncodeEntryPrefix(partitionHash, uint64(tableID), 41)
 		key := append(keyPrefix, 1) // not null byte
-		key = encoding.KeyEncodeInt(key, int64(j))
-		key = encoding.EncodeVersion(key, uint64(version))
+		key = encoding2.KeyEncodeInt(key, int64(j))
+		key = encoding2.EncodeVersion(key, uint64(version))
 		value := []byte{1}
-		value = encoding.AppendUint64ToBufferLE(value, uint64(j))
+		value = encoding2.AppendUint64ToBufferLE(value, uint64(j))
 		value = append(value, 1)
-		value = encoding.AppendStringToBufferLE(value, fmt.Sprintf("foo-part-%d-%d", partID, j))
+		value = encoding2.AppendStringToBufferLE(value, fmt.Sprintf("foo-part-%d-%d", partID, j))
 		value = append(value, 1)
-		value = encoding.AppendFloat64ToBufferLE(value, float64(10*partID+j)+0.1)
+		value = encoding2.AppendFloat64ToBufferLE(value, float64(10*partID+j)+0.1)
 		mb.AddEntry(common.KV{
 			Key:   key,
 			Value: value,

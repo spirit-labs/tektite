@@ -1,11 +1,16 @@
 package server
 
 import (
+	"github.com/spirit-labs/tektite/asl/remoting"
+	"github.com/spirit-labs/tektite/clustmgr"
 	"github.com/spirit-labs/tektite/common"
-	"github.com/spirit-labs/tektite/errors"
+	"github.com/spirit-labs/tektite/levels"
 	log "github.com/spirit-labs/tektite/logger"
+	"github.com/spirit-labs/tektite/opers"
+	"github.com/spirit-labs/tektite/proc"
 	"github.com/spirit-labs/tektite/protos/clustermsgs"
-	"github.com/spirit-labs/tektite/remoting"
+	"github.com/spirit-labs/tektite/vmgr"
+	"sync"
 )
 
 /*
@@ -28,29 +33,45 @@ If the shutdown process does not complete successfully, e.g. a cluster failure o
 tek-shutdown command will retry it from the beginning, until it succeeds.
 */
 
-type shutdownMessageHandler struct {
-	s *Server
+type ShutdownMessageHandler struct {
+	lock                sync.Mutex
+	processorManager    proc.Manager
+	streamManager       opers.StreamManager
+	versionManager      *vmgr.VersionManager
+	levelManagerService *levels.LevelManagerService
+	clusterStateManager clustmgr.StateManager
+	shutdownFunc        func() error
+	nodeID              int
+	shutDownPhase       int
 }
 
-func (s *shutdownMessageHandler) HandleMessage(messageHolder remoting.MessageHolder, completionFunc func(remoting.ClusterMessage, error)) {
-	s.s.executePhase(messageHolder.Message.(*clustermsgs.ShutdownMessage), completionFunc)
+func NewShutdownMessageHandler(processorManager proc.Manager, streamManager opers.StreamManager,
+	versionManager *vmgr.VersionManager, levelManagerService *levels.LevelManagerService,
+	clusterStateManager clustmgr.StateManager, shutdownFunc func() error, nodeID int) *ShutdownMessageHandler {
+	return &ShutdownMessageHandler{processorManager: processorManager, streamManager: streamManager,
+		versionManager: versionManager, levelManagerService: levelManagerService,
+		clusterStateManager: clusterStateManager, shutdownFunc: shutdownFunc, nodeID: nodeID}
 }
 
-func (s *Server) executePhase(msg *clustermsgs.ShutdownMessage, completionFunc func(remoting.ClusterMessage, error)) {
+func (s *ShutdownMessageHandler) HandleMessage(messageHolder remoting.MessageHolder, completionFunc func(remoting.ClusterMessage, error)) {
+	s.executePhase(messageHolder.Message.(*clustermsgs.ShutdownMessage), completionFunc)
+}
+
+func (s *ShutdownMessageHandler) executePhase(msg *clustermsgs.ShutdownMessage, completionFunc func(remoting.ClusterMessage, error)) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 	phase := int(msg.Phase)
 	if phase > 1 {
 		if s.shutDownPhase != phase-1 {
 			// Phases must be completed in sequence, but the process can be restarted from phase 1 in case of failure
-			completionFunc(nil, errors.NewTektiteErrorf(errors.ShutdownError,
+			completionFunc(nil, common.NewTektiteErrorf(common.ShutdownError,
 				"shutdown not in phase sequence"))
 			return
 		}
 		if s.processorManager.FailoverOccurred() {
 			// cluster failure(s) happened during the shutdown process - this could leave the possibility of unflushed
 			// data, so we terminate the shutdown process - it will be retried from the command.
-			completionFunc(nil, errors.NewTektiteErrorf(errors.ShutdownError,
+			completionFunc(nil, common.NewTektiteErrorf(common.ShutdownError,
 				"cluster failure(s) occurred - shutdown will be terminated"))
 			return
 		}
@@ -71,19 +92,19 @@ func (s *Server) executePhase(msg *clustermsgs.ShutdownMessage, completionFunc f
 		// Wait for all processing to complete
 		s.processorManager.WaitForProcessingToComplete()
 	case 3:
-		log.Debugf("node %d executing store flush", s.conf.NodeID)
+		log.Debugf("node %d executing store flush", s.nodeID)
 
 		// All data has been written, we can flush.
 		err = s.processorManager.FlushAllProcessors(true)
 
-		log.Debugf("node %d shutdown, store flush called, err: %v", s.conf.NodeID, err)
+		log.Debugf("node %d shutdown, store flush called, err: %v", s.nodeID, err)
 	case 4:
 		// shutdown the version manager - this waits for version to be flushed and stores it in the
 		// level manager
-		log.Debugf("node %d shutdown, calling vmgr shutdown", s.conf.NodeID)
+		log.Debugf("node %d shutdown, calling vmgr shutdown", s.nodeID)
 		versionManagerFlushed, err = s.versionManager.Shutdown()
 		log.Debugf("node %d shutdown, version manager shutdown called, flushed: %t err: %v",
-			s.conf.NodeID, versionManagerFlushed, err)
+			s.nodeID, versionManagerFlushed, err)
 	case 5:
 		// Now we must acquiesce the level manager replicator - this is necessary, so we don't get attempts to apply
 		// actions on the level manager after it has shutdown
@@ -102,7 +123,7 @@ func (s *Server) executePhase(msg *clustermsgs.ShutdownMessage, completionFunc f
 		// from the readloop of the connection (and we're called from there here), as they wait on a WaitGroup for the
 		// readLoop to terminate
 		common.Go(func() {
-			if err := s.Shutdown(); err != nil {
+			if err := s.shutdownFunc(); err != nil {
 				completionFunc(nil, err)
 			} else {
 				completionFunc(&clustermsgs.ShutdownResponse{Flushed: false}, nil)
@@ -111,17 +132,11 @@ func (s *Server) executePhase(msg *clustermsgs.ShutdownMessage, completionFunc f
 		return
 	}
 	if err != nil {
-		log.Debugf("shutdown on node %d returned error: %v", s.conf.NodeID, err)
+		log.Debugf("shutdown on node %d returned error: %v", s.nodeID, err)
 		completionFunc(nil, err)
 		return
 	}
 
 	s.shutDownPhase = phase
 	completionFunc(&clustermsgs.ShutdownResponse{Flushed: levelManagerFlushed || versionManagerFlushed}, nil)
-}
-
-func (s *Server) WasShutdown() bool {
-	s.lock.Lock()
-	defer s.lock.Unlock()
-	return s.shutdownComplete
 }

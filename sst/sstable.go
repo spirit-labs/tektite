@@ -3,9 +3,9 @@ package sst
 import (
 	"bytes"
 	"encoding/binary"
+	"github.com/spirit-labs/tektite/asl/encoding"
+	"github.com/spirit-labs/tektite/asl/errwrap"
 	"github.com/spirit-labs/tektite/common"
-	"github.com/spirit-labs/tektite/encoding"
-	"github.com/spirit-labs/tektite/errors"
 	"github.com/spirit-labs/tektite/iteration"
 	"math"
 	"time"
@@ -143,7 +143,7 @@ func BuildSSTable(format common.DataFormat, buffSizeEstimate int, entriesEstimat
 	// Now fill in metadata offset
 	metadataOffset := len(buff)
 	if metadataOffset > math.MaxUint32 {
-		return nil, nil, nil, 0, 0, errors.New("SSTable too big")
+		return nil, nil, nil, 0, 0, errwrap.New("SSTable too big")
 	}
 	buff[1] = byte(metadataOffset)
 	buff[2] = byte(metadataOffset >> 8)

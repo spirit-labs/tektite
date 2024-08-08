@@ -3,8 +3,8 @@ package levels
 
 import (
 	"encoding/binary"
+	"github.com/spirit-labs/tektite/asl/encoding"
 	"github.com/spirit-labs/tektite/common"
-	"github.com/spirit-labs/tektite/encoding"
 	"github.com/spirit-labs/tektite/sst"
 )
 

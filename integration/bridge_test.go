@@ -6,15 +6,15 @@ import (
 	"context"
 	"fmt"
 	kafkago "github.com/confluentinc/confluent-kafka-go/kafka"
-	"github.com/docker/docker/client"
+	docker "github.com/docker/docker/client"
 	"github.com/google/uuid"
+	"github.com/spirit-labs/tektite/asl/conf"
+	"github.com/spirit-labs/tektite/asl/server"
+	"github.com/spirit-labs/tektite/client"
 	"github.com/spirit-labs/tektite/common"
-	"github.com/spirit-labs/tektite/conf"
 	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/objstore/dev"
-	"github.com/spirit-labs/tektite/server"
 	"github.com/spirit-labs/tektite/shutdown"
-	"github.com/spirit-labs/tektite/tekclient"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/kafka"
@@ -42,7 +42,7 @@ func TestBridgeKafkaInitiallyUnavailable(t *testing.T) {
 	createTopic(t, topicName, 10, kHolder.address)
 	kHolder.pauseResumeKafka(t, true)
 
-	clientTLSConfig := tekclient.TLSConfig{
+	clientTLSConfig := client.TLSConfig{
 		TrustedCertsPath: serverCertPath,
 	}
 	clusterName := uuid.NewString()
@@ -53,7 +53,7 @@ func TestBridgeKafkaInitiallyUnavailable(t *testing.T) {
 		err = objStore.Stop()
 		require.NoError(t, err)
 	}()
-	cli, err := tekclient.NewClient(s.GetConfig().HttpApiAddresses[0], clientTLSConfig)
+	cli, err := client.NewClient(s.GetConfig().HttpApiAddresses[0], clientTLSConfig)
 	require.NoError(t, err)
 	defer cli.Close()
 
@@ -108,7 +108,7 @@ func TestBridgeSimulateNetworkFailure(t *testing.T) {
 	topicName := genTopicName()
 	createTopic(t, topicName, 10, kHolder.address)
 
-	clientTLSConfig := tekclient.TLSConfig{
+	clientTLSConfig := client.TLSConfig{
 		TrustedCertsPath: serverCertPath,
 	}
 	clusterName := uuid.NewString()
@@ -119,7 +119,7 @@ func TestBridgeSimulateNetworkFailure(t *testing.T) {
 		err = objStore.Stop()
 		require.NoError(t, err)
 	}()
-	cli, err := tekclient.NewClient(s.GetConfig().HttpApiAddresses[0], clientTLSConfig)
+	cli, err := client.NewClient(s.GetConfig().HttpApiAddresses[0], clientTLSConfig)
 	require.NoError(t, err)
 	defer cli.Close()
 
@@ -199,7 +199,7 @@ func TestRestartBridgeMessagesStored(t *testing.T) {
 	topicName := genTopicName()
 	createTopic(t, topicName, 10, kHolder.address)
 
-	clientTLSConfig := tekclient.TLSConfig{
+	clientTLSConfig := client.TLSConfig{
 		TrustedCertsPath: serverCertPath,
 	}
 	clusterName := uuid.NewString()
@@ -210,7 +210,7 @@ func TestRestartBridgeMessagesStored(t *testing.T) {
 		err = objStore.Stop()
 		require.NoError(t, err)
 	}()
-	cli, err := tekclient.NewClient(s.GetConfig().HttpApiAddresses[0], clientTLSConfig)
+	cli, err := client.NewClient(s.GetConfig().HttpApiAddresses[0], clientTLSConfig)
 	require.NoError(t, err)
 	defer cli.Close()
 
@@ -265,7 +265,7 @@ egest_stream := local_topic -> (bridge to %s props = ("bootstrap.servers" = "%s"
 
 	log.Debugf("%s unpaused kafka - now waiting for rows", t.Name())
 
-	cli, err = tekclient.NewClient(s.GetConfig().HttpApiAddresses[0], clientTLSConfig)
+	cli, err = client.NewClient(s.GetConfig().HttpApiAddresses[0], clientTLSConfig)
 	require.NoError(t, err)
 	defer cli.Close()
 
@@ -374,7 +374,7 @@ func (k *kafkaHolder) stop() {
 
 func (k *kafkaHolder) pauseResumeKafka(t *testing.T, pause bool) {
 	containerID := k.kc.GetContainerID()
-	dockerCli, err := client.NewClientWithOpts(client.FromEnv)
+	dockerCli, err := docker.NewClientWithOpts(docker.FromEnv)
 	require.NoError(t, err)
 	defer func() {
 		err := dockerCli.Close()

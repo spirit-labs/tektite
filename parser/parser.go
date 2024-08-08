@@ -3,7 +3,8 @@ package parser
 import (
 	"fmt"
 	"github.com/alecthomas/participle/v2/lexer"
-	"github.com/spirit-labs/tektite/errors"
+	"github.com/spirit-labs/tektite/asl/errwrap"
+	"github.com/spirit-labs/tektite/common"
 	"strings"
 )
 
@@ -83,7 +84,7 @@ type Parser struct {
 
 func (p *Parser) Parse(input string, parseable Parseable) error {
 	if input == "" {
-		return errors.NewTektiteErrorf(errors.ParseError, "statement is empty")
+		return common.NewTektiteErrorf(common.ParseError, "statement is empty")
 	}
 	tokens, err := Lex(input, true)
 	if err != nil {
@@ -116,7 +117,7 @@ func Lex(input string, removeWhitespace bool) ([]lexer.Token, error) {
 		token, err := l.Next()
 		if err != nil {
 			var le *lexer.Error
-			ok := errors.As(err, &le)
+			ok := errwrap.As(err, &le)
 			if !ok {
 				return nil, err
 			}

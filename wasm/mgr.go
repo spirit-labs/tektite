@@ -4,9 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/spirit-labs/tektite/asl/conf"
+	"github.com/spirit-labs/tektite/asl/errwrap"
 	"github.com/spirit-labs/tektite/common"
-	"github.com/spirit-labs/tektite/conf"
-	"github.com/spirit-labs/tektite/errors"
 	"github.com/spirit-labs/tektite/expr"
 	"github.com/spirit-labs/tektite/lock"
 	log "github.com/spirit-labs/tektite/logger"
@@ -103,7 +103,7 @@ func (m *ModuleManager) RegisterModule(metaData ModuleMetadata, moduleBytes []by
 	m.lock.Lock()
 	defer m.lock.Unlock()
 	if !m.started {
-		return errors.New("not started")
+		return errwrap.New("not started")
 	}
 
 	if err := m.getClusterWideLock(); err != nil {
@@ -141,20 +141,20 @@ func (m *ModuleManager) RegisterModule(metaData ModuleMetadata, moduleBytes []by
 			return nil
 		}
 	}
-	return errors.NewTektiteErrorf(errors.WasmError, "module '%s' already registered", metaData.ModuleName)
+	return common.NewTektiteErrorf(common.WasmError, "module '%s' already registered", metaData.ModuleName)
 }
 
 func (m *ModuleManager) compileAndCreateRegisteredModule(metadata ModuleMetadata, moduleBytes []byte) (*RegisteredModule, error) {
 	mod, err := m.runtime.CompileModule(context.Background(), moduleBytes)
 	if err != nil {
-		return nil, errors.NewTektiteErrorf(errors.WasmError, "failed to compile wasm module (possibly corrupt): %v", err)
+		return nil, common.NewTektiteErrorf(common.WasmError, "failed to compile wasm module (possibly corrupt): %v", err)
 	}
 	// Create the instances
 	moduleInstances := make([]*modWrapper, m.cfg.WasmModuleInstances)
 	for i := range moduleInstances {
 		instance, err := m.runtime.InstantiateModule(context.Background(), mod, wazero.NewModuleConfig().WithName(""))
 		if err != nil {
-			return nil, errors.NewTektiteErrorf(errors.WasmError, "failed to instantiate wasm module %v", err)
+			return nil, common.NewTektiteErrorf(common.WasmError, "failed to instantiate wasm module %v", err)
 		}
 		moduleInstances[i] = &modWrapper{instance: instance}
 	}
@@ -176,7 +176,7 @@ func (m *ModuleManager) UnregisterModule(name string) error {
 	m.lock.Lock()
 	defer m.lock.Unlock()
 	if !m.started {
-		return errors.New("not started")
+		return errwrap.New("not started")
 	}
 	if err := m.getClusterWideLock(); err != nil {
 		return err
@@ -189,7 +189,7 @@ func (m *ModuleManager) UnregisterModule(name string) error {
 	}()
 	registeredModule, ok := m.registeredModules[name]
 	if !ok {
-		return errors.NewTektiteErrorf(errors.WasmError, "unknown module '%s'", name)
+		return common.NewTektiteErrorf(common.WasmError, "unknown module '%s'", name)
 	}
 	registeredModule.close()
 	delete(m.registeredModules, name)
@@ -219,7 +219,7 @@ func (m *ModuleManager) GetFunctionMetadata(fullFuncName string) (expr.FunctionM
 	m.lock.RLock()
 	defer m.lock.RUnlock()
 	if !m.started {
-		return expr.FunctionMetadata{}, false, errors.New("not started")
+		return expr.FunctionMetadata{}, false, errwrap.New("not started")
 	}
 	modName, funcName, err := extractModAndFuncName(fullFuncName)
 	if err != nil {
@@ -257,7 +257,7 @@ func (m *ModuleManager) maybeLoadModule(moduleName string) (*RegisteredModule, e
 		return nil, err
 	}
 	if jsonBytes == nil {
-		return nil, errors.NewTektiteErrorf(errors.WasmError, "json bytes object for module '%s' not found in object store",
+		return nil, common.NewTektiteErrorf(common.WasmError, "json bytes object for module '%s' not found in object store",
 			moduleName)
 	}
 	var metaData ModuleMetadata
@@ -276,7 +276,7 @@ func (m *ModuleManager) CreateInvoker(fullFuncName string) (*Invoker, error) {
 	m.lock.RLock()
 	defer m.lock.RUnlock()
 	if !m.started {
-		return nil, errors.New("not started")
+		return nil, errwrap.New("not started")
 	}
 	modName, funcName, err := extractModAndFuncName(fullFuncName)
 	if err != nil {
@@ -284,7 +284,7 @@ func (m *ModuleManager) CreateInvoker(fullFuncName string) (*Invoker, error) {
 	}
 	registeredModule, ok := m.registeredModules[modName]
 	if !ok {
-		return nil, errors.NewTektiteErrorf(errors.WasmError, "module '%s' is not registered", modName)
+		return nil, common.NewTektiteErrorf(common.WasmError, "module '%s' is not registered", modName)
 	}
 	return registeredModule.createInvoker(funcName)
 }
@@ -292,7 +292,7 @@ func (m *ModuleManager) CreateInvoker(fullFuncName string) (*Invoker, error) {
 func extractModAndFuncName(fullFuncName string) (string, string, error) {
 	pos := strings.Index(fullFuncName, ".")
 	if pos < 1 {
-		return "", "", errors.NewTektiteError(errors.WasmError, "invalid external function name. must be of form <module_name>.<function_name>")
+		return "", "", common.NewTektiteError(common.WasmError, "invalid external function name. must be of form <module_name>.<function_name>")
 	}
 	modName := fullFuncName[:pos]
 	funcName := fullFuncName[pos+1:]
@@ -301,12 +301,12 @@ func extractModAndFuncName(fullFuncName string) (string, string, error) {
 
 func (r *RegisteredModule) Validate() error {
 	if len(r.metaData.FunctionsMetadata) == 0 {
-		return errors.NewTektiteErrorf(errors.WasmError, "module '%s' does not export any functions", r.metaData.ModuleName)
+		return common.NewTektiteErrorf(common.WasmError, "module '%s' does not export any functions", r.metaData.ModuleName)
 	}
 	for funcName, funcMetaData := range r.metaData.FunctionsMetadata {
 		f := r.moduleInstances[0].instance.ExportedFunction(funcName)
 		if f == nil {
-			return errors.NewTektiteErrorf(errors.WasmError, "module '%s' does not contain function '%s'", r.metaData.ModuleName, funcName)
+			return common.NewTektiteErrorf(common.WasmError, "module '%s' does not contain function '%s'", r.metaData.ModuleName, funcName)
 		}
 		if err := r.checkFunctionSignature(f, funcMetaData.ParamTypes, funcMetaData.ReturnType); err != nil {
 			return err
@@ -321,17 +321,17 @@ func (r *RegisteredModule) createInvoker(funcName string) (*Invoker, error) {
 	wrapper := r.moduleInstances[pos]
 	meta, ok := r.metaData.FunctionsMetadata[funcName]
 	if !ok {
-		return nil, errors.NewTektiteErrorf(errors.WasmError, "function '%s' not exported from module '%s'", funcName, r.metaData.ModuleName)
+		return nil, common.NewTektiteErrorf(common.WasmError, "function '%s' not exported from module '%s'", funcName, r.metaData.ModuleName)
 	}
 	f := wrapper.instance.ExportedFunction(funcName)
 
 	malloc := wrapper.instance.ExportedFunction("malloc")
 	if malloc == nil {
-		return nil, errors.NewTektiteErrorf(errors.WasmError, "module '%s' must export a 'malloc' function", r.metaData.ModuleName)
+		return nil, common.NewTektiteErrorf(common.WasmError, "module '%s' must export a 'malloc' function", r.metaData.ModuleName)
 	}
 	free := wrapper.instance.ExportedFunction("free")
 	if malloc == nil {
-		return nil, errors.NewTektiteErrorf(errors.WasmError, "module '%s' must export a 'free' function", r.metaData.ModuleName)
+		return nil, common.NewTektiteErrorf(common.WasmError, "module '%s' must export a 'free' function", r.metaData.ModuleName)
 	}
 	invoker := &Invoker{
 		meta:   meta,
@@ -366,14 +366,14 @@ func (r *RegisteredModule) checkFunctionSignature(f api.Function, paramTypes []t
 	}
 	expectedReturnType := wasmTypeForTektiteType(returnType)
 	if !reflect.DeepEqual(pts, expectedParamTypes) {
-		return errors.NewTektiteErrorf(errors.WasmError, "function '%s' as defined in the json metadata would require a wasm function with wasm parameter types %s. But the actual wasm function has parameter types %s",
+		return common.NewTektiteErrorf(common.WasmError, "function '%s' as defined in the json metadata would require a wasm function with wasm parameter types %s. But the actual wasm function has parameter types %s",
 			def.Name(), wasmTypesToString(expectedParamTypes), wasmTypesToString(pts))
 	}
 	if len(def.ResultTypes()) != 1 {
-		return errors.NewTektiteErrorf(errors.WasmError, "function '%s' must have one return value but it has %d", def.Name(), len(def.ResultTypes()))
+		return common.NewTektiteErrorf(common.WasmError, "function '%s' must have one return value but it has %d", def.Name(), len(def.ResultTypes()))
 	}
 	if expectedReturnType != def.ResultTypes()[0] {
-		return errors.NewTektiteErrorf(errors.WasmError, "function '%s' as defined in the json metadata would require a wasm function with return type %s. But the actual wasm function has return type %s",
+		return common.NewTektiteErrorf(common.WasmError, "function '%s' as defined in the json metadata would require a wasm function with return type %s. But the actual wasm function has return type %s",
 			def.Name(), api.ValueTypeName(expectedReturnType), api.ValueTypeName(def.ResultTypes()[0]))
 	}
 	return nil
@@ -479,7 +479,7 @@ func (ii *Invoker) Invoke(inArgs []any) (any, error) {
 
 	resArr, err := ii.f.Call(ctx, args...)
 	if err != nil {
-		return nil, errors.NewTektiteErrorf(errors.WasmError, "failed to call wasm function %s : %v",
+		return nil, common.NewTektiteErrorf(common.WasmError, "failed to call wasm function %s : %v",
 			ii.f.Definition().Name(), err)
 	}
 
@@ -536,7 +536,7 @@ func (ii *Invoker) prepareBytesArg(val []byte, ctx context.Context) (uint64, fun
 		}
 		memPtr := results[0]
 		if !ii.mod.instance.Memory().Write(uint32(memPtr), val) {
-			return 0, nil, errors.Errorf("Memory.Write(%d, %d) out of range of memory size %d",
+			return 0, nil, errwrap.Errorf("Memory.Write(%d, %d) out of range of memory size %d",
 				memPtr, lv, ii.mod.instance.Memory().Size())
 		}
 		arg := memPtr<<32 | uint64(lv)
@@ -559,7 +559,7 @@ func (ii *Invoker) decodeBytesReturn(res uint64, ctx context.Context) ([]byte, f
 		var ok bool
 		bytes, ok = ii.mod.instance.Memory().Read(resPtr, resSize)
 		if !ok {
-			return nil, nil, errors.Errorf("Memory.Read(%d, %d) out of range of memory size %d",
+			return nil, nil, errwrap.Errorf("Memory.Read(%d, %d) out of range of memory size %d",
 				resPtr, resSize, ii.mod.instance.Memory().Size())
 		}
 	}

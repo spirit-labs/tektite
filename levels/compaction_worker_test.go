@@ -4,9 +4,9 @@ import (
 	"encoding/binary"
 	"fmt"
 	"github.com/google/uuid"
+	"github.com/spirit-labs/tektite/asl/conf"
+	"github.com/spirit-labs/tektite/asl/encoding"
 	"github.com/spirit-labs/tektite/common"
-	"github.com/spirit-labs/tektite/conf"
-	"github.com/spirit-labs/tektite/encoding"
 	"github.com/spirit-labs/tektite/iteration"
 	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/objstore"
@@ -75,7 +75,7 @@ func TestCompactionIncrementingData(t *testing.T) {
 		valid, curr, err := mi.Next()
 		require.NoError(t, err)
 		require.True(t, valid)
-		pref := common.CopyByteSlice(prefix)
+		pref := common.ByteSliceCopy(prefix)
 		expectedKey := append(pref, []byte(fmt.Sprintf("key%06d", i))...)
 		expectedVal := fmt.Sprintf("val%06d", i)
 		require.Equal(t, expectedKey, curr.Key[:len(curr.Key)-8]) // trim version
@@ -138,7 +138,7 @@ func TestCompactionOverwritingData(t *testing.T) {
 		sort.Ints(randKeys)
 
 		for _, k := range randKeys {
-			prefixCopy := common.CopyByteSlice(prefix)
+			prefixCopy := common.ByteSliceCopy(prefix)
 			key := append(prefixCopy, []byte(fmt.Sprintf("key%06d", k))...)
 			v := random.Intn(numKeys)
 			val := fmt.Sprintf("val%06d", v)
@@ -194,7 +194,7 @@ func TestCompactionOverwritingData(t *testing.T) {
 		require.True(t, ok)
 		expectedVersion--
 
-		prefixCopy := common.CopyByteSlice(prefix)
+		prefixCopy := common.ByteSliceCopy(prefix)
 		expectedKey := append(prefixCopy, []byte(fmt.Sprintf("key%06d", k))...)
 		expectedVal := fmt.Sprintf("val%06d", v)
 
@@ -387,7 +387,7 @@ func TestRandomUpdateDeleteData(t *testing.T) {
 		}
 
 		for _, k := range randKeys {
-			prefixCopy := common.CopyByteSlice(prefix)
+			prefixCopy := common.ByteSliceCopy(prefix)
 			key := append(prefixCopy, []byte(fmt.Sprintf("key%06d", k))...)
 
 			entry := &keys[k]
@@ -454,7 +454,7 @@ func TestRandomUpdateDeleteData(t *testing.T) {
 		ver := math.MaxUint64 - binary.BigEndian.Uint64(curr.Key[len(curr.Key)-8:])
 
 		expectedVersion := entry.ver - 1
-		prefixCopy := common.CopyByteSlice(prefix)
+		prefixCopy := common.ByteSliceCopy(prefix)
 		expectedKey := append(prefixCopy, []byte(fmt.Sprintf("key%06d", k))...)
 		expectedVal := fmt.Sprintf("val%06d", entry.val)
 
@@ -567,7 +567,7 @@ func TestCompactionExpiredPrefix(t *testing.T) {
 	// prefix1 and prefix2 tables so a merge won't occur, thus leaving prefix1 in last level. This is OK - it will
 	// get removed once that level becomes full, and it gets pushed to next level.
 
-	endRange := common.IncrementBytesBigEndian(prefix1)
+	endRange := common.IncBigEndianBytes(prefix1)
 	for i := 0; i < lm.getLastLevel(); i++ {
 		iter, err := lm.LevelIterator(i)
 		require.NoError(t, err)
@@ -728,8 +728,8 @@ func TestCompactionPrefixDeletions(t *testing.T) {
 
 	// Now we'll add a deletion bomb
 	si := &iteration.StaticIterator{}
-	tombstone := common.CopyByteSlice(prefixes[1])
-	endMarker := append(common.IncrementBytesBigEndian(tombstone), 0)
+	tombstone := common.ByteSliceCopy(prefixes[1])
+	endMarker := append(common.IncBigEndianBytes(tombstone), 0)
 	si.AddKV(encoding.EncodeVersion(tombstone, math.MaxUint64), nil)
 	si.AddKV(encoding.EncodeVersion(endMarker, math.MaxUint64), []byte{'x'})
 	log.Debugf("added tombstone:%s", tombstone)
@@ -764,7 +764,7 @@ func TestCompactionPrefixDeletions(t *testing.T) {
 		}
 
 		// There should be no prefix1 in any levels
-		endRange := common.IncrementBytesBigEndian(prefixes[1])
+		endRange := common.IncBigEndianBytes(prefixes[1])
 		for i := 0; i < lm.getLastLevel(); i++ {
 			iter, err := lm.LevelIterator(i)
 			require.NoError(t, err)
@@ -862,7 +862,7 @@ func buildAndRegisterTableWithKeyRangeAndVersion(t *testing.T, name string, rang
 	cloudStore objstore.Client, tombstones bool, keyPrefix []byte, version int) ([]byte, []byte) {
 	si := &iteration.StaticIterator{}
 	for i := rangeStart; i <= rangeEnd; i++ {
-		key := common.CopyByteSlice(keyPrefix)
+		key := common.ByteSliceCopy(keyPrefix)
 		key = append(key, []byte(fmt.Sprintf("key%06d", i))...)
 		var val []byte
 		if !tombstones {

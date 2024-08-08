@@ -1,14 +1,14 @@
 package vmgr
 
 import (
+	"github.com/spirit-labs/tektite/asl/conf"
+	"github.com/spirit-labs/tektite/asl/errwrap"
+	"github.com/spirit-labs/tektite/asl/remoting"
 	"github.com/spirit-labs/tektite/clustmgr"
 	"github.com/spirit-labs/tektite/common"
-	"github.com/spirit-labs/tektite/conf"
-	"github.com/spirit-labs/tektite/errors"
 	"github.com/spirit-labs/tektite/levels"
 	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/protos/clustermsgs"
-	"github.com/spirit-labs/tektite/remoting"
 	"github.com/spirit-labs/tektite/sequence"
 	"github.com/spirit-labs/tektite/testutils"
 	"github.com/stretchr/testify/require"
@@ -487,7 +487,7 @@ func TestStopWhileActivating(t *testing.T) {
 
 	_, _, _, err := vmgr.GetVersions()
 	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, errors.Unavailable))
+	require.True(t, common.IsTektiteErrorWithCode(err, common.Unavailable))
 
 	// but we should still be able to stop it
 	err = vmgr.Stop()
@@ -855,9 +855,9 @@ func TestFailureWithLowerClusterVersion(t *testing.T) {
 	// lower cluster version
 	err = vmgr.FailureDetected(16, 1)
 	require.Error(t, err)
-	var terr errors.TektiteError
-	require.True(t, errors.As(err, &terr))
-	require.Equal(t, errors.ErrorCode(errors.FailureCancelled), terr.Code)
+	var terr common.TektiteError
+	require.True(t, errwrap.As(err, &terr))
+	require.Equal(t, common.ErrCode(common.FailureCancelled), terr.Code)
 }
 
 func TestGetLastFailureFlushedVersionWrongClusterVersion(t *testing.T) {
@@ -883,14 +883,14 @@ func TestGetLastFailureFlushedVersionWrongClusterVersion(t *testing.T) {
 
 	_, err = vmgr.GetLastFailureFlushedVersion(1)
 	require.Error(t, err)
-	var terr errors.TektiteError
-	require.True(t, errors.As(err, &terr))
-	require.Equal(t, errors.ErrorCode(errors.FailureCancelled), terr.Code)
+	var terr common.TektiteError
+	require.True(t, errwrap.As(err, &terr))
+	require.Equal(t, common.ErrCode(common.FailureCancelled), terr.Code)
 
 	_, err = vmgr.GetLastFailureFlushedVersion(3)
 	require.Error(t, err)
-	require.True(t, errors.As(err, &terr))
-	require.Equal(t, errors.ErrorCode(errors.FailureCancelled), terr.Code)
+	require.True(t, errwrap.As(err, &terr))
+	require.Equal(t, common.ErrCode(common.FailureCancelled), terr.Code)
 }
 
 func TestFailureCompleteWrongClusterVersion(t *testing.T) {
@@ -940,14 +940,14 @@ func TestFailureCompleteWrongClusterVersion(t *testing.T) {
 
 	err = vmgr.FailureComplete(16, 1)
 	require.Error(t, err)
-	var terr errors.TektiteError
-	require.True(t, errors.As(err, &terr))
-	require.Equal(t, errors.ErrorCode(errors.FailureCancelled), terr.Code)
+	var terr common.TektiteError
+	require.True(t, errwrap.As(err, &terr))
+	require.Equal(t, common.ErrCode(common.FailureCancelled), terr.Code)
 
 	err = vmgr.FailureComplete(16, 3)
 	require.Error(t, err)
-	require.True(t, errors.As(err, &terr))
-	require.Equal(t, errors.ErrorCode(errors.FailureCancelled), terr.Code)
+	require.True(t, errwrap.As(err, &terr))
+	require.Equal(t, common.ErrCode(common.FailureCancelled), terr.Code)
 }
 
 func TestIsFailureCompleteWrongClusterVersion(t *testing.T) {
@@ -997,27 +997,27 @@ func TestIsFailureCompleteWrongClusterVersion(t *testing.T) {
 
 	_, err = vmgr.IsFailureComplete(1)
 	require.Error(t, err)
-	var terr errors.TektiteError
-	require.True(t, errors.As(err, &terr))
-	require.Equal(t, errors.ErrorCode(errors.FailureCancelled), terr.Code)
+	var terr common.TektiteError
+	require.True(t, errwrap.As(err, &terr))
+	require.Equal(t, common.ErrCode(common.FailureCancelled), terr.Code)
 
 	_, err = vmgr.IsFailureComplete(3)
 	require.Error(t, err)
-	require.True(t, errors.As(err, &terr))
-	require.Equal(t, errors.ErrorCode(errors.FailureCancelled), terr.Code)
+	require.True(t, errwrap.As(err, &terr))
+	require.Equal(t, common.ErrCode(common.FailureCancelled), terr.Code)
 
 	err = vmgr.FailureComplete(48, 2)
 	require.NoError(t, err)
 
 	_, err = vmgr.IsFailureComplete(1)
 	require.Error(t, err)
-	require.True(t, errors.As(err, &terr))
-	require.Equal(t, errors.ErrorCode(errors.FailureCancelled), terr.Code)
+	require.True(t, errwrap.As(err, &terr))
+	require.Equal(t, common.ErrCode(common.FailureCancelled), terr.Code)
 
 	_, err = vmgr.IsFailureComplete(3)
 	require.Error(t, err)
-	require.True(t, errors.As(err, &terr))
-	require.Equal(t, errors.ErrorCode(errors.FailureCancelled), terr.Code)
+	require.True(t, errwrap.As(err, &terr))
+	require.Equal(t, common.ErrCode(common.FailureCancelled), terr.Code)
 }
 
 func TestVersionFlushedAllSameVersion(t *testing.T) {
@@ -1472,7 +1472,7 @@ func (t *testLevelMgrClient) PollForJob() (*levels.CompactionJob, error) {
 
 func (t *testLevelMgrClient) RegisterDeadVersionRange(versionRange levels.VersionRange, _ string, _ int) error {
 	if t.unavailable.Load() {
-		return errors.NewTektiteErrorf(errors.Unavailable, "unavailable")
+		return common.NewTektiteErrorf(common.Unavailable, "unavailable")
 	}
 	t.lock.Lock()
 	defer t.lock.Unlock()
@@ -1489,7 +1489,7 @@ func (t *testLevelMgrClient) StoreLastFlushedVersion(version int64) error {
 
 func (t *testLevelMgrClient) LoadLastFlushedVersion() (int64, error) {
 	if t.unavailable.Load() {
-		return 0, errors.NewTektiteErrorf(errors.Unavailable, "unavailable")
+		return 0, common.NewTektiteErrorf(common.Unavailable, "unavailable")
 	}
 	t.lock.Lock()
 	defer t.lock.Unlock()

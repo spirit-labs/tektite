@@ -4,9 +4,9 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/binary"
+	"github.com/spirit-labs/tektite/asl/conf"
+	"github.com/spirit-labs/tektite/asl/errwrap"
 	"github.com/spirit-labs/tektite/common"
-	"github.com/spirit-labs/tektite/conf"
-	"github.com/spirit-labs/tektite/errors"
 	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/opers"
 	"github.com/spirit-labs/tektite/proc"
@@ -64,7 +64,7 @@ func (s *Server) Activate() error {
 	}
 	list, err := s.createNetworkListener()
 	if err != nil {
-		return errors.WithStack(err)
+		return errwrap.WithStack(err)
 	}
 	s.listener = list
 	s.started = true
@@ -83,7 +83,7 @@ func (s *Server) createNetworkListener() (net.Listener, error) {
 	if s.cfg.KafkaServerListenerConfig.TLSConfig.Enabled {
 		tlsConfig, err = conf.CreateServerTLSConfig(s.cfg.KafkaServerListenerConfig.TLSConfig)
 		if err != nil {
-			return nil, errors.WithStack(err)
+			return nil, errwrap.WithStack(err)
 		}
 		list, err = common.Listen("tcp", listenAddress)
 		if err == nil {
@@ -93,7 +93,7 @@ func (s *Server) createNetworkListener() (net.Listener, error) {
 		list, err = common.Listen("tcp", listenAddress)
 	}
 	if err != nil {
-		return nil, errors.WithStack(err)
+		return nil, errwrap.WithStack(err)
 	}
 	return list, nil
 }
@@ -167,7 +167,7 @@ func (c *connection) start() {
 }
 
 func (c *connection) readLoop() {
-	defer common.PanicHandler()
+	defer common.TektitePanicHandler()
 	defer c.closeGroup.Done()
 	c.readMessage()
 	c.s.removeConnection(c)
