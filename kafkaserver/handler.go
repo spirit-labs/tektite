@@ -76,23 +76,8 @@ func (n *NewHandler) HandleProduceRequest(hdr *protocol.RequestHeader, req *prot
 				continue
 			}
 			producedRecords := partitionData.Records[0]
-			var recordBatchBytes []byte
-			if partitionFetcher != nil {
-				var err error
-				recordBatchBytes, err = partitionFetcher.Allocate(len(producedRecords))
-				if err != nil {
-					log.Errorf("failed to allocate buffer %v", err)
-					partitionResponses[j].ErrorCode = protocol.ErrorCodeUnknownServerError
-					cf.CountDown(nil)
-					continue
-				}
-			} else {
-				recordBatchBytes = make([]byte, len(producedRecords))
-			}
-			// FIXME - why do we need to copy?
-			copy(recordBatchBytes, producedRecords)
-			numRecords := int(binary.BigEndian.Uint32(recordBatchBytes[57:]))
-			magic := recordBatchBytes[16]
+			numRecords := int(binary.BigEndian.Uint32(producedRecords[57:]))
+			magic := producedRecords[16]
 			if magic != 2 {
 				partitionResponses[j].ErrorCode = protocol.ErrorCodeUnsupportedForMessageFormat
 				cf.CountDown(nil)
@@ -100,7 +85,7 @@ func (n *NewHandler) HandleProduceRequest(hdr *protocol.RequestHeader, req *prot
 			}
 			partitionID := int(partitionData.Index)
 			index := j
-			topicInfo.ProduceInfoProvider.IngestBatch(recordBatchBytes, processor, partitionID,
+			topicInfo.ProduceInfoProvider.IngestBatch(producedRecords, processor, partitionID,
 				func(err error) {
 					processor.CheckInProcessorLoop()
 					if err != nil {
@@ -122,7 +107,7 @@ func (n *NewHandler) HandleProduceRequest(hdr *protocol.RequestHeader, req *prot
 					partitionResponses[index].BaseOffset = offset
 					partitionResponses[index].LogAppendTimeMs = appendTime
 					if partitionFetcher != nil && topicInfo.CanCache {
-						partitionFetcher.AddBatch(offset-int64(numRecords)+1, offset, recordBatchBytes)
+						partitionFetcher.AddBatch(offset-int64(numRecords)+1, offset, producedRecords)
 					}
 					cf.CountDown(nil)
 				})

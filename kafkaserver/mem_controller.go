@@ -4,15 +4,18 @@ import (
 	"sync"
 )
 
-type Allocator interface {
-	Allocate(size int, evictCallback func()) ([]byte, error)
+type MemController interface {
+	Reserve(size int, evictCallback func())
 }
 
-func newDefaultAllocator(maxSize int) *defaultAllocator {
-	return &defaultAllocator{maxSize: uint64(maxSize)}
+func newDefaultMemController(maxSize int) *defaultMemController {
+	return &defaultMemController{maxSize: uint64(maxSize)}
 }
 
-type defaultAllocator struct {
+// defaultMemController keeps track of the memory used by all fetchers (there is one fetcher per partition), such that
+// so that total cached batches for all partitions can be controlled, and we evict fairly with the oldest batches
+// evicted first
+type defaultMemController struct {
 	entries []allocateEntry
 	lock    sync.Mutex
 	totSize uint64
@@ -24,8 +27,11 @@ type allocateEntry struct {
 	evictCallback func()
 }
 
-func (d *defaultAllocator) Allocate(size int, evictCallback func()) ([]byte, error) {
-	buff := make([]byte, size) // allocate before the lock as we want to minimise critical section
+func (d *defaultMemController) Foo() {
+
+}
+
+func (d *defaultMemController) Reserve(size int, evictCallback func()) {
 	d.lock.Lock()
 	d.entries = append(d.entries, allocateEntry{
 		size:          uint32(size),
@@ -49,12 +55,4 @@ func (d *defaultAllocator) Allocate(size int, evictCallback func()) ([]byte, err
 		d.entries = d.entries[i+1:]
 	}
 	d.lock.Unlock()
-	return buff, nil
-}
-
-type directAllocator struct {
-}
-
-func (d *directAllocator) Allocate(size int, _ func()) ([]byte, error) {
-	return make([]byte, size), nil
 }
