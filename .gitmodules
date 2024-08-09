@@ -1,0 +1,3 @@
+[submodule "tektite-website/themes/up-business-theme"]
+	path = tektite-website/themes/up-business-theme
+	url = https://gitlab.com/writeonlyhugo/up-business-theme.git
