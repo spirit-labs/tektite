@@ -40,19 +40,19 @@ func TestApiVersionsRequest(t *testing.T) {
 func TestApiVersionsResponse(t *testing.T) {
 	testCases := []readWriteCase{
 		{version: 0, obj: &ApiVersionsResponse{
-			ApiKeys: SupportedAPIKeys,
+			ApiKeys: SupportedAPIVersions,
 		}},
 		{version: 1, obj: &ApiVersionsResponse{
-			ApiKeys:        SupportedAPIKeys,
+			ApiKeys:        SupportedAPIVersions,
 			ThrottleTimeMs: 550,
 		}},
 		{version: 3, obj: &ApiVersionsResponse{
-			ApiKeys:           SupportedAPIKeys,
+			ApiKeys:           SupportedAPIVersions,
 			SupportedFeatures: []ApiVersionsResponseSupportedFeatureKey{},
 			FinalizedFeatures: []ApiVersionsResponseFinalizedFeatureKey{},
 		}},
 		{version: 3, obj: &ApiVersionsResponse{
-			ApiKeys:        SupportedAPIKeys,
+			ApiKeys:        SupportedAPIVersions,
 			ThrottleTimeMs: 550,
 			SupportedFeatures: []ApiVersionsResponseSupportedFeatureKey{
 				{Name: stringPtr("feature1"), MinVersion: 2, MaxVersion: 5},

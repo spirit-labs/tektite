@@ -3,6 +3,7 @@ package protocol
 
 import (
     "encoding/binary"
+    "fmt"
     "github.com/pkg/errors"
     "net"
 )
@@ -25,7 +26,7 @@ func HandleRequestBuffer(buff []byte, handler RequestHandler, conn net.Conn) err
         if _, err := req.Read(apiVersion, buff[offset:]); err != nil {
             return err
         }
-		err = handler.HandleProduceRequest(&requestHeader, &req, func(resp *ProduceResponse) error {
+        respFunc := func(resp *ProduceResponse) error {
             respHeaderSize, hdrTagSizes := responseHeader.CalcSize(responseHeaderVersion, nil)
             respSize, tagSizes := resp.CalcSize(apiVersion, nil)
             totRespSize := respHeaderSize + respSize
@@ -35,7 +36,14 @@ func HandleRequestBuffer(buff []byte, handler RequestHandler, conn net.Conn) err
             respBuff = resp.Write(apiVersion, respBuff, tagSizes)
             _, err := conn.Write(respBuff)
             return err
-        })
+        }
+ 		minVer, maxVer := req.SupportedApiVersions()
+		if apiVersion < minVer || apiVersion > maxVer {
+			resp := handler.ProduceRequestErrorResponse(ErrorCodeUnsupportedVersion, fmt.Sprintf("version %d for apiKey %d is unsupported. supported versions are %d to %d", apiVersion, apiKey, minVer, maxVer), &req)
+            err = respFunc(resp)
+		} else {
+            err = handler.HandleProduceRequest(&requestHeader, &req, respFunc)   
+        }
     case 1:
         var req FetchRequest
         requestHeaderVersion, responseHeaderVersion := req.HeaderVersions(apiVersion)
@@ -48,7 +56,7 @@ func HandleRequestBuffer(buff []byte, handler RequestHandler, conn net.Conn) err
         if _, err := req.Read(apiVersion, buff[offset:]); err != nil {
             return err
         }
-		err = handler.HandleFetchRequest(&requestHeader, &req, func(resp *FetchResponse) error {
+        respFunc := func(resp *FetchResponse) error {
             respHeaderSize, hdrTagSizes := responseHeader.CalcSize(responseHeaderVersion, nil)
             respSize, tagSizes := resp.CalcSize(apiVersion, nil)
             totRespSize := respHeaderSize + respSize
@@ -58,7 +66,14 @@ func HandleRequestBuffer(buff []byte, handler RequestHandler, conn net.Conn) err
             respBuff = resp.Write(apiVersion, respBuff, tagSizes)
             _, err := conn.Write(respBuff)
             return err
-        })
+        }
+ 		minVer, maxVer := req.SupportedApiVersions()
+		if apiVersion < minVer || apiVersion > maxVer {
+			resp := handler.FetchRequestErrorResponse(ErrorCodeUnsupportedVersion, fmt.Sprintf("version %d for apiKey %d is unsupported. supported versions are %d to %d", apiVersion, apiKey, minVer, maxVer), &req)
+            err = respFunc(resp)
+		} else {
+            err = handler.HandleFetchRequest(&requestHeader, &req, respFunc)   
+        }
     case 2:
         var req ListOffsetsRequest
         requestHeaderVersion, responseHeaderVersion := req.HeaderVersions(apiVersion)
@@ -71,7 +86,7 @@ func HandleRequestBuffer(buff []byte, handler RequestHandler, conn net.Conn) err
         if _, err := req.Read(apiVersion, buff[offset:]); err != nil {
             return err
         }
-		err = handler.HandleListOffsetsRequest(&requestHeader, &req, func(resp *ListOffsetsResponse) error {
+        respFunc := func(resp *ListOffsetsResponse) error {
             respHeaderSize, hdrTagSizes := responseHeader.CalcSize(responseHeaderVersion, nil)
             respSize, tagSizes := resp.CalcSize(apiVersion, nil)
             totRespSize := respHeaderSize + respSize
@@ -81,7 +96,14 @@ func HandleRequestBuffer(buff []byte, handler RequestHandler, conn net.Conn) err
             respBuff = resp.Write(apiVersion, respBuff, tagSizes)
             _, err := conn.Write(respBuff)
             return err
-        })
+        }
+ 		minVer, maxVer := req.SupportedApiVersions()
+		if apiVersion < minVer || apiVersion > maxVer {
+			resp := handler.ListOffsetsRequestErrorResponse(ErrorCodeUnsupportedVersion, fmt.Sprintf("version %d for apiKey %d is unsupported. supported versions are %d to %d", apiVersion, apiKey, minVer, maxVer), &req)
+            err = respFunc(resp)
+		} else {
+            err = handler.HandleListOffsetsRequest(&requestHeader, &req, respFunc)   
+        }
     case 3:
         var req MetadataRequest
         requestHeaderVersion, responseHeaderVersion := req.HeaderVersions(apiVersion)
@@ -94,7 +116,7 @@ func HandleRequestBuffer(buff []byte, handler RequestHandler, conn net.Conn) err
         if _, err := req.Read(apiVersion, buff[offset:]); err != nil {
             return err
         }
-		err = handler.HandleMetadataRequest(&requestHeader, &req, func(resp *MetadataResponse) error {
+        respFunc := func(resp *MetadataResponse) error {
             respHeaderSize, hdrTagSizes := responseHeader.CalcSize(responseHeaderVersion, nil)
             respSize, tagSizes := resp.CalcSize(apiVersion, nil)
             totRespSize := respHeaderSize + respSize
@@ -104,7 +126,14 @@ func HandleRequestBuffer(buff []byte, handler RequestHandler, conn net.Conn) err
             respBuff = resp.Write(apiVersion, respBuff, tagSizes)
             _, err := conn.Write(respBuff)
             return err
-        })
+        }
+ 		minVer, maxVer := req.SupportedApiVersions()
+		if apiVersion < minVer || apiVersion > maxVer {
+			resp := handler.MetadataRequestErrorResponse(ErrorCodeUnsupportedVersion, fmt.Sprintf("version %d for apiKey %d is unsupported. supported versions are %d to %d", apiVersion, apiKey, minVer, maxVer), &req)
+            err = respFunc(resp)
+		} else {
+            err = handler.HandleMetadataRequest(&requestHeader, &req, respFunc)   
+        }
     case 8:
         var req OffsetCommitRequest
         requestHeaderVersion, responseHeaderVersion := req.HeaderVersions(apiVersion)
@@ -117,7 +146,7 @@ func HandleRequestBuffer(buff []byte, handler RequestHandler, conn net.Conn) err
         if _, err := req.Read(apiVersion, buff[offset:]); err != nil {
             return err
         }
-		err = handler.HandleOffsetCommitRequest(&requestHeader, &req, func(resp *OffsetCommitResponse) error {
+        respFunc := func(resp *OffsetCommitResponse) error {
             respHeaderSize, hdrTagSizes := responseHeader.CalcSize(responseHeaderVersion, nil)
             respSize, tagSizes := resp.CalcSize(apiVersion, nil)
             totRespSize := respHeaderSize + respSize
@@ -127,7 +156,14 @@ func HandleRequestBuffer(buff []byte, handler RequestHandler, conn net.Conn) err
             respBuff = resp.Write(apiVersion, respBuff, tagSizes)
             _, err := conn.Write(respBuff)
             return err
-        })
+        }
+ 		minVer, maxVer := req.SupportedApiVersions()
+		if apiVersion < minVer || apiVersion > maxVer {
+			resp := handler.OffsetCommitRequestErrorResponse(ErrorCodeUnsupportedVersion, fmt.Sprintf("version %d for apiKey %d is unsupported. supported versions are %d to %d", apiVersion, apiKey, minVer, maxVer), &req)
+            err = respFunc(resp)
+		} else {
+            err = handler.HandleOffsetCommitRequest(&requestHeader, &req, respFunc)   
+        }
     case 9:
         var req OffsetFetchRequest
         requestHeaderVersion, responseHeaderVersion := req.HeaderVersions(apiVersion)
@@ -140,7 +176,7 @@ func HandleRequestBuffer(buff []byte, handler RequestHandler, conn net.Conn) err
         if _, err := req.Read(apiVersion, buff[offset:]); err != nil {
             return err
         }
-		err = handler.HandleOffsetFetchRequest(&requestHeader, &req, func(resp *OffsetFetchResponse) error {
+        respFunc := func(resp *OffsetFetchResponse) error {
             respHeaderSize, hdrTagSizes := responseHeader.CalcSize(responseHeaderVersion, nil)
             respSize, tagSizes := resp.CalcSize(apiVersion, nil)
             totRespSize := respHeaderSize + respSize
@@ -150,7 +186,14 @@ func HandleRequestBuffer(buff []byte, handler RequestHandler, conn net.Conn) err
             respBuff = resp.Write(apiVersion, respBuff, tagSizes)
             _, err := conn.Write(respBuff)
             return err
-        })
+        }
+ 		minVer, maxVer := req.SupportedApiVersions()
+		if apiVersion < minVer || apiVersion > maxVer {
+			resp := handler.OffsetFetchRequestErrorResponse(ErrorCodeUnsupportedVersion, fmt.Sprintf("version %d for apiKey %d is unsupported. supported versions are %d to %d", apiVersion, apiKey, minVer, maxVer), &req)
+            err = respFunc(resp)
+		} else {
+            err = handler.HandleOffsetFetchRequest(&requestHeader, &req, respFunc)   
+        }
     case 10:
         var req FindCoordinatorRequest
         requestHeaderVersion, responseHeaderVersion := req.HeaderVersions(apiVersion)
@@ -163,7 +206,7 @@ func HandleRequestBuffer(buff []byte, handler RequestHandler, conn net.Conn) err
         if _, err := req.Read(apiVersion, buff[offset:]); err != nil {
             return err
         }
-		err = handler.HandleFindCoordinatorRequest(&requestHeader, &req, func(resp *FindCoordinatorResponse) error {
+        respFunc := func(resp *FindCoordinatorResponse) error {
             respHeaderSize, hdrTagSizes := responseHeader.CalcSize(responseHeaderVersion, nil)
             respSize, tagSizes := resp.CalcSize(apiVersion, nil)
             totRespSize := respHeaderSize + respSize
@@ -173,7 +216,14 @@ func HandleRequestBuffer(buff []byte, handler RequestHandler, conn net.Conn) err
             respBuff = resp.Write(apiVersion, respBuff, tagSizes)
             _, err := conn.Write(respBuff)
             return err
-        })
+        }
+ 		minVer, maxVer := req.SupportedApiVersions()
+		if apiVersion < minVer || apiVersion > maxVer {
+			resp := handler.FindCoordinatorRequestErrorResponse(ErrorCodeUnsupportedVersion, fmt.Sprintf("version %d for apiKey %d is unsupported. supported versions are %d to %d", apiVersion, apiKey, minVer, maxVer), &req)
+            err = respFunc(resp)
+		} else {
+            err = handler.HandleFindCoordinatorRequest(&requestHeader, &req, respFunc)   
+        }
     case 11:
         var req JoinGroupRequest
         requestHeaderVersion, responseHeaderVersion := req.HeaderVersions(apiVersion)
@@ -186,7 +236,7 @@ func HandleRequestBuffer(buff []byte, handler RequestHandler, conn net.Conn) err
         if _, err := req.Read(apiVersion, buff[offset:]); err != nil {
             return err
         }
-		err = handler.HandleJoinGroupRequest(&requestHeader, &req, func(resp *JoinGroupResponse) error {
+        respFunc := func(resp *JoinGroupResponse) error {
             respHeaderSize, hdrTagSizes := responseHeader.CalcSize(responseHeaderVersion, nil)
             respSize, tagSizes := resp.CalcSize(apiVersion, nil)
             totRespSize := respHeaderSize + respSize
@@ -196,7 +246,14 @@ func HandleRequestBuffer(buff []byte, handler RequestHandler, conn net.Conn) err
             respBuff = resp.Write(apiVersion, respBuff, tagSizes)
             _, err := conn.Write(respBuff)
             return err
-        })
+        }
+ 		minVer, maxVer := req.SupportedApiVersions()
+		if apiVersion < minVer || apiVersion > maxVer {
+			resp := handler.JoinGroupRequestErrorResponse(ErrorCodeUnsupportedVersion, fmt.Sprintf("version %d for apiKey %d is unsupported. supported versions are %d to %d", apiVersion, apiKey, minVer, maxVer), &req)
+            err = respFunc(resp)
+		} else {
+            err = handler.HandleJoinGroupRequest(&requestHeader, &req, respFunc)   
+        }
     case 12:
         var req HeartbeatRequest
         requestHeaderVersion, responseHeaderVersion := req.HeaderVersions(apiVersion)
@@ -209,7 +266,7 @@ func HandleRequestBuffer(buff []byte, handler RequestHandler, conn net.Conn) err
         if _, err := req.Read(apiVersion, buff[offset:]); err != nil {
             return err
         }
-		err = handler.HandleHeartbeatRequest(&requestHeader, &req, func(resp *HeartbeatResponse) error {
+        respFunc := func(resp *HeartbeatResponse) error {
             respHeaderSize, hdrTagSizes := responseHeader.CalcSize(responseHeaderVersion, nil)
             respSize, tagSizes := resp.CalcSize(apiVersion, nil)
             totRespSize := respHeaderSize + respSize
@@ -219,7 +276,14 @@ func HandleRequestBuffer(buff []byte, handler RequestHandler, conn net.Conn) err
             respBuff = resp.Write(apiVersion, respBuff, tagSizes)
             _, err := conn.Write(respBuff)
             return err
-        })
+        }
+ 		minVer, maxVer := req.SupportedApiVersions()
+		if apiVersion < minVer || apiVersion > maxVer {
+			resp := handler.HeartbeatRequestErrorResponse(ErrorCodeUnsupportedVersion, fmt.Sprintf("version %d for apiKey %d is unsupported. supported versions are %d to %d", apiVersion, apiKey, minVer, maxVer), &req)
+            err = respFunc(resp)
+		} else {
+            err = handler.HandleHeartbeatRequest(&requestHeader, &req, respFunc)   
+        }
     case 13:
         var req LeaveGroupRequest
         requestHeaderVersion, responseHeaderVersion := req.HeaderVersions(apiVersion)
@@ -232,7 +296,7 @@ func HandleRequestBuffer(buff []byte, handler RequestHandler, conn net.Conn) err
         if _, err := req.Read(apiVersion, buff[offset:]); err != nil {
             return err
         }
-		err = handler.HandleLeaveGroupRequest(&requestHeader, &req, func(resp *LeaveGroupResponse) error {
+        respFunc := func(resp *LeaveGroupResponse) error {
             respHeaderSize, hdrTagSizes := responseHeader.CalcSize(responseHeaderVersion, nil)
             respSize, tagSizes := resp.CalcSize(apiVersion, nil)
             totRespSize := respHeaderSize + respSize
@@ -242,7 +306,14 @@ func HandleRequestBuffer(buff []byte, handler RequestHandler, conn net.Conn) err
             respBuff = resp.Write(apiVersion, respBuff, tagSizes)
             _, err := conn.Write(respBuff)
             return err
-        })
+        }
+ 		minVer, maxVer := req.SupportedApiVersions()
+		if apiVersion < minVer || apiVersion > maxVer {
+			resp := handler.LeaveGroupRequestErrorResponse(ErrorCodeUnsupportedVersion, fmt.Sprintf("version %d for apiKey %d is unsupported. supported versions are %d to %d", apiVersion, apiKey, minVer, maxVer), &req)
+            err = respFunc(resp)
+		} else {
+            err = handler.HandleLeaveGroupRequest(&requestHeader, &req, respFunc)   
+        }
     case 14:
         var req SyncGroupRequest
         requestHeaderVersion, responseHeaderVersion := req.HeaderVersions(apiVersion)
@@ -255,7 +326,7 @@ func HandleRequestBuffer(buff []byte, handler RequestHandler, conn net.Conn) err
         if _, err := req.Read(apiVersion, buff[offset:]); err != nil {
             return err
         }
-		err = handler.HandleSyncGroupRequest(&requestHeader, &req, func(resp *SyncGroupResponse) error {
+        respFunc := func(resp *SyncGroupResponse) error {
             respHeaderSize, hdrTagSizes := responseHeader.CalcSize(responseHeaderVersion, nil)
             respSize, tagSizes := resp.CalcSize(apiVersion, nil)
             totRespSize := respHeaderSize + respSize
@@ -265,7 +336,14 @@ func HandleRequestBuffer(buff []byte, handler RequestHandler, conn net.Conn) err
             respBuff = resp.Write(apiVersion, respBuff, tagSizes)
             _, err := conn.Write(respBuff)
             return err
-        })
+        }
+ 		minVer, maxVer := req.SupportedApiVersions()
+		if apiVersion < minVer || apiVersion > maxVer {
+			resp := handler.SyncGroupRequestErrorResponse(ErrorCodeUnsupportedVersion, fmt.Sprintf("version %d for apiKey %d is unsupported. supported versions are %d to %d", apiVersion, apiKey, minVer, maxVer), &req)
+            err = respFunc(resp)
+		} else {
+            err = handler.HandleSyncGroupRequest(&requestHeader, &req, respFunc)   
+        }
     case 18:
         var req ApiVersionsRequest
         requestHeaderVersion, responseHeaderVersion := req.HeaderVersions(apiVersion)
@@ -278,7 +356,7 @@ func HandleRequestBuffer(buff []byte, handler RequestHandler, conn net.Conn) err
         if _, err := req.Read(apiVersion, buff[offset:]); err != nil {
             return err
         }
-		err = handler.HandleApiVersionsRequest(&requestHeader, &req, func(resp *ApiVersionsResponse) error {
+        respFunc := func(resp *ApiVersionsResponse) error {
             respHeaderSize, hdrTagSizes := responseHeader.CalcSize(responseHeaderVersion, nil)
             respSize, tagSizes := resp.CalcSize(apiVersion, nil)
             totRespSize := respHeaderSize + respSize
@@ -288,23 +366,42 @@ func HandleRequestBuffer(buff []byte, handler RequestHandler, conn net.Conn) err
             respBuff = resp.Write(apiVersion, respBuff, tagSizes)
             _, err := conn.Write(respBuff)
             return err
-        })
-    default: return errors.Errorf("Unknown ApiKey: %d", apiKey)
+        }
+ 		minVer, maxVer := req.SupportedApiVersions()
+		if apiVersion < minVer || apiVersion > maxVer {
+			resp := handler.ApiVersionsRequestErrorResponse(ErrorCodeUnsupportedVersion, fmt.Sprintf("version %d for apiKey %d is unsupported. supported versions are %d to %d", apiVersion, apiKey, minVer, maxVer), &req)
+            err = respFunc(resp)
+		} else {
+            err = handler.HandleApiVersionsRequest(&requestHeader, &req, respFunc)   
+        }
+    default: return errors.Errorf("Unsupported ApiKey: %d", apiKey)
     }
     return err
 }
 
 type RequestHandler interface {
     HandleProduceRequest(hdr *RequestHeader, req *ProduceRequest, completionFunc func(resp *ProduceResponse) error) error
+    ProduceRequestErrorResponse(errorCode int16, errorMsg string, req *ProduceRequest) *ProduceResponse
     HandleFetchRequest(hdr *RequestHeader, req *FetchRequest, completionFunc func(resp *FetchResponse) error) error
+    FetchRequestErrorResponse(errorCode int16, errorMsg string, req *FetchRequest) *FetchResponse
     HandleListOffsetsRequest(hdr *RequestHeader, req *ListOffsetsRequest, completionFunc func(resp *ListOffsetsResponse) error) error
+    ListOffsetsRequestErrorResponse(errorCode int16, errorMsg string, req *ListOffsetsRequest) *ListOffsetsResponse
     HandleMetadataRequest(hdr *RequestHeader, req *MetadataRequest, completionFunc func(resp *MetadataResponse) error) error
+    MetadataRequestErrorResponse(errorCode int16, errorMsg string, req *MetadataRequest) *MetadataResponse
     HandleOffsetCommitRequest(hdr *RequestHeader, req *OffsetCommitRequest, completionFunc func(resp *OffsetCommitResponse) error) error
+    OffsetCommitRequestErrorResponse(errorCode int16, errorMsg string, req *OffsetCommitRequest) *OffsetCommitResponse
     HandleOffsetFetchRequest(hdr *RequestHeader, req *OffsetFetchRequest, completionFunc func(resp *OffsetFetchResponse) error) error
+    OffsetFetchRequestErrorResponse(errorCode int16, errorMsg string, req *OffsetFetchRequest) *OffsetFetchResponse
     HandleFindCoordinatorRequest(hdr *RequestHeader, req *FindCoordinatorRequest, completionFunc func(resp *FindCoordinatorResponse) error) error
+    FindCoordinatorRequestErrorResponse(errorCode int16, errorMsg string, req *FindCoordinatorRequest) *FindCoordinatorResponse
     HandleJoinGroupRequest(hdr *RequestHeader, req *JoinGroupRequest, completionFunc func(resp *JoinGroupResponse) error) error
+    JoinGroupRequestErrorResponse(errorCode int16, errorMsg string, req *JoinGroupRequest) *JoinGroupResponse
     HandleHeartbeatRequest(hdr *RequestHeader, req *HeartbeatRequest, completionFunc func(resp *HeartbeatResponse) error) error
+    HeartbeatRequestErrorResponse(errorCode int16, errorMsg string, req *HeartbeatRequest) *HeartbeatResponse
     HandleLeaveGroupRequest(hdr *RequestHeader, req *LeaveGroupRequest, completionFunc func(resp *LeaveGroupResponse) error) error
+    LeaveGroupRequestErrorResponse(errorCode int16, errorMsg string, req *LeaveGroupRequest) *LeaveGroupResponse
     HandleSyncGroupRequest(hdr *RequestHeader, req *SyncGroupRequest, completionFunc func(resp *SyncGroupResponse) error) error
+    SyncGroupRequestErrorResponse(errorCode int16, errorMsg string, req *SyncGroupRequest) *SyncGroupResponse
     HandleApiVersionsRequest(hdr *RequestHeader, req *ApiVersionsRequest, completionFunc func(resp *ApiVersionsResponse) error) error
+    ApiVersionsRequestErrorResponse(errorCode int16, errorMsg string, req *ApiVersionsRequest) *ApiVersionsResponse
 }
