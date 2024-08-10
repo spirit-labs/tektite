@@ -236,3 +236,7 @@ func (m *HeartbeatRequest) HeaderVersions(version int16) (int16, int16) {
         return 1, 0
     }
 }
+
+func (m *HeartbeatRequest) SupportedApiVersions() (int16, int16) {
+    return 0, 0
+}

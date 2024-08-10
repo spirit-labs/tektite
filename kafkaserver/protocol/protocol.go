@@ -18,28 +18,87 @@ const (
 )
 
 const (
-	ErrorCodeUnknownServerError          = -1
-	ErrorCodeNone                        = 0
-	ErrorCodeUnknownTopicOrPartition     = 3
-	ErrorCodeLeaderNotAvailable          = 5
-	ErrorCodeNotLeaderOrFollower         = 6
-	ErrorCodeCoordinatorNotAvailable     = 15
-	ErrorCodeNotCoordinator              = 16
-	ErrorCodeIllegalGeneration           = 22
-	ErrorCodeInconsistentGroupProtocol   = 23
-	ErrorCodeUnknownMemberID             = 25
-	ErrorCodeInvalidSessionTimeout       = 26
-	ErrorCodeRebalanceInProgress         = 27
-	ErrorCodeUnsupportedForMessageFormat = 43
-	ErrorCodeGroupIDNotFound             = 69
+	ErrorCodeUnknownServerError                 = -1
+	ErrorCodeNone                               = 0
+	ErrorCodeOffsetOutOfRange                   = 1
+	ErrorCodeCorruptMessage                     = 2
+	ErrorCodeUnknownTopicOrPartition            = 3
+	ErrorCodeInvalidFetchSize                   = 4
+	ErrorCodeLeaderNotAvailable                 = 5
+	ErrorCodeNotLeaderOrFollower                = 6
+	ErrorCodeRequestTimedOut                    = 7
+	ErrorCodeBrokerNotAvailable                 = 8
+	ErrorCodeReplicaNotAvailable                = 9
+	ErrorCodeMessageTooLarge                    = 10
+	ErrorCodeStaleControllerEpoch               = 11
+	ErrorCodeOffsetMetadataTooLarge             = 12
+	ErrorCodeNetworkException                   = 13
+	ErrorCodeCoordinatorLoadInProgress          = 14
+	ErrorCodeCoordinatorNotAvailable            = 15
+	ErrorCodeNotCoordinator                     = 16
+	ErrorCodeInvalidTopicException              = 17
+	ErrorCodeRecordListTooLarge                 = 18
+	ErrorCodeNotEnoughReplicas                  = 19
+	ErrorCodeNotEnoughReplicasAfterAppend       = 20
+	ErrorCodeInvalidRequiredAcks                = 21
+	ErrorCodeIllegalGeneration                  = 22
+	ErrorCodeInconsistentGroupProtocol          = 23
+	ErrorCodeInvalidGroupID                     = 24
+	ErrorCodeUnknownMemberID                    = 25
+	ErrorCodeInvalidSessionTimeout              = 26
+	ErrorCodeRebalanceInProgress                = 27
+	ErrorCodeInvalidCommitOffsetSize            = 28
+	ErrorCodeTopicAuthorizationFailed           = 29
+	ErrorCodeGroupAuthorizationFailed           = 30
+	ErrorCodeClusterAuthorizationFailed         = 31
+	ErrorCodeInvalidTimestamp                   = 32
+	ErrorCodeUnsupportedSaslMechanism           = 33
+	ErrorCodeIllegalSaslState                   = 34
+	ErrorCodeUnsupportedVersion                 = 35
+	ErrorCodeTopicAlreadyExists                 = 36
+	ErrorCodeInvalidPartitions                  = 37
+	ErrorCodeInvalidReplicationFactor           = 38
+	ErrorCodeInvalidReoplicaAssignment          = 39
+	ErrorCodeInvalidConfig                      = 40
+	ErrorCodeNotController                      = 41
+	ErrorCodeInvalidRequest                     = 42
+	ErrorCodeUnsupportedForMessageFormat        = 43
+	ErrorCodePolicyViolation                    = 44
+	ErrorCodeOutOfOrderSequenceNumber           = 45
+	ErrorCodeDuplicateSequenceNumber            = 46
+	ErrorCodeInvalidProducerEpoch               = 47
+	ErrorCodeInvalidTxnState                    = 48
+	ErrorCodeInvalidProducerIDMapping           = 49
+	ErrorCodeInvalidTransactionTimeout          = 50
+	ErrorCodeConcurrentTransactions             = 51
+	ErrorCodeTransactionCoordinatorFenced       = 52
+	ErrorCodeTransactionalIDAuthorizationFailed = 53
+	ErrorCodeSecurityDisabled                   = 54
+	ErrorCodeOperationNotAttempted              = 55
+	ErrorCodeKafkaStorageErrorCode              = 56
+	ErrorCodeLogDirNotFound                     = 57
+	ErrorCodeSaslAuthenticationFailed           = 58
+	ErrorCodeUnknownProducerID                  = 59
+	ErrorCodeReassignmentInProgress             = 60
+	ErrorCodeDelegationTokenAuthDisabled        = 61
+	ErrorCodeDelegationTokenNotFounc            = 62
+	ErrorCodeDelegationTokenOwnerMismatch       = 63
+	ErrorCodeDelegationTokenRequestNotAllowed   = 64
+	ErrorCodeDelegationTokenAuthorizationFailed = 65
+	ErrorCodeDelegationTokenExpired             = 66
+	ErrorCodeInvalidPrincipalType               = 67
+	ErrorCodeNonEmptyGroup                      = 68
+	ErrorCodeGroupIDNotFound                    = 69
+	ErrorCodeFetchSessionIDNotFound             = 70
+	ErrorCodeInvalidFetchSessionEpoch           = 71
 )
 
-var SupportedAPIKeys = []ApiVersionsResponseApiVersion{
+var SupportedAPIVersions = []ApiVersionsResponseApiVersion{
 	{ApiKey: APIKeyProduce, MinVersion: 3, MaxVersion: 3},
 	{ApiKey: APIKeyFetch, MinVersion: 4, MaxVersion: 4},
 	{ApiKey: APIKeyAPIVersions, MinVersion: 0, MaxVersion: 3},
 	{ApiKey: APIKeySaslAuthenticate, MinVersion: 0, MaxVersion: 0},
-	{ApiKey: APIKeyMetadata, MinVersion: 3, MaxVersion: 3},
+	{ApiKey: APIKeyMetadata, MinVersion: 1, MaxVersion: 4},
 	{ApiKey: APIKeyFindCoordinator, MinVersion: 0, MaxVersion: 0},
 	{ApiKey: ApiKeyJoinGroup, MinVersion: 0, MaxVersion: 0},
 	{ApiKey: ApiKeySyncGroup, MinVersion: 0, MaxVersion: 0},

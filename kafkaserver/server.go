@@ -7,7 +7,6 @@ import (
 	"github.com/spirit-labs/tektite/asl/conf"
 	"github.com/spirit-labs/tektite/asl/errwrap"
 	"github.com/spirit-labs/tektite/common"
-
 	"github.com/spirit-labs/tektite/kafkaserver/protocol"
 
 	log "github.com/spirit-labs/tektite/logger"
@@ -170,13 +169,29 @@ func (c *connection) start() {
 }
 
 func (c *connection) readLoop() {
-	defer common.TektitePanicHandler()
+	defer c.readPanicHandler()
 	defer c.closeGroup.Done()
 	c.readMessage()
+	c.cleanUp()
+}
+
+func (c *connection) cleanUp() {
 	c.s.removeConnection(c)
 	c.lock.Lock()
 	defer c.lock.Unlock()
 	c.closed = true
+}
+
+func (c *connection) readPanicHandler() {
+	// We use a custom panic handler as we don't want the server to panic and crash if it receives a malformed
+	// request which has insufficient bytes in the buffer which would cause a runtime error: index out of range panic
+	if r := recover(); r != nil {
+		log.Errorf("failure in connection readLoop: %v", r)
+		if err := c.conn.Close(); err != nil {
+			// Ignore
+		}
+		c.cleanUp()
+	}
 }
 
 func (c *connection) readMessage() {

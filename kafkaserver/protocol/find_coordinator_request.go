@@ -180,3 +180,7 @@ func (m *FindCoordinatorRequest) HeaderVersions(version int16) (int16, int16) {
         return 1, 0
     }
 }
+
+func (m *FindCoordinatorRequest) SupportedApiVersions() (int16, int16) {
+    return 0, 0
+}

@@ -621,3 +621,7 @@ func (m *OffsetFetchRequest) HeaderVersions(version int16) (int16, int16) {
         return 1, 0
     }
 }
+
+func (m *OffsetFetchRequest) SupportedApiVersions() (int16, int16) {
+    return 1, 1
+}

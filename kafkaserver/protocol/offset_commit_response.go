@@ -294,3 +294,4 @@ func (m *OffsetCommitResponse) CalcSize(version int16, tagSizes []int) (int, []i
     return size, tagSizes
 }
 
+

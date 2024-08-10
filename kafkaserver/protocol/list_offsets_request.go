@@ -346,3 +346,7 @@ func (m *ListOffsetsRequest) HeaderVersions(version int16) (int16, int16) {
         return 1, 0
     }
 }
+
+func (m *ListOffsetsRequest) SupportedApiVersions() (int16, int16) {
+    return 1, 1
+}

@@ -3,8 +3,8 @@
 package protocol
 
 import "encoding/binary"
-import "unsafe"
 import "github.com/spirit-labs/tektite/common"
+import "unsafe"
 
 type ProduceRequestPartitionProduceData struct {
     // The partition index.
@@ -451,4 +451,8 @@ func (m *ProduceRequest) HeaderVersions(version int16) (int16, int16) {
     } else {
         return 1, 0
     }
+}
+
+func (m *ProduceRequest) SupportedApiVersions() (int16, int16) {
+    return 3, 3
 }

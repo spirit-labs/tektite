@@ -351,3 +351,7 @@ func (m *MetadataRequest) HeaderVersions(version int16) (int16, int16) {
         return 1, 0
     }
 }
+
+func (m *MetadataRequest) SupportedApiVersions() (int16, int16) {
+    return 1, 4
+}
