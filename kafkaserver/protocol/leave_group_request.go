@@ -380,3 +380,7 @@ func (m *LeaveGroupRequest) HeaderVersions(version int16) (int16, int16) {
         return 1, 0
     }
 }
+
+func (m *LeaveGroupRequest) SupportedApiVersions() (int16, int16) {
+    return 0, 0
+}

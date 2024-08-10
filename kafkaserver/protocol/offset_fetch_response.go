@@ -772,3 +772,4 @@ func (m *OffsetFetchResponse) CalcSize(version int16, tagSizes []int) (int, []in
     return size, tagSizes
 }
 
+

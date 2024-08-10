@@ -460,3 +460,4 @@ func (m *FindCoordinatorResponse) CalcSize(version int16, tagSizes []int) (int, 
     return size, tagSizes
 }
 
+

@@ -586,3 +586,7 @@ func (m *OffsetCommitRequest) HeaderVersions(version int16) (int16, int16) {
         return 1, 0
     }
 }
+
+func (m *OffsetCommitRequest) SupportedApiVersions() (int16, int16) {
+    return 2, 2
+}

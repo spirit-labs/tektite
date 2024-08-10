@@ -3,10 +3,10 @@
 package protocol
 
 import "encoding/binary"
+import "unsafe"
 import "github.com/pkg/errors"
 import "github.com/spirit-labs/tektite/debug"
 import "fmt"
-import "unsafe"
 
 type ProduceResponseBatchIndexAndErrorMessage struct {
     // The batch index of the record that cause the batch to be dropped
@@ -848,4 +848,5 @@ func (m *ProduceResponse) CalcSize(version int16, tagSizes []int) (int, []int) {
     }
     return size, tagSizes
 }
+
 

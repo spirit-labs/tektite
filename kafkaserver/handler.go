@@ -17,7 +17,7 @@ type NewHandler struct {
 	conn *connection
 }
 
-func (n *NewHandler) HandleProduceRequest(hdr *protocol.RequestHeader, req *protocol.ProduceRequest, completionFunc func(resp *protocol.ProduceResponse) error) error {
+func (n *NewHandler) HandleProduceRequest(_ *protocol.RequestHeader, req *protocol.ProduceRequest, completionFunc func(resp *protocol.ProduceResponse) error) error {
 	var resp protocol.ProduceResponse
 	resp.Responses = make([]protocol.ProduceResponseTopicProduceResponse, len(req.TopicData))
 	toComplete := len(req.TopicData) * len(req.TopicData[0].PartitionData)
@@ -116,7 +116,25 @@ func (n *NewHandler) HandleProduceRequest(hdr *protocol.RequestHeader, req *prot
 	return nil
 }
 
-func (n *NewHandler) HandleFetchRequest(hdr *protocol.RequestHeader, req *protocol.FetchRequest, completionFunc func(resp *protocol.FetchResponse) error) error {
+func (n *NewHandler) ProduceRequestErrorResponse(errorCode int16, errorMsg string, req *protocol.ProduceRequest) *protocol.ProduceResponse {
+	var resp protocol.ProduceResponse
+	resp.Responses = make([]protocol.ProduceResponseTopicProduceResponse, len(req.TopicData))
+	for i, topicData := range req.TopicData {
+		resp.Responses[i].Name = topicData.Name
+		partitionResponses := make([]protocol.ProduceResponsePartitionProduceResponse, len(topicData.PartitionData))
+		resp.Responses[i].PartitionResponses = partitionResponses
+		for j, partitionData := range topicData.PartitionData {
+			partitionResponses[j].Index = partitionData.Index
+			partitionResponses[j].ErrorCode = errorCode
+			if errorMsg != "" {
+				partitionResponses[j].ErrorMessage = &errorMsg
+			}
+		}
+	}
+	return &resp
+}
+
+func (n *NewHandler) HandleFetchRequest(_ *protocol.RequestHeader, req *protocol.FetchRequest, completionFunc func(resp *protocol.FetchResponse) error) error {
 	var resp protocol.FetchResponse
 	resp.Responses = make([]protocol.FetchResponseFetchableTopicResponse, len(req.Topics))
 	toComplete := len(req.Topics) * len(req.Topics[0].Partitions)
@@ -195,7 +213,24 @@ func (n *NewHandler) HandleFetchRequest(hdr *protocol.RequestHeader, req *protoc
 	return nil
 }
 
-func (n *NewHandler) HandleMetadataRequest(hdr *protocol.RequestHeader, req *protocol.MetadataRequest, completionFunc func(resp *protocol.MetadataResponse) error) error {
+func (n *NewHandler) FetchRequestErrorResponse(errorCode int16, _ string, req *protocol.FetchRequest) *protocol.FetchResponse {
+	var resp protocol.FetchResponse
+	resp.ErrorCode = errorCode
+	resp.Responses = make([]protocol.FetchResponseFetchableTopicResponse, len(req.Topics))
+	for i, topic := range req.Topics {
+		resp.Responses[i].Topic = topic.Topic
+		resp.Responses[i].TopicId = topic.TopicId
+		partitionResponses := make([]protocol.FetchResponsePartitionData, len(topic.Partitions))
+		resp.Responses[i].Partitions = partitionResponses
+		for j, partitionData := range topic.Partitions {
+			partitionResponses[j].PartitionIndex = partitionData.Partition
+			partitionResponses[j].ErrorCode = errorCode
+		}
+	}
+	return &resp
+}
+
+func (n *NewHandler) HandleMetadataRequest(_ *protocol.RequestHeader, req *protocol.MetadataRequest, completionFunc func(resp *protocol.MetadataResponse) error) error {
 	var resp protocol.MetadataResponse
 	brokerInfos := n.conn.s.metadataProvider.BrokerInfos()
 	resp.Brokers = make([]protocol.MetadataResponseMetadataResponseBroker, len(brokerInfos))
@@ -231,6 +266,18 @@ func (n *NewHandler) HandleMetadataRequest(hdr *protocol.RequestHeader, req *pro
 	return completionFunc(&resp)
 }
 
+func (n *NewHandler) MetadataRequestErrorResponse(errorCode int16, _ string, req *protocol.MetadataRequest) *protocol.MetadataResponse {
+	var resp protocol.MetadataResponse
+	if len(req.Topics) >= 0 {
+		resp.Topics = make([]protocol.MetadataResponseMetadataResponseTopic, len(req.Topics))
+		for i, top := range req.Topics {
+			resp.Topics[i].Name = top.Name
+			resp.Topics[i].ErrorCode = errorCode
+		}
+	}
+	return &resp
+}
+
 func populateTopic(topicInfo *TopicInfo) protocol.MetadataResponseMetadataResponseTopic {
 	var topic protocol.MetadataResponseMetadataResponseTopic
 	topic.Name = &topicInfo.Name
@@ -249,7 +296,22 @@ func populateTopic(topicInfo *TopicInfo) protocol.MetadataResponseMetadataRespon
 	return topic
 }
 
-func (n *NewHandler) HandleOffsetCommitRequest(hdr *protocol.RequestHeader, req *protocol.OffsetCommitRequest, completionFunc func(resp *protocol.OffsetCommitResponse) error) error {
+func (n *NewHandler) OffsetCommitRequestErrorResponse(errorCode int16, _ string, req *protocol.OffsetCommitRequest) *protocol.OffsetCommitResponse {
+	var resp protocol.OffsetCommitResponse
+	resp.Topics = make([]protocol.OffsetCommitResponseOffsetCommitResponseTopic, len(req.Topics))
+	for i, topic := range req.Topics {
+		resp.Topics[i].Name = topic.Name
+		partitionResponses := make([]protocol.OffsetCommitResponseOffsetCommitResponsePartition, len(topic.Partitions))
+		resp.Topics[i].Partitions = partitionResponses
+		for j, partitionData := range topic.Partitions {
+			partitionResponses[j].PartitionIndex = partitionData.PartitionIndex
+			partitionResponses[j].ErrorCode = errorCode
+		}
+	}
+	return &resp
+}
+
+func (n *NewHandler) HandleOffsetCommitRequest(_ *protocol.RequestHeader, req *protocol.OffsetCommitRequest, completionFunc func(resp *protocol.OffsetCommitResponse) error) error {
 	var resp protocol.OffsetCommitResponse
 	topicNames := make([]string, len(req.Topics))
 	partitionIDs := make([][]int32, len(req.Topics))
@@ -280,7 +342,21 @@ func (n *NewHandler) HandleOffsetCommitRequest(hdr *protocol.RequestHeader, req 
 	return completionFunc(&resp)
 }
 
-func (n *NewHandler) HandleOffsetFetchRequest(hdr *protocol.RequestHeader, req *protocol.OffsetFetchRequest, completionFunc func(resp *protocol.OffsetFetchResponse) error) error {
+func (n *NewHandler) OffsetFetchRequestErrorResponse(errorCode int16, _ string, req *protocol.OffsetFetchRequest) *protocol.OffsetFetchResponse {
+	var resp protocol.OffsetFetchResponse
+	if len(req.Groups) > 0 {
+		resp.Groups = make([]protocol.OffsetFetchResponseOffsetFetchResponseGroup, len(req.Groups))
+		for i, g := range req.Groups {
+			resp.Groups[i].GroupId = g.GroupId
+			resp.Groups[i].ErrorCode = errorCode
+		}
+	} else {
+		resp.ErrorCode = errorCode
+	}
+	return &resp
+}
+
+func (n *NewHandler) HandleOffsetFetchRequest(_ *protocol.RequestHeader, req *protocol.OffsetFetchRequest, completionFunc func(resp *protocol.OffsetFetchResponse) error) error {
 	var resp protocol.OffsetFetchResponse
 	topicNames := make([]string, len(req.Topics))
 	partitionIDs := make([][]int32, len(req.Topics))
@@ -310,7 +386,22 @@ func (n *NewHandler) HandleOffsetFetchRequest(hdr *protocol.RequestHeader, req *
 	return completionFunc(&resp)
 }
 
-func (n *NewHandler) HandleListOffsetsRequest(hdr *protocol.RequestHeader, req *protocol.ListOffsetsRequest, completionFunc func(resp *protocol.ListOffsetsResponse) error) error {
+func (n *NewHandler) ListOffsetsRequestErrorResponse(errorCode int16, _ string, req *protocol.ListOffsetsRequest) *protocol.ListOffsetsResponse {
+	var resp protocol.ListOffsetsResponse
+	resp.Topics = make([]protocol.ListOffsetsResponseListOffsetsTopicResponse, len(req.Topics))
+	for i, topic := range req.Topics {
+		resp.Topics[i].Name = topic.Name
+		partitionResponses := make([]protocol.ListOffsetsResponseListOffsetsPartitionResponse, len(topic.Partitions))
+		resp.Topics[i].Partitions = partitionResponses
+		for j, partitionData := range topic.Partitions {
+			partitionResponses[j].PartitionIndex = partitionData.PartitionIndex
+			partitionResponses[j].ErrorCode = errorCode
+		}
+	}
+	return &resp
+}
+
+func (n *NewHandler) HandleListOffsetsRequest(_ *protocol.RequestHeader, req *protocol.ListOffsetsRequest, completionFunc func(resp *protocol.ListOffsetsResponse) error) error {
 	var resp protocol.ListOffsetsResponse
 	topicNames := make([]string, len(req.Topics))
 	type partitionOffset struct {
@@ -367,7 +458,16 @@ func (n *NewHandler) HandleListOffsetsRequest(hdr *protocol.RequestHeader, req *
 	return completionFunc(&resp)
 }
 
-func (n *NewHandler) HandleFindCoordinatorRequest(hdr *protocol.RequestHeader, req *protocol.FindCoordinatorRequest, completionFunc func(resp *protocol.FindCoordinatorResponse) error) error {
+func (n *NewHandler) FindCoordinatorRequestErrorResponse(errorCode int16, errorMsg string, req *protocol.FindCoordinatorRequest) *protocol.FindCoordinatorResponse {
+	var resp protocol.FindCoordinatorResponse
+	resp.ErrorCode = errorCode
+	if errorMsg != "" {
+		resp.ErrorMessage = &errorMsg
+	}
+	return &resp
+}
+
+func (n *NewHandler) HandleFindCoordinatorRequest(_ *protocol.RequestHeader, req *protocol.FindCoordinatorRequest, completionFunc func(resp *protocol.FindCoordinatorResponse) error) error {
 	nodeID := n.conn.s.groupCoordinator.FindCoordinator(*req.Key)
 	address := n.conn.s.cfg.KafkaServerListenerConfig.Addresses[nodeID]
 	if len(n.conn.s.cfg.KafkaServerListenerConfig.AdvertisedAddresses) > 0 {
@@ -387,6 +487,12 @@ func (n *NewHandler) HandleFindCoordinatorRequest(hdr *protocol.RequestHeader, r
 	resp.Host = &host
 	resp.Port = int32(port)
 	return completionFunc(&resp)
+}
+
+func (n *NewHandler) JoinGroupRequestErrorResponse(errorCode int16, errorMsg string, req *protocol.JoinGroupRequest) *protocol.JoinGroupResponse {
+	var resp protocol.JoinGroupResponse
+	resp.ErrorCode = errorCode
+	return &resp
 }
 
 func (n *NewHandler) HandleJoinGroupRequest(hdr *protocol.RequestHeader, req *protocol.JoinGroupRequest, completionFunc func(resp *protocol.JoinGroupResponse) error) error {
@@ -421,14 +527,26 @@ func (n *NewHandler) HandleJoinGroupRequest(hdr *protocol.RequestHeader, req *pr
 	return nil
 }
 
-func (n *NewHandler) HandleHeartbeatRequest(hdr *protocol.RequestHeader, req *protocol.HeartbeatRequest, completionFunc func(resp *protocol.HeartbeatResponse) error) error {
+func (n *NewHandler) HeartbeatRequestErrorResponse(errorCode int16, _ string, _ *protocol.HeartbeatRequest) *protocol.HeartbeatResponse {
+	var resp protocol.HeartbeatResponse
+	resp.ErrorCode = errorCode
+	return &resp
+}
+
+func (n *NewHandler) HandleHeartbeatRequest(_ *protocol.RequestHeader, req *protocol.HeartbeatRequest, completionFunc func(resp *protocol.HeartbeatResponse) error) error {
 	errorCode := n.conn.s.groupCoordinator.HeartbeatGroup(*req.GroupId, *req.MemberId, int(req.GenerationId))
 	var resp protocol.HeartbeatResponse
 	resp.ErrorCode = int16(errorCode)
 	return completionFunc(&resp)
 }
 
-func (n *NewHandler) HandleLeaveGroupRequest(hdr *protocol.RequestHeader, req *protocol.LeaveGroupRequest, completionFunc func(resp *protocol.LeaveGroupResponse) error) error {
+func (n *NewHandler) LeaveGroupRequestErrorResponse(errorCode int16, _ string, _ *protocol.LeaveGroupRequest) *protocol.LeaveGroupResponse {
+	var resp protocol.LeaveGroupResponse
+	resp.ErrorCode = errorCode
+	return &resp
+}
+
+func (n *NewHandler) HandleLeaveGroupRequest(_ *protocol.RequestHeader, req *protocol.LeaveGroupRequest, completionFunc func(resp *protocol.LeaveGroupResponse) error) error {
 	leaveInfos := []MemberLeaveInfo{{MemberID: *req.MemberId}}
 	errorCode := n.conn.s.groupCoordinator.LeaveGroup(*req.GroupId, leaveInfos)
 	var resp protocol.LeaveGroupResponse
@@ -436,7 +554,13 @@ func (n *NewHandler) HandleLeaveGroupRequest(hdr *protocol.RequestHeader, req *p
 	return completionFunc(&resp)
 }
 
-func (n *NewHandler) HandleSyncGroupRequest(hdr *protocol.RequestHeader, req *protocol.SyncGroupRequest, completionFunc func(resp *protocol.SyncGroupResponse) error) error {
+func (n *NewHandler) SyncGroupRequestErrorResponse(errorCode int16, _ string, _ *protocol.SyncGroupRequest) *protocol.SyncGroupResponse {
+	var resp protocol.SyncGroupResponse
+	resp.ErrorCode = errorCode
+	return &resp
+}
+
+func (n *NewHandler) HandleSyncGroupRequest(_ *protocol.RequestHeader, req *protocol.SyncGroupRequest, completionFunc func(resp *protocol.SyncGroupResponse) error) error {
 	assignments := make([]AssignmentInfo, len(req.Assignments))
 	for i, assignment := range req.Assignments {
 		mem := *assignment.MemberId
@@ -458,8 +582,14 @@ func (n *NewHandler) HandleSyncGroupRequest(hdr *protocol.RequestHeader, req *pr
 	return nil
 }
 
-func (n *NewHandler) HandleApiVersionsRequest(hdr *protocol.RequestHeader, req *protocol.ApiVersionsRequest, completionFunc func(resp *protocol.ApiVersionsResponse) error) error {
+func (n *NewHandler) ApiVersionsRequestErrorResponse(errorCode int16, _ string, req *protocol.ApiVersionsRequest) *protocol.ApiVersionsResponse {
 	var resp protocol.ApiVersionsResponse
-	resp.ApiKeys = protocol.SupportedAPIKeys
+	resp.ErrorCode = errorCode
+	return &resp
+}
+
+func (n *NewHandler) HandleApiVersionsRequest(_ *protocol.RequestHeader, _ *protocol.ApiVersionsRequest, completionFunc func(resp *protocol.ApiVersionsResponse) error) error {
+	var resp protocol.ApiVersionsResponse
+	resp.ApiKeys = protocol.SupportedAPIVersions
 	return completionFunc(&resp)
 }
