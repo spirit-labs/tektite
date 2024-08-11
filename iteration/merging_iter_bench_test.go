@@ -10,7 +10,7 @@ import (
 
 func BenchmarkMergingIterator(b *testing.B) {
 	numEntries := 1000
-	lengths := []int{10, 100, 1000, 10000, 100000}
+	lengths := []int{2, 3, 4, 5}
 
 	for _, numIters := range lengths {
 		iters := make([]Iterator, numIters)
