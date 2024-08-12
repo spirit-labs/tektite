@@ -38,6 +38,10 @@ var included = []string{
 	"HeartbeatResponse",
 	"ApiVersionsRequest",
 	"ApiVersionsResponse",
+	"SaslAuthenticateRequest",
+	"SaslAuthenticateResponse",
+	"SaslHandshakeRequest",
+	"SaslHandshakeResponse",
 }
 
 func Generate(specDir string, outDir string) error {
@@ -350,7 +354,9 @@ func generateHeaderVersions(ms *MessageSpec, gc *genContext) error {
 		gc.write("    return 0, 0\n")
 		gc.write("}\n")
 	}
-	if gc.startVersionIf(*gc.flexibleRange) {
+	if gc.flexibleRange == nil {
+		gc.write("return 1, 0\n")
+	} else if gc.startVersionIf(*gc.flexibleRange) {
 		// if version is flexible then we use version 2 of the request header and version 1 of the response header
 		// See https://cwiki.apache.org/confluence/display/KAFKA/KIP-482
 		if ms.Name == "ApiVersionsRequest" {
@@ -360,11 +366,11 @@ func generateHeaderVersions(ms *MessageSpec, gc *genContext) error {
 		} else {
 			gc.write("return 2, 1\n")
 		}
+		if gc.startVersionElse() {
+			gc.write("return 1, 0\n")
+		}
+		gc.closeVersionIf()
 	}
-	if gc.startVersionElse() {
-		gc.write("return 1, 0\n")
-	}
-	gc.closeVersionIf()
 	gc.decIndent()
 	gc.write("}\n")
 	return nil

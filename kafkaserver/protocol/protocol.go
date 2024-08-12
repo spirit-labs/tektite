@@ -97,7 +97,6 @@ var SupportedAPIVersions = []ApiVersionsResponseApiVersion{
 	{ApiKey: APIKeyProduce, MinVersion: 3, MaxVersion: 3},
 	{ApiKey: APIKeyFetch, MinVersion: 4, MaxVersion: 4},
 	{ApiKey: APIKeyAPIVersions, MinVersion: 0, MaxVersion: 3},
-	{ApiKey: APIKeySaslAuthenticate, MinVersion: 0, MaxVersion: 0},
 	{ApiKey: APIKeyMetadata, MinVersion: 1, MaxVersion: 4},
 	{ApiKey: APIKeyFindCoordinator, MinVersion: 0, MaxVersion: 0},
 	{ApiKey: ApiKeyJoinGroup, MinVersion: 0, MaxVersion: 0},
@@ -107,6 +106,8 @@ var SupportedAPIVersions = []ApiVersionsResponseApiVersion{
 	{ApiKey: APIKeyOffsetCommit, MinVersion: 2, MaxVersion: 2},
 	{ApiKey: APIKeyOffsetFetch, MinVersion: 1, MaxVersion: 1},
 	{ApiKey: ApiKeyLeaveGroup, MinVersion: 0, MaxVersion: 0},
+	{ApiKey: APIKeySaslHandshake, MinVersion: 0, MaxVersion: 1},
+	{ApiKey: APIKeySaslAuthenticate, MinVersion: 0, MaxVersion: 1},
 }
 
 type Records struct {

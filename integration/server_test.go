@@ -23,6 +23,9 @@ import (
 const (
 	serverKeyPath  = "testdata/serverkey.pem"
 	serverCertPath = "testdata/servercert.pem"
+
+	clientKeyPath  = "testdata/selfsignedclientkey.pem"
+	clientCertPath = "testdata/selfsignedclientcert.pem"
 )
 
 var etcdAddress string
