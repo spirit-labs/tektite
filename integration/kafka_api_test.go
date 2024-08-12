@@ -60,6 +60,10 @@ var testCases = []testCase{
 	{caseName: "testProduceErrorUnsupportedVersion", f: testProduceErrorUnsupportedVersion},
 	{caseName: "testFetchErrorUnknownTopic", f: testFetchErrorUnknownTopic},
 	{caseName: "testFetchErrorUnsupportedVersion", f: testFetchErrorUnsupportedVersion},
+	{caseName: "testSaslHandshakeRequest", f: testSaslHandshakeRequest},
+	{caseName: "testSaslHandshakeErrorUnsupportedVersion", f: testSaslHandshakeErrorUnsupportedVersion},
+	{caseName: "testSaslAuthenticateRequest", f: testSaslAuthenticateRequest},
+	{caseName: "testSaslAuthenticateUnsupportedVersion", f: testSaslAuthenticateUnsupportedVersion},
 }
 
 func createConn(t *testing.T, address string) net.Conn {
@@ -270,6 +274,42 @@ func testFetchErrorUnsupportedVersion(t *testing.T, address string) {
 	require.Equal(t, protocol.ErrorCodeUnsupportedVersion, int(resp.Responses[0].Partitions[1].ErrorCode))
 	require.Equal(t, protocol.ErrorCodeUnsupportedVersion, int(resp.Responses[1].Partitions[0].ErrorCode))
 	require.Equal(t, protocol.ErrorCodeUnsupportedVersion, int(resp.Responses[1].Partitions[1].ErrorCode))
+}
+
+func testSaslHandshakeRequest(t *testing.T, address string) {
+	conn := createConn(t, address)
+	var req protocol.SaslHandshakeRequest
+	req.Mechanism = stringPtr("PLAIN")
+	var resp protocol.SaslHandshakeResponse
+	writeRequest(t, protocol.APIKeySaslHandshake, 1, &req, &resp, conn)
+	require.Equal(t, 0, len(resp.Mechanisms))
+}
+
+func testSaslHandshakeErrorUnsupportedVersion(t *testing.T, address string) {
+	conn := createConn(t, address)
+	var req protocol.SaslHandshakeRequest
+	req.Mechanism = stringPtr("PLAIN")
+	var resp protocol.SaslHandshakeResponse
+	writeRequest(t, protocol.APIKeySaslHandshake, 100, &req, &resp, conn)
+	require.Equal(t, protocol.ErrorCodeUnsupportedVersion, int(resp.ErrorCode))
+}
+
+func testSaslAuthenticateRequest(t *testing.T, address string) {
+	conn := createConn(t, address)
+	var req protocol.SaslAuthenticateRequest
+	req.AuthBytes = []byte("foo")
+	var resp protocol.SaslAuthenticateResponse
+	writeRequest(t, protocol.APIKeySaslAuthenticate, 1, &req, &resp, conn)
+	require.Equal(t, protocol.ErrorCodeSaslAuthenticationFailed, int(resp.ErrorCode))
+}
+
+func testSaslAuthenticateUnsupportedVersion(t *testing.T, address string) {
+	conn := createConn(t, address)
+	var req protocol.SaslAuthenticateRequest
+	req.AuthBytes = []byte("foo")
+	var resp protocol.SaslAuthenticateResponse
+	writeRequest(t, protocol.APIKeySaslAuthenticate, 100, &req, &resp, conn)
+	require.Equal(t, protocol.ErrorCodeUnsupportedVersion, int(resp.ErrorCode))
 }
 
 func writeRequest(t *testing.T, apiKey int16, apiVersion int16, req request, resp serializable, conn net.Conn) *protocol.ResponseHeader {

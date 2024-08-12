@@ -3,8 +3,8 @@
 package protocol
 
 import "encoding/binary"
-import "unsafe"
 import "github.com/spirit-labs/tektite/common"
+import "unsafe"
 
 type MetadataResponseMetadataResponseBroker struct {
     // The broker ID.

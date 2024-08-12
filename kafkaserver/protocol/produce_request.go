@@ -3,8 +3,8 @@
 package protocol
 
 import "encoding/binary"
-import "github.com/spirit-labs/tektite/common"
 import "unsafe"
+import "github.com/spirit-labs/tektite/common"
 
 type ProduceRequestPartitionProduceData struct {
     // The partition index.
