@@ -593,3 +593,28 @@ func (n *NewHandler) HandleApiVersionsRequest(_ *protocol.RequestHeader, _ *prot
 	resp.ApiKeys = protocol.SupportedAPIVersions
 	return completionFunc(&resp)
 }
+
+func (n *NewHandler) SaslHandshakeRequestErrorResponse(errorCode int16, _ string, req *protocol.SaslHandshakeRequest) *protocol.SaslHandshakeResponse {
+	var resp protocol.SaslHandshakeResponse
+	resp.ErrorCode = errorCode
+	return &resp
+}
+
+func (n *NewHandler) HandleSaslHandshakeRequest(_ *protocol.RequestHeader, _ *protocol.SaslHandshakeRequest, completionFunc func(resp *protocol.SaslHandshakeResponse) error) error {
+	var resp protocol.SaslHandshakeResponse
+	// For now, we don't implement any mechanisms, this is just a placeholder
+	return completionFunc(&resp)
+}
+
+func (n *NewHandler) SaslAuthenticateRequestErrorResponse(errorCode int16, _ string, req *protocol.SaslAuthenticateRequest) *protocol.SaslAuthenticateResponse {
+	var resp protocol.SaslAuthenticateResponse
+	resp.ErrorCode = errorCode
+	return &resp
+}
+
+func (n *NewHandler) HandleSaslAuthenticateRequest(_ *protocol.RequestHeader, req *protocol.SaslAuthenticateRequest, completionFunc func(resp *protocol.SaslAuthenticateResponse) error) error {
+	var resp protocol.SaslAuthenticateResponse
+	// Always fail, just a placeholder
+	resp.ErrorCode = protocol.ErrorCodeSaslAuthenticationFailed
+	return completionFunc(&resp)
+}

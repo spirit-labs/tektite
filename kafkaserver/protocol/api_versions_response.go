@@ -3,9 +3,9 @@
 package protocol
 
 import "encoding/binary"
-import "unsafe"
 import "github.com/spirit-labs/tektite/debug"
 import "fmt"
+import "unsafe"
 
 type ApiVersionsResponseApiVersion struct {
     // The API index.

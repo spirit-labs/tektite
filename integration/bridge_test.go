@@ -309,16 +309,24 @@ func sendMessages(numBatches int, batchSize int, startIndex int, topicName strin
 }
 
 func startStandaloneServerWithObjStore(t *testing.T, clusterName string) (*server.Server, *dev.Store) {
+	return startStandaloneServerWithObjStoreAndConfigSetter(t, clusterName, nil)
+}
+
+func startStandaloneServerWithObjStoreAndConfigSetter(t *testing.T, clusterName string, configSetter func(config *conf.Config)) (*server.Server, *dev.Store) {
 	objStoreAddress, err := common.AddressWithPort("localhost")
 	require.NoError(t, err)
 	objStore := dev.NewDevStore(objStoreAddress)
 	err = objStore.Start()
 	require.NoError(t, err)
-	s := startStandaloneServer(t, objStoreAddress, clusterName)
+	s := startStandaloneServerWithConfigSetter(t, objStoreAddress, clusterName, configSetter)
 	return s, objStore
 }
 
 func startStandaloneServer(t *testing.T, objStoreAddress string, clusterName string) *server.Server {
+	return startStandaloneServerWithConfigSetter(t, objStoreAddress, clusterName, nil)
+}
+
+func startStandaloneServerWithConfigSetter(t *testing.T, objStoreAddress string, clusterName string, configSetter func(config *conf.Config)) *server.Server {
 	cfg := conf.Config{}
 	cfg.LogScope = t.Name()
 	cfg.ApplyDefaults()
@@ -349,6 +357,9 @@ func startStandaloneServer(t *testing.T, objStoreAddress string, clusterName str
 	cfg.ObjectStoreType = conf.DevObjectStoreType
 	cfg.DevObjectStoreAddresses = []string{objStoreAddress}
 	cfg.ClusterManagerKeyPrefix = uuid.NewString() // test needs unique etcd namespace
+	if configSetter != nil {
+		configSetter(&cfg)
+	}
 	s, err := server.NewServer(cfg)
 	require.NoError(t, err)
 	err = s.Start()
