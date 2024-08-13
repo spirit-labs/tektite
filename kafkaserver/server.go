@@ -4,8 +4,10 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/binary"
+	"github.com/pkg/errors"
 	"github.com/spirit-labs/tektite/asl/conf"
 	"github.com/spirit-labs/tektite/asl/errwrap"
+	"github.com/spirit-labs/tektite/auth"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/kafkaserver/protocol"
 
@@ -142,6 +144,15 @@ func (s *Server) ListenAddress() string {
 	return s.cfg.KafkaServerListenerConfig.Addresses[s.cfg.NodeID]
 }
 
+func (s *Server) Connections() []*connection {
+	var conns []*connection
+	s.connections.Range(func(c, _ any) bool {
+		conns = append(conns, c.(*connection))
+		return true
+	})
+	return conns
+}
+
 func (s *Server) removeConnection(conn *connection) {
 	s.connections.Delete(conn)
 }
@@ -154,11 +165,12 @@ func (s *Server) newConnection(conn net.Conn) *connection {
 }
 
 type connection struct {
-	s          *Server
-	conn       net.Conn
-	closeGroup sync.WaitGroup
-	lock       sync.Mutex
-	closed     bool
+	s           *Server
+	conn        net.Conn
+	closeGroup  sync.WaitGroup
+	lock        sync.Mutex
+	closed      bool
+	authContext auth.Context
 }
 
 func (c *connection) start() {
@@ -171,7 +183,12 @@ func (c *connection) start() {
 func (c *connection) readLoop() {
 	defer c.readPanicHandler()
 	defer c.closeGroup.Done()
-	c.readMessage()
+	if err := c.readMessage(); err != nil {
+		log.Errorf("error in reading from kafka connection: %v", err)
+		if err := c.conn.Close(); err != nil {
+			// Ignore
+		}
+	}
 	c.cleanUp()
 }
 
@@ -194,7 +211,7 @@ func (c *connection) readPanicHandler() {
 	}
 }
 
-func (c *connection) readMessage() {
+func (c *connection) readMessage() error {
 	buff := make([]byte, readBuffSize)
 	var err error
 	var readPos, n int
@@ -227,7 +244,10 @@ func (c *connection) readMessage() {
 		}
 		// Note that the buffer is reused so it's up to the protocol structs to copy any data in the message such
 		// as records, uuid, []byte before the call to handleMessage returns
-		c.handleMessage(buff[4:totSize])
+		err = c.handleMessage(buff[4:totSize])
+		if err != nil {
+			break
+		}
 
 		remainingBytes := readPos - totSize
 		if remainingBytes > 0 {
@@ -245,15 +265,38 @@ func (c *connection) readMessage() {
 		readPos = remainingBytes
 	}
 	if err == io.EOF {
-		return
+		return nil
 	}
-	log.Errorf("error in reading from connection %v", err)
+	return err
 }
 
-func (c *connection) handleMessage(message []byte) {
-	if err := protocol.HandleRequestBuffer(message, &NewHandler{conn: c}, c.conn); err != nil {
-		log.Errorf("failed to handle produce %v", err)
+func (c *connection) handleMessage(message []byte) error {
+	if !c.authContext.Authorised && c.s.cfg.KafkaServerListenerConfig.AuthenticationType == auth.AuthenticationTLS {
+		if err := c.authoriseWithClientCert(); err != nil {
+			return err
+		}
 	}
+	return protocol.HandleRequestBuffer(message, &NewHandler{conn: c}, c.conn)
+}
+
+func (c *connection) authoriseWithClientCert() error {
+	tlsConn, ok := c.conn.(*tls.Conn)
+	if !ok {
+		return errors.New("cannot use TLS authentication on Kafka connection - connection is not TLS")
+	}
+	pcs := tlsConn.ConnectionState().PeerCertificates
+	if len(pcs) == 0 {
+		return errors.New("cannot use TLS authentication on Kafka connection - TLS is not configured for client certificates")
+	}
+	if len(pcs) > 1 {
+		return errors.New("client has provided more than one certificate - please make sure only one cerftificate is provided")
+	}
+	principal := pcs[0].Subject.String()
+	c.lock.Lock()
+	defer c.lock.Unlock()
+	c.authContext.Principal = &principal
+	c.authContext.Authorised = true
+	return nil
 }
 
 func (c *connection) stop() {
@@ -264,6 +307,12 @@ func (c *connection) stop() {
 	}
 	c.lock.Unlock()
 	c.closeGroup.Wait()
+}
+
+func (c *connection) AuthContext() auth.Context {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+	return c.authContext
 }
 
 type MetadataProvider interface {

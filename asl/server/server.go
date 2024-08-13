@@ -471,6 +471,10 @@ func (s *Server) GetCommandManager() cmdmgr.Manager {
 	return s.commandManager
 }
 
+func (s *Server) GetKafkaServer() *kafkaserver.Server {
+	return s.kafkaServer
+}
+
 func (s *Server) SetStopWaitGroup(waitGroup *sync.WaitGroup) {
 	s.stopWaitGroup = waitGroup
 }

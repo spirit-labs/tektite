@@ -18,7 +18,7 @@ func TestKafkaTLS(t *testing.T) {
 		KeyPath:  serverKeyPath,
 		CertPath: serverCertPath,
 	}
-	testKafkaTLS(t, serverTlsConf, "", "")
+	testKafkaTLS(t, serverTlsConf, "", "", "")
 }
 
 func TestKafkaTLSWithClientCert(t *testing.T) {
@@ -29,15 +29,16 @@ func TestKafkaTLSWithClientCert(t *testing.T) {
 		ClientCertsPath: clientCertPath,
 		ClientAuth:      "require-and-verify-client-cert",
 	}
-	testKafkaTLS(t, serverTlsConf, clientKeyPath, clientCertPath)
+	testKafkaTLS(t, serverTlsConf, clientKeyPath, clientCertPath, "tls")
 }
 
-func testKafkaTLS(t *testing.T, serverTlsConf conf.TLSConfig, clientKeyPath string, clientCertPath string) {
+func testKafkaTLS(t *testing.T, serverTlsConf conf.TLSConfig, clientKeyPath string, clientCertPath string, authType string) {
 	clientTLSConfig := client.TLSConfig{
 		TrustedCertsPath: serverCertPath,
 	}
 	clusterName := uuid.New().String()
 	server, objStore := startStandaloneServerWithObjStoreAndConfigSetter(t, clusterName, func(config *conf.Config) {
+		config.KafkaServerListenerConfig.AuthenticationType = authType
 		config.KafkaServerListenerConfig.TLSConfig = serverTlsConf
 	})
 	defer func() {
@@ -84,4 +85,12 @@ func testKafkaTLS(t *testing.T, serverTlsConf conf.TLSConfig, clientKeyPath stri
 	require.NoError(t, err)
 
 	waitForRows(t, "topic1", 1, cl, startTime)
+
+	if clientCertPath != "" {
+		// Verify client is authenticated
+		conns := server.GetKafkaServer().Connections()
+		require.Equal(t, 1, len(conns))
+		require.True(t, conns[0].AuthContext().Authorised)
+		require.Equal(t, "O=acme aardvarks ltd.,L=San Francisco\\, street=Golden Gate Bridge\\, postalCode=94016,C=US", *conns[0].AuthContext().Principal)
+	}
 }
