@@ -277,6 +277,7 @@ type ListenerConfig struct {
 	Addresses           []string
 	AdvertisedAddresses []string
 	TLSConfig           TLSConfig `embed:"" prefix:"tls-"`
+	AuthenticationType  string
 }
 
 type ClientAuthMode string
