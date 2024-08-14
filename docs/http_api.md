@@ -93,14 +93,13 @@ You prepare a [query](queries.md) by executing a `prepare` statement:
 ```
 POST mytektite.foo.com:7770/tektite/statement
 prepare my_query := (scan $name_start:string to $name_end:string) ->
-    (filter by country == $country:string)
+    (filter by country == "UK")
 ```
 
 The query can have zero or more parameters, these are denoted by `$<param_name>:<param_type>`, e.g. `$name_start:string` is 
 a parameter called `name_start` with a type of `string`.
 
-Parameters can be of any [Tektite data types](conceptual_model.md#data-types) and can appear in the query anywhere a column
-identifier is legal.
+Parameters can be of any [Tektite data types](conceptual_model.md#data-types) and can currently only appear in `scan` or `get` operators.
 
 To execute a prepared query, you send a `POST` request to the `execute` endpoint, and the body of the request must contain
 a JSON object with the name of the query to execute in the `QueryName` field and the prepared query arguments to execute it as a JSON
