@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"github.com/spirit-labs/tektite/auth"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/kafkaserver/protocol"
 	log "github.com/spirit-labs/tektite/logger"
@@ -600,9 +601,16 @@ func (n *NewHandler) SaslHandshakeRequestErrorResponse(errorCode int16, _ string
 	return &resp
 }
 
-func (n *NewHandler) HandleSaslHandshakeRequest(_ *protocol.RequestHeader, _ *protocol.SaslHandshakeRequest, completionFunc func(resp *protocol.SaslHandshakeResponse) error) error {
+func (n *NewHandler) HandleSaslHandshakeRequest(_ *protocol.RequestHeader, req *protocol.SaslHandshakeRequest, completionFunc func(resp *protocol.SaslHandshakeResponse) error) error {
 	var resp protocol.SaslHandshakeResponse
-	// For now, we don't implement any mechanisms, this is just a placeholder
+	conversation, ok := n.conn.s.saslAuthManager.CreateConversation(*req.Mechanism)
+	if !ok {
+		resp.ErrorCode = protocol.ErrorCodeUnsupportedSaslMechanism
+	} else {
+		n.conn.saslConversation = conversation
+	}
+	saslScram := auth.SASL_SCRAM
+	resp.Mechanisms = []*string{&saslScram}
 	return completionFunc(&resp)
 }
 
@@ -614,7 +622,19 @@ func (n *NewHandler) SaslAuthenticateRequestErrorResponse(errorCode int16, _ str
 
 func (n *NewHandler) HandleSaslAuthenticateRequest(_ *protocol.RequestHeader, req *protocol.SaslAuthenticateRequest, completionFunc func(resp *protocol.SaslAuthenticateResponse) error) error {
 	var resp protocol.SaslAuthenticateResponse
-	// Always fail, just a placeholder
-	resp.ErrorCode = protocol.ErrorCodeSaslAuthenticationFailed
+	conv := n.conn.saslConversation
+	if conv == nil {
+		resp.ErrorCode = protocol.ErrorCodeIllegalSaslState
+		msg := "SaslAuthenticateRequest without a preceding SaslAuthenticateRequest"
+		resp.ErrorMessage = &msg
+	} else {
+		saslRespBytes, complete := conv.Process(req.AuthBytes)
+		resp.AuthBytes = saslRespBytes
+		if complete {
+			principal := conv.Principal()
+			n.conn.authContext.Principal = &principal
+			n.conn.authContext.Authorised = true
+		}
+	}
 	return completionFunc(&resp)
 }

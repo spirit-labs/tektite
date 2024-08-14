@@ -47,6 +47,7 @@ type Server struct {
 	groupCoordinator    *GroupCoordinator
 	fetcher             *fetcher
 	listenCancel        context.CancelFunc
+	saslAuthManager     *auth.SaslAuthManager
 }
 
 type processorProvider interface {
@@ -165,12 +166,13 @@ func (s *Server) newConnection(conn net.Conn) *connection {
 }
 
 type connection struct {
-	s           *Server
-	conn        net.Conn
-	closeGroup  sync.WaitGroup
-	lock        sync.Mutex
-	closed      bool
-	authContext auth.Context
+	s                *Server
+	conn             net.Conn
+	closeGroup       sync.WaitGroup
+	lock             sync.Mutex
+	closed           bool
+	authContext      auth.Context
+	saslConversation auth.SaslConversation
 }
 
 func (c *connection) start() {
