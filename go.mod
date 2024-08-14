@@ -30,7 +30,7 @@ require (
 	github.com/chzyer/readline v1.5.1
 	github.com/confluentinc/confluent-kafka-go/v2 v2.5.0
 	github.com/dgraph-io/ristretto v0.1.0
-	github.com/docker/docker v26.1.0+incompatible
+	github.com/docker/docker v25.0.6+incompatible
 	github.com/docker/go-connections v0.5.0
 	github.com/emirpasic/gods v1.18.1
 	github.com/magefile/mage v1.15.0
