@@ -63,24 +63,67 @@ func TestProduceWithAdvertised(t *testing.T) {
 	require.NotNil(t, batch)
 }
 
+func TestProduceWithIdempotentProducer(t *testing.T) {
+	topic := "my_topic"
+
+	serverAddress, err := common.AddressWithPort("localhost")
+	require.NoError(t, err)
+
+	server, processor := createServer(t, topic, serverAddress, "")
+
+	defer func() {
+		err := server.Stop()
+		require.NoError(t, err)
+	}()
+
+	sendMessagesWithIdempotentProducer(t, topic, serverAddress, 100)
+
+	batch := processor.getBatch()
+	require.NotNil(t, batch)
+}
+
 func sendMessages(t *testing.T, topic string, serverAddress string, numMessages int) {
-	producer, err := kafka.NewProducer(&kafka.ConfigMap{
+	producer := createProducer(t, serverAddress, false)
+	defer producer.Close()
+
+	produceMessages(t, producer, topic, numMessages)
+}
+
+func sendMessagesWithIdempotentProducer(t *testing.T, topic string, serverAddress string, numMessages int) {
+	producer := createProducer(t, serverAddress, true)
+	defer producer.Close()
+
+	produceMessages(t, producer, topic, numMessages)
+}
+
+func createProducer(t *testing.T, serverAddress string, enableIdempotence bool) *kafka.Producer {
+	config := &kafka.ConfigMap{
 		"bootstrap.servers": serverAddress,
 		"acks":              "all",
 		"debug":             "all",
-	})
+	}
+
+	if enableIdempotence {
+		config.SetKey("enable.idempotence", true)
+	}
+
+	producer, err := kafka.NewProducer(config)
 	require.NoError(t, err)
-	defer producer.Close()
+	return producer
+}
+
+func produceMessages(t *testing.T, producer *kafka.Producer, topic string, numMessages int) {
 	for i := 0; i < numMessages; i++ {
 		deliveryChan := make(chan kafka.Event, 1)
 		key := []byte(fmt.Sprintf("key-%05d", i))
 		value := []byte(fmt.Sprintf("value-%05d", i))
-		err = producer.Produce(&kafka.Message{
+		err := producer.Produce(&kafka.Message{
 			TopicPartition: kafka.TopicPartition{Topic: &topic, Partition: kafka.PartitionAny},
 			Key:            key,
 			Value:          value},
 			deliveryChan,
 		)
+		require.NoError(t, err)
 		e := <-deliveryChan
 		m := e.(*kafka.Message)
 		require.NoError(t, m.TopicPartition.Error)
@@ -115,10 +158,11 @@ func createServer(t *testing.T, topic string, serverAddress string, serverAdvert
 			Name:           topic,
 			ProduceEnabled: true,
 			ProduceInfoProvider: &testProduceInfoProvider{
-				receiverID:     10,
-				lastOffset:     1001,
-				lastAppendTime: 1000000,
-				ps:             &partitionSchema,
+				receiverID:              10,
+				lastOffset:              1001,
+				lastAppendTime:          1000000,
+				ps:                      &partitionSchema,
+				producerSequenceNumbers: make(map[int]int),
 			},
 			Partitions: []PartitionInfo{
 				{
@@ -244,12 +288,6 @@ func (t *testProcessor) IngestBatch(processBatch *proc.ProcessBatch, completionF
 	completionFunc(nil)
 }
 
-func (t *testProcessor) getBatch() *proc.ProcessBatch {
-	t.lock.Lock()
-	defer t.lock.Unlock()
-	return t.batch
-}
-
 func (t *testProcessor) IngestBatchSync(*proc.ProcessBatch) error {
 	return nil
 }
@@ -305,10 +343,11 @@ func (t *testProcessor) CloseVersion(int, []int) {
 }
 
 type testProduceInfoProvider struct {
-	receiverID     int
-	lastOffset     int64
-	lastAppendTime int64
-	ps             *opers.PartitionScheme
+	receiverID              int
+	lastOffset              int64
+	lastAppendTime          int64
+	ps                      *opers.PartitionScheme
+	producerSequenceNumbers map[int]int
 }
 
 func (t *testProduceInfoProvider) PartitionScheme() *opers.PartitionScheme {
@@ -322,6 +361,25 @@ func (t *testProduceInfoProvider) IngestBatch(recordBatchBytes []byte, processor
 	processBatch := proc.NewProcessBatch(processor.ID(), evBatch,
 		t.receiverID, partitionID, -1)
 	processor.IngestBatch(processBatch, complFunc)
+}
+
+func (t *testProduceInfoProvider) GetIdempotentProducerMetadata(producerID int) (int, bool) {
+	value, exists := t.producerSequenceNumbers[producerID]
+	return value, exists
+}
+
+func (t *testProduceInfoProvider) SetIdempotentProducerMetadata(producerID int, value int) {
+	if existingValue, exists := t.producerSequenceNumbers[producerID]; exists {
+		t.producerSequenceNumbers[producerID] = max(existingValue, value)
+	} else {
+		t.producerSequenceNumbers[producerID] = value
+	}
+}
+
+func (t *testProcessor) getBatch() *proc.ProcessBatch {
+	t.lock.Lock()
+	defer t.lock.Unlock()
+	return t.batch
 }
 
 func (t *testProduceInfoProvider) ReceiverID() int {

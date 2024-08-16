@@ -347,6 +347,8 @@ type TopicInfoProvider interface {
 	GetLastProducedInfo(partitionID int) (int64, int64)
 	IngestBatch(recordBatchBytes []byte, processor proc.Processor, partitionID int,
 		complFunc func(err error))
+	GetIdempotentProducerMetadata(producerID int) (int, bool)
+	SetIdempotentProducerMetadata(producerID int, sequenceNumber int)
 }
 
 type ConsumerInfoProvider interface {

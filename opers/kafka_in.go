@@ -26,28 +26,30 @@ func NewKafkaInOperator(mappingID string, offsetsSlabID int, receiverID int, par
 		nextOffsets[i] = -1
 	}
 	return &KafkaInOperator{
-		offsetsSlabID:      offsetsSlabID,
-		inSchema:           inSchema,
-		outSchema:          outSchema,
-		receiverID:         receiverID,
-		useServerTimestamp: useServerTimestamp,
-		nextOffsets:        nextOffsets,
-		lastAppendTimes:    make([]int64, partitions),
-		hashCache:          newPartitionHashCache(inSchema.MappingID, inSchema.Partitions),
+		offsetsSlabID:           offsetsSlabID,
+		inSchema:                inSchema,
+		outSchema:               outSchema,
+		receiverID:              receiverID,
+		useServerTimestamp:      useServerTimestamp,
+		nextOffsets:             nextOffsets,
+		lastAppendTimes:         make([]int64, partitions),
+		hashCache:               newPartitionHashCache(inSchema.MappingID, inSchema.Partitions),
+		producerSequenceNumbers: map[int]int{},
 	}
 }
 
 type KafkaInOperator struct {
 	BaseOperator
-	inSchema           *OperatorSchema
-	outSchema          *OperatorSchema
-	offsetsSlabID      int
-	receiverID         int
-	useServerTimestamp bool
-	nextOffsets        []int64
-	lastAppendTimes    []int64
-	watermarkOperator  *WaterMarkOperator
-	hashCache          *partitionHashCache
+	inSchema                *OperatorSchema
+	outSchema               *OperatorSchema
+	offsetsSlabID           int
+	receiverID              int
+	useServerTimestamp      bool
+	nextOffsets             []int64
+	lastAppendTimes         []int64
+	watermarkOperator       *WaterMarkOperator
+	hashCache               *partitionHashCache
+	producerSequenceNumbers map[int]int
 }
 
 func (k *KafkaInOperator) PartitionScheme() *PartitionScheme {
@@ -75,6 +77,19 @@ func (k *KafkaInOperator) IngestBatch(recordBatchBytes []byte, processor proc.Pr
 	processBatch := proc.NewProcessBatch(processor.ID(), evBatch,
 		k.receiverID, partitionID, -1)
 	processor.GetReplicator().ReplicateBatch(processBatch, complFunc)
+}
+
+func (k *KafkaInOperator) GetIdempotentProducerMetadata(producerID int) (int, bool) {
+	value, exists := k.producerSequenceNumbers[producerID]
+	return value, exists
+}
+
+func (k *KafkaInOperator) SetIdempotentProducerMetadata(producerID int, value int) {
+	if existingValue, exists := k.producerSequenceNumbers[producerID]; exists {
+		k.producerSequenceNumbers[producerID] = max(existingValue, value)
+	} else {
+		k.producerSequenceNumbers[producerID] = value
+	}
 }
 
 func (k *KafkaInOperator) HandleStreamBatch(batch *evbatch.Batch, execCtx StreamExecContext) (*evbatch.Batch, error) {

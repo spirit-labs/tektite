@@ -75,7 +75,23 @@ func (n *NewHandler) HandleProduceRequest(_ *protocol.RequestHeader, req *protoc
 				cf.CountDown(nil)
 				continue
 			}
+
 			producedRecords := partitionData.Records[0]
+			producerID := int(binary.BigEndian.Uint64(producedRecords[43:51]))
+			baseSequence := int(binary.BigEndian.Uint32(producedRecords[53:57]))
+			lastOffsetDelta := int(binary.BigEndian.Uint32(producedRecords[23:27]))
+			sequenceNumber := baseSequence + lastOffsetDelta
+			// if producerID is 0 then idempotency is disabled on the producer
+			if producerID > 0 {
+				lastSequenceNumber, exists := topicInfo.ProduceInfoProvider.GetIdempotentProducerMetadata(producerID)
+				if exists && sequenceNumber <= lastSequenceNumber {
+					partitionResponses[j].ErrorCode = protocol.ErrorCodeDuplicateSequenceNumber
+					cf.CountDown(nil)
+					continue
+				}
+				topicInfo.ProduceInfoProvider.SetIdempotentProducerMetadata(producerID, sequenceNumber)
+			}
+
 			numRecords := int(binary.BigEndian.Uint32(producedRecords[57:]))
 			magic := producedRecords[16]
 			if magic != 2 {
