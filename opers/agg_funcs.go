@@ -29,14 +29,14 @@ var aggFuncsMap = map[string]AggFunc{
 	"sum":   saf,
 	"count": caf,
 	"min":   min,
-	"max":   max,
+	"max":   maxAgg,
 	"avg":   avg,
 }
 
 var saf = &SumAggFunc{}
 var caf = &CountAggFunc{}
 var min = &MinAggFunc{}
-var max = &MaxAggFunc{}
+var maxAgg = &MaxAggFunc{}
 var avg = &AvgAggFunc{}
 
 type AvgAggFunc struct {
@@ -355,91 +355,91 @@ type MaxAggFunc struct {
 }
 
 func (c MaxAggFunc) ComputeInt(s any, _ []byte, vals []int64) (any, []byte, error) {
-	var max int64
+	var maxAggVal int64
 	if s != nil {
-		max = s.(int64)
+		maxAggVal = s.(int64)
 	} else {
-		max = math.MinInt64
+		maxAggVal = math.MinInt64
 	}
 	for _, val := range vals {
-		if val > max {
-			max = val
+		if val > maxAggVal {
+			maxAggVal = val
 		}
 	}
-	return max, nil, nil
+	return maxAggVal, nil, nil
 }
 
 func (c MaxAggFunc) ComputeFloat(s any, _ []byte, vals []float64) (any, []byte, error) {
-	var max float64
+	var maxAggVal float64
 	if s != nil {
-		max = s.(float64)
+		maxAggVal = s.(float64)
 	} else {
-		max = -math.MaxFloat64
+		maxAggVal = -math.MaxFloat64
 	}
 	for _, val := range vals {
-		if val > max {
-			max = val
+		if val > maxAggVal {
+			maxAggVal = val
 		}
 	}
-	return max, nil, nil
+	return maxAggVal, nil, nil
 }
 
 func (c MaxAggFunc) ComputeDecimal(s any, _ []byte, vals []types.Decimal) (any, []byte, error) {
-	var max types.Decimal
+	var maxAggVal types.Decimal
 	first := false
 	if s != nil {
-		max = s.(types.Decimal)
+		maxAggVal = s.(types.Decimal)
 	} else {
 		first = true
 	}
 	for _, val := range vals {
-		if first || val.Num.Greater(max.Num) {
-			max = val
+		if first || val.Num.Greater(maxAggVal.Num) {
+			maxAggVal = val
 		}
 		first = false
 	}
-	return max, nil, nil
+	return maxAggVal, nil, nil
 }
 
 func (c MaxAggFunc) ComputeString(s any, _ []byte, vals []string) (any, []byte, error) {
-	var max string
+	var maxAggVal string
 	if s != nil {
-		max = s.(string)
+		maxAggVal = s.(string)
 	}
 	for _, val := range vals {
-		if strings.Compare(val, max) > 0 {
-			max = val
+		if strings.Compare(val, maxAggVal) > 0 {
+			maxAggVal = val
 		}
 	}
-	return max, nil, nil
+	return maxAggVal, nil, nil
 }
 
 func (c MaxAggFunc) ComputeTimestamp(s any, _ []byte, vals []types.Timestamp) (any, []byte, error) {
-	var max types.Timestamp
+	var maxAggVal types.Timestamp
 	if s != nil {
-		max = s.(types.Timestamp)
+		maxAggVal = s.(types.Timestamp)
 	} else {
-		max = types.NewTimestamp(math.MinInt64)
+		maxAggVal = types.NewTimestamp(math.MinInt64)
 	}
 	for _, val := range vals {
-		if val.Val > max.Val {
-			max = val
+		if val.Val > maxAggVal.Val {
+			maxAggVal = val
 		}
 	}
-	return max, nil, nil
+	return maxAggVal, nil, nil
 }
 
 func (c MaxAggFunc) ComputeBytes(s any, _ []byte, vals [][]byte) (any, []byte, error) {
-	var max []byte
+	var maxAggVal []byte
 	if s != nil {
-		max = s.([]byte)
+		maxAggVal = s.([]byte)
 	}
 	for _, val := range vals {
-		if bytes.Compare(val, max) > 0 {
-			max = val
+		if bytes.Compare(val, maxAggVal) > 0 {
+			maxAggVal = val
 		}
 	}
-	return max, nil, nil
+	return maxAggVal, nil, nil
 }
 
 func (c MaxAggFunc) ReturnTypeForExpressionType(t types.ColumnType) types.ColumnType {
