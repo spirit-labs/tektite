@@ -151,7 +151,7 @@ func (v *VersionManager) failureVersionsCompleted(deadVersionRange levels.Versio
 		if common.IsUnavailableError(err) {
 			log.Warnf("vmgr retrying RegisterDeadVersionRange as level manager is unavailable")
 			// The level manager is temporarily unavailable - retry after delay
-			time.Sleep(levelManagerRetryDelay)
+			time.Sleep(v.cfg.VersionManagerLevelManagerRetryDelay)
 			continue
 		} else {
 			return err

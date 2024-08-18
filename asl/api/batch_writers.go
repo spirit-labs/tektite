@@ -93,6 +93,67 @@ func (j *jsonLinesBatchWriter) writeRow(row any, writer http.ResponseWriter) err
 
 const TektiteArrowMimeType = "x-tektite-arrow"
 
+type ArrowBatchWriter struct {
+}
+
+func (b *ArrowBatchWriter) WriteHeaders(columnNames []string, columnTypes []types.ColumnType, writer http.ResponseWriter) error {
+	buff := make([]byte, 0, 64)
+	buff = append(buff, 0, 0, 0, 0, 0, 0, 0, 0) // Leave first 8 bytes free for overall headers length
+	buff = encoding.AppendUint32ToBufferLE(buff, uint32(len(columnNames)))
+	for i, fName := range columnNames {
+		fType := columnTypes[i]
+		buff = encoding.AppendStringToBufferLE(buff, fName)
+		id := fType.ID()
+		buff = encoding.AppendUint32ToBufferLE(buff, uint32(id))
+		if id == types.ColumnTypeIDDecimal {
+			dt := fType.(*types.DecimalType)
+			buff = encoding.AppendUint32ToBufferLE(buff, uint32(dt.Precision))
+			buff = encoding.AppendUint32ToBufferLE(buff, uint32(dt.Scale))
+		}
+	}
+	binary.LittleEndian.PutUint64(buff, uint64(len(buff)-8))
+	_, err := writer.Write(buff)
+	return err
+}
+
+func (b *ArrowBatchWriter) WriteBatch(batch *evbatch.Batch, writer http.ResponseWriter) error {
+	buffs := batch.ToBytes()
+
+	// compute the overall number of bytes to write - this number must be written first as we will wait for this
+	// many bytes when reading (the total number does not include the 8 bytes total number written itself)
+	totBytes := 8 + 4
+	for _, buff := range buffs {
+		totBytes += 8 + len(buff)
+	}
+
+	buff := make([]byte, 8+8+4)
+	binary.LittleEndian.PutUint64(buff, uint64(totBytes))
+	binary.LittleEndian.PutUint64(buff[8:], uint64(batch.RowCount))
+	binary.LittleEndian.PutUint32(buff[16:], uint32(len(buffs)))
+
+	if _, err := writer.Write(buff); err != nil {
+		return err
+	}
+
+	for _, buff := range buffs {
+		lb := make([]byte, 8)
+		binary.LittleEndian.PutUint64(lb, uint64(len(buff)))
+		if _, err := writer.Write(lb); err != nil {
+			return err
+		}
+		if _, err := writer.Write(buff); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (b *ArrowBatchWriter) WriteContentType(writer http.ResponseWriter) {
+	writer.Header().Add("Content-Type", TektiteArrowMimeType)
+}
+
+var newLine = []byte{'\n'}
+
 func DecodeArrowSchema(buff []byte) (*evbatch.EventSchema, int) {
 	off := 0
 	var nf uint32
@@ -158,64 +219,3 @@ func DecodeArrowBatch(schema *evbatch.EventSchema, buff []byte) *evbatch.Batch {
 	}
 	return evbatch.NewBatchFromBytes(schema, rowCount, batchBuffs)
 }
-
-type ArrowBatchWriter struct {
-}
-
-func (b *ArrowBatchWriter) WriteHeaders(columnNames []string, columnTypes []types.ColumnType, writer http.ResponseWriter) error {
-	buff := make([]byte, 0, 64)
-	buff = append(buff, 0, 0, 0, 0, 0, 0, 0, 0) // Leave first 8 bytes free for overall headers length
-	buff = encoding.AppendUint32ToBufferLE(buff, uint32(len(columnNames)))
-	for i, fName := range columnNames {
-		fType := columnTypes[i]
-		buff = encoding.AppendStringToBufferLE(buff, fName)
-		id := fType.ID()
-		buff = encoding.AppendUint32ToBufferLE(buff, uint32(id))
-		if id == types.ColumnTypeIDDecimal {
-			dt := fType.(*types.DecimalType)
-			buff = encoding.AppendUint32ToBufferLE(buff, uint32(dt.Precision))
-			buff = encoding.AppendUint32ToBufferLE(buff, uint32(dt.Scale))
-		}
-	}
-	binary.LittleEndian.PutUint64(buff, uint64(len(buff)-8))
-	_, err := writer.Write(buff)
-	return err
-}
-
-func (b *ArrowBatchWriter) WriteBatch(batch *evbatch.Batch, writer http.ResponseWriter) error {
-	buffs := batch.ToBytes()
-
-	// compute the overall number of bytes to write - this number must be written first as we will wait for this
-	// many bytes when reading (the total number does not include the 8 bytes total number written itself)
-	totBytes := 8 + 4
-	for _, buff := range buffs {
-		totBytes += 8 + len(buff)
-	}
-
-	buff := make([]byte, 8+8+4)
-	binary.LittleEndian.PutUint64(buff, uint64(totBytes))
-	binary.LittleEndian.PutUint64(buff[8:], uint64(batch.RowCount))
-	binary.LittleEndian.PutUint32(buff[16:], uint32(len(buffs)))
-
-	if _, err := writer.Write(buff); err != nil {
-		return err
-	}
-
-	for _, buff := range buffs {
-		lb := make([]byte, 8)
-		binary.LittleEndian.PutUint64(lb, uint64(len(buff)))
-		if _, err := writer.Write(lb); err != nil {
-			return err
-		}
-		if _, err := writer.Write(buff); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func (b *ArrowBatchWriter) WriteContentType(writer http.ResponseWriter) {
-	writer.Header().Add("Content-Type", TektiteArrowMimeType)
-}
-
-var newLine = []byte{'\n'}

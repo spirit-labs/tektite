@@ -33,6 +33,7 @@ require (
 	github.com/docker/docker v26.1.0+incompatible
 	github.com/docker/go-connections v0.5.0
 	github.com/emirpasic/gods v1.18.1
+	github.com/golang-jwt/jwt/v4 v4.5.0
 	github.com/magefile/mage v1.15.0
 	github.com/minio/minio-go/v7 v7.0.69
 	github.com/testcontainers/testcontainers-go v0.31.0

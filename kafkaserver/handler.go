@@ -4,7 +4,6 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"github.com/spirit-labs/tektite/auth"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/kafkaserver/protocol"
 	log "github.com/spirit-labs/tektite/logger"
@@ -608,9 +607,8 @@ func (c *connection) HandleSaslHandshakeRequest(_ *protocol.RequestHeader, req *
 	} else {
 		c.saslConversation = conversation
 	}
-	saslScram256 := auth.AuthenticationSaslScramSha256
-	saslScram512 := auth.AuthenticationSaslScramSha512
-	resp.Mechanisms = []*string{&saslScram256, &saslScram512}
+	authType := c.s.saslAuthManager.ScramAuthType()
+	resp.Mechanisms = []*string{&authType}
 	return completionFunc(&resp)
 }
 

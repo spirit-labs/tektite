@@ -3,7 +3,6 @@ package protocol
 import (
 	"crypto/rand"
 	"github.com/google/uuid"
-	log "github.com/spirit-labs/tektite/logger"
 	"github.com/stretchr/testify/require"
 	"reflect"
 	"testing"
@@ -3955,8 +3954,6 @@ func testReadWriteStructWithPrecompareFunc(t *testing.T, tc readWriteCase, preCo
 	sizeStart := len(buff)
 	buff = tc.obj.Write(tc.version, buff, tagSizes)
 	actualSize := len(buff) - sizeStart
-
-	log.Infof("obj %s version %d calced size %d", t.Name(), tc.version, actualSize)
 
 	// make sure calc size matches actual serialized size
 	require.Equal(t, calcedSize, actualSize)

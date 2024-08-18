@@ -63,8 +63,9 @@ func TestGetPreparedQueryParamMeta(t *testing.T) {
 	paramTypes := []types.ColumnType{types.ColumnTypeInt, types.ColumnTypeString, types.ColumnTypeFloat}
 	prepareQuery(t, tsl, ctx)
 	mgr := ctx.qms[0].qm
-	paramSchema := mgr.GetPreparedQueryParamSchema("test_query1")
+	paramSchema, ok := mgr.GetPreparedQueryParamSchema("test_query1")
 	require.NotNil(t, paramSchema)
+	require.True(t, ok)
 	require.Equal(t, paramNames, paramSchema.ColumnNames())
 	require.Equal(t, paramTypes, paramSchema.ColumnTypes())
 }

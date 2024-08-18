@@ -2,11 +2,18 @@ package api
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"github.com/google/uuid"
+	"github.com/spirit-labs/tektite/asl/arista"
 	"github.com/spirit-labs/tektite/asl/conf"
 	"github.com/spirit-labs/tektite/asl/errwrap"
+	"github.com/spirit-labs/tektite/auth"
 	"github.com/spirit-labs/tektite/cmdmgr"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/evbatch"
@@ -15,10 +22,12 @@ import (
 	"github.com/spirit-labs/tektite/query"
 	"github.com/spirit-labs/tektite/types"
 	"github.com/spirit-labs/tektite/wasm"
+	"golang.org/x/net/http2"
 	"io"
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"reflect"
 	"strconv"
 	"strings"
@@ -27,19 +36,38 @@ import (
 	"time"
 )
 
+type ScramAuthMethod int
+
 type HTTPAPIServer struct {
-	lock             sync.Mutex
-	listenAddress    string
-	apiPath          string
-	listener         net.Listener
-	httpServer       *http.Server
-	closeWg          sync.WaitGroup
-	queryManager     query.Manager
-	commandManager   cmdmgr.Manager
-	parser           *parser.Parser
-	moduleManager    wasmModuleManager
-	tlsConf          conf.TLSConfig
-	wasmRegisterPath string
+	lock                   sync.Mutex
+	nodeID                 int
+	listenAddresses        []string
+	apiPath                string
+	listener               net.Listener
+	httpServer             *http.Server
+	closeWg                sync.WaitGroup
+	queryManager           query.Manager
+	commandManager         cmdmgr.Manager
+	parser                 *parser.Parser
+	moduleManager          wasmModuleManager
+	tlsConf                conf.TLSConfig
+	wasmRegisterPath       string
+	scramConversations     sync.Map
+	scramManager           *auth.ScramManager
+	jwtPrivateKey          *rsa.PrivateKey
+	jwtPublicKeys          map[int]JwtPublicKeyInfo
+	jwtInstanceID          string
+	jwtPubKeysLock         sync.RWMutex
+	authenticationRequired bool
+	httpClient             *http.Client
+	authenticatedUsersLock sync.RWMutex
+	authenticatedUsers     map[string]uint64
+	authCacheTimeout       uint64
+}
+
+type scramConversationHolder struct {
+	conv    *auth.ScramConversation
+	timeout *time.Timer
 }
 
 type wasmModuleManager interface {
@@ -47,18 +75,38 @@ type wasmModuleManager interface {
 	UnregisterModule(name string) error
 }
 
-func NewHTTPAPIServer(listenAddress string, apiPath string, queryManager query.Manager, commandManager cmdmgr.Manager,
-	parser *parser.Parser, moduleManager wasmModuleManager, tlsConf conf.TLSConfig) *HTTPAPIServer {
+func NewHTTPAPIServer(nodeID int, listenAddresses []string, apiPath string, queryManager query.Manager, commandManager cmdmgr.Manager,
+	parser *parser.Parser, moduleManager wasmModuleManager, scramManager *auth.ScramManager, tlsConf conf.TLSConfig, authRequired bool,
+	authCacheTimeout time.Duration) *HTTPAPIServer {
 	return &HTTPAPIServer{
-		listenAddress:    listenAddress,
-		apiPath:          apiPath,
-		queryManager:     queryManager,
-		commandManager:   commandManager,
-		parser:           parser,
-		moduleManager:    moduleManager,
-		tlsConf:          tlsConf,
-		wasmRegisterPath: fmt.Sprintf("%s/%s", apiPath, "wasm-register"),
+		nodeID:                 nodeID,
+		listenAddresses:        listenAddresses,
+		apiPath:                apiPath,
+		queryManager:           queryManager,
+		commandManager:         commandManager,
+		parser:                 parser,
+		moduleManager:          moduleManager,
+		scramManager:           scramManager,
+		tlsConf:                tlsConf,
+		wasmRegisterPath:       fmt.Sprintf("%s/%s", apiPath, "wasm-register"),
+		jwtPublicKeys:          map[int]JwtPublicKeyInfo{},
+		authenticationRequired: authRequired,
+		authenticatedUsers:     map[string]uint64{},
+		authCacheTimeout:       uint64(authCacheTimeout),
 	}
+}
+
+const (
+	ScramAuthTypeHeaderName       = "X-Tektite-Scram-Auth-Type"
+	ScramConversationIdHeaderName = "X-Tektite-Scram-Conversation-Id"
+	JwtHeaderName                 = "X-Tektite-JWT-Token"
+)
+
+const scramAuthenticationTimeout = 5 * time.Second
+
+type JwtPublicKeyInfo struct {
+	PubKey     *rsa.PublicKey
+	InstanceID string // Every time a node starts it gets a new InstanceID so we can determine if the cached public key is the right one
 }
 
 // Start - note that this does not actually start the server - we delay really starting this (with Activate)
@@ -73,24 +121,44 @@ func (s *HTTPAPIServer) Activate() error {
 
 func (s *HTTPAPIServer) start() error {
 	s.lock.Lock()
-
 	defer s.lock.Unlock()
+	// Generate a private/public key for signing and verifying JWTs
+	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		return err
+	}
+	s.jwtInstanceID = uuid.New().String()
+	s.jwtPrivateKey = privateKey
 	tlsConf, err := conf.CreateServerTLSConfig(s.tlsConf)
 	if err != nil {
 		return err
 	}
+	// Create an http client for calling to get public keys from other nodes
+	httpCl := &http.Client{}
+	clientGoTlsConf, err := toGoTlsConfig(s.tlsConf.CertPath)
+	if err != nil {
+		return err
+	}
+	httpCl.Transport = &http2.Transport{
+		TLSClientConfig: clientGoTlsConf,
+	}
+	s.httpClient = httpCl
 	mux := http.NewServeMux()
 	mux.HandleFunc(fmt.Sprintf("%s/query", s.apiPath), s.handleQuery)
 	mux.HandleFunc(fmt.Sprintf("%s/exec", s.apiPath), s.handleExecPreparedStatement)
 	mux.HandleFunc(fmt.Sprintf("%s/statement", s.apiPath), s.handleStatement)
 	mux.HandleFunc(fmt.Sprintf("%s/wasm-register", s.apiPath), s.handleWasmRegister)
 	mux.HandleFunc(fmt.Sprintf("%s/wasm-unregister", s.apiPath), s.handleWasmUnregister)
+	mux.HandleFunc(fmt.Sprintf("%s/scram-auth", s.apiPath), s.handleScramAuth)
+	mux.HandleFunc(fmt.Sprintf("%s/pub-key", s.apiPath), s.handlePubKey)
+	mux.HandleFunc(fmt.Sprintf("%s/put-user", s.apiPath), s.handlePutUser)
+	mux.HandleFunc(fmt.Sprintf("%s/delete-user", s.apiPath), s.handleDeleteUser)
 	s.httpServer = &http.Server{
 		Handler:     mux,
 		IdleTimeout: 0,
 		TLSConfig:   tlsConf,
 	}
-	s.listener, err = common.Listen("tcp", s.listenAddress)
+	s.listener, err = common.Listen("tcp", s.listenAddresses[s.nodeID])
 	if err != nil {
 		return err
 	}
@@ -106,6 +174,23 @@ func (s *HTTPAPIServer) start() error {
 	return nil
 }
 
+func toGoTlsConfig(serverCertPath string) (*tls.Config, error) {
+	// Note, the Tektite HTTP2 HTTP API is HTTP2 only and requires TLS
+	tlsConfig := &tls.Config{ // nolint: gosec
+		MinVersion: tls.VersionTLS12,
+	}
+	rootCerts, err := os.ReadFile(serverCertPath)
+	if err != nil {
+		return nil, err
+	}
+	rootCertPool := x509.NewCertPool()
+	if ok := rootCertPool.AppendCertsFromPEM(rootCerts); !ok {
+		return nil, errwrap.Errorf("failed to append root certs PEM (invalid PEM block?)")
+	}
+	tlsConfig.RootCAs = rootCertPool
+	return tlsConfig, nil
+}
+
 func (s *HTTPAPIServer) Stop() error {
 	s.lock.Lock()
 	defer s.lock.Unlock()
@@ -118,13 +203,108 @@ func (s *HTTPAPIServer) Stop() error {
 		// Ignore
 	}
 	s.closeWg.Wait()
+	s.httpClient.CloseIdleConnections()
 	return nil
+}
+
+func (s *HTTPAPIServer) maybeAuthenticate(writer http.ResponseWriter, request *http.Request) bool {
+	if !s.authenticationRequired {
+		return true
+	}
+	authHeader := request.Header.Get("Authorization")
+	if authHeader == "" {
+		http.Error(writer, "missing Authorization header", http.StatusUnauthorized)
+		return false
+	}
+	if strings.HasPrefix(authHeader, "Bearer ") {
+		jwt := authHeader[7:]
+		// Verify the JWT was created by our trusted server
+		claims, valid, err := s.verifyJwt(jwt)
+		if err != nil || !valid {
+			http.Error(writer, "invalid JWT", http.StatusUnauthorized)
+			return false
+		}
+		// Verifying the JWT is not sufficient as users can update their passwords or be deleted from the system while
+		// but the JWT will remain valid. We cache authentications for a short amount of time, but when that time has
+		// expired we need to check whether the JWT can still be used. When we store credentials we also store a sequence
+		// number, this increments every time the credentials are updated. When we create thr JWT we encode the sequence
+		// number as of that time in the JWT. When we present the JWT we check the sequence number in the JWT matches the
+		// stored sequence number. If they are the same the user has not been updated. If no sequence can be found, then
+		// the user has been deleted and authentication fails. If sequence number does not match then password has been
+		// updated and authentication fails.
+		p, ok := claims["principal"]
+		if ok {
+			principal, ok := p.(string)
+			if ok {
+				// check in auth cache
+				if s.checkAuthCache(principal) {
+					// There's a cached authentication in the auth cache so we don't have to check user sequence
+					return true
+				}
+				seq, ok := claims["sequence"]
+				if ok {
+					sequence, ok := seq.(int)
+					// We need to check the sequence number in the JWT against the sequence number in the stored user
+					// creds - this sequence number is incremented every time the password is changed
+					storedSeq, ok, err := s.scramManager.GetUserCredsSequence(principal)
+					if err != nil {
+						maybeConvertAndSendError(err, writer)
+						return false
+					}
+					if !ok {
+						// User was deleted
+						http.Error(writer, "authentication failed", http.StatusUnauthorized)
+						return false
+					}
+					if storedSeq == sequence {
+						// Stored user has same sequence number as JWT, so password wasn't changed
+						// Update cached authentication
+						s.cacheUserAuthentication(principal)
+						return true
+					}
+					// Password has been changed
+					http.Error(writer, "authentication failed", http.StatusUnauthorized)
+					return false
+				}
+			}
+		}
+		// If we get here then it's an invalid JWT
+		http.Error(writer, "invalid JWT", http.StatusUnauthorized)
+		return false
+	} else if strings.HasPrefix(authHeader, "Basic ") {
+		basicStr := authHeader[6:]
+		payload, _ := base64.StdEncoding.DecodeString(basicStr)
+		pair := strings.SplitN(string(payload), ":", 2)
+		if len(pair) != 2 {
+			http.Error(writer, "invalid authorization header", http.StatusUnauthorized)
+			return false
+		}
+		username := pair[0]
+		password := pair[1]
+		seq, authenticated, err := s.scramManager.AuthenticateWithUserPwd(username, password)
+		if err != nil {
+			http.Error(writer, "authentication failed", http.StatusUnauthorized)
+			return false
+		}
+		if authenticated {
+			// Set a JWT on the response
+			s.cacheUserAuthentication(username)
+			return s.createAndSetJwt(writer, username, seq)
+		}
+		return authenticated
+	} else {
+		http.Error(writer, "invalid authorization method", http.StatusUnauthorized)
+		return false
+	}
 }
 
 func (s *HTTPAPIServer) handleQuery(writer http.ResponseWriter, request *http.Request) { //nolint:gocyclo
 	defer common.TektitePanicHandler()
 	u := s.checkRequest(writer, request)
 	if u == nil {
+		return
+	}
+	if !s.maybeAuthenticate(writer, request) {
 		return
 	}
 	batchWriter := getBatchWriter(writer, request)
@@ -149,6 +329,9 @@ func (s *HTTPAPIServer) handleExecPreparedStatement(writer http.ResponseWriter, 
 	if u == nil {
 		return
 	}
+	if !s.maybeAuthenticate(writer, request) {
+		return
+	}
 	batchWriter := getBatchWriter(writer, request)
 	includeHeader := getIncludeHeader(u)
 	body, ok := getBody(writer, request)
@@ -160,20 +343,28 @@ func (s *HTTPAPIServer) handleExecPreparedStatement(writer http.ResponseWriter, 
 		writeError("invalid JSON in body", writer, common.ExecuteQueryError)
 		return
 	}
-	paramsSchema := s.queryManager.GetPreparedQueryParamSchema(invocation.QueryName)
-	if paramsSchema == nil {
+	paramsSchema, ok := s.queryManager.GetPreparedQueryParamSchema(invocation.QueryName)
+	if !ok {
 		writeError(fmt.Sprintf("unknown prepared query '%s'", invocation.QueryName), writer, common.ExecuteQueryError)
 		return
 	}
-	if len(invocation.Args) != len(paramsSchema.ColumnTypes()) {
-		writeError(fmt.Sprintf("prepared query takes %d arguments, but only %d arguments provided", len(paramsSchema.ColumnTypes()), len(invocation.Args)),
+	numParams := 0
+	if paramsSchema != nil {
+		numParams = len(paramsSchema.ColumnTypes())
+	}
+	if len(invocation.Args) != numParams {
+		writeError(fmt.Sprintf("prepared query takes %d arguments, but only %d arguments provided", numParams, len(invocation.Args)),
 			writer, common.ExecuteQueryError)
 		return
 	}
-	args, err := convertPreparedStatementArgs(invocation.Args, paramsSchema.ColumnTypes())
-	if err != nil {
-		writeError(err.Error(), writer, common.ExecuteQueryError)
-		return
+	var args []any
+	if numParams > 0 {
+		var err error
+		args, err = convertPreparedStatementArgs(invocation.Args, paramsSchema.ColumnTypes())
+		if err != nil {
+			writeError(err.Error(), writer, common.ExecuteQueryError)
+			return
+		}
 	}
 	execQuery(writer, batchWriter, includeHeader, func(o outFunc) error {
 		_, err := s.queryManager.ExecutePreparedQuery(invocation.QueryName, args, o)
@@ -339,6 +530,9 @@ func (s *HTTPAPIServer) handleStatement(writer http.ResponseWriter, request *htt
 	if u == nil {
 		return
 	}
+	if !s.maybeAuthenticate(writer, request) {
+		return
+	}
 	com, ok := getBodyAsString(writer, request)
 	if !ok {
 		return
@@ -358,8 +552,7 @@ func (s *HTTPAPIServer) handleStatement(writer http.ResponseWriter, request *htt
 }
 
 func (s *HTTPAPIServer) checkRequest(writer http.ResponseWriter, request *http.Request) *url.URL {
-	if request.ProtoMajor != 2 {
-		http.Error(writer, "the tektite HTTP API supports HTTP2 only", http.StatusHTTPVersionNotSupported)
+	if !checkHttp2(writer, request) {
 		return nil
 	}
 	u, err := url.ParseRequestURI(request.RequestURI)
@@ -372,6 +565,14 @@ func (s *HTTPAPIServer) checkRequest(writer http.ResponseWriter, request *http.R
 		return nil
 	}
 	return u
+}
+
+func checkHttp2(writer http.ResponseWriter, request *http.Request) bool {
+	if request.ProtoMajor != 2 {
+		http.Error(writer, "the tektite HTTP API supports HTTP2 only", http.StatusHTTPVersionNotSupported)
+		return false
+	}
+	return true
 }
 
 func getBody(writer http.ResponseWriter, request *http.Request) ([]byte, bool) {
@@ -402,6 +603,9 @@ func (s *HTTPAPIServer) handleWasmRegister(writer http.ResponseWriter, request *
 	if u == nil {
 		return
 	}
+	if !s.maybeAuthenticate(writer, request) {
+		return
+	}
 	body, ok := getBody(writer, request)
 	if !ok {
 		return
@@ -426,6 +630,9 @@ func (s *HTTPAPIServer) handleWasmUnregister(writer http.ResponseWriter, request
 	if u == nil {
 		return
 	}
+	if !s.maybeAuthenticate(writer, request) {
+		return
+	}
 	moduleName, ok := getBodyAsString(writer, request)
 	if !ok {
 		return
@@ -435,8 +642,230 @@ func (s *HTTPAPIServer) handleWasmUnregister(writer http.ResponseWriter, request
 	}
 }
 
+func (s *HTTPAPIServer) handleScramAuth(writer http.ResponseWriter, request *http.Request) {
+	u := s.checkRequest(writer, request)
+	if u == nil {
+		return
+	}
+	scramAuthType := request.Header.Get(ScramAuthTypeHeaderName)
+	if scramAuthType == "" {
+		http.Error(writer, fmt.Sprintf("header %s missing in request", ScramAuthTypeHeaderName), http.StatusBadRequest)
+		return
+	}
+	if s.scramManager.AuthType() != scramAuthType {
+		http.Error(writer, fmt.Sprintf("SCRAM auth type: %s not supported. Please use %s", scramAuthType, s.scramManager.AuthType()), http.StatusBadRequest)
+		return
+	}
+	conversationID := request.Header.Get(ScramConversationIdHeaderName)
+	var conv *auth.ScramConversation
+	firstRequest := false
+	if conversationID == "" {
+		// First request of authentication - create a conversation
+		firstRequest = true
+		conversationID = uuid.New().String()
+		var err error
+		conv, err = s.scramManager.NewConversation()
+		if err != nil {
+			maybeConvertAndSendError(err, writer)
+			return
+		}
+		holder := scramConversationHolder{
+			conv: conv,
+			// timeout to delete conversation if client does not call in for second request
+			timeout: time.AfterFunc(scramAuthenticationTimeout, func() {
+				s.scramConversations.Delete(conversationID)
+			}),
+		}
+		s.scramConversations.Store(conversationID, holder)
+	} else {
+		c, ok := s.scramConversations.Load(conversationID)
+		if !ok {
+			// Either the client sent a bad conversation id, or the conversation may have timed out if a large delay
+			// between client sending first and second request
+			http.Error(writer, "authentication failed - no such conversation id", http.StatusUnauthorized)
+			return
+		} else {
+			holder := c.(scramConversationHolder)
+			conv = holder.conv
+			s.scramConversations.Delete(conversationID)
+			holder.timeout.Stop()
+		}
+	}
+	bodyBytes, err := io.ReadAll(request.Body)
+	if err != nil {
+		maybeConvertAndSendError(err, writer)
+		return
+	}
+	resp, complete, failed := conv.Process(bodyBytes)
+	if failed {
+		http.Error(writer, "authentication failed", http.StatusUnauthorized)
+		return
+	}
+	if complete {
+		// Authenticated
+		s.cacheUserAuthentication(conv.Principal())
+		if !s.createAndSetJwt(writer, conv.Principal(), conv.CredentialsSequence()) {
+			return
+		}
+	}
+	writer.Header().Set("Content-Type", "text/plain")
+	if firstRequest {
+		writer.Header().Set(ScramConversationIdHeaderName, conversationID)
+	}
+	if _, err := writer.Write(resp); err != nil {
+		log.Errorf("failed to write response: %v", err)
+	}
+}
+
+func (s *HTTPAPIServer) cacheUserAuthentication(principal string) {
+	s.authenticatedUsersLock.Lock()
+	defer s.authenticatedUsersLock.Unlock()
+	// We use NanoTime rather than time.Time as time.Time can jump when clock is adjusted
+	s.authenticatedUsers[principal] = arista.NanoTime()
+}
+
+func (s *HTTPAPIServer) checkAuthCache(principal string) bool {
+	s.authenticatedUsersLock.RLock()
+	defer s.authenticatedUsersLock.RUnlock()
+	now := arista.NanoTime()
+	authTime, ok := s.authenticatedUsers[principal]
+	if !ok {
+		return false
+	}
+	if now-authTime >= s.authCacheTimeout {
+		delete(s.authenticatedUsers, principal)
+		return false
+	}
+	return true
+}
+
+func (s *HTTPAPIServer) InvalidateAuthCache() {
+	s.authenticatedUsersLock.Lock()
+	defer s.authenticatedUsersLock.Unlock()
+	s.authenticatedUsers = map[string]uint64{}
+}
+
+func (s *HTTPAPIServer) InvalidateInstanceID() {
+	s.jwtPubKeysLock.Lock()
+	defer s.jwtPubKeysLock.Unlock()
+	s.jwtInstanceID = uuid.New().String()
+}
+
+func (s *HTTPAPIServer) GetCachedPubKeyInfos() map[int]JwtPublicKeyInfo {
+	s.jwtPubKeysLock.Lock()
+	defer s.jwtPubKeysLock.Unlock()
+	res := map[int]JwtPublicKeyInfo{}
+	for nodeID, info := range s.jwtPublicKeys {
+		res[nodeID] = info
+	}
+	return res
+}
+
+func (s *HTTPAPIServer) GetInstanceID() string {
+	s.jwtPubKeysLock.Lock()
+	defer s.jwtPubKeysLock.Unlock()
+	return s.jwtInstanceID
+}
+
+func (s *HTTPAPIServer) createAndSetJwt(writer http.ResponseWriter, principal string, credsSequence int) bool {
+	// Generate JWT token
+	jwt, err := s.createJwt(principal, credsSequence)
+	if err != nil {
+		maybeConvertAndSendError(err, writer)
+		return false
+	}
+	writer.Header().Set(JwtHeaderName, jwt)
+	return true
+}
+
+func (s *HTTPAPIServer) handlePubKey(writer http.ResponseWriter, request *http.Request) {
+	if !checkHttp2(writer, request) {
+		return
+	}
+	if request.Method != http.MethodGet {
+		http.Error(writer, "the HTTP method must be a GET", http.StatusMethodNotAllowed)
+		return
+	}
+	publicKeyBytes := x509.MarshalPKCS1PublicKey(&s.jwtPrivateKey.PublicKey)
+	pkResp := pubKeyResponse{
+		PublicKey:  base64.StdEncoding.EncodeToString(publicKeyBytes),
+		InstanceID: s.jwtInstanceID,
+	}
+	bytes, err := json.Marshal(&pkResp)
+	if err != nil {
+		maybeConvertAndSendError(err, writer)
+		return
+	}
+	writer.Header().Set("Content-Type", "application/json")
+	if _, err := writer.Write(bytes); err != nil {
+		log.Errorf("failed to write response: %v", err)
+	}
+}
+
+type pubKeyResponse struct {
+	PublicKey  string `json:"pub_key"`
+	InstanceID string `json:"instance_id"`
+}
+
+func (s *HTTPAPIServer) handlePutUser(writer http.ResponseWriter, request *http.Request) {
+	u := s.checkRequest(writer, request)
+	if u == nil {
+		return
+	}
+	if !s.maybeAuthenticate(writer, request) {
+		return
+	}
+	body, ok := getBody(writer, request)
+	if !ok {
+		return
+	}
+	putUser := &PutUserRequest{}
+	if err := json.Unmarshal(body, putUser); err != nil {
+		http.Error(writer, "malformed JSON", http.StatusBadRequest)
+		return
+	}
+	storedKey, err := base64.StdEncoding.DecodeString(putUser.StoredKey)
+	if err != nil {
+		http.Error(writer, "StoredKey not base64 encoded", http.StatusBadRequest)
+		return
+	}
+	serverKey, err := base64.StdEncoding.DecodeString(putUser.ServerKey)
+	if err != nil {
+		http.Error(writer, "ServerKey not base64 encoded", http.StatusBadRequest)
+		return
+	}
+	if err := s.scramManager.PutUserCredentials(putUser.UserName, storedKey, serverKey, putUser.Salt, putUser.Iterations); err != nil {
+		maybeConvertAndSendError(err, writer)
+	}
+}
+
+func (s *HTTPAPIServer) handleDeleteUser(writer http.ResponseWriter, request *http.Request) {
+	u := s.checkRequest(writer, request)
+	if u == nil {
+		return
+	}
+	if !s.maybeAuthenticate(writer, request) {
+		return
+	}
+	username, ok := getBody(writer, request)
+	if !ok {
+		return
+	}
+	if err := s.scramManager.DeleteUserCredentials(string(username)); err != nil {
+		maybeConvertAndSendError(err, writer)
+	}
+}
+
+type PutUserRequest struct {
+	UserName   string `json:"username"`
+	StoredKey  string `json:"stored_key"`
+	ServerKey  string `json:"server_key"`
+	Salt       string `json:"salt"`
+	Iterations int    `json:"iterations"`
+}
+
 func (s *HTTPAPIServer) ListenAddress() string {
-	return s.listenAddress
+	return s.listenAddresses[s.nodeID]
 }
 
 type outFunc func(last bool, numLastBatches int, batch *evbatch.Batch) error

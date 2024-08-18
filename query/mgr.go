@@ -32,7 +32,7 @@ type Manager interface {
 	SetLastCompletedVersion(version int64)
 	ExecuteRemoteQuery(msg *clustermsgs.QueryMessage) error
 	ReceiveQueryResult(msg *clustermsgs.QueryResponse)
-	GetPreparedQueryParamSchema(preparedQueryName string) *evbatch.EventSchema
+	GetPreparedQueryParamSchema(preparedQueryName string) (*evbatch.EventSchema, bool)
 	SetClusterMessageHandlers(remotingServer remoting.Server, vbHandler *remoting.TeeBlockingClusterMessageHandler)
 	GetLastCompletedVersion() int
 	GetLastFlushedVersion() int
@@ -198,14 +198,14 @@ func (v *versionBroadcastHandler) HandleMessage(messageHolder remoting.MessageHo
 	return nil, nil
 }
 
-func (m *manager) GetPreparedQueryParamSchema(preparedQueryName string) *evbatch.EventSchema {
+func (m *manager) GetPreparedQueryParamSchema(preparedQueryName string) (*evbatch.EventSchema, bool) {
 	m.lock.Lock()
 	defer m.lock.Unlock()
 	pqi, exists := m.preparedQueries[preparedQueryName]
 	if !exists {
-		return nil
+		return nil, false
 	}
-	return pqi.ParamSchema
+	return pqi.ParamSchema, true
 }
 
 func (m *manager) DeleteQuery(deleteQuery parser.DeleteQueryDesc) error {

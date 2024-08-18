@@ -289,10 +289,9 @@ func testSaslHandshakeRequest(t *testing.T, address string) {
 	req.Mechanism = stringPtr("PLAIN")
 	var resp protocol.SaslHandshakeResponse
 	writeRequest(t, protocol.APIKeySaslHandshake, 1, &req, &resp, conn)
-	require.Equal(t, 2, len(resp.Mechanisms))
+	require.Equal(t, 1, len(resp.Mechanisms))
 	auth256 := auth.AuthenticationSaslScramSha256
-	auth512 := auth.AuthenticationSaslScramSha512
-	require.Equal(t, []*string{&auth256, &auth512}, resp.Mechanisms)
+	require.Equal(t, []*string{&auth256}, resp.Mechanisms)
 }
 
 func testSaslHandshakeErrorUnsupportedVersion(t *testing.T, address string) {

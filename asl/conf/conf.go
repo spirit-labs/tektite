@@ -66,8 +66,9 @@ const (
 	DefaultSequencesObjectName = "tektite_sequences"
 	DefaultSequencesRetryDelay = 250 * time.Millisecond
 
-	DefaultVersionCompletedBroadcastInterval  = 500 * time.Millisecond
-	DefaultVersionManagerStoreFlushedInterval = 1 * time.Second
+	DefaultVersionCompletedBroadcastInterval    = 500 * time.Millisecond
+	DefaultVersionManagerStoreFlushedInterval   = 1 * time.Second
+	DefaultVersionManagerLevelManagerRetryDelay = 250 * time.Millisecond
 
 	DefaultDevObjectStoreAddress = "127.0.0.1:6690"
 
@@ -212,11 +213,16 @@ type Config struct {
 	MetricsEnabled           bool
 
 	// Version manager config
-	VersionCompletedBroadcastInterval  time.Duration
-	VersionManagerStoreFlushedInterval time.Duration
+	VersionCompletedBroadcastInterval    time.Duration
+	VersionManagerStoreFlushedInterval   time.Duration
+	VersionManagerLevelManagerRetryDelay time.Duration
 
 	// Wasm module manager config
 	WasmModuleInstances int
+
+	// Auth config
+	AuthenticationEnabled      bool
+	AuthenticationCacheTimeout time.Duration
 
 	// Datadog profiling
 	DDProfilerTypes           string
@@ -448,6 +454,9 @@ func (c *Config) ApplyDefaults() {
 	if c.VersionManagerStoreFlushedInterval == 0 {
 		c.VersionManagerStoreFlushedInterval = DefaultVersionManagerStoreFlushedInterval
 	}
+	if c.VersionManagerLevelManagerRetryDelay == 0 {
+		c.VersionManagerLevelManagerRetryDelay = DefaultVersionManagerLevelManagerRetryDelay
+	}
 
 	if c.ClientType == 0 {
 		c.ClientType = KafkaClientTypeConfluent
@@ -669,6 +678,9 @@ func (c *Config) Validate() error { //nolint:gocyclo
 	}
 	if c.TableCacheSSTableMaxAge < 1*time.Millisecond {
 		return invalidConfigurationError("table-cache-sstable-max-age must be >= 1ms")
+	}
+	if c.AuthenticationCacheTimeout == 0 {
+		c.AuthenticationCacheTimeout = 10 * time.Second
 	}
 	return nil
 }
