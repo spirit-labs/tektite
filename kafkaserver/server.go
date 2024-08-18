@@ -25,14 +25,19 @@ const (
 )
 
 func NewServer(cfg *conf.Config, metadataProvider MetadataProvider, procProvider processorProvider,
-	groupCoordinator *GroupCoordinator, streamMgr streamMgr) *Server {
+	groupCoordinator *GroupCoordinator, streamMgr streamMgr, scramManager *auth.ScramManager) (*Server, error) {
+	saslAuthManager, err := auth.NewSaslAuthManager(scramManager)
+	if err != nil {
+		return nil, err
+	}
 	return &Server{
 		cfg:              cfg,
 		metadataProvider: metadataProvider,
 		procProvider:     procProvider,
 		groupCoordinator: groupCoordinator,
 		fetcher:          newFetcher(procProvider, streamMgr, int(cfg.KafkaFetchCacheMaxSizeBytes)),
-	}
+		saslAuthManager:  saslAuthManager,
+	}, nil
 }
 
 type Server struct {
@@ -47,6 +52,7 @@ type Server struct {
 	groupCoordinator    *GroupCoordinator
 	fetcher             *fetcher
 	listenCancel        context.CancelFunc
+	saslAuthManager     *auth.SaslAuthManager
 }
 
 type processorProvider interface {
@@ -77,6 +83,10 @@ func (s *Server) Activate() error {
 	common.Go(s.acceptLoop)
 	log.Debugf("started kafka Server on %s", s.cfg.KafkaServerListenerConfig.Addresses[s.cfg.NodeID])
 	return nil
+}
+
+func (s *Server) SaslAuthManager() *auth.SaslAuthManager {
+	return s.saslAuthManager
 }
 
 func (s *Server) createNetworkListener() (net.Listener, error) {
@@ -165,12 +175,13 @@ func (s *Server) newConnection(conn net.Conn) *connection {
 }
 
 type connection struct {
-	s           *Server
-	conn        net.Conn
-	closeGroup  sync.WaitGroup
-	lock        sync.Mutex
-	closed      bool
-	authContext auth.Context
+	s                *Server
+	conn             net.Conn
+	closeGroup       sync.WaitGroup
+	lock             sync.Mutex
+	closed           bool
+	authContext      auth.Context
+	saslConversation auth.SaslConversation
 }
 
 func (c *connection) start() {
@@ -271,12 +282,18 @@ func (c *connection) readMessage() error {
 }
 
 func (c *connection) handleMessage(message []byte) error {
-	if !c.authContext.Authorised && c.s.cfg.KafkaServerListenerConfig.AuthenticationType == auth.AuthenticationTLS {
+	if !c.authContext.Authenticated && c.s.cfg.KafkaServerListenerConfig.AuthenticationType == auth.AuthenticationTLS {
 		if err := c.authoriseWithClientCert(); err != nil {
 			return err
 		}
 	}
-	return protocol.HandleRequestBuffer(message, &NewHandler{conn: c}, c.conn)
+	apiKey := int16(binary.BigEndian.Uint16(message))
+	authType := c.s.cfg.KafkaServerListenerConfig.AuthenticationType
+	authenticated := authType == "" || apiKey == protocol.APIKeyAPIVersions || apiKey == protocol.APIKeySaslHandshake || apiKey == protocol.APIKeySaslAuthenticate || c.authContext.Authenticated
+	if !authenticated {
+		return errors.Errorf("cannot handle Kafka apiKey: %d as connection as authentication type is %s but connection has not been authenticated", apiKey, authType)
+	}
+	return protocol.HandleRequestBuffer(apiKey, message, c, c.conn)
 }
 
 func (c *connection) authoriseWithClientCert() error {
@@ -295,7 +312,7 @@ func (c *connection) authoriseWithClientCert() error {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 	c.authContext.Principal = &principal
-	c.authContext.Authorised = true
+	c.authContext.Authenticated = true
 	return nil
 }
 

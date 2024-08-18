@@ -1,7 +1,7 @@
 package perf
 
 import (
-	"github.com/confluentinc/confluent-kafka-go/kafka"
+	"github.com/confluentinc/confluent-kafka-go/v2/kafka"
 	"github.com/spirit-labs/tektite/asl/arista"
 	"github.com/spirit-labs/tektite/asl/errwrap"
 	log "github.com/spirit-labs/tektite/logger"
