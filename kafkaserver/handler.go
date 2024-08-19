@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-func (n *connection) HandleProduceRequest(_ *protocol.RequestHeader, req *protocol.ProduceRequest, completionFunc func(resp *protocol.ProduceResponse) error) error {
+func (c *connection) HandleProduceRequest(_ *protocol.RequestHeader, req *protocol.ProduceRequest, completionFunc func(resp *protocol.ProduceResponse) error) error {
 	var resp protocol.ProduceResponse
 	resp.Responses = make([]protocol.ProduceResponseTopicProduceResponse, len(req.TopicData))
 	toComplete := len(req.TopicData) * len(req.TopicData[0].PartitionData)
@@ -29,7 +29,7 @@ func (n *connection) HandleProduceRequest(_ *protocol.RequestHeader, req *protoc
 		resp.Responses[i].Name = topicData.Name
 		partitionResponses := make([]protocol.ProduceResponsePartitionProduceResponse, len(topicData.PartitionData))
 		resp.Responses[i].PartitionResponses = partitionResponses
-		topicInfo, topicExists := n.s.metadataProvider.GetTopicInfo(*topicData.Name)
+		topicInfo, topicExists := c.s.metadataProvider.GetTopicInfo(*topicData.Name)
 		for j, partitionData := range topicData.PartitionData {
 			partitionResponses[j].Index = partitionData.Index
 			if !topicExists {
@@ -43,7 +43,7 @@ func (n *connection) HandleProduceRequest(_ *protocol.RequestHeader, req *protoc
 			if !ok {
 				panic("no processor for partition")
 			}
-			processor := n.s.procProvider.GetProcessor(processorID)
+			processor := c.s.procProvider.GetProcessor(processorID)
 			if processor == nil {
 				partitionResponses[j].ErrorCode = protocol.ErrorCodeUnknownTopicOrPartition
 				cf.CountDown(nil)
@@ -58,7 +58,7 @@ func (n *connection) HandleProduceRequest(_ *protocol.RequestHeader, req *protoc
 			if topicInfo.ConsumeEnabled {
 				// can be nil for produce only topic
 				var err error
-				partitionFetcher, err = n.s.fetcher.GetPartitionFetcher(&topicInfo, partitionData.Index)
+				partitionFetcher, err = c.s.fetcher.GetPartitionFetcher(&topicInfo, partitionData.Index)
 				if err != nil {
 					log.Errorf("failed to fetch partition fetcher for partition %d: %v", partitionData.Index, err)
 					partitionResponses[j].ErrorCode = protocol.ErrorCodeUnknownTopicOrPartition
@@ -113,7 +113,7 @@ func (n *connection) HandleProduceRequest(_ *protocol.RequestHeader, req *protoc
 	return nil
 }
 
-func (n *connection) ProduceRequestErrorResponse(errorCode int16, errorMsg string, req *protocol.ProduceRequest) *protocol.ProduceResponse {
+func (c *connection) ProduceRequestErrorResponse(errorCode int16, errorMsg string, req *protocol.ProduceRequest) *protocol.ProduceResponse {
 	var resp protocol.ProduceResponse
 	resp.Responses = make([]protocol.ProduceResponseTopicProduceResponse, len(req.TopicData))
 	for i, topicData := range req.TopicData {
@@ -131,7 +131,7 @@ func (n *connection) ProduceRequestErrorResponse(errorCode int16, errorMsg strin
 	return &resp
 }
 
-func (n *connection) HandleFetchRequest(_ *protocol.RequestHeader, req *protocol.FetchRequest, completionFunc func(resp *protocol.FetchResponse) error) error {
+func (c *connection) HandleFetchRequest(_ *protocol.RequestHeader, req *protocol.FetchRequest, completionFunc func(resp *protocol.FetchResponse) error) error {
 	var resp protocol.FetchResponse
 	resp.Responses = make([]protocol.FetchResponseFetchableTopicResponse, len(req.Topics))
 	toComplete := len(req.Topics) * len(req.Topics[0].Partitions)
@@ -148,7 +148,7 @@ func (n *connection) HandleFetchRequest(_ *protocol.RequestHeader, req *protocol
 		resp.Responses[i].Topic = topic.Topic
 		partitionResponses := make([]protocol.FetchResponsePartitionData, len(topic.Partitions))
 		resp.Responses[i].Partitions = partitionResponses
-		topicInfo, topicExists := n.s.metadataProvider.GetTopicInfo(*topic.Topic)
+		topicInfo, topicExists := c.s.metadataProvider.GetTopicInfo(*topic.Topic)
 		for j, partitionData := range topic.Partitions {
 			partitionResponses[j].PartitionIndex = partitionData.Partition
 			if !topicExists {
@@ -162,7 +162,7 @@ func (n *connection) HandleFetchRequest(_ *protocol.RequestHeader, req *protocol
 			if partitionData.PartitionMaxBytes < fetchMaxBytes {
 				fetchMaxBytes = partitionData.PartitionMaxBytes
 			}
-			partitionFetcher, err := n.s.fetcher.GetPartitionFetcher(&topicInfo, partitionData.Partition)
+			partitionFetcher, err := c.s.fetcher.GetPartitionFetcher(&topicInfo, partitionData.Partition)
 			if err != nil {
 				log.Errorf("failed to find partition fetcher for topic:%s partition:%d", *topic.Topic, partitionData.Partition)
 				partitionResponses[j].ErrorCode = protocol.ErrorCodeUnknownTopicOrPartition
@@ -210,7 +210,7 @@ func (n *connection) HandleFetchRequest(_ *protocol.RequestHeader, req *protocol
 	return nil
 }
 
-func (n *connection) FetchRequestErrorResponse(errorCode int16, _ string, req *protocol.FetchRequest) *protocol.FetchResponse {
+func (c *connection) FetchRequestErrorResponse(errorCode int16, _ string, req *protocol.FetchRequest) *protocol.FetchResponse {
 	var resp protocol.FetchResponse
 	resp.ErrorCode = errorCode
 	resp.Responses = make([]protocol.FetchResponseFetchableTopicResponse, len(req.Topics))
@@ -227,9 +227,9 @@ func (n *connection) FetchRequestErrorResponse(errorCode int16, _ string, req *p
 	return &resp
 }
 
-func (n *connection) HandleMetadataRequest(_ *protocol.RequestHeader, req *protocol.MetadataRequest, completionFunc func(resp *protocol.MetadataResponse) error) error {
+func (c *connection) HandleMetadataRequest(_ *protocol.RequestHeader, req *protocol.MetadataRequest, completionFunc func(resp *protocol.MetadataResponse) error) error {
 	var resp protocol.MetadataResponse
-	brokerInfos := n.s.metadataProvider.BrokerInfos()
+	brokerInfos := c.s.metadataProvider.BrokerInfos()
 	resp.Brokers = make([]protocol.MetadataResponseMetadataResponseBroker, len(brokerInfos))
 	for i, brokerInfo := range brokerInfos {
 		var broker protocol.MetadataResponseMetadataResponseBroker
@@ -238,10 +238,10 @@ func (n *connection) HandleMetadataRequest(_ *protocol.RequestHeader, req *proto
 		broker.NodeId = int32(brokerInfo.NodeID)
 		resp.Brokers[i] = broker
 	}
-	resp.ControllerId = int32(n.s.metadataProvider.ControllerNodeID())
+	resp.ControllerId = int32(c.s.metadataProvider.ControllerNodeID())
 	if len(req.Topics) == 0 {
 		// request for all topics
-		topicInfos := n.s.metadataProvider.GetAllTopics()
+		topicInfos := c.s.metadataProvider.GetAllTopics()
 		resp.Topics = make([]protocol.MetadataResponseMetadataResponseTopic, len(topicInfos))
 		for i, topicInfo := range topicInfos {
 			topic := populateTopic(topicInfo)
@@ -250,7 +250,7 @@ func (n *connection) HandleMetadataRequest(_ *protocol.RequestHeader, req *proto
 	} else {
 		resp.Topics = make([]protocol.MetadataResponseMetadataResponseTopic, len(req.Topics))
 		for i, top := range req.Topics {
-			topicInfo, ok := n.s.metadataProvider.GetTopicInfo(*top.Name)
+			topicInfo, ok := c.s.metadataProvider.GetTopicInfo(*top.Name)
 			if !ok {
 				resp.Topics[i].Name = top.Name
 				resp.Topics[i].ErrorCode = protocol.ErrorCodeUnknownTopicOrPartition
@@ -263,7 +263,7 @@ func (n *connection) HandleMetadataRequest(_ *protocol.RequestHeader, req *proto
 	return completionFunc(&resp)
 }
 
-func (n *connection) MetadataRequestErrorResponse(errorCode int16, _ string, req *protocol.MetadataRequest) *protocol.MetadataResponse {
+func (c *connection) MetadataRequestErrorResponse(errorCode int16, _ string, req *protocol.MetadataRequest) *protocol.MetadataResponse {
 	var resp protocol.MetadataResponse
 	if len(req.Topics) >= 0 {
 		resp.Topics = make([]protocol.MetadataResponseMetadataResponseTopic, len(req.Topics))
@@ -293,7 +293,7 @@ func populateTopic(topicInfo *TopicInfo) protocol.MetadataResponseMetadataRespon
 	return topic
 }
 
-func (n *connection) OffsetCommitRequestErrorResponse(errorCode int16, _ string, req *protocol.OffsetCommitRequest) *protocol.OffsetCommitResponse {
+func (c *connection) OffsetCommitRequestErrorResponse(errorCode int16, _ string, req *protocol.OffsetCommitRequest) *protocol.OffsetCommitResponse {
 	var resp protocol.OffsetCommitResponse
 	resp.Topics = make([]protocol.OffsetCommitResponseOffsetCommitResponseTopic, len(req.Topics))
 	for i, topic := range req.Topics {
@@ -308,7 +308,7 @@ func (n *connection) OffsetCommitRequestErrorResponse(errorCode int16, _ string,
 	return &resp
 }
 
-func (n *connection) HandleOffsetCommitRequest(_ *protocol.RequestHeader, req *protocol.OffsetCommitRequest, completionFunc func(resp *protocol.OffsetCommitResponse) error) error {
+func (c *connection) HandleOffsetCommitRequest(_ *protocol.RequestHeader, req *protocol.OffsetCommitRequest, completionFunc func(resp *protocol.OffsetCommitResponse) error) error {
 	var resp protocol.OffsetCommitResponse
 	topicNames := make([]string, len(req.Topics))
 	partitionIDs := make([][]int32, len(req.Topics))
@@ -329,7 +329,7 @@ func (n *connection) HandleOffsetCommitRequest(_ *protocol.RequestHeader, req *p
 		offsets[i] = offs
 	}
 	// TODO why not pass the req straight into the OffsetCommit method?
-	errorCodes := n.s.groupCoordinator.OffsetCommit(*req.GroupId, *req.MemberId,
+	errorCodes := c.s.groupCoordinator.OffsetCommit(*req.GroupId, *req.MemberId,
 		int(req.GenerationIdOrMemberEpoch), topicNames, partitionIDs, offsets)
 	for i, errs := range errorCodes {
 		for j, errCode := range errs {
@@ -339,7 +339,7 @@ func (n *connection) HandleOffsetCommitRequest(_ *protocol.RequestHeader, req *p
 	return completionFunc(&resp)
 }
 
-func (n *connection) OffsetFetchRequestErrorResponse(errorCode int16, _ string, req *protocol.OffsetFetchRequest) *protocol.OffsetFetchResponse {
+func (c *connection) OffsetFetchRequestErrorResponse(errorCode int16, _ string, req *protocol.OffsetFetchRequest) *protocol.OffsetFetchResponse {
 	var resp protocol.OffsetFetchResponse
 	if len(req.Groups) > 0 {
 		resp.Groups = make([]protocol.OffsetFetchResponseOffsetFetchResponseGroup, len(req.Groups))
@@ -353,7 +353,7 @@ func (n *connection) OffsetFetchRequestErrorResponse(errorCode int16, _ string, 
 	return &resp
 }
 
-func (n *connection) HandleOffsetFetchRequest(_ *protocol.RequestHeader, req *protocol.OffsetFetchRequest, completionFunc func(resp *protocol.OffsetFetchResponse) error) error {
+func (c *connection) HandleOffsetFetchRequest(_ *protocol.RequestHeader, req *protocol.OffsetFetchRequest, completionFunc func(resp *protocol.OffsetFetchResponse) error) error {
 	var resp protocol.OffsetFetchResponse
 	topicNames := make([]string, len(req.Topics))
 	partitionIDs := make([][]int32, len(req.Topics))
@@ -361,7 +361,7 @@ func (n *connection) HandleOffsetFetchRequest(_ *protocol.RequestHeader, req *pr
 		topicNames[i] = *topicInfo.Name
 		partitionIDs[i] = topicInfo.PartitionIndexes
 	}
-	offsets, errorCodes, topLevelErrorCode := n.s.groupCoordinator.OffsetFetch(*req.GroupId, topicNames, partitionIDs)
+	offsets, errorCodes, topLevelErrorCode := c.s.groupCoordinator.OffsetFetch(*req.GroupId, topicNames, partitionIDs)
 	resp.Topics = make([]protocol.OffsetFetchResponseOffsetFetchResponseTopic, len(req.Topics))
 	for i, topicName := range topicNames {
 		resp.Topics[i].Name = &topicName
@@ -383,7 +383,7 @@ func (n *connection) HandleOffsetFetchRequest(_ *protocol.RequestHeader, req *pr
 	return completionFunc(&resp)
 }
 
-func (n *connection) ListOffsetsRequestErrorResponse(errorCode int16, _ string, req *protocol.ListOffsetsRequest) *protocol.ListOffsetsResponse {
+func (c *connection) ListOffsetsRequestErrorResponse(errorCode int16, _ string, req *protocol.ListOffsetsRequest) *protocol.ListOffsetsResponse {
 	var resp protocol.ListOffsetsResponse
 	resp.Topics = make([]protocol.ListOffsetsResponseListOffsetsTopicResponse, len(req.Topics))
 	for i, topic := range req.Topics {
@@ -398,7 +398,7 @@ func (n *connection) ListOffsetsRequestErrorResponse(errorCode int16, _ string, 
 	return &resp
 }
 
-func (n *connection) HandleListOffsetsRequest(_ *protocol.RequestHeader, req *protocol.ListOffsetsRequest, completionFunc func(resp *protocol.ListOffsetsResponse) error) error {
+func (c *connection) HandleListOffsetsRequest(_ *protocol.RequestHeader, req *protocol.ListOffsetsRequest, completionFunc func(resp *protocol.ListOffsetsResponse) error) error {
 	var resp protocol.ListOffsetsResponse
 	topicNames := make([]string, len(req.Topics))
 	type partitionOffset struct {
@@ -421,7 +421,7 @@ func (n *connection) HandleListOffsetsRequest(_ *protocol.RequestHeader, req *pr
 		}
 	}
 	for i, topicName := range topicNames {
-		topicInfo, topicExists := n.s.metadataProvider.GetTopicInfo(topicName)
+		topicInfo, topicExists := c.s.metadataProvider.GetTopicInfo(topicName)
 		for j, partitionOff := range partitionOffsets[i] {
 			resp.Topics[i].Partitions[j].PartitionIndex = partitionOff.partitionID
 			if !topicExists {
@@ -455,7 +455,7 @@ func (n *connection) HandleListOffsetsRequest(_ *protocol.RequestHeader, req *pr
 	return completionFunc(&resp)
 }
 
-func (n *connection) FindCoordinatorRequestErrorResponse(errorCode int16, errorMsg string, req *protocol.FindCoordinatorRequest) *protocol.FindCoordinatorResponse {
+func (c *connection) FindCoordinatorRequestErrorResponse(errorCode int16, errorMsg string, req *protocol.FindCoordinatorRequest) *protocol.FindCoordinatorResponse {
 	var resp protocol.FindCoordinatorResponse
 	resp.ErrorCode = errorCode
 	if errorMsg != "" {
@@ -464,11 +464,11 @@ func (n *connection) FindCoordinatorRequestErrorResponse(errorCode int16, errorM
 	return &resp
 }
 
-func (n *connection) HandleFindCoordinatorRequest(_ *protocol.RequestHeader, req *protocol.FindCoordinatorRequest, completionFunc func(resp *protocol.FindCoordinatorResponse) error) error {
-	nodeID := n.s.groupCoordinator.FindCoordinator(*req.Key)
-	address := n.s.cfg.KafkaServerListenerConfig.Addresses[nodeID]
-	if len(n.s.cfg.KafkaServerListenerConfig.AdvertisedAddresses) > 0 {
-		address = n.s.cfg.KafkaServerListenerConfig.AdvertisedAddresses[nodeID]
+func (c *connection) HandleFindCoordinatorRequest(_ *protocol.RequestHeader, req *protocol.FindCoordinatorRequest, completionFunc func(resp *protocol.FindCoordinatorResponse) error) error {
+	nodeID := c.s.groupCoordinator.FindCoordinator(*req.Key)
+	address := c.s.cfg.KafkaServerListenerConfig.Addresses[nodeID]
+	if len(c.s.cfg.KafkaServerListenerConfig.AdvertisedAddresses) > 0 {
+		address = c.s.cfg.KafkaServerListenerConfig.AdvertisedAddresses[nodeID]
 	}
 	host, sPort, err := net.SplitHostPort(address)
 	var port int
@@ -486,13 +486,13 @@ func (n *connection) HandleFindCoordinatorRequest(_ *protocol.RequestHeader, req
 	return completionFunc(&resp)
 }
 
-func (n *connection) JoinGroupRequestErrorResponse(errorCode int16, errorMsg string, req *protocol.JoinGroupRequest) *protocol.JoinGroupResponse {
+func (c *connection) JoinGroupRequestErrorResponse(errorCode int16, errorMsg string, req *protocol.JoinGroupRequest) *protocol.JoinGroupResponse {
 	var resp protocol.JoinGroupResponse
 	resp.ErrorCode = errorCode
 	return &resp
 }
 
-func (n *connection) HandleJoinGroupRequest(hdr *protocol.RequestHeader, req *protocol.JoinGroupRequest, completionFunc func(resp *protocol.JoinGroupResponse) error) error {
+func (c *connection) HandleJoinGroupRequest(hdr *protocol.RequestHeader, req *protocol.JoinGroupRequest, completionFunc func(resp *protocol.JoinGroupResponse) error) error {
 	infos := make([]ProtocolInfo, len(req.Protocols))
 	for i, protoInfo := range req.Protocols {
 		infos[i] = ProtocolInfo{
@@ -502,7 +502,7 @@ func (n *connection) HandleJoinGroupRequest(hdr *protocol.RequestHeader, req *pr
 	}
 	rebalanceTimeout := 5 * time.Minute
 	sessionTimeout := time.Duration(req.SessionTimeoutMs) * time.Millisecond
-	n.s.groupCoordinator.JoinGroup(hdr.RequestApiVersion, *req.GroupId, *hdr.ClientId, *req.MemberId, *req.ProtocolType, infos, sessionTimeout, rebalanceTimeout, func(result JoinResult) {
+	c.s.groupCoordinator.JoinGroup(hdr.RequestApiVersion, *req.GroupId, *hdr.ClientId, *req.MemberId, *req.ProtocolType, infos, sessionTimeout, rebalanceTimeout, func(result JoinResult) {
 		var resp protocol.JoinGroupResponse
 		resp.ErrorCode = int16(result.ErrorCode)
 		if resp.ErrorCode == protocol.ErrorCodeNone {
@@ -524,40 +524,40 @@ func (n *connection) HandleJoinGroupRequest(hdr *protocol.RequestHeader, req *pr
 	return nil
 }
 
-func (n *connection) HeartbeatRequestErrorResponse(errorCode int16, _ string, _ *protocol.HeartbeatRequest) *protocol.HeartbeatResponse {
+func (c *connection) HeartbeatRequestErrorResponse(errorCode int16, _ string, _ *protocol.HeartbeatRequest) *protocol.HeartbeatResponse {
 	var resp protocol.HeartbeatResponse
 	resp.ErrorCode = errorCode
 	return &resp
 }
 
-func (n *connection) HandleHeartbeatRequest(_ *protocol.RequestHeader, req *protocol.HeartbeatRequest, completionFunc func(resp *protocol.HeartbeatResponse) error) error {
-	errorCode := n.s.groupCoordinator.HeartbeatGroup(*req.GroupId, *req.MemberId, int(req.GenerationId))
+func (c *connection) HandleHeartbeatRequest(_ *protocol.RequestHeader, req *protocol.HeartbeatRequest, completionFunc func(resp *protocol.HeartbeatResponse) error) error {
+	errorCode := c.s.groupCoordinator.HeartbeatGroup(*req.GroupId, *req.MemberId, int(req.GenerationId))
 	var resp protocol.HeartbeatResponse
 	resp.ErrorCode = int16(errorCode)
 	return completionFunc(&resp)
 }
 
-func (n *connection) LeaveGroupRequestErrorResponse(errorCode int16, _ string, _ *protocol.LeaveGroupRequest) *protocol.LeaveGroupResponse {
+func (c *connection) LeaveGroupRequestErrorResponse(errorCode int16, _ string, _ *protocol.LeaveGroupRequest) *protocol.LeaveGroupResponse {
 	var resp protocol.LeaveGroupResponse
 	resp.ErrorCode = errorCode
 	return &resp
 }
 
-func (n *connection) HandleLeaveGroupRequest(_ *protocol.RequestHeader, req *protocol.LeaveGroupRequest, completionFunc func(resp *protocol.LeaveGroupResponse) error) error {
+func (c *connection) HandleLeaveGroupRequest(_ *protocol.RequestHeader, req *protocol.LeaveGroupRequest, completionFunc func(resp *protocol.LeaveGroupResponse) error) error {
 	leaveInfos := []MemberLeaveInfo{{MemberID: *req.MemberId}}
-	errorCode := n.s.groupCoordinator.LeaveGroup(*req.GroupId, leaveInfos)
+	errorCode := c.s.groupCoordinator.LeaveGroup(*req.GroupId, leaveInfos)
 	var resp protocol.LeaveGroupResponse
 	resp.ErrorCode = errorCode
 	return completionFunc(&resp)
 }
 
-func (n *connection) SyncGroupRequestErrorResponse(errorCode int16, _ string, _ *protocol.SyncGroupRequest) *protocol.SyncGroupResponse {
+func (c *connection) SyncGroupRequestErrorResponse(errorCode int16, _ string, _ *protocol.SyncGroupRequest) *protocol.SyncGroupResponse {
 	var resp protocol.SyncGroupResponse
 	resp.ErrorCode = errorCode
 	return &resp
 }
 
-func (n *connection) HandleSyncGroupRequest(_ *protocol.RequestHeader, req *protocol.SyncGroupRequest, completionFunc func(resp *protocol.SyncGroupResponse) error) error {
+func (c *connection) HandleSyncGroupRequest(_ *protocol.RequestHeader, req *protocol.SyncGroupRequest, completionFunc func(resp *protocol.SyncGroupResponse) error) error {
 	assignments := make([]AssignmentInfo, len(req.Assignments))
 	for i, assignment := range req.Assignments {
 		mem := *assignment.MemberId
@@ -566,7 +566,7 @@ func (n *connection) HandleSyncGroupRequest(_ *protocol.RequestHeader, req *prot
 			Assignment: assignment.Assignment,
 		}
 	}
-	n.s.groupCoordinator.SyncGroup(*req.GroupId, *req.MemberId, int(req.GenerationId), assignments, func(errorCode int, assignment []byte) {
+	c.s.groupCoordinator.SyncGroup(*req.GroupId, *req.MemberId, int(req.GenerationId), assignments, func(errorCode int, assignment []byte) {
 		var resp protocol.SyncGroupResponse
 		resp.ErrorCode = int16(errorCode)
 		if resp.ErrorCode == protocol.ErrorCodeNone {
@@ -579,34 +579,34 @@ func (n *connection) HandleSyncGroupRequest(_ *protocol.RequestHeader, req *prot
 	return nil
 }
 
-func (n *connection) ApiVersionsRequestErrorResponse(errorCode int16, _ string, req *protocol.ApiVersionsRequest) *protocol.ApiVersionsResponse {
+func (c *connection) ApiVersionsRequestErrorResponse(errorCode int16, _ string, req *protocol.ApiVersionsRequest) *protocol.ApiVersionsResponse {
 	var resp protocol.ApiVersionsResponse
 	resp.ErrorCode = errorCode
 	return &resp
 }
 
-func (n *connection) HandleApiVersionsRequest(_ *protocol.RequestHeader, _ *protocol.ApiVersionsRequest, completionFunc func(resp *protocol.ApiVersionsResponse) error) error {
+func (c *connection) HandleApiVersionsRequest(_ *protocol.RequestHeader, _ *protocol.ApiVersionsRequest, completionFunc func(resp *protocol.ApiVersionsResponse) error) error {
 	var resp protocol.ApiVersionsResponse
 	resp.ApiKeys = protocol.SupportedAPIVersions
 	return completionFunc(&resp)
 }
 
-func (n *connection) SaslHandshakeRequestErrorResponse(errorCode int16, _ string, req *protocol.SaslHandshakeRequest) *protocol.SaslHandshakeResponse {
+func (c *connection) SaslHandshakeRequestErrorResponse(errorCode int16, _ string, req *protocol.SaslHandshakeRequest) *protocol.SaslHandshakeResponse {
 	var resp protocol.SaslHandshakeResponse
 	resp.ErrorCode = errorCode
 	return &resp
 }
 
-func (n *connection) HandleSaslHandshakeRequest(_ *protocol.RequestHeader, req *protocol.SaslHandshakeRequest, completionFunc func(resp *protocol.SaslHandshakeResponse) error) error {
+func (c *connection) HandleSaslHandshakeRequest(_ *protocol.RequestHeader, req *protocol.SaslHandshakeRequest, completionFunc func(resp *protocol.SaslHandshakeResponse) error) error {
 	var resp protocol.SaslHandshakeResponse
-	conversation, ok, err := n.s.saslAuthManager.CreateConversation(*req.Mechanism)
+	conversation, ok, err := c.s.saslAuthManager.CreateConversation(*req.Mechanism)
 	if err != nil {
 		return err
 	}
 	if !ok {
 		resp.ErrorCode = protocol.ErrorCodeUnsupportedSaslMechanism
 	} else {
-		n.saslConversation = conversation
+		c.saslConversation = conversation
 	}
 	saslScram256 := auth.AuthenticationSaslScramSha256
 	saslScram512 := auth.AuthenticationSaslScramSha512
@@ -614,15 +614,15 @@ func (n *connection) HandleSaslHandshakeRequest(_ *protocol.RequestHeader, req *
 	return completionFunc(&resp)
 }
 
-func (n *connection) SaslAuthenticateRequestErrorResponse(errorCode int16, _ string, req *protocol.SaslAuthenticateRequest) *protocol.SaslAuthenticateResponse {
+func (c *connection) SaslAuthenticateRequestErrorResponse(errorCode int16, _ string, req *protocol.SaslAuthenticateRequest) *protocol.SaslAuthenticateResponse {
 	var resp protocol.SaslAuthenticateResponse
 	resp.ErrorCode = errorCode
 	return &resp
 }
 
-func (n *connection) HandleSaslAuthenticateRequest(_ *protocol.RequestHeader, req *protocol.SaslAuthenticateRequest, completionFunc func(resp *protocol.SaslAuthenticateResponse) error) error {
+func (c *connection) HandleSaslAuthenticateRequest(_ *protocol.RequestHeader, req *protocol.SaslAuthenticateRequest, completionFunc func(resp *protocol.SaslAuthenticateResponse) error) error {
 	var resp protocol.SaslAuthenticateResponse
-	conv := n.saslConversation
+	conv := c.saslConversation
 	if conv == nil {
 		resp.ErrorCode = protocol.ErrorCodeIllegalSaslState
 		msg := "SaslAuthenticateRequest without a preceding SaslAuthenticateRequest"
@@ -635,8 +635,8 @@ func (n *connection) HandleSaslAuthenticateRequest(_ *protocol.RequestHeader, re
 			resp.AuthBytes = saslRespBytes
 			if complete {
 				principal := conv.Principal()
-				n.authContext.Principal = &principal
-				n.authContext.Authenticated = true
+				c.authContext.Principal = &principal
+				c.authContext.Authenticated = true
 			}
 		}
 	}

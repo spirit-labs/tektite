@@ -115,7 +115,6 @@ func (s *ScramManager) PutUserCredentials(username string, storedKey []byte, ser
 	if err != nil {
 		return err
 	}
-	log.Infof("putting usercreds: %s", string(buff))
 	// Convert to an event batch
 	builders := evbatch.CreateColBuilders(s.userCredsSchema.EventSchema.ColumnTypes())
 	builders[0].(*evbatch.StringColBuilder).Append(username)
@@ -245,9 +244,9 @@ func (s *ScramConversion) Process(request []byte) (resp []byte, complete bool, f
 		log.Infof("Kafka API SASL SCRAM authentication failure: %v", err)
 		return nil, false, true
 	}
-	if s.conv.Done() {
+	if s.conv.Valid() {
 		// Authentication succeeded
 		s.principal = s.conv.Username()
 	}
-	return []byte(r), s.conv.Done(), false
+	return []byte(r), s.conv.Valid(), false
 }
