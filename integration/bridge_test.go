@@ -5,7 +5,7 @@ package integration
 import (
 	"context"
 	"fmt"
-	kafkago "github.com/confluentinc/confluent-kafka-go/kafka"
+	kafkago "github.com/confluentinc/confluent-kafka-go/v2/kafka"
 	docker "github.com/docker/docker/client"
 	"github.com/google/uuid"
 	"github.com/spirit-labs/tektite/asl/conf"
@@ -18,6 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/kafka"
+	"os"
 	"testing"
 	"time"
 )
@@ -402,10 +403,15 @@ func (k *kafkaHolder) pauseResumeKafka(t *testing.T, pause bool) {
 
 func startKafka(t *testing.T) *kafkaHolder {
 	ctx := context.Background()
+
+	if err := os.Setenv("DOCKER_API_VERSION", "1.44"); err != nil {
+		panic(err)
+	}
+
 	// Start a container
 	kc, err := kafka.RunContainer(ctx,
 		kafka.WithClusterID(fmt.Sprintf("test-cluster-%s", uuid.NewString())),
-		testcontainers.WithImage("confluentinc/confluent-local:7.5.0"),
+		testcontainers.WithImage("confluentinc/confluent-local:7.7.0"),
 	)
 	require.NoError(t, err)
 	// Get the address exposed by the container
