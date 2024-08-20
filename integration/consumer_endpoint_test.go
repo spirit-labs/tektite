@@ -3,7 +3,7 @@
 package integration
 
 import (
-	kafkago "github.com/confluentinc/confluent-kafka-go/kafka"
+	kafkago "github.com/confluentinc/confluent-kafka-go/v2/kafka"
 	"github.com/spirit-labs/tektite/asl/conf"
 	"github.com/spirit-labs/tektite/client"
 	"github.com/spirit-labs/tektite/common"

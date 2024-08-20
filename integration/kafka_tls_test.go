@@ -3,7 +3,7 @@
 package integration
 
 import (
-	kafkago "github.com/confluentinc/confluent-kafka-go/kafka"
+	kafkago "github.com/confluentinc/confluent-kafka-go/v2/kafka"
 	"github.com/google/uuid"
 	"github.com/spirit-labs/tektite/asl/conf"
 	"github.com/spirit-labs/tektite/client"
@@ -90,7 +90,7 @@ func testKafkaTLS(t *testing.T, serverTlsConf conf.TLSConfig, clientKeyPath stri
 		// Verify client is authenticated
 		conns := server.GetKafkaServer().Connections()
 		require.Equal(t, 1, len(conns))
-		require.True(t, conns[0].AuthContext().Authorised)
+		require.True(t, conns[0].AuthContext().Authenticated)
 		require.Equal(t, "O=acme aardvarks ltd.,L=San Francisco\\, street=Golden Gate Bridge\\, postalCode=94016,C=US", *conns[0].AuthContext().Principal)
 	}
 }

@@ -7,7 +7,7 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
-	"github.com/confluentinc/confluent-kafka-go/kafka"
+	"github.com/confluentinc/confluent-kafka-go/v2/kafka"
 	"github.com/google/uuid"
 	segment "github.com/segmentio/kafka-go"
 	"github.com/spirit-labs/tektite/asl/errwrap"

@@ -3,9 +3,9 @@
 package protocol
 
 import "encoding/binary"
+import "fmt"
 import "github.com/pkg/errors"
 import "github.com/spirit-labs/tektite/debug"
-import "fmt"
 import "unsafe"
 
 type ProduceResponseBatchIndexAndErrorMessage struct {

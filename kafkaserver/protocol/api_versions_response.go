@@ -3,8 +3,8 @@
 package protocol
 
 import "encoding/binary"
-import "github.com/spirit-labs/tektite/debug"
 import "fmt"
+import "github.com/spirit-labs/tektite/debug"
 import "unsafe"
 
 type ApiVersionsResponseApiVersion struct {

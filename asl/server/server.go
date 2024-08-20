@@ -7,6 +7,7 @@ import (
 	"github.com/spirit-labs/tektite/asl/conf"
 	"github.com/spirit-labs/tektite/asl/errwrap"
 	"github.com/spirit-labs/tektite/asl/remoting"
+	"github.com/spirit-labs/tektite/auth"
 	"github.com/spirit-labs/tektite/clustmgr"
 	"github.com/spirit-labs/tektite/cmdmgr"
 	"github.com/spirit-labs/tektite/common"
@@ -167,6 +168,11 @@ func NewServerWithClientFactory(config conf.Config, clientFactory kafka.ClientFa
 	}
 	processorManager.RegisterStateHandler(commandMgr.HandleClusterState)
 
+	scramManager, err := auth.NewScramManager(streamManager, processorManager, theParser, queryManager, &config)
+	if err != nil {
+		return nil, err
+	}
+
 	var apiServer *api.HTTPAPIServer
 	if config.HttpApiEnabled {
 		apiServer = api.NewHTTPAPIServer(config.HttpApiAddresses[config.NodeID], config.HttpApiPath,
@@ -185,7 +191,10 @@ func NewServerWithClientFactory(config conf.Config, clientFactory kafka.ClientFa
 		if err != nil {
 			return nil, err
 		}
-		kafkaServer = kafkaserver.NewServer(&config, metaProvider, processorManager, kafkaGroupCoordinator, streamManager)
+		kafkaServer, err = kafkaserver.NewServer(&config, metaProvider, processorManager, kafkaGroupCoordinator, streamManager, scramManager)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	var adminServer *admin.Server
@@ -228,6 +237,7 @@ func NewServerWithClientFactory(config conf.Config, clientFactory kafka.ClientFa
 		commandMgr,
 		commandSignaller,
 		apiServer,
+		scramManager,
 		kafkaGroupCoordinator,
 		kafkaServer,
 		compactionService,
@@ -250,6 +260,7 @@ func NewServerWithClientFactory(config conf.Config, clientFactory kafka.ClientFa
 		versionManager:      versionManager,
 		kafkaServer:         kafkaServer,
 		apiServer:           apiServer,
+		scramManager:        scramManager,
 		levelMgrClient:      levMgrClient,
 	}
 	remotingServer.RegisterMessageHandler(remoting.ClusterMessageShutdownMessage,
@@ -279,6 +290,7 @@ type Server struct {
 	webuiServer         *admin.Server
 	parser              *parser.Parser
 	levelMgrClient      levels.Client
+	scramManager        *auth.ScramManager
 	stopWaitGroup       *sync.WaitGroup
 	shutdownComplete    bool
 }
@@ -473,6 +485,10 @@ func (s *Server) GetCommandManager() cmdmgr.Manager {
 
 func (s *Server) GetKafkaServer() *kafkaserver.Server {
 	return s.kafkaServer
+}
+
+func (s *Server) GetScramManager() *auth.ScramManager {
+	return s.scramManager
 }
 
 func (s *Server) SetStopWaitGroup(waitGroup *sync.WaitGroup) {
