@@ -291,7 +291,7 @@ func (c *connection) handleMessage(message []byte) error {
 	authType := c.s.cfg.KafkaServerListenerConfig.AuthenticationType
 	authenticated := authType == "" || apiKey == protocol.APIKeyAPIVersions || apiKey == protocol.APIKeySaslHandshake || apiKey == protocol.APIKeySaslAuthenticate || c.authContext.Authenticated
 	if !authenticated {
-		return errors.Errorf("cannot handle Kafka apiKey: %d as connection as authentication type is %s but connection has not been authenticated", apiKey, authType)
+		return errors.Errorf("cannot handle Kafka apiKey: %d as authentication type is %s but connection has not been authenticated", apiKey, authType)
 	}
 	return protocol.HandleRequestBuffer(apiKey, message, c, c.conn)
 }
