@@ -2,6 +2,11 @@ package cli
 
 import (
 	"fmt"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"testing"
+
 	"github.com/apache/arrow/go/v11/arrow/decimal128"
 	"github.com/spirit-labs/tektite/asl/api"
 	"github.com/spirit-labs/tektite/asl/conf"
@@ -16,10 +21,6 @@ import (
 	"github.com/spirit-labs/tektite/types"
 	"github.com/spirit-labs/tektite/wasm"
 	"github.com/stretchr/testify/require"
-	"strings"
-	"sync"
-	"sync/atomic"
-	"testing"
 )
 
 const (
@@ -429,6 +430,12 @@ func (t *testQueryManager) getPrepareState() ([]string, []types.ColumnType) {
 	t.lock.Lock()
 	defer t.lock.Unlock()
 	return t.receivedParamNames, t.receivedParamTypes
+}
+
+func (t *testQueryManager) DeleteQuery(parser.DeleteQueryDesc) error {
+	t.lock.Lock()
+	defer t.lock.Unlock()
+	return nil
 }
 
 func (t *testQueryManager) PrepareQuery(parser.PrepareQueryDesc) error {

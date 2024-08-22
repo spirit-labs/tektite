@@ -39,6 +39,7 @@ type Manager interface {
 	Activate()
 	Start() error
 	Stop() error
+	DeleteQuery(deleteQuery parser.DeleteQueryDesc) error
 }
 
 type iteratorProvider interface {
@@ -205,6 +206,17 @@ func (m *manager) GetPreparedQueryParamSchema(preparedQueryName string) *evbatch
 		return nil
 	}
 	return pqi.ParamSchema
+}
+
+func (m *manager) DeleteQuery(deleteQuery parser.DeleteQueryDesc) error {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+	_, exists := m.preparedQueries[deleteQuery.QueryName]
+	if !exists {
+		return common.NewQueryErrorf("query with name '%s' can't be deleted as it doesn't exist", deleteQuery.QueryName)
+	}
+	delete(m.preparedQueries, deleteQuery.QueryName)
+	return nil
 }
 
 func (m *manager) PrepareQuery(prepareQuery parser.PrepareQueryDesc) error {
