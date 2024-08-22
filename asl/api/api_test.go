@@ -7,6 +7,13 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"strings"
+	"sync"
+	"testing"
+
 	"github.com/apache/arrow/go/v11/arrow/decimal128"
 	"github.com/spirit-labs/tektite/asl/conf"
 	"github.com/spirit-labs/tektite/asl/encoding"
@@ -22,12 +29,6 @@ import (
 	"github.com/spirit-labs/tektite/wasm"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/net/http2"
-	"io"
-	"net/http"
-	"os"
-	"strings"
-	"sync"
-	"testing"
 )
 
 const (
@@ -883,6 +884,12 @@ func (t *testQueryManager) getPrepareState() *parser.PrepareQueryDesc {
 	t.lock.Lock()
 	defer t.lock.Unlock()
 	return t.receiverPrepareQueryDesc
+}
+
+func (t *testQueryManager) DeleteQuery(deleteQuery parser.DeleteQueryDesc) error {
+	t.lock.Lock()
+	defer t.lock.Unlock()
+	return nil
 }
 
 func (t *testQueryManager) PrepareQuery(prepareQuery parser.PrepareQueryDesc) error {

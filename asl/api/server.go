@@ -348,8 +348,8 @@ func (s *HTTPAPIServer) handleStatement(writer http.ResponseWriter, request *htt
 		writeInvalidStatementError(err.Error(), writer)
 		return
 	}
-	if tsl.CreateStream == nil && tsl.DeleteStream == nil && tsl.PrepareQuery == nil {
-		writeError("invalid statement. must be create stream / delete stream / prepare query", writer, common.StatementError)
+	if tsl.CreateStream == nil && tsl.DeleteStream == nil && tsl.PrepareQuery == nil && tsl.DeleteQuery == nil {
+		writeError("invalid statement. must be create stream / delete stream / prepare query / delete query", writer, common.StatementError)
 		return
 	}
 	if err := s.commandManager.ExecuteCommand(com); err != nil {
