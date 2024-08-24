@@ -1151,6 +1151,8 @@ func deleteQuery(t *testing.T, query string, ctx *mgrCtx) {
 	for _, pair := range ctx.qms {
 		err = pair.qm.DeleteQuery(*ast.DeleteQuery)
 		require.NoError(t, err)
+		paramSchema := pair.qm.GetPreparedQueryParamSchema(ast.DeleteQuery.QueryName)
+		require.Nil(t, paramSchema)
 	}
 }
 

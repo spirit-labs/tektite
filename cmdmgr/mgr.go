@@ -230,6 +230,8 @@ func (m *manager) processCommands(batch *evbatch.Batch) (int64, error) {
 			}
 		} else if ast.PrepareQuery != nil {
 			err = m.queryManager.PrepareQuery(*ast.PrepareQuery)
+		} else if ast.DeleteQuery != nil {
+			err = m.queryManager.DeleteQuery(*ast.DeleteQuery)
 		} else {
 			panic("invalid command")
 		}
