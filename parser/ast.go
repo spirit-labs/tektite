@@ -2,12 +2,13 @@ package parser
 
 import (
 	"fmt"
-	"github.com/alecthomas/participle/v2/lexer"
-	"github.com/spirit-labs/tektite/common"
-	"github.com/spirit-labs/tektite/types"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/alecthomas/participle/v2/lexer"
+	"github.com/spirit-labs/tektite/common"
+	"github.com/spirit-labs/tektite/types"
 )
 
 type BaseDesc struct {
@@ -75,6 +76,7 @@ type TSLDesc struct {
 	PrepareQuery *PrepareQueryDesc
 	ListStreams  *ListStreamsDesc
 	ShowStream   *ShowStreamDesc
+	DeleteQuery  *DeleteQueryDesc
 }
 
 func (t *TSLDesc) parse(context *ParseContext) error {
@@ -110,6 +112,12 @@ func (t *TSLDesc) parse(context *ParseContext) error {
 			return err
 		}
 		t.ShowStream = showStream
+	case "deletequery":
+		deleteQuery := NewDeleteQueryDesc()
+		if err := deleteQuery.Parse(context); err != nil {
+			return err
+		}
+		t.DeleteQuery = deleteQuery
 	default:
 		createStreamDesc := NewCreateStreamDesc()
 		if err := createStreamDesc.Parse(context); err != nil {
@@ -391,6 +399,38 @@ func (d *DeleteStreamDesc) parse(context *ParseContext) error {
 		return foundUnexpectedTokenError("identifier", token, context.input)
 	}
 	d.StreamName = token.Value
+	_, err = context.expectToken(")")
+	return err
+}
+
+func NewDeleteQueryDesc() *DeleteQueryDesc {
+	super := &DeleteQueryDesc{}
+	super.BaseDesc.super = super
+	return super
+}
+
+type DeleteQueryDesc struct {
+	BaseDesc
+	QueryName string
+}
+
+func (d *DeleteQueryDesc) parse(context *ParseContext) error {
+	_, err := context.expectToken("deletequery")
+	if err != nil {
+		return err
+	}
+	_, err = context.expectToken("(")
+	if err != nil {
+		return err
+	}
+	token, err := context.expectToken()
+	if err != nil {
+		return err
+	}
+	if token.Type != IdentTokenType {
+		return foundUnexpectedTokenError("identifier", token, context.input)
+	}
+	d.QueryName = token.Value
 	_, err = context.expectToken(")")
 	return err
 }

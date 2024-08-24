@@ -2861,3 +2861,53 @@ func TestFailedToParseTSL(t *testing.T) {
 	expectedMsg = `reached end of statement`
 	testFailedToParseTSL(t, input, expectedMsg)
 }
+
+func testParseDeleteQuery(t *testing.T, input string, expected DeleteQueryDesc) {
+	cs := NewDeleteQueryDesc()
+	err := NewParser(nil).Parse(input, cs)
+	require.NoError(t, err)
+	cs.clearTokenState()
+	require.Equal(t, &expected, cs)
+}
+
+func testFailedToParseDeleteQuery(t *testing.T, input string, expectedMsg string) {
+	cs := NewDeleteQueryDesc()
+	err := NewParser(nil).Parse(input, cs)
+	require.Error(t, err)
+	require.True(t, common.IsTektiteErrorWithCode(err, common.ParseError))
+	require.Equal(t, expectedMsg, err.Error())
+}
+
+func TestParseDeleteQuery(t *testing.T) {
+	input := "deletequery(my_query)"
+	expected := DeleteQueryDesc{
+		QueryName: "my_query",
+	}
+	testParseDeleteQuery(t, input, expected)
+}
+
+func TestFailedToParseDeleteQuery(t *testing.T) {
+	input := "deletequery"
+	expectedMsg := "reached end of statement"
+	testFailedToParseDeleteQuery(t, input, expectedMsg)
+
+	input = "deletequery("
+	expectedMsg = "reached end of statement"
+	testFailedToParseDeleteQuery(t, input, expectedMsg)
+
+	input = "deletequery()"
+	expectedMsg = `expected identifier but found ')' (line 1 column 13):
+deletequery()
+            ^`
+	testFailedToParseDeleteQuery(t, input, expectedMsg)
+
+	input = "deletequery(my_query"
+	expectedMsg = `reached end of statement`
+	testFailedToParseDeleteQuery(t, input, expectedMsg)
+
+	input = `deletequery("my_query")`
+	expectedMsg = `expected identifier but found '"my_query"' (line 1 column 13):
+deletequery("my_query")
+            ^`
+	   testFailedToParseDeleteQuery(t, input, expectedMsg)
+}
