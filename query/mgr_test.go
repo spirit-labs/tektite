@@ -36,6 +36,20 @@ const (
 	defaultSlabID        = 10
 )
 
+func TestGetPreparedQueryDeletion(t *testing.T) {
+	keyCols := []int{0, 1, 2}
+	columnNames := []string{"offset", "f1", "f2"}
+	columnTypes := []types.ColumnType{types.ColumnTypeInt, types.ColumnTypeString, types.ColumnTypeFloat}
+	schema := evbatch.NewEventSchema(columnNames, columnTypes)
+	slInfoProvider, _ := createStreamInfoProvider("test_slab1", defaultSlabID, schema, defaultNumPartitions, keyCols)
+	ctx := setupQueryManagers(1, defaultNumPartitions, defaultMaxBatchRows, slInfoProvider)
+	defer ctx.tearDown(t)
+	tsl := `prepare test_query1 := (scan $p1:int,$p2:string,$p3:float to end from test_slab1)`
+	prepareQuery(t, tsl, ctx)
+	tsl2 := `deletequery(test_query1)`
+	deleteQuery(t, tsl2, ctx)
+}
+
 func TestGetPreparedQueryParamMeta(t *testing.T) {
 	keyCols := []int{0, 1, 2}
 	columnNames := []string{"offset", "f1", "f2"}
@@ -1128,6 +1142,15 @@ func setupQueryManagersWithClusterVersionProvider(numMgrs int, numPartitions int
 		qms:  pairs,
 		st:   procMgr.GetStore(),
 		tnpp: npp,
+	}
+}
+
+func deleteQuery(t *testing.T, query string, ctx *mgrCtx) {
+	ast, err := parser.NewParser(nil).ParseTSL(query)
+	require.NoError(t, err)
+	for _, pair := range ctx.qms {
+		err = pair.qm.DeleteQuery(*ast.DeleteQuery)
+		require.NoError(t, err)
 	}
 }
 
