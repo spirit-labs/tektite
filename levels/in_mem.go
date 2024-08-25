@@ -14,7 +14,7 @@ func (c *InMemClient) LoadLastFlushedVersion() (int64, error) {
 	return -1, nil
 }
 
-func (c *InMemClient) QueryTablesInRange(keyStart []byte, keyEnd []byte) (OverlappingTables, error) {
+func (c *InMemClient) QueryTablesInRange(keyStart []byte, keyEnd []byte) (QueryTablesResult, error) {
 	return c.LevelManager.QueryTablesInRange(keyStart, keyEnd)
 }
 

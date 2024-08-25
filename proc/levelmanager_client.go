@@ -35,18 +35,18 @@ func (l *LevelManagerLocalClient) SetProcessorManager(processorManger Manager) {
 	l.processorManager = processorManger
 }
 
-func (l *LevelManagerLocalClient) QueryTablesInRange(keyStart []byte, keyEnd []byte) (levels.OverlappingTables, error) {
+func (l *LevelManagerLocalClient) QueryTablesInRange(keyStart []byte, keyEnd []byte) (levels.QueryTablesResult, error) {
 	req := &clustermsgs.LevelManagerGetTableIDsForRangeMessage{
 		KeyStart: keyStart,
 		KeyEnd:   keyEnd,
 	}
 	r, err := l.sendLevelManagerRequestWithRetry(req)
 	if err != nil {
-		return nil, err
+		return levels.QueryTablesResult{}, err
 	}
 	resp := r.(*clustermsgs.LevelManagerGetTableIDsForRangeResponse)
 	bytes := resp.Payload
-	otids := levels.DeserializeOverlappingTables(bytes, 0)
+	otids := levels.DeserializeQueryTablesResult(bytes, 0)
 	return otids, nil
 }
 

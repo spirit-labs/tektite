@@ -14,7 +14,7 @@ import (
 )
 
 type Client interface {
-	QueryTablesInRange(keyStart []byte, keyEnd []byte) (OverlappingTables, error)
+	QueryTablesInRange(keyStart []byte, keyEnd []byte) (QueryTablesResult, error)
 
 	RegisterL0Tables(registrationBatch RegistrationBatch) error
 
@@ -63,17 +63,17 @@ func NewExternalClient(serverAddresses []string, tlsConf conf.TLSConfig, serverR
 	}
 }
 
-func (c *externalClient) QueryTablesInRange(keyStart []byte, keyEnd []byte) (OverlappingTables, error) {
+func (c *externalClient) QueryTablesInRange(keyStart []byte, keyEnd []byte) (QueryTablesResult, error) {
 	req := &clustermsgs.LevelManagerGetTableIDsForRangeMessage{
 		KeyStart: keyStart,
 		KeyEnd:   keyEnd,
 	}
 	r, err := c.sendRpcWithRetryOnNoLeader(req)
 	if err != nil {
-		return nil, err
+		return QueryTablesResult{}, err
 	}
 	resp := r.(*clustermsgs.LevelManagerGetTableIDsForRangeResponse)
-	otids := DeserializeOverlappingTables(resp.Payload, 0)
+	otids := DeserializeQueryTablesResult(resp.Payload, 0)
 	return otids, nil
 }
 

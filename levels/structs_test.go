@@ -8,7 +8,7 @@ import (
 )
 
 func TestSerializeDeserializeOverlappingTableIDs(t *testing.T) {
-	var otids OverlappingTables
+	var result QueryTablesResult
 	for i := 0; i < 10; i++ {
 		var notids []QueryTableInfo
 		for j := 0; j < 10; j++ {
@@ -34,15 +34,16 @@ func TestSerializeDeserializeOverlappingTableIDs(t *testing.T) {
 				DeadVersions: dvs,
 			})
 		}
-		otids = append(otids, notids)
+		result.L0Results = append(result.L0Results, notids[0:5])
+		result.L1PlusResults = append(result.L1PlusResults, notids[5:])
 	}
 
 	var buff []byte
 	buff = append(buff, 1, 2, 3)
-	buff = otids.Serialize(buff)
+	buff = result.Serialize(buff)
 
-	otidsAfter := DeserializeOverlappingTables(buff, 3)
-	require.Equal(t, otids, otidsAfter)
+	otidsAfter := DeserializeQueryTablesResult(buff, 3)
+	require.Equal(t, result, otidsAfter)
 }
 
 func TestSerializeDeserializeRegistrationEntry(t *testing.T) {

@@ -3,6 +3,7 @@ package levels
 
 import (
 	"encoding/binary"
+
 	"github.com/spirit-labs/tektite/asl/encoding"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/sst"
@@ -13,49 +14,66 @@ type QueryTableInfo struct {
 	DeadVersions []VersionRange
 }
 
-type NonOverlappingTables []QueryTableInfo
+type QueryTablesResult struct {
+	L0Results     [][]QueryTableInfo
+	L1PlusResults [][]QueryTableInfo
+}
 
-type OverlappingTables []NonOverlappingTables
-
-func (ot OverlappingTables) Serialize(bytes []byte) []byte {
-	bytes = encoding.AppendUint32ToBufferLE(bytes, uint32(len(ot)))
-	for _, tableInfos := range ot {
-		bytes = encoding.AppendUint32ToBufferLE(bytes, uint32(len(tableInfos)))
-		for _, tableInfo := range tableInfos {
-			bytes = encoding.AppendUint32ToBufferLE(bytes, uint32(len(tableInfo.ID)))
-			bytes = append(bytes, tableInfo.ID...)
-			bytes = encoding.AppendUint32ToBufferLE(bytes, uint32(len(tableInfo.DeadVersions)))
-			for _, dv := range tableInfo.DeadVersions {
-				bytes = dv.Serialize(bytes)
+func (qtr QueryTablesResult) Serialize(bytes []byte) []byte {
+	for _, matrix := range [2][][]QueryTableInfo{qtr.L0Results, qtr.L1PlusResults} {
+		bytes = encoding.AppendUint32ToBufferLE(bytes, uint32(len(matrix)))
+		for _, tableInfos := range matrix {
+			bytes = encoding.AppendUint32ToBufferLE(bytes, uint32(len(tableInfos)))
+			for _, tableInfo := range tableInfos {
+				bytes = encoding.AppendUint32ToBufferLE(bytes, uint32(len(tableInfo.ID)))
+				bytes = append(bytes, tableInfo.ID...)
+				bytes = encoding.AppendUint32ToBufferLE(bytes, uint32(len(tableInfo.DeadVersions)))
+				for _, dv := range tableInfo.DeadVersions {
+					bytes = dv.Serialize(bytes)
+				}
 			}
 		}
 	}
 	return bytes
 }
 
-func DeserializeOverlappingTables(bytes []byte, offset int) OverlappingTables {
-	nn, offset := encoding.ReadUint32FromBufferLE(bytes, offset)
-	otids := make([]NonOverlappingTables, nn)
-	for i := 0; i < int(nn); i++ {
-		var no uint32
-		no, offset = encoding.ReadUint32FromBufferLE(bytes, offset)
-		tableInfos := make([]QueryTableInfo, no)
-		otids[i] = tableInfos
-		for j := 0; j < int(no); j++ {
-			var l uint32
-			l, offset = encoding.ReadUint32FromBufferLE(bytes, offset)
-			tabID := bytes[offset : offset+int(l)]
-			offset += int(l)
-			tableInfos[j].ID = tabID
-			l, offset = encoding.ReadUint32FromBufferLE(bytes, offset)
-			deadVersions := make([]VersionRange, l)
-			for i := 0; i < int(l); i++ {
-				offset = deadVersions[i].Deserialize(bytes, offset)
+func DeserializeQueryTablesResult(bytes []byte, offset int) QueryTablesResult {
+	result := [2][][]QueryTableInfo{}
+	var length uint32
+
+	for k := 0; k < 2; k++ {
+		length, offset = encoding.ReadUint32FromBufferLE(bytes, offset)
+		if length == 0 {
+			continue
+		}
+		result[k] = make([][]QueryTableInfo, length)
+		for i := 0; i < int(length); i++ {
+			var secondLength uint32
+			secondLength, offset = encoding.ReadUint32FromBufferLE(bytes, offset)
+			if secondLength == 0 {
+				continue
 			}
-			tableInfos[j].DeadVersions = deadVersions
+			result[k][i] = make([]QueryTableInfo, secondLength)
+			for j := 0; j < int(secondLength); j++ {
+				var l uint32
+				l, offset = encoding.ReadUint32FromBufferLE(bytes, offset)
+				tabID := bytes[offset : offset+int(l)]
+				offset += int(l)
+				result[k][i][j].ID = tabID
+				l, offset = encoding.ReadUint32FromBufferLE(bytes, offset)
+				deadVersions := make([]VersionRange, l)
+				for d := 0; d < int(l); d++ {
+					offset = deadVersions[d].Deserialize(bytes, offset)
+				}
+				result[k][i][j].DeadVersions = deadVersions
+			}
 		}
 	}
-	return otids
+
+	return QueryTablesResult{
+		L0Results:     result[0],
+		L1PlusResults: result[1],
+	}
 }
 
 type RegistrationEntry struct {

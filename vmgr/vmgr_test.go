@@ -1454,7 +1454,7 @@ func (t *testLevelMgrClient) getDeadVersionRange() *levels.VersionRange {
 	return t.deadVersionRange
 }
 
-func (t *testLevelMgrClient) QueryTablesInRange([]byte, []byte) (levels.OverlappingTables, error) {
+func (t *testLevelMgrClient) QueryTablesInRange([]byte, []byte) (levels.QueryTablesResult, error) {
 	panic("not implemented")
 }
 

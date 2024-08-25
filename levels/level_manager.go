@@ -4,6 +4,13 @@ package levels
 import (
 	"bytes"
 	"fmt"
+	"maps"
+	"sort"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
+
 	"github.com/google/uuid"
 	"github.com/spirit-labs/tektite/asl/arista"
 	"github.com/spirit-labs/tektite/asl/conf"
@@ -13,11 +20,6 @@ import (
 	"github.com/spirit-labs/tektite/objstore"
 	"github.com/spirit-labs/tektite/sst"
 	"github.com/spirit-labs/tektite/tabcache"
-	"sort"
-	"strings"
-	"sync"
-	"sync/atomic"
-	"time"
 )
 
 /*
@@ -79,6 +81,7 @@ type LevelManager struct {
 
 type readableState struct {
 	levelSegmentEntries []levelEntries
+	sstProcessorMap     map[string]int
 }
 
 const (
@@ -371,9 +374,9 @@ func (lm *LevelManager) getOverlappingTables(keyStart []byte, keyEnd []byte, lev
 
 const maxRetries = 100
 
-func (lm *LevelManager) QueryTablesInRange(keyStart []byte, keyEnd []byte) (OverlappingTables, error) {
+func (lm *LevelManager) QueryTablesInRange(keyStart []byte, keyEnd []byte) (QueryTablesResult, error) {
 	if lm.getState() != stateActive {
-		return nil, common.NewTektiteErrorf(common.Unavailable, "levelManager not active")
+		return QueryTablesResult{}, common.NewTektiteErrorf(common.Unavailable, "levelManager not active")
 	}
 	retryCount := 0
 outer:
@@ -381,11 +384,11 @@ outer:
 		// We load the readable state from an atomic pointer, this state is updated atomically after apply changes have
 		// been applied to the LSM, this allows us to reduce contention between the read path and the write path.
 		readable := lm.readable.Load()
-		var overlapping OverlappingTables
+		result := QueryTablesResult{}
 		for level, entries := range readable.levelSegmentEntries {
 			ok, tables, err := lm.getOverlappingTables(keyStart, keyEnd, level, entries.segmentEntries)
 			if err != nil {
-				return nil, err
+				return QueryTablesResult{}, err
 			}
 			if !ok {
 				// Segment cannot be found - this can occur if readable state is loaded, then level manager state is flushed
@@ -398,10 +401,31 @@ outer:
 				}
 				continue outer
 			}
+			if len(tables) == 0 {
+				continue
+			}
 			if level == 0 {
-				// Level 0 is overlapping
+				tablesByL0Group := make(map[int][]QueryTableInfo)
 				for _, table := range tables {
-					overlapping = append(overlapping, []QueryTableInfo{{ID: table.SSTableID, DeadVersions: table.DeadVersionRanges}})
+					processorID := readable.sstProcessorMap[string(table.SSTableID)]
+					tablesByL0Group[processorID] = append(
+						tablesByL0Group[processorID],
+						QueryTableInfo{ID: table.SSTableID, DeadVersions: table.DeadVersionRanges},
+					)
+				}
+
+				processorIDs := make([]int, 0, len(tablesByL0Group))
+				for processorID := range tablesByL0Group {
+					processorIDs = append(processorIDs, processorID)
+				}
+				sort.Ints(processorIDs)
+
+				result.L0Results = make([][]QueryTableInfo, 0, len(processorIDs))
+				for _, processorID := range processorIDs {
+					result.L0Results = append(
+						result.L0Results,
+						tablesByL0Group[processorID],
+					)
 				}
 			} else if tables != nil {
 				// Other levels are non overlapping
@@ -412,10 +436,10 @@ outer:
 						DeadVersions: table.DeadVersionRanges,
 					}
 				}
-				overlapping = append(overlapping, tableInfos)
+				result.L1PlusResults = append(result.L1PlusResults, tableInfos)
 			}
 		}
-		return overlapping, nil
+		return result, nil
 	}
 }
 
@@ -852,7 +876,11 @@ func (lm *LevelManager) updateReadableState() {
 	// The readable state is accessed by queries that call GetTableIDsInRange
 	// We use a copy-on-write approach to reduce contention between updating the LSM and querying it
 	levelSegmentEntries := copyLevelSegmentEntries(lm.masterRecord.levelSegmentEntries)
-	lm.readable.Store(&readableState{levelSegmentEntries: levelSegmentEntries})
+
+	lm.readable.Store(&readableState{
+		levelSegmentEntries: levelSegmentEntries,
+		sstProcessorMap:     maps.Clone(lm.sstProcessorMap),
+	})
 }
 
 func (lm *LevelManager) addToL0Group(processorID int, te *TableEntry) {

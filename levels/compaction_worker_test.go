@@ -645,9 +645,10 @@ func TestCompactionDeadVersions(t *testing.T) {
 	keyStart := []byte(fmt.Sprintf("%skey%05d", string(prefix), 10))
 	keyEnd := []byte(fmt.Sprintf("%skey%05d", string(prefix), 20))
 
-	tables, err := lm.QueryTablesInRange(keyStart, keyEnd)
+	result, err := lm.QueryTablesInRange(keyStart, keyEnd)
 	require.NoError(t, err)
-	require.Equal(t, 0, len(tables))
+	require.Equal(t, 0, len(result.L0Results))
+	require.Equal(t, 0, len(result.L1PlusResults))
 
 	// Should be no dead versions
 	for i := 0; i <= lm.getLastLevel(); i++ {
@@ -822,10 +823,29 @@ func (i *inMemClientFactory) CreateLevelManagerClient() Client {
 func createIterator(t *testing.T, lm *LevelManager, keyStart []byte, keyEnd []byte) *iteration.MergingIterator {
 	otids, err := lm.QueryTablesInRange(keyStart, keyEnd)
 	require.NoError(t, err)
-	var chainIters []iteration.Iterator
-	for _, notids := range otids {
+	var allLevelsChainIters []iteration.Iterator
+	var l0GroupIters []iteration.Iterator
+	for _, groupResult := range otids.L0Results {
 		var iters []iteration.Iterator
-		for _, info := range notids {
+		for _, info := range groupResult {
+			buff, err := lm.GetObjectStore().Get(context.Background(), conf.DefaultBucketName, string(info.ID))
+			require.NoError(t, err)
+			require.NotNil(t, buff)
+			sstable := &sst.SSTable{}
+			sstable.Deserialize(buff, 0)
+			iter, err := sstable.NewIterator(nil, nil)
+			require.NoError(t, err)
+			iters = append(iters, iter)
+		}
+		mi, err := iteration.NewMergingIterator(iters, true, math.MaxUint64)
+		require.NoError(t, err)
+		l0GroupIters = append(l0GroupIters, mi)
+	}
+	allLevelsChainIters = append(allLevelsChainIters, iteration.NewChainingIterator(l0GroupIters))
+
+	for _, levelTableResult := range otids.L1PlusResults {
+		var iters []iteration.Iterator
+		for _, info := range levelTableResult {
 			buff, err := lm.GetObjectStore().Get(context.Background(), conf.DefaultBucketName, string(info.ID))
 			require.NoError(t, err)
 			require.NotNil(t, buff)
@@ -836,9 +856,9 @@ func createIterator(t *testing.T, lm *LevelManager, keyStart []byte, keyEnd []by
 			iters = append(iters, iter)
 		}
 		chainIter := iteration.NewChainingIterator(iters)
-		chainIters = append(chainIters, chainIter)
+		allLevelsChainIters = append(allLevelsChainIters, chainIter)
 	}
-	mi, err := iteration.NewMergingIterator(chainIters, false, math.MaxUint64)
+	mi, err := iteration.NewMergingIterator(allLevelsChainIters, false, math.MaxUint64)
 	require.NoError(t, err)
 	return mi
 }

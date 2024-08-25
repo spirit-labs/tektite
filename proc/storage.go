@@ -407,7 +407,7 @@ func (ps *ProcessorStore) GetWithMaxVersion(key []byte, maxVersion uint64) ([]by
 	// Now we can unlock and look in the SSTables - we don't want to hold the lock while we're doing the remote call
 	ps.lock.RUnlock()
 	unlocked = true
-	iters, err := ps.createSSTableIterators(key, keyEnd)
+	iters, err := ps.createSSTableIterators(key, keyEnd, maxVersion)
 	if err != nil {
 		return nil, err
 	}
@@ -480,8 +480,8 @@ func getWithIteratorNoVersionCheck(iter iteration.Iterator, key []byte) ([]byte,
 	return nil, nil
 }
 
-func (ps *ProcessorStore) createSSTableIterators(keyStart []byte, keyEnd []byte) ([]iteration.Iterator, error) {
-	ids, err := ps.pm.levelManagerClient.QueryTablesInRange(keyStart, keyEnd)
+func (ps *ProcessorStore) createSSTableIterators(keyStart []byte, keyEnd []byte, highestVersion uint64) ([]iteration.Iterator, error) {
+	queryResult, err := ps.pm.levelManagerClient.QueryTablesInRange(keyStart, keyEnd)
 	if err != nil {
 		return nil, err
 	}
@@ -490,35 +490,63 @@ func (ps *ProcessorStore) createSSTableIterators(keyStart []byte, keyEnd []byte)
 	// the same keys twice in a memtable from the flush queue which has been already flushed and one from the LSM
 	// This is ok as he later one (the sstable) will just be ignored in the iterator.
 	var iters []iteration.Iterator
-	for i, nonOverLapIDs := range ids {
-		if len(nonOverLapIDs) == 1 {
-			log.Debugf("using sstable %v in iterator [%d, 0] for key start %v", nonOverLapIDs[0], i, keyStart)
-			info := nonOverLapIDs[0]
-			iter, err := sst2.NewLazySSTableIterator(info.ID, ps.pm.tableCache, keyStart, keyEnd)
+	var l0Iters []iteration.Iterator
+	for i, l0GroupIDs := range queryResult.L0Results {
+		l0GroupIters, err := ps.createItersFromTables(l0GroupIDs, i, keyStart, keyEnd)
+		if err != nil {
+			return nil, err
+		}
+		if len(l0GroupIters) == 1 {
+			l0Iters = append(l0Iters, l0GroupIters[0])
+		} else {
+			mi, err := iteration.NewMergingIterator(
+				l0GroupIters,
+				// intentionally don't preserve tombstones.
+				// We want L0 group iterators to return tombstones so the merging iterator between levels can read them
+				// and not return a KV from L1+ level that could has been removed in a L0 group.
+				false,
+				highestVersion,
+			)
 			if err != nil {
 				return nil, err
 			}
-			if info.DeadVersions != nil {
-				iter = levels.NewRemoveDeadVersionsIterator(iter, info.DeadVersions)
-			}
-			iters = append(iters, iter)
+			l0Iters = append(l0Iters, mi)
+		}
+	}
+	if len(l0Iters) == 1 {
+		iters = append(iters, l0Iters[0])
+	} else if len(l0Iters) > 1 {
+		iters = append(iters, iteration.NewChainingIterator(l0Iters))
+	}
+
+	for i, levelTableInfos := range queryResult.L1PlusResults {
+		levelIters, err := ps.createItersFromTables(levelTableInfos, i, keyStart, keyEnd)
+		if err != nil {
+			return nil, err
+		}
+		if len(levelIters) == 1 {
+			iters = append(iters, levelIters[0])
 		} else {
-			itersInChain := make([]iteration.Iterator, len(nonOverLapIDs))
-			for j, nonOverlapID := range nonOverLapIDs {
-				log.Debugf("using sstable %v in iterator [%d, %d] for key start %v", nonOverlapID, i, j, keyStart)
-				iter, err := sst2.NewLazySSTableIterator(nonOverlapID.ID, ps.pm.tableCache, keyStart, keyEnd)
-				if err != nil {
-					return nil, err
-				}
-				if nonOverlapID.DeadVersions != nil {
-					iter = levels.NewRemoveDeadVersionsIterator(iter, nonOverlapID.DeadVersions)
-				}
-				itersInChain[j] = iter
-			}
-			iters = append(iters, iteration.NewChainingIterator(itersInChain))
+			iters = append(iters, iteration.NewChainingIterator(levelIters))
 		}
 	}
 	return iters, nil
+}
+
+func (ps *ProcessorStore) createItersFromTables(tableInfos []levels.QueryTableInfo, i int, keyStart []byte, keyEnd []byte) ([]iteration.Iterator, error) {
+	itersInChain := make([]iteration.Iterator, len(tableInfos))
+	for j, tableInfo := range tableInfos {
+		log.Debugf("using sstable %v in iterator [%d, %d] for key start %v", tableInfo, i, j, keyStart)
+		iter, err := sst2.NewLazySSTableIterator(tableInfo.ID, ps.pm.tableCache, keyStart, keyEnd)
+		if err != nil {
+			return nil, err
+		}
+		if tableInfo.DeadVersions != nil {
+			iter = levels.NewRemoveDeadVersionsIterator(iter, tableInfo.DeadVersions)
+		}
+		itersInChain[j] = iter
+	}
+	return itersInChain, nil
 }
 
 func (ps *ProcessorStore) NewIterator(keyStart []byte, keyEnd []byte, highestVersion uint64, preserveTombstones bool) (iteration.Iterator, error) {
@@ -550,7 +578,7 @@ func (ps *ProcessorStore) NewIterator(keyStart []byte, keyEnd []byte, highestVer
 	ps.queueLock.RUnlock()
 	ps.lock.RUnlock()
 	unlocked = true
-	ssTableIters, err := ps.createSSTableIterators(keyStart, keyEnd)
+	ssTableIters, err := ps.createSSTableIterators(keyStart, keyEnd, highestVersion)
 	if err != nil {
 		return nil, err
 	}
