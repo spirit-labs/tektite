@@ -231,7 +231,8 @@ func TestPreparedQueryDeletion(t *testing.T) {
 	}
 
 	for _, s := range servers {
-		paramSchema := s.GetQueryManager().GetPreparedQueryParamSchema("test_query1")
+		paramSchema, ok := s.GetQueryManager().GetPreparedQueryParamSchema("test_query1")
+		require.False(t, ok)
 		require.Nil(t, paramSchema)
 	}
 }
