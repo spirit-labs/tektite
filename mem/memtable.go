@@ -2,6 +2,7 @@ package mem
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"github.com/google/uuid"
 	arenaskl2 "github.com/spirit-labs/tektite/asl/arenaskl"
@@ -10,11 +11,6 @@ import (
 	"sync"
 	"sync/atomic"
 )
-
-type DeleteRange struct {
-	StartKey []byte
-	EndKey   []byte
-}
 
 type Memtable struct {
 	Uuid                 string
@@ -93,12 +89,10 @@ func (m *Memtable) Write(batch writeBatch) (bool, error) {
 	var err error
 	batch.Range(func(key []byte, value []byte) bool {
 		if err = writeIter.Add(key, value, 0); err != nil {
-			if //goland:noinspection GoDirectComparisonOfErrors
-			err == arenaskl2.ErrRecordExists {
+			if errors.Is(arenaskl2.ErrRecordExists, err) {
 				err = writeIter.Set(value, 0)
 				if err != nil {
-					if //goland:noinspection GoDirectComparisonOfErrors
-					err == arenaskl2.ErrRecordUpdated {
+					if errors.Is(arenaskl2.ErrRecordUpdated, err) {
 						curr := writeIter.Value()
 						// Should never occur as same key should always be written from same processor
 						panic(fmt.Sprintf("concurrent update for key %s curr is %v", key, curr))
