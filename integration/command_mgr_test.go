@@ -231,7 +231,8 @@ func TestPreparedQueryDeletion(t *testing.T) {
 	}
 
 	for _, s := range servers {
-		paramSchema := s.GetQueryManager().GetPreparedQueryParamSchema("test_query1")
+		paramSchema, ok := s.GetQueryManager().GetPreparedQueryParamSchema("test_query1")
+		require.False(t, ok)
 		require.Nil(t, paramSchema)
 	}
 }
@@ -271,7 +272,8 @@ func TestManagerPrepareQuery(t *testing.T) {
 		Scale:     3,
 	}
 	for _, s := range servers {
-		paramSchema := s.GetQueryManager().GetPreparedQueryParamSchema("test_query1")
+		paramSchema, ok := s.GetQueryManager().GetPreparedQueryParamSchema("test_query1")
+		require.True(t, ok)
 		require.NotNil(t, paramSchema)
 		require.Equal(t, []string{"$p1:int", "$p2:float", "$p3:bool", "$p4:decimal(14,3)", "$p5:string", "$p6:bytes", "$p7:timestamp"}, paramSchema.ColumnNames())
 		require.Equal(t, []types.ColumnType{types.ColumnTypeInt, types.ColumnTypeFloat, types.ColumnTypeBool,

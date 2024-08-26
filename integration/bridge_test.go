@@ -3,22 +3,14 @@
 package integration
 
 import (
-	"context"
 	"fmt"
 	kafkago "github.com/confluentinc/confluent-kafka-go/v2/kafka"
-	docker "github.com/docker/docker/client"
 	"github.com/google/uuid"
-	"github.com/spirit-labs/tektite/asl/conf"
-	"github.com/spirit-labs/tektite/asl/server"
 	"github.com/spirit-labs/tektite/client"
 	"github.com/spirit-labs/tektite/common"
 	log "github.com/spirit-labs/tektite/logger"
-	"github.com/spirit-labs/tektite/objstore/dev"
 	"github.com/spirit-labs/tektite/shutdown"
 	"github.com/stretchr/testify/require"
-	"github.com/testcontainers/testcontainers-go"
-	"github.com/testcontainers/testcontainers-go/modules/kafka"
-	"os"
 	"testing"
 	"time"
 )
@@ -272,173 +264,4 @@ egest_stream := local_topic -> (bridge to %s props = ("bootstrap.servers" = "%s"
 
 	// rows should appear
 	waitForRowsIgnoreDups(t, "ingest_stream", 20, cli, start, true)
-}
-
-func sendMessages(numBatches int, batchSize int, startIndex int, topicName string, producer *kafkago.Producer) ([]*kafkago.Message, error) {
-	var msgs []*kafkago.Message
-	msgID := startIndex
-	for i := 0; i < numBatches; i++ {
-		deliveryChan := make(chan kafkago.Event, batchSize)
-		ts := time.Now().UTC()
-		for j := 0; j < batchSize; j++ {
-			key := []byte(fmt.Sprintf("key%05d", msgID))
-			value := []byte(fmt.Sprintf("value%05d", msgID))
-			err := producer.Produce(&kafkago.Message{
-				TopicPartition: kafkago.TopicPartition{Topic: &topicName, Partition: kafkago.PartitionAny},
-				Key:            key,
-				Value:          value,
-				Timestamp:      ts,
-			},
-				deliveryChan,
-			)
-			if err != nil {
-				return nil, err
-			}
-			msgID++
-		}
-		for j := 0; j < batchSize; j++ {
-			e := <-deliveryChan
-			m := e.(*kafkago.Message)
-			if m.TopicPartition.Error != nil {
-				return nil, m.TopicPartition.Error
-			}
-			log.Debugf("sent message %d", i)
-			msgs = append(msgs, m)
-		}
-	}
-	return msgs, nil
-}
-
-func startStandaloneServerWithObjStore(t *testing.T, clusterName string) (*server.Server, *dev.Store) {
-	return startStandaloneServerWithObjStoreAndConfigSetter(t, clusterName, nil)
-}
-
-func startStandaloneServerWithObjStoreAndConfigSetter(t *testing.T, clusterName string, configSetter func(config *conf.Config)) (*server.Server, *dev.Store) {
-	objStoreAddress, err := common.AddressWithPort("localhost")
-	require.NoError(t, err)
-	objStore := dev.NewDevStore(objStoreAddress)
-	err = objStore.Start()
-	require.NoError(t, err)
-	s := startStandaloneServerWithConfigSetter(t, objStoreAddress, clusterName, configSetter)
-	return s, objStore
-}
-
-func startStandaloneServer(t *testing.T, objStoreAddress string, clusterName string) *server.Server {
-	return startStandaloneServerWithConfigSetter(t, objStoreAddress, clusterName, nil)
-}
-
-func startStandaloneServerWithConfigSetter(t *testing.T, objStoreAddress string, clusterName string, configSetter func(config *conf.Config)) *server.Server {
-	cfg := conf.Config{}
-	cfg.LogScope = t.Name()
-	cfg.ApplyDefaults()
-	cfg.ClusterName = clusterName
-	cfg.ProcessorCount = 16
-	cfg.ProcessingEnabled = true
-	cfg.LevelManagerEnabled = true
-	cfg.CompactionWorkersEnabled = true
-	remotingAddress, err := common.AddressWithPort("localhost")
-	require.NoError(t, err)
-	cfg.ClusterAddresses = []string{remotingAddress}
-	cfg.HttpApiEnabled = true
-	apiAddress, err := common.AddressWithPort("localhost")
-	require.NoError(t, err)
-	tlsConf := conf.TLSConfig{
-		Enabled:  true,
-		KeyPath:  serverKeyPath,
-		CertPath: serverCertPath,
-	}
-	cfg.HttpApiAddresses = []string{apiAddress}
-	cfg.HttpApiEnabled = true
-	cfg.HttpApiTlsConfig = tlsConf
-	cfg.KafkaServerEnabled = true
-	kafkaAddress, err := common.AddressWithPort("localhost")
-	require.NoError(t, err)
-	cfg.KafkaServerListenerConfig.Addresses = []string{kafkaAddress}
-	cfg.ClientType = conf.KafkaClientTypeConfluent
-	cfg.ObjectStoreType = conf.DevObjectStoreType
-	cfg.DevObjectStoreAddresses = []string{objStoreAddress}
-	cfg.ClusterManagerKeyPrefix = uuid.NewString() // test needs unique etcd namespace
-	if configSetter != nil {
-		configSetter(&cfg)
-	}
-	s, err := server.NewServer(cfg)
-	require.NoError(t, err)
-	err = s.Start()
-	require.NoError(t, err)
-	return s
-}
-
-type kafkaHolder struct {
-	stopped bool
-	kc      *kafka.KafkaContainer
-	address string
-}
-
-func (k *kafkaHolder) stop() {
-	if k.stopped {
-		return
-	}
-	if err := k.kc.Stop(context.Background(), nil); err != nil {
-		panic(err)
-	}
-	k.stopped = true
-}
-
-func (k *kafkaHolder) pauseResumeKafka(t *testing.T, pause bool) {
-	containerID := k.kc.GetContainerID()
-	dockerCli, err := docker.NewClientWithOpts(docker.FromEnv)
-	require.NoError(t, err)
-	defer func() {
-		err := dockerCli.Close()
-		require.NoError(t, err)
-	}()
-	if pause {
-		err = dockerCli.ContainerPause(context.Background(), containerID)
-		require.NoError(t, err)
-	} else {
-		err = dockerCli.ContainerUnpause(context.Background(), containerID)
-		require.NoError(t, err)
-	}
-}
-
-func startKafka(t *testing.T) *kafkaHolder {
-	ctx := context.Background()
-
-	if err := os.Setenv("DOCKER_API_VERSION", "1.44"); err != nil {
-		panic(err)
-	}
-
-	// Start a container
-	kc, err := kafka.RunContainer(ctx,
-		kafka.WithClusterID(fmt.Sprintf("test-cluster-%s", uuid.NewString())),
-		testcontainers.WithImage("confluentinc/confluent-local:7.7.0"),
-	)
-	require.NoError(t, err)
-	// Get the address exposed by the container
-	brokers, err := kc.Brokers(context.Background())
-	require.NoError(t, err)
-	containerKafkaAddress := brokers[0]
-	return &kafkaHolder{
-		kc:      kc,
-		address: containerKafkaAddress,
-	}
-}
-
-func createTopic(t *testing.T, topicName string, partitions int, serverAddress string) {
-	cfg := &kafkago.ConfigMap{
-		"bootstrap.servers": serverAddress,
-	}
-	adminClient, err := kafkago.NewAdminClient(cfg)
-	require.NoError(t, err)
-	defer adminClient.Close()
-
-	topicSpec := kafkago.TopicSpecification{
-		Topic:             topicName,
-		NumPartitions:     partitions,
-		ReplicationFactor: 1,
-	}
-
-	results, err := adminClient.CreateTopics(context.Background(), []kafkago.TopicSpecification{topicSpec})
-	require.NoError(t, err)
-	require.Equal(t, kafkago.ErrNoError, results[0].Error.Code())
 }

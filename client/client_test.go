@@ -5,6 +5,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/apache/arrow/go/v11/arrow/decimal128"
 	"github.com/spirit-labs/tektite/asl/api"
@@ -404,6 +405,16 @@ func TestExecuteRegisterUnregisterWasmModule(t *testing.T) {
 }
 
 func setup(t *testing.T) (*api.HTTPAPIServer, *testQueryManager, *testCommandManager, *testWasmModuleManager, Client) {
+	server, queryMgr, commandMgr, wasmMgr := setupServer(t, false)
+	clientTLSConfig := TLSConfig{
+		TrustedCertsPath: serverCertPath,
+	}
+	cl, err := NewClient(server.ListenAddress(), clientTLSConfig)
+	require.NoError(t, err)
+	return server, queryMgr, commandMgr, wasmMgr, cl
+}
+
+func setupServer(t *testing.T, authRequired bool) (*api.HTTPAPIServer, *testQueryManager, *testCommandManager, *testWasmModuleManager) {
 	queryMgr := &testQueryManager{}
 	commandMgr := &testCommandManager{}
 	tlsConf := conf.TLSConfig{
@@ -414,16 +425,11 @@ func setup(t *testing.T) (*api.HTTPAPIServer, *testQueryManager, *testCommandMan
 	moduleManager := &testWasmModuleManager{}
 	address, err := common.AddressWithPort("localhost")
 	require.NoError(t, err)
-	server := api.NewHTTPAPIServer(address, "/tektite", queryMgr, commandMgr,
-		parser.NewParser(nil), moduleManager, tlsConf)
+	server := api.NewHTTPAPIServer(0, []string{address}, "/tektite", queryMgr, commandMgr,
+		parser.NewParser(nil), moduleManager, nil, tlsConf, authRequired, 10*time.Second)
 	err = server.Activate()
 	require.NoError(t, err)
-	clientTLSConfig := TLSConfig{
-		TrustedCertsPath: serverCertPath,
-	}
-	cl, err := NewClient(address, clientTLSConfig)
-	require.NoError(t, err)
-	return server, queryMgr, commandMgr, moduleManager, cl
+	return server, queryMgr, commandMgr, moduleManager
 }
 
 type testQueryManager struct {
@@ -562,10 +568,10 @@ func (t *testQueryManager) ExecuteRemoteQuery(*clustermsgs.QueryMessage) error {
 func (t *testQueryManager) ReceiveQueryResult(*clustermsgs.QueryResponse) {
 }
 
-func (t *testQueryManager) GetPreparedQueryParamSchema(string) *evbatch.EventSchema {
+func (t *testQueryManager) GetPreparedQueryParamSchema(string) (*evbatch.EventSchema, bool) {
 	t.lock.Lock()
 	defer t.lock.Unlock()
-	return t.paramsSchema
+	return t.paramsSchema, true
 }
 
 type testCommandManager struct {

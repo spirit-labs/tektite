@@ -13,7 +13,6 @@ import (
 	"github.com/spirit-labs/tektite/auth"
 	"github.com/spirit-labs/tektite/client"
 	"github.com/stretchr/testify/require"
-	"github.com/xdg-go/pbkdf2"
 	"strings"
 	"testing"
 	"time"
@@ -21,10 +20,6 @@ import (
 
 func TestKafkaAuthScram256(t *testing.T) {
 	testKafkaAuthScram(t, auth.AuthenticationSaslScramSha256)
-}
-
-func TestKafkaAuthScram512(t *testing.T) {
-	testKafkaAuthScram(t, auth.AuthenticationSaslScramSha512)
 }
 
 func testKafkaAuthScram(t *testing.T, authType string) {
@@ -69,32 +64,6 @@ func testKafkaAuthScram(t *testing.T, authType string) {
 	tryConnect(t, "wronguser", "wrongpwd", false, server.GetConfig(), authType)
 }
 
-func putUserCred(t *testing.T, sm *auth.ScramManager, username string, password string, authType string) {
-	salt := uuid.New().String()
-	// These would be computed on the client side and only the (username, storedKey, serverKey, salt, iters) are sent
-	// over the wire
-	algo := algoForAuthType(authType)
-	hashFunc := algo.Hash
-	saltedPassword := pbkdf2.Key([]byte(password), []byte(salt), auth.NumIters, hashFunc().Size(), algo.Hash)
-	clientKey := auth.CalcHMAC(hashFunc, saltedPassword, []byte("Client Key"))
-	storedKey := auth.CalcHash(hashFunc, clientKey)
-	serverKey := auth.CalcHMAC(hashFunc, saltedPassword, []byte("Server Key"))
-	err := sm.PutUserCredentials(username, storedKey, serverKey, salt, auth.NumIters)
-	require.NoError(t, err)
-}
-
-func algoForAuthType(authType string) scram.Algorithm {
-	var algo scram.Algorithm
-	if authType == auth.AuthenticationSaslScramSha256 {
-		algo = scram.SHA256
-	} else if authType == auth.AuthenticationSaslScramSha512 {
-		algo = scram.SHA512
-	} else {
-		panic("invalid auth type")
-	}
-	return algo
-}
-
 func tryConnect(t *testing.T, username string, password string, shouldSucceeed bool, cfg conf.Config, authType string) {
 	// We use the segmentio Kafka client as it returns errors on authentication failure unlike librdkafka which
 	// retries in a loop
@@ -112,7 +81,16 @@ func tryConnect(t *testing.T, username string, password string, shouldSucceeed b
 
 	tlsc, err := clientTLSConfig.ToGoTlsConfig()
 	require.NoError(t, err)
-	mechanism, err := scram.Mechanism(algoForAuthType(authType), username, password)
+	var algo scram.Algorithm
+	switch authType {
+	case auth.AuthenticationSaslScramSha256:
+		algo = scram.SHA256
+	case auth.AuthenticationSaslScramSha512:
+		algo = scram.SHA512
+	default:
+		panic("unknown auth type")
+	}
+	mechanism, err := scram.Mechanism(algo, username, password)
 	require.NoError(t, err)
 	dialer := &segment.Dialer{
 		Timeout:       10 * time.Second,

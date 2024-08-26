@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-const unavailabilityRetryInterval = 250 * time.Millisecond
+const unavailabilityRetryInterval = 100 * time.Millisecond
 
 func NewVmgrClient(cfg *conf.Config) *VersionManagerClient {
 	return &VersionManagerClient{

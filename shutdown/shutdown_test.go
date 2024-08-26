@@ -96,6 +96,7 @@ func createConfig(t *testing.T, objStoreAddress string, clusterName string) conf
 	cfg.LevelManagerRetryDelay = 10 * time.Millisecond
 
 	cfg.DevObjectStoreAddresses = []string{objStoreAddress}
+	cfg.ObjectStoreType = conf.DevObjectStoreType
 	return cfg
 }
 

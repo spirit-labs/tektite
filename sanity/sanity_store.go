@@ -60,7 +60,6 @@ func (s *SanityStore) Put(key []byte, value []byte) {
 	keyNoVersion := key[:len(key)-8]
 	sKey := string(keyNoVersion)
 	values, ok := s.data[sKey]
-	//log.Infof("sanitystore putting key %v value %v", key, value)
 	if !ok {
 		s.data[sKey] = []valueHolder{{value: value, version: version}}
 	} else {

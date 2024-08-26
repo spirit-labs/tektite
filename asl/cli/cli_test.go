@@ -144,8 +144,8 @@ func startServer(t *testing.T, serverAddress string, tlsConf conf.TLSConfig) (*a
 	queryMgr := &testQueryManager{}
 	commandMgr := &testCommandManager{}
 	moduleManager := &testWasmModuleManager{}
-	server := api.NewHTTPAPIServer(serverAddress, "/tektite", queryMgr, commandMgr,
-		parser.NewParser(nil), moduleManager, tlsConf)
+	server := api.NewHTTPAPIServer(0, []string{serverAddress}, "/tektite", queryMgr, commandMgr,
+		parser.NewParser(nil), moduleManager, nil, tlsConf, false, 0)
 	err := server.Activate()
 	require.NoError(t, err)
 	return server, queryMgr, commandMgr, moduleManager
@@ -494,8 +494,8 @@ func (t *testQueryManager) ExecuteRemoteQuery(*clustermsgs.QueryMessage) error {
 func (t *testQueryManager) ReceiveQueryResult(*clustermsgs.QueryResponse) {
 }
 
-func (t *testQueryManager) GetPreparedQueryParamSchema(string) *evbatch.EventSchema {
-	return nil
+func (t *testQueryManager) GetPreparedQueryParamSchema(string) (*evbatch.EventSchema, bool) {
+	return nil, false
 }
 
 type testCommandManager struct {

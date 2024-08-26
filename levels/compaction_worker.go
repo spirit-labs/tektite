@@ -40,7 +40,7 @@ type CompactionWorkerService struct {
 	retentions            bool
 }
 
-const workerRetryInterval = 500 * time.Millisecond
+const workerRetryInterval = 100 * time.Millisecond
 
 func (c *CompactionWorkerService) Start() error {
 	c.lock.Lock()
@@ -114,11 +114,11 @@ func (c *compactionWorker) start() {
 }
 
 func (c *compactionWorker) stop() {
-	c.started.Store(false)
-	c.stopWg.Wait()
 	if err := c.client.Stop(); err != nil {
 		log.Warnf("failed to stop levelMgr client: %v", err)
 	}
+	c.started.Store(false)
+	c.stopWg.Wait()
 }
 
 func (c *compactionWorker) loop() {

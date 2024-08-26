@@ -649,7 +649,6 @@ func TestCompactionDeadVersions(t *testing.T) {
 	require.Equal(t, 0, len(tables))
 
 	// Should be no dead versions
-	log.Infof("last level is %d", lm.getLastLevel())
 	for i := 0; i <= lm.getLastLevel(); i++ {
 		iter, err := lm.LevelIterator(i)
 		require.NoError(t, err)

@@ -133,6 +133,10 @@ log-level = "debug"
 
 version-completed-broadcast-interval = "2s"
 version-manager-store-flushed-interval = "23s"
+version-manager-level-manager-retry-delay = "13s"
+
+authentication-enabled = true
+authentication-cache-timeout = "12s"
 
 wasm-module-instances = 23
 

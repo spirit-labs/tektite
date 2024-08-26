@@ -19,6 +19,10 @@ type Client interface {
 
 	UnregisterWasmModule(moduleName string) error
 
+	PutUser(username string, password string) error
+
+	DeleteUser(username string) error
+
 	Close()
 }
 

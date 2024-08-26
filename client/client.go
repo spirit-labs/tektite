@@ -4,14 +4,18 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
+	"github.com/pkg/errors"
 	"github.com/spirit-labs/tektite/asl/api"
 	"github.com/spirit-labs/tektite/asl/encoding"
 	"github.com/spirit-labs/tektite/asl/errwrap"
-	common3 "github.com/spirit-labs/tektite/common"
+	"github.com/spirit-labs/tektite/auth"
+	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/evbatch"
 	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/types"
+	"github.com/xdg-go/scram"
 	"golang.org/x/net/http2"
 	"io"
 	"net"
@@ -30,45 +34,140 @@ const (
 )
 
 func NewClient(serverAddress string, tlsConfig TLSConfig) (Client, error) {
-	tlsConf, err := tlsConfig.ToGoTlsConfig()
-	if err != nil {
-		return nil, err
-	}
+	return NewClientWithAuth(serverAddress, tlsConfig, "", "", "")
+}
+
+func NewClientWithAuth(serverAddress string, tlsConfig TLSConfig, scramAuthType string, username string, password string) (Client, error) {
 	httpCl := &http.Client{}
-	httpCl.Transport = &http2.Transport{
-		TLSClientConfig: tlsConf,
-	}
-	return &client{
+	cl := &client{
 		serverAddress:     serverAddress,
+		scramURL:          fmt.Sprintf("https://%s/tektite/scram-auth", serverAddress),
 		statementURL:      fmt.Sprintf("https://%s/tektite/statement", serverAddress),
 		queryURL:          fmt.Sprintf("https://%s/tektite/query?col_headers=true", serverAddress),
 		execPSURL:         fmt.Sprintf("https://%s/tektite/exec?col_headers=true", serverAddress),
 		registerWasmURL:   fmt.Sprintf("https://%s/tektite/wasm-register", serverAddress),
 		unregisterWasmURL: fmt.Sprintf("https://%s/tektite/wasm-unregister", serverAddress),
+		putUserURL:        fmt.Sprintf("https://%s/tektite/put-user", serverAddress),
+		deleteUserURL:     fmt.Sprintf("https://%s/tektite/delete-user", serverAddress),
 		tlsConfig:         tlsConfig,
+		username:          username,
+		password:          password,
 		httpCl:            httpCl,
-	}, nil
+	}
+	tlsConf, err := tlsConfig.ToGoTlsConfig()
+	if err != nil {
+		return nil, err
+	}
+	httpCl.Transport = &http2.Transport{
+		TLSClientConfig: tlsConf,
+	}
+	if scramAuthType != "" {
+		var hashGenFunc scram.HashGeneratorFcn
+		if scramAuthType == auth.AuthenticationSaslScramSha256 {
+			hashGenFunc = scram.SHA256
+		} else if scramAuthType == auth.AuthenticationSaslScramSha512 {
+			hashGenFunc = scram.SHA512
+		} else {
+			return nil, errors.Errorf("unknown scram auth type %s", scramAuthType)
+		}
+		scramClient, err := hashGenFunc.NewClient(username, password, "")
+		if err != nil {
+			return nil, err
+		}
+		cl.scramClient = scramClient
+		if err := cl.performScramAuthentication(scramAuthType); err != nil {
+			return nil, err
+		}
+		cl.scramAuthType = scramAuthType
+	}
+	return cl, nil
+}
+
+func (c *client) performScramAuthentication(scramAuthMethod string) error {
+	// We piggyback the standard SCRAM authentication exchange over HTTP POST requests and responses. The SCRAM
+	// messages are in the body of the request/response as text/plain.
+	// We set 'X-Scram-Auth-Type' header in the requests to 'SCRAM-xxx' (where xxx is 256 or 512) to specify which type
+	// of SCRAM authentication to use.
+	// The first response will also returnb a header 'Scram-Conversation-Id' - this is a random UUID identifying the scram
+	// conversation. On the server side we do not have access to the underlying net.Conn so we cannot attach the
+	// conversation to that, so we need some way of looking it up on the server.
+	conv := c.scramClient.NewConversation()
+	req1, err := conv.Step("")
+	if err != nil {
+		return err
+	}
+	resp1, _, conversationID, err := c.sendScramAuthRequest(req1, "", scramAuthMethod)
+	if err != nil {
+		return err
+	}
+	req2, err := conv.Step(resp1)
+	if err != nil {
+		return err
+	}
+	resp2, jwt, _, err := c.sendScramAuthRequest(req2, conversationID, scramAuthMethod)
+	if err != nil {
+		return err
+	}
+	_, err = conv.Step(resp2)
+	if err != nil {
+		return err
+	}
+	// If we get here, the client is authenticated and we have a JWT that we will pass in further requests so the server
+	// can authenticate
+	c.authHeader = "Bearer " + jwt
+	return nil
+}
+
+func (c *client) sendScramAuthRequest(req string, conversationID string, scramAuthType string) (string, string, string, error) {
+	httpReq, err := http.NewRequest(http.MethodPost, c.scramURL, bytes.NewBufferString(req))
+	if err != nil {
+		return "", "", "", err
+	}
+	httpReq.Header.Set(api.ScramAuthTypeHeaderName, scramAuthType)
+	if conversationID != "" {
+		httpReq.Header.Set(api.ScramConversationIdHeaderName, conversationID)
+	}
+	httpReq.Header.Set("Content-Type", "text/plain")
+	httpResp, err := c.httpCl.Do(httpReq)
+	if err != nil {
+		return "", "", "", err
+	}
+	if httpResp.StatusCode != http.StatusOK {
+		return "", "", "", errors.Errorf("SCRAM authentication request returned HTTP error response %d: %s", httpResp.StatusCode, httpResp.Status)
+	}
+	bodyBytes, err := io.ReadAll(httpResp.Body)
+	if err != nil {
+		return "", "", "", err
+	}
+	jwtToken := httpResp.Header.Get(api.JwtHeaderName)
+	if conversationID == "" {
+		conversationID = httpResp.Header.Get(api.ScramConversationIdHeaderName)
+	}
+	return string(bodyBytes), jwtToken, conversationID, nil
 }
 
 type client struct {
 	serverAddress     string
+	scramURL          string
 	statementURL      string
 	queryURL          string
 	execPSURL         string
 	registerWasmURL   string
 	unregisterWasmURL string
+	putUserURL        string
+	deleteUserURL     string
 	tlsConfig         TLSConfig
+	scramClient       *scram.Client
+	scramAuthType     string
 	httpCl            *http.Client
+	authHeader        string
+	username          string
+	password          string
 	stopped           atomic.Bool
 }
 
-func (c *client) Close() {
-	c.stopped.Store(true)
-	c.httpCl.CloseIdleConnections()
-}
-
 func (c *client) ExecuteStatement(statement string) error {
-	_, err := common3.CallWithRetryOnUnavailableWithTimeout[int](func() (int, error) {
+	_, err := common.CallWithRetryOnUnavailableWithTimeout[int](func() (int, error) {
 		return 0, c.executeStatement(statement)
 	}, c.isStopped, queryRetryDelay, queryRetryTimeout, "")
 	return err
@@ -76,7 +175,7 @@ func (c *client) ExecuteStatement(statement string) error {
 
 func (c *client) executeStatement(statement string) error {
 	if statement == "" {
-		return common3.NewTektiteErrorf(common3.StatementError, "statement is empty")
+		return common.NewTektiteErrorf(common.StatementError, "statement is empty")
 	}
 	resp, err := c.sendPostRequest(c.statementURL, statement)
 	if err != nil {
@@ -109,22 +208,28 @@ func (c *client) sendPostRequest(uri string, body string) (*http.Response, error
 		return nil, err
 	}
 	req.Header.Set("accept", "x-tektite-arrow")
+	if c.authHeader != "" {
+		req.Header.Set("Authorization", c.authHeader)
+	}
 	resp, err := c.httpCl.Do(req)
-	return resp, maybeConvertConnectionError(err)
+	if err != nil {
+		return nil, maybeConvertConnectionError(err)
+	}
+	return resp, nil
 }
 
 func (c *client) RegisterWasmModule(modulePath string) error {
 	if !strings.HasSuffix(modulePath, ".wasm") {
-		return common3.NewTektiteError(common3.WasmError, "wasm module must have '.wasm' suffix")
+		return common.NewTektiteError(common.WasmError, "wasm module must have '.wasm' suffix")
 	}
 	modBytes, err := os.ReadFile(modulePath)
 	if err != nil {
-		return common3.NewTektiteErrorf(common3.WasmError, "failed to read wasm file '%s: %v", modulePath, err)
+		return common.NewTektiteErrorf(common.WasmError, "failed to read wasm file '%s: %v", modulePath, err)
 	}
 	metaFile := modulePath[:len(modulePath)-5] + ".json"
 	jsonBytes, err := os.ReadFile(metaFile)
 	if err != nil {
-		return common3.NewTektiteErrorf(common3.WasmError, "failed to read wasm json file '%s: %v", metaFile, err)
+		return common.NewTektiteErrorf(common.WasmError, "failed to read wasm json file '%s: %v", metaFile, err)
 	}
 	encodedModBytes := base64.StdEncoding.EncodeToString(modBytes)
 	registration := fmt.Sprintf(`{"MetaData":%s, "ModuleData":"%s"}`, string(jsonBytes), encodedModBytes)
@@ -145,13 +250,54 @@ func (c *client) UnregisterWasmModule(moduleName string) error {
 	return c.extractError(resp)
 }
 
+func (c *client) PutUser(username string, password string) error {
+	if c.scramAuthType == "" {
+		return errors.New("Cannot put user without authentication enabledf")
+	}
+	storedKey, serverKey, salt := auth.CreateUserScramCreds(password, c.scramAuthType)
+	req := api.PutUserRequest{
+		UserName:   username,
+		StoredKey:  base64.StdEncoding.EncodeToString(storedKey),
+		ServerKey:  base64.StdEncoding.EncodeToString(serverKey),
+		Salt:       salt,
+		Iterations: auth.NumIters,
+	}
+	buff, err := json.Marshal(&req)
+	if err != nil {
+		return err
+	}
+	resp, err := c.sendPostRequest(c.putUserURL, string(buff))
+	if err != nil {
+		return err
+	}
+	defer closeResponseBody(resp)
+	return c.extractError(resp)
+}
+
+func (c *client) DeleteUser(username string) error {
+	if c.scramAuthType == "" {
+		return errors.New("Cannot delete user without authentication enabledf")
+	}
+	resp, err := c.sendPostRequest(c.deleteUserURL, username)
+	if err != nil {
+		return err
+	}
+	defer closeResponseBody(resp)
+	return c.extractError(resp)
+}
+
+func (c *client) Close() {
+	c.stopped.Store(true)
+	c.httpCl.CloseIdleConnections()
+}
+
 func maybeConvertConnectionError(err error) error {
 	if err != nil {
 		var urlErr *url.Error
 		if errwrap.As(err, &urlErr) && urlErr != nil {
 			var netErr *net.OpError
 			if errwrap.As(urlErr.Err, &netErr) && netErr != nil {
-				return common3.NewTektiteErrorf(common3.ConnectionError, "connection error: %v", netErr)
+				return common.NewTektiteErrorf(common.ConnectionError, "connection error: %v", netErr)
 			}
 		}
 		return err
@@ -303,7 +449,7 @@ func (c *client) isStopped() bool {
 }
 
 func (c *client) executeQuery(url string, query string) (QueryResult, error) {
-	return common3.CallWithRetryOnUnavailableWithTimeout[QueryResult](func() (QueryResult, error) {
+	return common.CallWithRetryOnUnavailableWithTimeout[QueryResult](func() (QueryResult, error) {
 		return c.executeQuery0(url, query)
 	}, c.isStopped, queryRetryDelay, queryRetryTimeout, "")
 }
@@ -363,7 +509,7 @@ func (c *client) streamExecutePreparedQuery(queryName string, args ...any) (chan
 }
 
 func (c *client) streamExecQueryWithRetry(url string, query string) (chan StreamChunk, error) {
-	return common3.CallWithRetryOnUnavailableWithTimeout[chan StreamChunk](func() (chan StreamChunk, error) {
+	return common.CallWithRetryOnUnavailableWithTimeout[chan StreamChunk](func() (chan StreamChunk, error) {
 		return c.streamExecQuery(url, query)
 	}, c.isStopped, queryRetryDelay, queryRetryTimeout, "")
 }
@@ -431,7 +577,7 @@ func (c *client) extractError(resp *http.Response) error {
 		if err != nil {
 			return err
 		}
-		bodyString := common3.ByteSliceToStringZeroCopy(bodyBytes)
+		bodyString := common.ByteSliceToStringZeroCopy(bodyBytes)
 		bodyString = bodyString[:len(bodyString)-1] // remove trailing \n
 		if len(bodyString) > 10 && strings.HasPrefix(bodyString, "TEK") {
 			sNum := bodyString[3:7]
@@ -440,7 +586,7 @@ func (c *client) extractError(resp *http.Response) error {
 				return err
 			}
 			msg := bodyString[10:]
-			return common3.NewTektiteErrorf(common3.ErrCode(errorCode), msg)
+			return common.NewTektiteErrorf(common.ErrCode(errorCode), msg)
 		}
 		return errwrap.New(bodyString)
 	}
