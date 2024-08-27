@@ -73,22 +73,22 @@ type tableGetter interface {
 }
 
 type LazySSTableIterator struct {
-	tableID     SSTableID
-	tableCache  tableGetter
-	keyStart    []byte
-	keyEnd      []byte
-	iter        iteration.Iterator
-	iterFactory func(sst *SSTable, keyStart []byte, keyEnd []byte) (iteration.Iterator, error)
+	tableID    SSTableID
+	tableCache tableGetter
+	keyStart   []byte
+	keyEnd     []byte
+	iter       iteration.Iterator
 }
 
-func NewLazySSTableIterator(tableID SSTableID, tableCache tableGetter,
-	keyStart []byte, keyEnd []byte, factory func(sst *SSTable, keyStart []byte, keyEnd []byte) (iteration.Iterator, error)) (iteration.Iterator, error) {
+func NewLazySSTableIterator(
+	tableID SSTableID, tableCache tableGetter,
+	keyStart []byte, keyEnd []byte,
+) (iteration.Iterator, error) {
 	it := &LazySSTableIterator{
-		tableID:     tableID,
-		tableCache:  tableCache,
-		keyStart:    keyStart,
-		keyEnd:      keyEnd,
-		iterFactory: factory,
+		tableID:    tableID,
+		tableCache: tableCache,
+		keyStart:   keyStart,
+		keyEnd:     keyEnd,
 	}
 	return it, nil
 }
@@ -141,12 +141,13 @@ func (l *LazySSTableIterator) getIter() (iteration.Iterator, error) {
 		if err != nil {
 			return nil, err
 		}
-		iter, err := l.iterFactory(ssTable, l.keyStart, l.keyEnd)
+
+		iter, err := ssTable.NewIterator(l.keyStart, l.keyEnd)
 		if err != nil {
 			return nil, err
 		}
+
 		l.iter = iter
-		return iter, err
 	}
 	return l.iter, nil
 }
