@@ -173,6 +173,28 @@ type segment struct {
 	tableEntries []*TableEntry
 }
 
+// segment
+//
+// +------+----------------+----------------+
+// |format| numTableEntries| tableEntries...|
+// +------+----------------+----------------+
+// |1 byte| 4 bytes        |                |
+// +------+----------------+----------------+
+//
+// 		Each tableEntry has
+// 		+---------------+----------------------+-----------------+-----------------------+---------------+---------------------+-----------+-----------+------------+-----------+--------+-----------------+---------------------+---------------------+
+// 		|SSTableIDlength| SSTableID            | RangeStartLength| RangeStart            | RangeEndLength| RangeEnd            | MinVersion| MaxVersion| DeleteRatio| NumEntries| Size   | NumPrefixDeletes| numDeadVersionRanges| DeadVersionRanges...|
+// 		+---------------+----------------------+-----------------+-----------------------+---------------+---------------------+-----------+-----------+------------+-----------+--------+-----------------+---------------------+---------------------+
+// 		|4 bytes        | SSTableIDlength bytes| 4 bytes         | RangeStartLength bytes| 4 bytes       | RangeEndLength bytes| 8 bytes   | 8 bytes   | 8 bytes    | 8 bytes   | 8 bytes| 4 bytes         |                     |                     |
+// 		+---------------+----------------------+-----------------+-----------------------+---------------+---------------------+-----------+-----------+------------+-----------+--------+-----------------+---------------------+---------------------+
+//
+//			Each DeadVersionRanges has
+//			+------------+-----------+
+//			|VersionStart| VersionEnd|
+//			+------------+-----------+
+//			|8 bytes     | 8 bytes   |
+//			+------------+-----------+
+
 func (s *segment) serialize(buff []byte) []byte {
 	buff = append(buff, s.format)
 	buff = encoding.AppendUint32ToBufferLE(buff, uint32(len(s.tableEntries)))
@@ -449,6 +471,42 @@ func (mr *masterRecord) copy() *masterRecord {
 		stats:                mr.stats.copy(),
 	}
 }
+
+// masterRecord
+//
+// +------+--------+----------+----------+--------------------+--------------------+------------------+------------------+-------------------+---------------------+------+
+// |format| version| numLevels| levels...| numLevelTableCounts| levelTableCounts...| numSlabRetentions| slabRetentions...| lastFlushedVersion| lastProcessedReplSeq| stats|
+// +------+--------+----------+----------+--------------------+--------------------+------------------+------------------+-------------------+---------------------+------+
+// |1 byte| 8 bytes| 4 bytes  |          | 4 bytes            |                    | 4 bytes          |                  | 8 bytes           | 8 bytes             |      |
+// +------+--------+----------+----------+--------------------+--------------------+------------------+------------------+-------------------+---------------------+------+
+//
+// Each level has
+// +-----------------+------------------+----------------+
+// |numSegmentEntries| segmentEntries...| levelMaxVersion|
+// +-----------------+------------------+----------------+
+// |4 bytes          |                  | 8 bytes        |
+// +-----------------+------------------+----------------+
+//
+//	 	Each segmentEntry in a level has
+//	 	+------+----------+-----------+---------+
+//	 	|format| segmentID| rangeStart| rangeEnd|
+//		+------+----------+-----------+---------+
+//		|1 byte| 4 bytes  | 4 bytes   | 4 bytes |
+//		+------+----------+-----------+---------+
+//
+// Each levelTableCount has
+// +-------+-----------+
+// |level  | tableCount|
+// +-------+-----------+
+// |4 bytes| 8 bytes   |
+// +-------+-----------+
+//
+// Each slabRetention has
+// +-------+----------+
+// |slabID | retention|
+// +-------+----------+
+// |8 bytes| 8 bytes  |
+// +-------+----------+
 
 func (mr *masterRecord) serialize(buff []byte) []byte {
 	buff = append(buff, byte(mr.format))
