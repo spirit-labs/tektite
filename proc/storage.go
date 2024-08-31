@@ -492,7 +492,7 @@ func (ps *ProcessorStore) createSSTableIterators(keyStart []byte, keyEnd []byte)
 		if len(nonOverLapIDs) == 1 {
 			log.Debugf("using sstable %v in iterator [%d, 0] for key start %v", nonOverLapIDs[0], i, keyStart)
 			info := nonOverLapIDs[0]
-			iter, err := sst2.NewLazySSTableIterator(info.ID, ps.pm.tableCache, keyStart, keyEnd, ps.iterFactoryFunc())
+			iter, err := sst2.NewLazySSTableIterator(info.ID, ps.pm.tableCache, keyStart, keyEnd)
 			if err != nil {
 				return nil, err
 			}
@@ -504,7 +504,7 @@ func (ps *ProcessorStore) createSSTableIterators(keyStart []byte, keyEnd []byte)
 			itersInChain := make([]iteration.Iterator, len(nonOverLapIDs))
 			for j, nonOverlapID := range nonOverLapIDs {
 				log.Debugf("using sstable %v in iterator [%d, %d] for key start %v", nonOverlapID, i, j, keyStart)
-				iter, err := sst2.NewLazySSTableIterator(nonOverlapID.ID, ps.pm.tableCache, keyStart, keyEnd, ps.iterFactoryFunc())
+				iter, err := sst2.NewLazySSTableIterator(nonOverlapID.ID, ps.pm.tableCache, keyStart, keyEnd)
 				if err != nil {
 					return nil, err
 				}
@@ -517,16 +517,6 @@ func (ps *ProcessorStore) createSSTableIterators(keyStart []byte, keyEnd []byte)
 		}
 	}
 	return iters, nil
-}
-
-func (ps *ProcessorStore) iterFactoryFunc() func(sst *sst2.SSTable, keyStart []byte, keyEnd []byte) (iteration.Iterator, error) {
-	return func(sst *sst2.SSTable, keyStart []byte, keyEnd []byte) (iteration.Iterator, error) {
-		sstIter, err := sst.NewIterator(keyStart, keyEnd)
-		if err != nil {
-			return nil, err
-		}
-		return sstIter, nil
-	}
 }
 
 func (ps *ProcessorStore) NewIterator(keyStart []byte, keyEnd []byte, highestVersion uint64, preserveTombstones bool) (iteration.Iterator, error) {
