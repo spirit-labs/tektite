@@ -101,25 +101,28 @@ func (k *KafkaInOperator) HandleStreamBatch(batch *evbatch.Batch, execCtx Stream
 	// Convert the recordset/messageset into the tektite kafka schema
 	bytes := batch.GetBytesColumn(0).Get(0)
 
-	producerID := int(binary.BigEndian.Uint64(bytes[43:51]))
-	baseSequence := int(binary.BigEndian.Uint32(bytes[53:57]))
-	lastOffsetDelta := int(binary.BigEndian.Uint32(bytes[23:27]))
-	sequenceNumber := baseSequence + lastOffsetDelta
-	err := k.validateBatch(execCtx.PartitionID(), producerID, sequenceNumber)
-	if err != nil {
-		return nil, err
-	}
-
 	outBatch, maxEventTime, err := k.convertRecordset(bytes, execCtx)
 	if err != nil {
 		return nil, err
 	}
 	k.watermarkOperator.updateMaxEventTime(int(maxEventTime), execCtx.Processor().ID())
-	_, exists := k.partitionProducerMapping[execCtx.PartitionID()]
-	if !exists {
-		k.partitionProducerMapping[execCtx.PartitionID()] = make(map[int]int)
+
+	producerID := int(binary.BigEndian.Uint64(bytes[43:51]))
+	if producerID != -1 {
+		baseSequence := int(binary.BigEndian.Uint32(bytes[53:57]))
+		lastOffsetDelta := int(binary.BigEndian.Uint32(bytes[23:27]))
+		sequenceNumber := baseSequence + lastOffsetDelta
+		err = k.validateBatch(execCtx.PartitionID(), producerID, sequenceNumber)
+		if err != nil {
+			return nil, err
+		}
+		_, exists := k.partitionProducerMapping[execCtx.PartitionID()]
+		if !exists {
+			k.partitionProducerMapping[execCtx.PartitionID()] = make(map[int]int)
+		}
+		k.partitionProducerMapping[execCtx.PartitionID()][producerID] = sequenceNumber
 	}
-	k.partitionProducerMapping[execCtx.PartitionID()][producerID] = sequenceNumber
+
 	return nil, k.sendBatchDownStream(outBatch, execCtx)
 }
 
