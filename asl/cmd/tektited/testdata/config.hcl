@@ -64,6 +64,7 @@ sequences-object-name = "my_sequences"
 sequences-retry-delay = "300ms"
 
 object-store-type = "dev"
+bucket-name = "silly-bucket"
 dev-object-store-addresses = [
 "addr23"
 ]

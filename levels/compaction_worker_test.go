@@ -1,6 +1,7 @@
 package levels
 
 import (
+	"context"
 	"encoding/binary"
 	"fmt"
 	"github.com/google/uuid"
@@ -158,7 +159,7 @@ func TestCompactionOverwritingData(t *testing.T) {
 		buff := table.Serialize()
 
 		sstName := fmt.Sprintf("sst-%06d", i)
-		err = lm.GetObjectStore().Put([]byte(sstName), buff)
+		err = lm.GetObjectStore().Put(context.Background(), conf.DefaultBucketName, sstName, buff)
 		require.NoError(t, err)
 
 		addTable(t, lm, sstName, smallestKey, largestKey)
@@ -421,7 +422,7 @@ func TestRandomUpdateDeleteData(t *testing.T) {
 		buff := table.Serialize()
 
 		sstName := fmt.Sprintf("sst-%06d", i)
-		err = lm.GetObjectStore().Put([]byte(sstName), buff)
+		err = lm.GetObjectStore().Put(context.Background(), conf.DefaultBucketName, sstName, buff)
 		require.NoError(t, err)
 
 		addTable(t, lm, sstName, smallestKey, largestKey)
@@ -739,7 +740,7 @@ func TestCompactionPrefixDeletions(t *testing.T) {
 	buff := table.Serialize()
 	tableName := uuid.New().String()
 	log.Debugf("deletion bomb table is %s", tableName)
-	err = lm.GetObjectStore().Put([]byte(tableName), buff)
+	err = lm.GetObjectStore().Put(context.Background(), conf.DefaultBucketName, tableName, buff)
 	require.NoError(t, err)
 	addTable(t, lm, tableName, smallestKey, largestKey)
 
@@ -825,7 +826,7 @@ func createIterator(t *testing.T, lm *LevelManager, keyStart []byte, keyEnd []by
 	for _, notids := range otids {
 		var iters []iteration.Iterator
 		for _, info := range notids {
-			buff, err := lm.GetObjectStore().Get(info.ID)
+			buff, err := lm.GetObjectStore().Get(context.Background(), conf.DefaultBucketName, string(info.ID))
 			require.NoError(t, err)
 			require.NotNil(t, buff)
 			sstable := &sst.SSTable{}
@@ -872,7 +873,7 @@ func buildAndRegisterTableWithKeyRangeAndVersion(t *testing.T, name string, rang
 	table, smallestKey, largestKey, _, _, err := sst.BuildSSTable(common.DataFormatV1, 0, 0, si)
 	require.NoError(t, err)
 	buff := table.Serialize()
-	err = cloudStore.Put([]byte(name), buff)
+	err = cloudStore.Put(context.Background(), conf.DefaultBucketName, name, buff)
 	require.NoError(t, err)
 	return smallestKey, largestKey
 }
@@ -898,7 +899,7 @@ func addTableWithMinMaxVersion(t *testing.T, lm *LevelManager, tableName string,
 			},
 		},
 	}
-	validateRegBatch(regBatch, lm.GetObjectStore())
+	validateRegBatch(regBatch, lm.GetObjectStore(), conf.DefaultBucketName)
 	for {
 		ch := make(chan error, 1)
 		lm.RegisterL0Tables(regBatch, func(err error) {

@@ -5,10 +5,13 @@ import (
 	"context"
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
+	"github.com/pkg/errors"
 	"github.com/spirit-labs/tektite/asl/conf"
 	"github.com/spirit-labs/tektite/asl/errwrap"
 	"github.com/spirit-labs/tektite/common"
+	"github.com/spirit-labs/tektite/objstore"
 	"io"
+	"math"
 )
 
 func NewMinioClient(cfg *conf.Config) *Client {
@@ -22,9 +25,8 @@ type Client struct {
 	client *minio.Client
 }
 
-func (m *Client) Get(key []byte) ([]byte, error) {
-	objName := string(key)
-	obj, err := m.client.GetObject(context.Background(), m.cfg.MinioBucketName, objName, minio.GetObjectOptions{})
+func (m *Client) Get(ctx context.Context, bucket string, key string) ([]byte, error) {
+	obj, err := m.client.GetObject(ctx, bucket, key, minio.GetObjectOptions{})
 	if err != nil {
 		return nil, maybeConvertError(err)
 	}
@@ -44,24 +46,103 @@ func (m *Client) Get(key []byte) ([]byte, error) {
 	return buff, nil
 }
 
-func (m *Client) Put(key []byte, value []byte) error {
+func (m *Client) Put(ctx context.Context, bucket string, key string, value []byte) error {
 	buff := bytes.NewBuffer(value)
-	objName := string(key)
-	_, err := m.client.PutObject(context.Background(), m.cfg.MinioBucketName, objName, buff, int64(len(value)),
+	_, err := m.client.PutObject(ctx, bucket, key, buff, int64(len(value)),
 		minio.PutObjectOptions{})
 	return maybeConvertError(err)
 }
 
-func (m *Client) Delete(key []byte) error {
-	objName := string(key)
-	return maybeConvertError(m.client.RemoveObject(context.Background(), m.cfg.MinioBucketName, objName, minio.RemoveObjectOptions{}))
+func (m *Client) PutIfNotExists(ctx context.Context, bucket string, key string, value []byte) (bool, error) {
+	buff := bytes.NewBuffer(value)
+	opts := minio.PutObjectOptions{}
+	opts.SetMatchETagExcept("*")
+	_, err := m.client.PutObject(ctx, bucket, key, buff, int64(len(value)), opts)
+	if err != nil {
+		var errResponse minio.ErrorResponse
+		if errors.As(err, &errResponse) {
+			if errResponse.StatusCode == 412 {
+				// Pre-condition failed - this means key already exists
+				return false, nil
+			}
+		}
+		return false, maybeConvertError(err)
+	}
+	return true, nil
 }
+
+func (m *Client) Delete(ctx context.Context, bucket string, key string) error {
+	return maybeConvertError(m.client.RemoveObject(ctx, bucket, key, minio.RemoveObjectOptions{}))
+}
+
+func (m *Client) DeleteAll(ctx context.Context, bucket string, keys []string) error {
+	if len(keys) == 0 {
+		return nil
+	}
+	opts := minio.RemoveObjectsOptions{}
+	// must be a blocking channel
+	ch := make(chan minio.ObjectInfo)
+	errCh := m.client.RemoveObjects(ctx, bucket, ch, opts)
+	// Minio client has a weird API here forcing us to spawn GRs, and add messages to channel after calling RemoveObjects
+	// to avoid losing any messages
+	go func() {
+		for _, key := range keys {
+			ch <- minio.ObjectInfo{
+				Key: key,
+			}
+		}
+		close(ch)
+	}()
+	for err := range errCh {
+		if err.Err != nil {
+			return err.Err
+		}
+	}
+	return nil
+}
+
+func (m *Client) ListObjectsWithPrefix(ctx context.Context, bucket string, prefix string, maxKeys int) ([]objstore.ObjectInfo, error) {
+	var opts minio.ListObjectsOptions
+	opts.Prefix = string(prefix)
+
+	if maxKeys != -1 && maxKeys < 1000 {
+		// The minio MaxKeys option just determines the max number of keys in each batch (it does the batching itself)
+		// not the total number of keys
+		opts.MaxKeys = maxKeys
+	}
+
+	ch := m.client.ListObjects(ctx, bucket, opts)
+
+	if maxKeys == -1 {
+		maxKeys = math.MaxInt
+	}
+
+	var infos []objstore.ObjectInfo
+	for info := range ch {
+		if info.Err != nil {
+			return nil, maybeConvertError(info.Err)
+		}
+		infos = append(infos, objstore.ObjectInfo{
+			Key:          info.Key,
+			LastModified: info.LastModified,
+		})
+		// Sadly minio client does not let us request a certain number of keys - it returns them all, so we
+		// need to bail out here if there are too many
+		if len(infos) == maxKeys {
+			ctx.Done()
+			break
+		}
+	}
+	return infos, nil
+}
+
 
 func (m *Client) Start() error {
 	client, err := minio.New(m.cfg.MinioEndpoint, &minio.Options{
-		Creds:  credentials.NewStaticV4(m.cfg.MinioAccessKey, m.cfg.MinioSecretKey, ""),
+		Creds:  credentials.NewStaticV4(m.cfg.MinioUsername, m.cfg.MinioPassword, ""),
 		Secure: m.cfg.MinioSecure,
 	})
+
 	if err != nil {
 		return err
 	}

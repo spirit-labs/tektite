@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"github.com/spirit-labs/tektite/asl/errwrap"
 	log "github.com/spirit-labs/tektite/logger"
+	"github.com/spirit-labs/tektite/objstore"
 	"github.com/spirit-labs/tektite/sst"
 )
 
@@ -110,7 +111,7 @@ func (lm *LevelManager) validateSegment(segEntry segmentEntry, level int, valida
 }
 
 func (lm *LevelManager) validateTable(te *TableEntry) error {
-	buff, err := lm.objStore.Get(te.SSTableID)
+	buff, err := objstore.GetWithTimeout(lm.objStore, lm.conf.BucketName, string(te.SSTableID), objstore.DefaultCallTimeout)
 	if err != nil {
 		return err
 	}

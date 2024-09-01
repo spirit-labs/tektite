@@ -177,6 +177,7 @@ func createConfigWithAllFields() conf.Config {
 		SequencesRetryDelay: 300 * time.Millisecond,
 
 		DevObjectStoreAddresses: []string{"addr23"},
+		BucketName:              "silly-bucket",
 		ObjectStoreType:         "dev",
 
 		VersionCompletedBroadcastInterval:    2 * time.Second,

@@ -53,8 +53,12 @@ const (
 	ClusterMessageCompactionPollResponse
 	ClusterMessageLocalObjStoreGet
 	ClusterMessageLocalObjStoreGetResponse
-	ClusterMessageLocalObjStoreAdd
+	ClusterMessageLocalObjStorePut
+	ClusterMessageLocalObjStorePutResponse
 	ClusterMessageLocalObjStoreDelete
+	ClusterMessageLocalObjStoreDeleteAll
+	ClusterMessageLocalObjStoreListObjectsMessage
+	ClusterMessageLocalObjStoreListObjectsResponse
 	ClusterMessageCommandAvailableMessage
 	ClusterMessageShutdownMessage
 	ClusterMessageShutdownResponse
@@ -131,14 +135,22 @@ func TypeForClusterMessage(clusterMessage ClusterMessage) ClusterMessageType {
 		return ClusterMessageCompactionPollMessage
 	case *clustermsgs.CompactionPollResponse:
 		return ClusterMessageCompactionPollResponse
-	case *clustermsgs.LocalObjStoreAddRequest:
-		return ClusterMessageLocalObjStoreAdd
+	case *clustermsgs.LocalObjStorePutRequest:
+		return ClusterMessageLocalObjStorePut
+	case *clustermsgs.LocalObjStorePutResponse:
+		return ClusterMessageLocalObjStorePutResponse
 	case *clustermsgs.LocalObjStoreGetRequest:
 		return ClusterMessageLocalObjStoreGet
 	case *clustermsgs.LocalObjStoreGetResponse:
 		return ClusterMessageLocalObjStoreGetResponse
 	case *clustermsgs.LocalObjStoreDeleteRequest:
 		return ClusterMessageLocalObjStoreDelete
+	case *clustermsgs.LocalObjStoreDeleteAllRequest:
+		return ClusterMessageLocalObjStoreDeleteAll
+	case *clustermsgs.LocalObjStoreListObjectsRequest:
+		return ClusterMessageLocalObjStoreListObjectsMessage
+	case *clustermsgs.LocalObjStoreListObjectsResponse:
+		return ClusterMessageLocalObjStoreListObjectsResponse
 	case *clustermsgs.CommandAvailableMessage:
 		return ClusterMessageCommandAvailableMessage
 	case *clustermsgs.ShutdownMessage:
@@ -278,10 +290,18 @@ func DeserializeClusterMessage(data []byte) (ClusterMessage, error) {
 		msg = &clustermsgs.LocalObjStoreGetRequest{}
 	case ClusterMessageLocalObjStoreGetResponse:
 		msg = &clustermsgs.LocalObjStoreGetResponse{}
-	case ClusterMessageLocalObjStoreAdd:
-		msg = &clustermsgs.LocalObjStoreAddRequest{}
+	case ClusterMessageLocalObjStorePut:
+		msg = &clustermsgs.LocalObjStorePutRequest{}
+	case ClusterMessageLocalObjStorePutResponse:
+		msg = &clustermsgs.LocalObjStorePutResponse{}
 	case ClusterMessageLocalObjStoreDelete:
 		msg = &clustermsgs.LocalObjStoreDeleteRequest{}
+	case ClusterMessageLocalObjStoreDeleteAll:
+		msg = &clustermsgs.LocalObjStoreDeleteAllRequest{}
+	case ClusterMessageLocalObjStoreListObjectsMessage:
+		msg = &clustermsgs.LocalObjStoreListObjectsRequest{}
+	case ClusterMessageLocalObjStoreListObjectsResponse:
+		msg = &clustermsgs.LocalObjStoreListObjectsResponse{}
 	case ClusterMessageCommandAvailableMessage:
 		msg = &clustermsgs.CommandAvailableMessage{}
 	case ClusterMessageShutdownMessage:

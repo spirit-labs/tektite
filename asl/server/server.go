@@ -108,7 +108,7 @@ func NewServerWithArgs(config conf.Config, clientFactory kafka.ClientFactory, ob
 	}
 
 	sequenceManager := sequence.NewSequenceManager(objStoreClient, config.SequencesObjectName, lockMgr,
-		config.SequencesRetryDelay)
+		config.SequencesRetryDelay, config.BucketName)
 	tableCache, err := tabcache.NewTableCache(objStoreClient, &config)
 	if err != nil {
 		return nil, err

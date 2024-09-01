@@ -231,7 +231,7 @@ func (c *compactionWorker) processJob(job *CompactionJob) ([]RegistrationEntry, 
 		for {
 			tableBytes := info.sst.Serialize()
 			// Add to object store
-			err := c.cws.objStoreClient.Put(id, tableBytes)
+			err := objstore.PutWithTimeout(c.cws.objStoreClient, c.cws.cfg.BucketName, string(id), tableBytes, objstore.DefaultCallTimeout)
 			if err == nil {
 				// Add to the local cache
 				err = c.cws.tableCache.AddSSTableWithMaxAge(id, info.sst)
@@ -450,17 +450,17 @@ func mergeSSTables(format common.DataFormat, tables [][]tableToMerge, preserveTo
 	return outTables, nil
 }
 
-func validateRegBatch(regBatch RegistrationBatch, objStore objstore.Client) {
+func validateRegBatch(regBatch RegistrationBatch, objStore objstore.Client, bucketName string) {
 	for _, entry := range regBatch.Registrations {
-		validateRegEntry(entry, objStore)
+		validateRegEntry(entry, objStore, bucketName)
 	}
 	for _, entry := range regBatch.DeRegistrations {
-		validateRegEntry(entry, objStore)
+		validateRegEntry(entry, objStore, bucketName)
 	}
 }
 
-func validateRegEntry(entry RegistrationEntry, objStore objstore.Client) {
-	buff, err := objStore.Get(entry.TableID)
+func validateRegEntry(entry RegistrationEntry, objStore objstore.Client, bucketName string) {
+	buff, err := objstore.GetWithTimeout(objStore, bucketName, string(entry.TableID), objstore.DefaultCallTimeout)
 	if err != nil {
 		panic(err)
 	}

@@ -17,6 +17,7 @@ type Cache struct {
 	// as the ristretto cache `isClosed` flag is mutated without locking
 	lock   sync.RWMutex
 	maxAge time.Duration
+	cfg    *conf.Config
 }
 
 func NewTableCache(cloudStore objstore.Client, cfg *conf.Config) (*Cache, error) {
@@ -33,6 +34,7 @@ func NewTableCache(cloudStore objstore.Client, cfg *conf.Config) (*Cache, error)
 		cache:      cache,
 		cloudStore: cloudStore,
 		maxAge:     cfg.TableCacheSSTableMaxAge,
+		cfg:        cfg,
 	}, nil
 }
 
@@ -64,7 +66,7 @@ func (tc *Cache) GetSSTable(tableID sst.SSTableID) (*sst.SSTable, error) {
 	if ok {
 		return t.(*sst.SSTable), nil //nolint:forcetypeassert
 	}
-	b, err := tc.cloudStore.Get(tableID)
+	b, err := objstore.GetWithTimeout(tc.cloudStore, tc.cfg.BucketName, skey, objstore.DefaultCallTimeout)
 	if err != nil {
 		return nil, err
 	}
