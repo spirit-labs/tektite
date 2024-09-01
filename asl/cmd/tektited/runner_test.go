@@ -179,8 +179,12 @@ func createConfigWithAllFields() conf.Config {
 		DevObjectStoreAddresses: []string{"addr23"},
 		ObjectStoreType:         "dev",
 
-		VersionCompletedBroadcastInterval:  2 * time.Second,
-		VersionManagerStoreFlushedInterval: 23 * time.Second,
+		VersionCompletedBroadcastInterval:    2 * time.Second,
+		VersionManagerStoreFlushedInterval:   23 * time.Second,
+		VersionManagerLevelManagerRetryDelay: 13 * time.Second,
+
+		AuthenticationEnabled:      true,
+		AuthenticationCacheTimeout: 12 * time.Second,
 
 		WasmModuleInstances: 23,
 

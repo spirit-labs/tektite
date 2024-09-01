@@ -7,6 +7,7 @@ import (
 	"github.com/spirit-labs/tektite/asl/conf"
 	"github.com/spirit-labs/tektite/asl/errwrap"
 	"github.com/spirit-labs/tektite/asl/remoting"
+	"github.com/spirit-labs/tektite/auth"
 	"github.com/spirit-labs/tektite/clustmgr"
 	"github.com/spirit-labs/tektite/cmdmgr"
 	"github.com/spirit-labs/tektite/common"
@@ -55,40 +56,14 @@ func NewServer(config conf.Config) (*Server, error) {
 }
 
 func NewServerWithClientFactory(config conf.Config, clientFactory kafka.ClientFactory) (*Server, error) {
-
-	if err := config.Validate(); err != nil {
-		return nil, errwrap.WithStack(err)
-	}
-
 	standalone := len(config.ClusterAddresses) == 1
-
 	var clustStateMgr clustmgr.StateManager
 	if standalone {
-		clustStateMgr = clustmgr.NewLocalStateManager(config.ProcessorCount + 1)
+		clustStateMgr = clustmgr.NewFixedStateManager(config.ProcessorCount+1, 1)
 	} else {
 		clustStateMgr = clustmgr.NewClusteredStateManager(config.ClusterManagerKeyPrefix, config.ClusterName, config.NodeID,
 			config.ClusterManagerAddresses, config.ClusterEvictionTimeout, config.ClusterStateUpdateInterval,
 			config.EtcdCallTimeout, config.ProcessorCount+1, config.MaxReplicas, config.LogScope)
-	}
-
-	var levelManagerClientFactory levels.ClientFactory
-	var localLevMgrClientFactory *localLevelManagerClientFactory
-	if config.LevelManagerEnabled {
-		localLevMgrClientFactory = &localLevelManagerClientFactory{cfg: &config}
-		levelManagerClientFactory = localLevMgrClientFactory
-	} else {
-		levelManagerClientFactory = &externalLevelManagerClientFactory{cfg: &config}
-	}
-
-	var lockManager lock.Manager
-	if standalone {
-		lockManager = lock.NewInMemLockManager()
-	} else {
-		client := clustStateMgr.(*clustmgr.ClusteredStateManager).GetClient()
-		lockManager = &clusterManagerLockManager{
-			lockTimeout:    config.ClusterManagerLockTimeout,
-			clustMgrClient: client,
-		}
 	}
 	var objStoreClient objstore.Client
 	switch config.ObjectStoreType {
@@ -101,7 +76,38 @@ func NewServerWithClientFactory(config conf.Config, clientFactory kafka.ClientFa
 	default:
 		return nil, common.NewTektiteErrorf(common.InvalidConfiguration, "invalid object store type: %s", config.ObjectStoreType)
 	}
-	sequenceManager := sequence.NewSequenceManager(objStoreClient, config.SequencesObjectName, lockManager,
+	var lockManager lock.Manager
+	if standalone {
+		lockManager = lock.NewInMemLockManager()
+	} else {
+		client := clustStateMgr.(*clustmgr.ClusteredStateManager).GetClient()
+		lockManager = &clusterManagerLockManager{
+			lockTimeout:    config.ClusterManagerLockTimeout,
+			clustMgrClient: client,
+		}
+	}
+	return NewServerWithArgs(config, clientFactory, objStoreClient, clustStateMgr, lockManager)
+}
+
+func NewServerWithArgs(config conf.Config, clientFactory kafka.ClientFactory, objStoreClient objstore.Client,
+	clustStateMgr clustmgr.StateManager, lockMgr lock.Manager) (*Server, error) {
+
+	if err := config.Validate(); err != nil {
+		return nil, errwrap.WithStack(err)
+	}
+
+	standalone := len(config.ClusterAddresses) == 1
+
+	var levelManagerClientFactory levels.ClientFactory
+	var localLevMgrClientFactory *localLevelManagerClientFactory
+	if config.LevelManagerEnabled {
+		localLevMgrClientFactory = &localLevelManagerClientFactory{cfg: &config}
+		levelManagerClientFactory = localLevMgrClientFactory
+	} else {
+		levelManagerClientFactory = &externalLevelManagerClientFactory{cfg: &config}
+	}
+
+	sequenceManager := sequence.NewSequenceManager(objStoreClient, config.SequencesObjectName, lockMgr,
 		config.SequencesRetryDelay)
 	tableCache, err := tabcache.NewTableCache(objStoreClient, &config)
 	if err != nil {
@@ -121,7 +127,7 @@ func NewServerWithClientFactory(config conf.Config, clientFactory kafka.ClientFa
 
 	versionManager := vmgr.NewVersionManager(sequenceManager, levMgrClient, &config, config.ClusterAddresses...)
 
-	moduleManager := wasm.NewModuleManager(objStoreClient, lockManager, &config)
+	moduleManager := wasm.NewModuleManager(objStoreClient, lockMgr, &config)
 	invokerFactory := &wasm.InvokerFactory{ModManager: moduleManager}
 	exprFactory := &expr.ExpressionFactory{ExternalInvokerFactory: invokerFactory}
 
@@ -158,7 +164,7 @@ func NewServerWithClientFactory(config conf.Config, clientFactory kafka.ClientFa
 	handlerFactory.levelManagerBatchHandler = proc.NewLevelManagerBatchHandler(levelManagerService)
 	flushNotifier.levelMgrService = levelManagerService
 
-	commandMgr := cmdmgr.NewCommandManager(streamManager, queryManager, sequenceManager, lockManager,
+	commandMgr := cmdmgr.NewCommandManager(streamManager, queryManager, sequenceManager, lockMgr,
 		processorManager, processorManager.VersionManagerClient(), theParser, &config)
 	var commandSignaller *cmdmgr.RemotingSignaller
 	if !standalone {
@@ -167,10 +173,16 @@ func NewServerWithClientFactory(config conf.Config, clientFactory kafka.ClientFa
 	}
 	processorManager.RegisterStateHandler(commandMgr.HandleClusterState)
 
+	scramManager, err := auth.NewScramManager(streamManager, processorManager, theParser, queryManager, &config, auth.ScramAuthTypeSHA256)
+	if err != nil {
+		return nil, err
+	}
+
 	var apiServer *api.HTTPAPIServer
 	if config.HttpApiEnabled {
-		apiServer = api.NewHTTPAPIServer(config.HttpApiAddresses[config.NodeID], config.HttpApiPath,
-			queryManager, commandMgr, theParser, moduleManager, config.HttpApiTlsConfig)
+		apiServer = api.NewHTTPAPIServer(config.NodeID, config.HttpApiAddresses, config.HttpApiPath,
+			queryManager, commandMgr, theParser, moduleManager, scramManager, config.HttpApiTlsConfig,
+			config.AuthenticationEnabled, config.AuthenticationCacheTimeout)
 	}
 
 	var kafkaServer *kafkaserver.Server
@@ -185,7 +197,10 @@ func NewServerWithClientFactory(config conf.Config, clientFactory kafka.ClientFa
 		if err != nil {
 			return nil, err
 		}
-		kafkaServer = kafkaserver.NewServer(&config, metaProvider, processorManager, kafkaGroupCoordinator, streamManager, sequenceManager)
+		kafkaServer, err = kafkaserver.NewServer(&config, metaProvider, processorManager, kafkaGroupCoordinator, streamManager, scramManager, sequenceManager)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	var adminServer *admin.Server
@@ -228,6 +243,7 @@ func NewServerWithClientFactory(config conf.Config, clientFactory kafka.ClientFa
 		commandMgr,
 		commandSignaller,
 		apiServer,
+		scramManager,
 		kafkaGroupCoordinator,
 		kafkaServer,
 		compactionService,
@@ -239,7 +255,7 @@ func NewServerWithClientFactory(config conf.Config, clientFactory kafka.ClientFa
 		nodeID:              config.NodeID,
 		remotingServer:      remotingServer,
 		services:            services,
-		lockManager:         lockManager,
+		lockManager:         lockMgr,
 		sequenceManager:     sequenceManager,
 		processorManager:    processorManager,
 		commandManager:      commandMgr,
@@ -250,6 +266,7 @@ func NewServerWithClientFactory(config conf.Config, clientFactory kafka.ClientFa
 		versionManager:      versionManager,
 		kafkaServer:         kafkaServer,
 		apiServer:           apiServer,
+		scramManager:        scramManager,
 		levelMgrClient:      levMgrClient,
 	}
 	remotingServer.RegisterMessageHandler(remoting.ClusterMessageShutdownMessage,
@@ -279,6 +296,7 @@ type Server struct {
 	webuiServer         *admin.Server
 	parser              *parser.Parser
 	levelMgrClient      levels.Client
+	scramManager        *auth.ScramManager
 	stopWaitGroup       *sync.WaitGroup
 	shutdownComplete    bool
 }
@@ -323,10 +341,12 @@ func (s *Server) Start() error {
 				time.Now().Sub(start).Milliseconds())
 		}
 	}
+
 	// We delay starting kafka and api server until replicators are ready
 	if err := s.processorManager.EnsureReplicatorsReady(); err != nil {
 		return err
 	}
+
 	// We must activate command manager - prompting it to load commands *after* replicators are ready or can
 	// cause processing of batches (e.g. for storing compaction results or deleting slabs) to fail
 	if err := s.commandManager.Activate(); err != nil {
@@ -402,6 +422,8 @@ func (s *Server) Stop() error {
 func (s *Server) stop(shutdown bool) error {
 	s.lock.Lock()
 	defer s.lock.Unlock()
+
+	start := time.Now()
 	log.Infof("%s: stopping tektite server %d", s.conf.LogScope, s.nodeID)
 
 	if s.stopped {
@@ -423,11 +445,11 @@ func (s *Server) stop(shutdown bool) error {
 		serv := s.services[i]
 		if !serviceIsNil(serv) {
 			servStopStart := time.Now()
-			log.Debugf("tektite node %d stopping service %s", s.nodeID, reflect.TypeOf(serv).String())
+			log.Infof("tektite node %d stopping service %s", s.nodeID, reflect.TypeOf(serv).String())
 			if err := serv.Stop(); err != nil {
 				return err
 			}
-			log.Debugf("tektite node %d service %s stopping took %d ms", s.nodeID, reflect.TypeOf(serv).String(),
+			log.Infof("tektite node %d service %s stopping took %d ms", s.nodeID, reflect.TypeOf(serv).String(),
 				time.Now().Sub(servStopStart).Milliseconds())
 		}
 	}
@@ -439,7 +461,7 @@ func (s *Server) stop(shutdown bool) error {
 	if shutdown {
 		s.shutdownComplete = true
 	}
-	log.Infof("%s: tektite server %d stopped", s.conf.LogScope, s.nodeID)
+	log.Infof("%s: tektite server %d stopped in %d ms", s.conf.LogScope, s.nodeID, time.Now().Sub(start).Milliseconds())
 	return nil
 }
 
@@ -473,6 +495,14 @@ func (s *Server) GetCommandManager() cmdmgr.Manager {
 
 func (s *Server) GetKafkaServer() *kafkaserver.Server {
 	return s.kafkaServer
+}
+
+func (s *Server) GetScramManager() *auth.ScramManager {
+	return s.scramManager
+}
+
+func (s *Server) GetApiServer() *api.HTTPAPIServer {
+	return s.apiServer
 }
 
 func (s *Server) SetStopWaitGroup(waitGroup *sync.WaitGroup) {

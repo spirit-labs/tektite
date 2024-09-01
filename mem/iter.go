@@ -37,12 +37,7 @@ func (m *MemtableIterator) Next() (bool, common.KV, error) {
 		m.it.Next()
 	}
 
-	if !m.it.Valid() {
-		m.curr = common.KV{}
-		return false, common.KV{}, nil
-	}
-
-	if m.keyEnd == nil || bytes.Compare(m.it.Key(), m.keyEnd) < 0 {
+	if m.it.Valid() && (m.keyEnd == nil || bytes.Compare(m.it.Key(), m.keyEnd) < 0) {
 		m.curr = common.KV{
 			Key:   m.it.Key(),
 			Value: m.it.Value(),

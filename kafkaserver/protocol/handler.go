@@ -8,8 +8,7 @@ import (
     "net"
 )
 
-func HandleRequestBuffer(buff []byte, handler RequestHandler, conn net.Conn) error {
-    apiKey := int16(binary.BigEndian.Uint16(buff))
+func HandleRequestBuffer(apiKey int16, buff []byte, handler RequestHandler, conn net.Conn) error {
     apiVersion := int16(binary.BigEndian.Uint16(buff[2:]))
     var err error
     var responseHeader ResponseHeader
@@ -38,7 +37,7 @@ func HandleRequestBuffer(buff []byte, handler RequestHandler, conn net.Conn) err
             return err
         }
  		minVer, maxVer := req.SupportedApiVersions()
-		if apiVersion < minVer || apiVersion > maxVer {
+        if apiVersion < minVer || apiVersion > maxVer {
 			resp := handler.ProduceRequestErrorResponse(ErrorCodeUnsupportedVersion, fmt.Sprintf("version %d for apiKey %d is unsupported. supported versions are %d to %d", apiVersion, apiKey, minVer, maxVer), &req)
             err = respFunc(resp)
 		} else {
@@ -68,7 +67,7 @@ func HandleRequestBuffer(buff []byte, handler RequestHandler, conn net.Conn) err
             return err
         }
  		minVer, maxVer := req.SupportedApiVersions()
-		if apiVersion < minVer || apiVersion > maxVer {
+        if apiVersion < minVer || apiVersion > maxVer {
 			resp := handler.FetchRequestErrorResponse(ErrorCodeUnsupportedVersion, fmt.Sprintf("version %d for apiKey %d is unsupported. supported versions are %d to %d", apiVersion, apiKey, minVer, maxVer), &req)
             err = respFunc(resp)
 		} else {
@@ -98,7 +97,7 @@ func HandleRequestBuffer(buff []byte, handler RequestHandler, conn net.Conn) err
             return err
         }
  		minVer, maxVer := req.SupportedApiVersions()
-		if apiVersion < minVer || apiVersion > maxVer {
+        if apiVersion < minVer || apiVersion > maxVer {
 			resp := handler.ListOffsetsRequestErrorResponse(ErrorCodeUnsupportedVersion, fmt.Sprintf("version %d for apiKey %d is unsupported. supported versions are %d to %d", apiVersion, apiKey, minVer, maxVer), &req)
             err = respFunc(resp)
 		} else {
@@ -128,7 +127,7 @@ func HandleRequestBuffer(buff []byte, handler RequestHandler, conn net.Conn) err
             return err
         }
  		minVer, maxVer := req.SupportedApiVersions()
-		if apiVersion < minVer || apiVersion > maxVer {
+        if apiVersion < minVer || apiVersion > maxVer {
 			resp := handler.MetadataRequestErrorResponse(ErrorCodeUnsupportedVersion, fmt.Sprintf("version %d for apiKey %d is unsupported. supported versions are %d to %d", apiVersion, apiKey, minVer, maxVer), &req)
             err = respFunc(resp)
 		} else {
@@ -158,7 +157,7 @@ func HandleRequestBuffer(buff []byte, handler RequestHandler, conn net.Conn) err
             return err
         }
  		minVer, maxVer := req.SupportedApiVersions()
-		if apiVersion < minVer || apiVersion > maxVer {
+        if apiVersion < minVer || apiVersion > maxVer {
 			resp := handler.OffsetCommitRequestErrorResponse(ErrorCodeUnsupportedVersion, fmt.Sprintf("version %d for apiKey %d is unsupported. supported versions are %d to %d", apiVersion, apiKey, minVer, maxVer), &req)
             err = respFunc(resp)
 		} else {
@@ -188,7 +187,7 @@ func HandleRequestBuffer(buff []byte, handler RequestHandler, conn net.Conn) err
             return err
         }
  		minVer, maxVer := req.SupportedApiVersions()
-		if apiVersion < minVer || apiVersion > maxVer {
+        if apiVersion < minVer || apiVersion > maxVer {
 			resp := handler.OffsetFetchRequestErrorResponse(ErrorCodeUnsupportedVersion, fmt.Sprintf("version %d for apiKey %d is unsupported. supported versions are %d to %d", apiVersion, apiKey, minVer, maxVer), &req)
             err = respFunc(resp)
 		} else {
@@ -218,7 +217,7 @@ func HandleRequestBuffer(buff []byte, handler RequestHandler, conn net.Conn) err
             return err
         }
  		minVer, maxVer := req.SupportedApiVersions()
-		if apiVersion < minVer || apiVersion > maxVer {
+        if apiVersion < minVer || apiVersion > maxVer {
 			resp := handler.FindCoordinatorRequestErrorResponse(ErrorCodeUnsupportedVersion, fmt.Sprintf("version %d for apiKey %d is unsupported. supported versions are %d to %d", apiVersion, apiKey, minVer, maxVer), &req)
             err = respFunc(resp)
 		} else {
@@ -248,7 +247,7 @@ func HandleRequestBuffer(buff []byte, handler RequestHandler, conn net.Conn) err
             return err
         }
  		minVer, maxVer := req.SupportedApiVersions()
-		if apiVersion < minVer || apiVersion > maxVer {
+        if apiVersion < minVer || apiVersion > maxVer {
 			resp := handler.JoinGroupRequestErrorResponse(ErrorCodeUnsupportedVersion, fmt.Sprintf("version %d for apiKey %d is unsupported. supported versions are %d to %d", apiVersion, apiKey, minVer, maxVer), &req)
             err = respFunc(resp)
 		} else {
@@ -278,7 +277,7 @@ func HandleRequestBuffer(buff []byte, handler RequestHandler, conn net.Conn) err
             return err
         }
  		minVer, maxVer := req.SupportedApiVersions()
-		if apiVersion < minVer || apiVersion > maxVer {
+        if apiVersion < minVer || apiVersion > maxVer {
 			resp := handler.HeartbeatRequestErrorResponse(ErrorCodeUnsupportedVersion, fmt.Sprintf("version %d for apiKey %d is unsupported. supported versions are %d to %d", apiVersion, apiKey, minVer, maxVer), &req)
             err = respFunc(resp)
 		} else {
@@ -308,7 +307,7 @@ func HandleRequestBuffer(buff []byte, handler RequestHandler, conn net.Conn) err
             return err
         }
  		minVer, maxVer := req.SupportedApiVersions()
-		if apiVersion < minVer || apiVersion > maxVer {
+        if apiVersion < minVer || apiVersion > maxVer {
 			resp := handler.LeaveGroupRequestErrorResponse(ErrorCodeUnsupportedVersion, fmt.Sprintf("version %d for apiKey %d is unsupported. supported versions are %d to %d", apiVersion, apiKey, minVer, maxVer), &req)
             err = respFunc(resp)
 		} else {
@@ -338,7 +337,7 @@ func HandleRequestBuffer(buff []byte, handler RequestHandler, conn net.Conn) err
             return err
         }
  		minVer, maxVer := req.SupportedApiVersions()
-		if apiVersion < minVer || apiVersion > maxVer {
+        if apiVersion < minVer || apiVersion > maxVer {
 			resp := handler.SyncGroupRequestErrorResponse(ErrorCodeUnsupportedVersion, fmt.Sprintf("version %d for apiKey %d is unsupported. supported versions are %d to %d", apiVersion, apiKey, minVer, maxVer), &req)
             err = respFunc(resp)
 		} else {
@@ -368,7 +367,7 @@ func HandleRequestBuffer(buff []byte, handler RequestHandler, conn net.Conn) err
             return err
         }
  		minVer, maxVer := req.SupportedApiVersions()
-		if apiVersion < minVer || apiVersion > maxVer {
+        if apiVersion < minVer || apiVersion > maxVer {
 			resp := handler.ApiVersionsRequestErrorResponse(ErrorCodeUnsupportedVersion, fmt.Sprintf("version %d for apiKey %d is unsupported. supported versions are %d to %d", apiVersion, apiKey, minVer, maxVer), &req)
             err = respFunc(resp)
 		} else {
@@ -398,7 +397,7 @@ func HandleRequestBuffer(buff []byte, handler RequestHandler, conn net.Conn) err
             return err
         }
  		minVer, maxVer := req.SupportedApiVersions()
-		if apiVersion < minVer || apiVersion > maxVer {
+        if apiVersion < minVer || apiVersion > maxVer {
 			resp := handler.InitProducerIdRequestErrorResponse(ErrorCodeUnsupportedVersion, fmt.Sprintf("version %d for apiKey %d is unsupported. supported versions are %d to %d", apiVersion, apiKey, minVer, maxVer), &req)
             err = respFunc(resp)
 		} else {
@@ -428,7 +427,7 @@ func HandleRequestBuffer(buff []byte, handler RequestHandler, conn net.Conn) err
             return err
         }
  		minVer, maxVer := req.SupportedApiVersions()
-		if apiVersion < minVer || apiVersion > maxVer {
+        if apiVersion < minVer || apiVersion > maxVer {
 			resp := handler.SaslAuthenticateRequestErrorResponse(ErrorCodeUnsupportedVersion, fmt.Sprintf("version %d for apiKey %d is unsupported. supported versions are %d to %d", apiVersion, apiKey, minVer, maxVer), &req)
             err = respFunc(resp)
 		} else {
@@ -458,7 +457,7 @@ func HandleRequestBuffer(buff []byte, handler RequestHandler, conn net.Conn) err
             return err
         }
  		minVer, maxVer := req.SupportedApiVersions()
-		if apiVersion < minVer || apiVersion > maxVer {
+        if apiVersion < minVer || apiVersion > maxVer {
 			resp := handler.SaslHandshakeRequestErrorResponse(ErrorCodeUnsupportedVersion, fmt.Sprintf("version %d for apiKey %d is unsupported. supported versions are %d to %d", apiVersion, apiKey, minVer, maxVer), &req)
             err = respFunc(resp)
 		} else {

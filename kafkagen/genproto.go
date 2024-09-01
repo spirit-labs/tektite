@@ -7,6 +7,7 @@ import (
 	"github.com/yosuke-furukawa/json5/encoding/json5"
 	"os"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -95,8 +96,7 @@ import (
     "net"
 )
 
-func HandleRequestBuffer(buff []byte, handler RequestHandler, conn net.Conn) error {
-    apiKey := int16(binary.BigEndian.Uint16(buff))
+func HandleRequestBuffer(apiKey int16, buff []byte, handler RequestHandler, conn net.Conn) error {
     apiVersion := int16(binary.BigEndian.Uint16(buff[2:]))
     var err error
     var responseHeader ResponseHeader
@@ -135,7 +135,7 @@ func HandleRequestBuffer(buff []byte, handler RequestHandler, conn net.Conn) err
             return err
         }
  		minVer, maxVer := req.SupportedApiVersions()
-		if apiVersion < minVer || apiVersion > maxVer {
+        if apiVersion < minVer || apiVersion > maxVer {
 			resp := handler.%sErrorResponse(ErrorCodeUnsupportedVersion, fmt.Sprintf("%s", apiVersion, apiKey, minVer, maxVer), &req)
             err = respFunc(resp)
 		} else {
@@ -1637,7 +1637,13 @@ func (gc *genContext) string() string {
 	sb.WriteString("// Package protocol - This is a generated file, please do not edit\n\n")
 	sb.WriteString("package protocol\n\n")
 	sb.WriteString("import \"encoding/binary\"\n")
+	var imports []string
 	for imp := range gc.imports {
+		imports = append(imports, imp)
+	}
+	// sort them so we have deterministic order
+	sort.Strings(imports)
+	for _, imp := range imports {
 		sb.WriteString(fmt.Sprintf("import \"%s\"\n", imp))
 	}
 	sb.WriteString("\n")

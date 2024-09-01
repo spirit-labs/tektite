@@ -31,3 +31,9 @@ func (g *GRLocal) Set(value any) {
 	defer g.lock.Unlock()
 	g.values[routine.Goid()] = value
 }
+
+func (g *GRLocal) Delete() {
+	g.lock.Lock()
+	defer g.lock.Unlock()
+	delete(g.values, routine.Goid())
+}

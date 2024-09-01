@@ -3,10 +3,10 @@
 package protocol
 
 import "encoding/binary"
-import "github.com/spirit-labs/tektite/common"
-import "github.com/pkg/errors"
-import "github.com/spirit-labs/tektite/debug"
 import "fmt"
+import "github.com/pkg/errors"
+import "github.com/spirit-labs/tektite/common"
+import "github.com/spirit-labs/tektite/debug"
 import "unsafe"
 
 type FetchRequestReplicaState struct {

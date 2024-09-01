@@ -2,7 +2,7 @@ package kafkaserver
 
 import (
 	"fmt"
-	"github.com/confluentinc/confluent-kafka-go/kafka"
+	"github.com/confluentinc/confluent-kafka-go/v2/kafka"
 	"github.com/spirit-labs/tektite/asl/conf"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/evbatch"
@@ -192,7 +192,8 @@ func createServer(t *testing.T, topic string, serverAddress string, serverAdvert
 
 	gc, err := NewGroupCoordinator(cfg, procProvider, &testStreamMgr{}, meta, &testBatchForwarder{})
 	require.NoError(t, err)
-	server := NewServer(cfg, meta, procProvider, gc, &testStreamMgr{}, sequence.NewSequenceManager(dev.NewInMemStore(0), "sequences_obj", lock.NewInMemLockManager(), 1*time.Millisecond))
+	server, err := NewServer(cfg, meta, procProvider, gc, &testStreamMgr{}, nil, sequence.NewSequenceManager(dev.NewInMemStore(0), "sequences_obj", lock.NewInMemLockManager(), 1*time.Millisecond))
+	require.NoError(t, err)
 	err = server.Activate()
 	require.NoError(t, err)
 	return server, processor

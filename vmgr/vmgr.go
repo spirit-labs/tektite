@@ -93,8 +93,6 @@ func NewVersionManager(seqMgr sequence.Manager, levelMgrClient levels.Client, cf
 	return vmgr
 }
 
-const levelManagerRetryDelay = 1 * time.Second
-
 func (v *VersionManager) Start() error {
 	return nil
 }
@@ -167,7 +165,6 @@ func (v *VersionManager) Activate() {
 }
 
 func (v *VersionManager) activate() {
-	log.Debugf("vmgr activating on node %d", v.cfg.NodeID)
 	v.activating.Store(true)
 	v.activateWg.Add(1)
 	// We run activation on a separate goroutine as it needs to contact the level manager which might not be available,
@@ -201,7 +198,7 @@ func (v *VersionManager) doActivate() error {
 		if errwrap.As(err, &terr) {
 			if terr.Code == common.Unavailable || terr.Code == common.LevelManagerNotLeaderNode {
 				// The level manager is temporarily unavailable - retry after delay
-				time.Sleep(levelManagerRetryDelay)
+				time.Sleep(v.cfg.VersionManagerLevelManagerRetryDelay)
 				continue
 			}
 		}
@@ -311,7 +308,7 @@ func (v *VersionManager) Shutdown() (bool, error) {
 		if errwrap.As(err, &terr) {
 			if terr.Code == common.Unavailable || terr.Code == common.LevelManagerNotLeaderNode {
 				// The level manager is temporarily unavailable - retry after delay
-				time.Sleep(levelManagerRetryDelay)
+				time.Sleep(v.cfg.VersionManagerLevelManagerRetryDelay)
 				continue
 			}
 		}
@@ -359,9 +356,7 @@ func (v *VersionManager) HandleClusterState(cs clustmgr.ClusterState) error {
 			v.lock.Unlock()
 		}
 	}()
-	log.Debugf("node %d vmgr handling cluster state version %d", v.cfg.NodeID, cs.Version)
 	if v.isLeader(&cs) {
-		log.Debugf("node is leader, activating? %t active? %t", v.IsActivating(), v.active)
 		if !v.IsActivating() && !v.active {
 			v.activate()
 			return nil

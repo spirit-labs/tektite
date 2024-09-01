@@ -5,11 +5,13 @@ package integration
 import (
 	"encoding/binary"
 	"github.com/google/uuid"
+	"github.com/pkg/errors"
 	"github.com/spirit-labs/tektite/asl/conf"
+	"github.com/spirit-labs/tektite/asl/server"
+	"github.com/spirit-labs/tektite/auth"
 	"github.com/spirit-labs/tektite/client"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/kafkaserver/protocol"
-	log "github.com/spirit-labs/tektite/logger"
 	"github.com/stretchr/testify/require"
 	"io"
 	"net"
@@ -25,7 +27,22 @@ func TestKafkaApi(t *testing.T) {
 	clientTLSConfig := client.TLSConfig{
 		TrustedCertsPath: serverCertPath,
 	}
-	servers, tearDown := startClusterWithConfigSetter(t, 3, nil, func(cfg *conf.Config) {
+	servers, tearDown := startKafkaServers(t, "")
+	defer tearDown(t)
+	cl, err := client.NewClient(servers[0].GetConfig().HttpApiAddresses[0], clientTLSConfig)
+	require.NoError(t, err)
+	defer cl.Close()
+	serverAddress := servers[0].GetConfig().KafkaServerListenerConfig.Addresses[0]
+
+	for _, tc := range apiTestCases {
+		t.Run(tc.caseName, func(t *testing.T) {
+			tc.f(t, serverAddress)
+		})
+	}
+}
+
+func startKafkaServers(t *testing.T, authType string) ([]*server.Server, func(t *testing.T)) {
+	return startClusterWithConfigSetter(t, 3, nil, func(cfg *conf.Config) {
 		cfg.KafkaServerEnabled = true
 		var kafkaListenAddresses []string
 		for i := 0; i < 3; i++ {
@@ -34,26 +51,16 @@ func TestKafkaApi(t *testing.T) {
 			kafkaListenAddresses = append(kafkaListenAddresses, address)
 		}
 		cfg.KafkaServerListenerConfig.Addresses = kafkaListenAddresses
+		cfg.KafkaServerListenerConfig.AuthenticationType = authType
 	})
-	defer tearDown(t)
-	cl, err := client.NewClient(servers[0].GetConfig().HttpApiAddresses[0], clientTLSConfig)
-	require.NoError(t, err)
-	defer cl.Close()
-	serverAddress := servers[0].GetConfig().KafkaServerListenerConfig.Addresses[0]
-
-	for _, tc := range testCases {
-		t.Run(tc.caseName, func(t *testing.T) {
-			tc.f(t, serverAddress)
-		})
-	}
 }
 
-type testCase struct {
+type apiTestCase struct {
 	caseName string
 	f        func(t *testing.T, address string)
 }
 
-var testCases = []testCase{
+var apiTestCases = []apiTestCase{
 	{caseName: "testApiVersions", f: testApiVersions},
 	{caseName: "testApiVersionsUnsupportedVersion", f: testApiVersionsUnsupportedVersion},
 	{caseName: "testProduceErrorUnknownTopic", f: testProduceErrorUnknownTopic},
@@ -282,7 +289,9 @@ func testSaslHandshakeRequest(t *testing.T, address string) {
 	req.Mechanism = stringPtr("PLAIN")
 	var resp protocol.SaslHandshakeResponse
 	writeRequest(t, protocol.APIKeySaslHandshake, 1, &req, &resp, conn)
-	require.Equal(t, 0, len(resp.Mechanisms))
+	require.Equal(t, 1, len(resp.Mechanisms))
+	auth256 := auth.AuthenticationSaslScramSha256
+	require.Equal(t, []*string{&auth256}, resp.Mechanisms)
 }
 
 func testSaslHandshakeErrorUnsupportedVersion(t *testing.T, address string) {
@@ -294,13 +303,15 @@ func testSaslHandshakeErrorUnsupportedVersion(t *testing.T, address string) {
 	require.Equal(t, protocol.ErrorCodeUnsupportedVersion, int(resp.ErrorCode))
 }
 
+// testSaslAuthenticateRequest simply validates that the handler is called, tests for actual sasl authentication are
+// in kafka auth integration tests
 func testSaslAuthenticateRequest(t *testing.T, address string) {
 	conn := createConn(t, address)
 	var req protocol.SaslAuthenticateRequest
 	req.AuthBytes = []byte("foo")
 	var resp protocol.SaslAuthenticateResponse
 	writeRequest(t, protocol.APIKeySaslAuthenticate, 1, &req, &resp, conn)
-	require.Equal(t, protocol.ErrorCodeSaslAuthenticationFailed, int(resp.ErrorCode))
+	require.Equal(t, protocol.ErrorCodeIllegalSaslState, int(resp.ErrorCode))
 }
 
 func testSaslAuthenticateUnsupportedVersion(t *testing.T, address string) {
@@ -312,7 +323,60 @@ func testSaslAuthenticateUnsupportedVersion(t *testing.T, address string) {
 	require.Equal(t, protocol.ErrorCodeUnsupportedVersion, int(resp.ErrorCode))
 }
 
+func TestKafkaApiNotAuthenticated(t *testing.T) {
+	clientTLSConfig := client.TLSConfig{
+		TrustedCertsPath: serverCertPath,
+	}
+	servers, tearDown := startKafkaServers(t, auth.AuthenticationSaslScramSha256)
+	defer tearDown(t)
+	cl, err := client.NewClient(servers[0].GetConfig().HttpApiAddresses[0], clientTLSConfig)
+	require.NoError(t, err)
+	defer cl.Close()
+	serverAddress := servers[0].GetConfig().KafkaServerListenerConfig.Addresses[0]
+
+	// Try and send a produce request
+	conn := createConn(t, serverAddress)
+	req := protocol.ProduceRequest{
+		TopicData: []protocol.ProduceRequestTopicProduceData{
+			{
+				Name: stringPtr("unknown_topic1"),
+				PartitionData: []protocol.ProduceRequestPartitionProduceData{
+					{
+						Index:   1,
+						Records: [][]byte{[]byte("abc")},
+					},
+					{
+						Index:   3,
+						Records: [][]byte{[]byte("abc")},
+					},
+				},
+			},
+			{
+				Name: stringPtr("unknown_topic2"),
+				PartitionData: []protocol.ProduceRequestPartitionProduceData{
+					{
+						Index:   2,
+						Records: [][]byte{[]byte("abc")},
+					},
+					{
+						Index:   4,
+						Records: [][]byte{[]byte("abc")},
+					},
+				},
+			},
+		},
+	}
+	var resp protocol.ProduceResponse
+	// Connection should be closed
+	writeRequestWithError(t, protocol.APIKeyProduce, 3, &req, &resp, conn, io.EOF)
+}
+
 func writeRequest(t *testing.T, apiKey int16, apiVersion int16, req request, resp serializable, conn net.Conn) *protocol.ResponseHeader {
+	return writeRequestWithError(t, apiKey, apiVersion, req, resp, conn, nil)
+}
+
+func writeRequestWithError(t *testing.T, apiKey int16, apiVersion int16, req request, resp serializable, conn net.Conn,
+	expectedErr error) *protocol.ResponseHeader {
 	var reqHdr protocol.RequestHeader
 	reqHdr.RequestApiKey = apiKey
 	reqHdr.RequestApiVersion = apiVersion
@@ -325,12 +389,16 @@ func writeRequest(t *testing.T, apiKey int16, apiVersion int16, req request, res
 	buff = binary.BigEndian.AppendUint32(buff, uint32(size))
 	buff = reqHdr.Write(requestHeaderVersion, buff, hdrTagSizes)
 	buff = req.Write(apiVersion, buff, reqTagSizes)
-	log.Infof("writing buff size %d : %v", len(buff), buff)
 	_, err := conn.Write(buff)
 	require.NoError(t, err)
 	respSizeBuff := make([]byte, 4)
 	_, err = io.ReadAtLeast(conn, respSizeBuff, 4)
-	require.NoError(t, err)
+	if err != nil {
+		require.True(t, errors.Is(err, expectedErr))
+		return nil
+	} else {
+		require.NoError(t, err)
+	}
 	respMsgSize := binary.BigEndian.Uint32(respSizeBuff)
 	msgBuff := make([]byte, respMsgSize)
 	_, err = io.ReadAtLeast(conn, msgBuff, int(respMsgSize))

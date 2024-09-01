@@ -4,7 +4,7 @@ import (
 	"github.com/spirit-labs/tektite/common"
 )
 
-// # Iterator interface.
+// Iterator interface.
 //
 // Next() method generates the next element in the iterator.
 //

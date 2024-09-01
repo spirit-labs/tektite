@@ -7,6 +7,13 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"strings"
+	"sync"
+	"testing"
+
 	"github.com/apache/arrow/go/v11/arrow/decimal128"
 	"github.com/spirit-labs/tektite/asl/conf"
 	"github.com/spirit-labs/tektite/asl/encoding"
@@ -22,12 +29,6 @@ import (
 	"github.com/spirit-labs/tektite/wasm"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/net/http2"
-	"io"
-	"net/http"
-	"os"
-	"strings"
-	"sync"
-	"testing"
 )
 
 const (
@@ -662,7 +663,8 @@ func startServer(t *testing.T) (*HTTPAPIServer, *testQueryManager, *testCommandM
 	address, err := common.AddressWithPort("localhost")
 	require.NoError(t, err)
 
-	server := NewHTTPAPIServer(address, "/tektite", queryMgr, commandMgr, parser.NewParser(nil), moduleManager, tlsConf)
+	server := NewHTTPAPIServer(0, []string{address}, "/tektite", queryMgr,
+		commandMgr, parser.NewParser(nil), moduleManager, nil, tlsConf, false, 0)
 	err = server.Activate()
 	require.NoError(t, err)
 	return server, queryMgr, commandMgr, moduleManager
@@ -885,6 +887,12 @@ func (t *testQueryManager) getPrepareState() *parser.PrepareQueryDesc {
 	return t.receiverPrepareQueryDesc
 }
 
+func (t *testQueryManager) DeleteQuery(deleteQuery parser.DeleteQueryDesc) error {
+	t.lock.Lock()
+	defer t.lock.Unlock()
+	return nil
+}
+
 func (t *testQueryManager) PrepareQuery(prepareQuery parser.PrepareQueryDesc) error {
 	t.lock.Lock()
 	defer t.lock.Unlock()
@@ -936,8 +944,11 @@ func (t *testQueryManager) ExecuteRemoteQuery(*clustermsgs.QueryMessage) error {
 func (t *testQueryManager) ReceiveQueryResult(*clustermsgs.QueryResponse) {
 }
 
-func (t *testQueryManager) GetPreparedQueryParamSchema(string) *evbatch.EventSchema {
-	return t.paramSchema
+func (t *testQueryManager) GetPreparedQueryParamSchema(string) (*evbatch.EventSchema, bool) {
+	if t.paramSchema == nil {
+		return nil, false
+	}
+	return t.paramSchema, true
 }
 
 type testCommandManager struct {

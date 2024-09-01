@@ -4,10 +4,10 @@ package protocol
 
 import "encoding/binary"
 import "fmt"
-import "unsafe"
-import "github.com/spirit-labs/tektite/common"
 import "github.com/pkg/errors"
+import "github.com/spirit-labs/tektite/common"
 import "github.com/spirit-labs/tektite/debug"
+import "unsafe"
 
 type FetchResponseEpochEndOffset struct {
     Epoch int32

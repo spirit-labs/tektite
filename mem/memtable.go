@@ -11,11 +11,6 @@ import (
 	"sync/atomic"
 )
 
-type DeleteRange struct {
-	StartKey []byte
-	EndKey   []byte
-}
-
 type Memtable struct {
 	Uuid                 string
 	nodeID               int

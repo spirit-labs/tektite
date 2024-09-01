@@ -195,6 +195,48 @@ func TestManagerDeployAndUndeployStreams(t *testing.T) {
 	}
 }
 
+func TestPreparedQueryDeletion(t *testing.T) {
+	fk := &fake.Kafka{}
+	_, err := fk.CreateTopic("test_topic", 16)
+	require.NoError(t, err)
+
+	servers, tearDown := startCluster(t, 3, fk)
+	defer tearDown(t)
+	mgrs := getManagers(servers)
+
+	mgr := mgrs[0]
+
+	command := `test_stream := 
+	(bridge from test_topic	partitions = 16) -> 
+    (project json_int("v0",val) as k0,json_float("v1",val) as k1,json_bool("v2",val) as k2,to_decimal(json_string("v3",val),14,3) as k3,
+			 json_string("v4",val) as k4,to_bytes(json_string("v5",val)) as k5,to_timestamp(json_int("v6",val)) as k6)->
+	(store table by k0,k1,k2,k3,k4,k5,k6)`
+	err = mgr.ExecuteCommand(command)
+	require.NoError(t, err)
+
+	tsl := "prepare test_query1 := (get $p1:int,$p2:float,$p3:bool,$p4:decimal(14,3),$p5:string,$p6:bytes,$p7:timestamp from test_stream)"
+	err = mgr.ExecuteCommand(tsl)
+	require.NoError(t, err)
+
+	tsl2 := "deletequery(test_query1)"
+	err = mgr.ExecuteCommand(tsl2)
+	require.NoError(t, err)
+
+	// Wait until commands are processed on all managers
+	for _, mgr := range mgrs {
+		m := mgr
+		testutils.WaitUntil(t, func() (bool, error) {
+			return m.LastProcessedCommandID() == 2, nil
+		})
+	}
+
+	for _, s := range servers {
+		paramSchema, ok := s.GetQueryManager().GetPreparedQueryParamSchema("test_query1")
+		require.False(t, ok)
+		require.Nil(t, paramSchema)
+	}
+}
+
 func TestManagerPrepareQuery(t *testing.T) {
 	fk := &fake.Kafka{}
 	_, err := fk.CreateTopic("test_topic", 16)
@@ -230,7 +272,8 @@ func TestManagerPrepareQuery(t *testing.T) {
 		Scale:     3,
 	}
 	for _, s := range servers {
-		paramSchema := s.GetQueryManager().GetPreparedQueryParamSchema("test_query1")
+		paramSchema, ok := s.GetQueryManager().GetPreparedQueryParamSchema("test_query1")
+		require.True(t, ok)
 		require.NotNil(t, paramSchema)
 		require.Equal(t, []string{"$p1:int", "$p2:float", "$p3:bool", "$p4:decimal(14,3)", "$p5:string", "$p6:bytes", "$p7:timestamp"}, paramSchema.ColumnNames())
 		require.Equal(t, []types.ColumnType{types.ColumnTypeInt, types.ColumnTypeFloat, types.ColumnTypeBool,

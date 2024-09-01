@@ -32,13 +32,14 @@ type Manager interface {
 	SetLastCompletedVersion(version int64)
 	ExecuteRemoteQuery(msg *clustermsgs.QueryMessage) error
 	ReceiveQueryResult(msg *clustermsgs.QueryResponse)
-	GetPreparedQueryParamSchema(preparedQueryName string) *evbatch.EventSchema
+	GetPreparedQueryParamSchema(preparedQueryName string) (*evbatch.EventSchema, bool)
 	SetClusterMessageHandlers(remotingServer remoting.Server, vbHandler *remoting.TeeBlockingClusterMessageHandler)
 	GetLastCompletedVersion() int
 	GetLastFlushedVersion() int
 	Activate()
 	Start() error
 	Stop() error
+	DeleteQuery(deleteQuery parser.DeleteQueryDesc) error
 }
 
 type iteratorProvider interface {
@@ -197,14 +198,25 @@ func (v *versionBroadcastHandler) HandleMessage(messageHolder remoting.MessageHo
 	return nil, nil
 }
 
-func (m *manager) GetPreparedQueryParamSchema(preparedQueryName string) *evbatch.EventSchema {
+func (m *manager) GetPreparedQueryParamSchema(preparedQueryName string) (*evbatch.EventSchema, bool) {
 	m.lock.Lock()
 	defer m.lock.Unlock()
 	pqi, exists := m.preparedQueries[preparedQueryName]
 	if !exists {
-		return nil
+		return nil, false
 	}
-	return pqi.ParamSchema
+	return pqi.ParamSchema, true
+}
+
+func (m *manager) DeleteQuery(deleteQuery parser.DeleteQueryDesc) error {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+	_, exists := m.preparedQueries[deleteQuery.QueryName]
+	if !exists {
+		return common.NewQueryErrorf("query with name '%s' can't be deleted as it doesn't exist", deleteQuery.QueryName)
+	}
+	delete(m.preparedQueries, deleteQuery.QueryName)
+	return nil
 }
 
 func (m *manager) PrepareQuery(prepareQuery parser.PrepareQueryDesc) error {

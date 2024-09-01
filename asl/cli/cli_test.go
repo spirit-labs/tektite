@@ -2,6 +2,11 @@ package cli
 
 import (
 	"fmt"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"testing"
+
 	"github.com/apache/arrow/go/v11/arrow/decimal128"
 	"github.com/spirit-labs/tektite/asl/api"
 	"github.com/spirit-labs/tektite/asl/conf"
@@ -16,10 +21,6 @@ import (
 	"github.com/spirit-labs/tektite/types"
 	"github.com/spirit-labs/tektite/wasm"
 	"github.com/stretchr/testify/require"
-	"strings"
-	"sync"
-	"sync/atomic"
-	"testing"
 )
 
 const (
@@ -143,8 +144,8 @@ func startServer(t *testing.T, serverAddress string, tlsConf conf.TLSConfig) (*a
 	queryMgr := &testQueryManager{}
 	commandMgr := &testCommandManager{}
 	moduleManager := &testWasmModuleManager{}
-	server := api.NewHTTPAPIServer(serverAddress, "/tektite", queryMgr, commandMgr,
-		parser.NewParser(nil), moduleManager, tlsConf)
+	server := api.NewHTTPAPIServer(0, []string{serverAddress}, "/tektite", queryMgr, commandMgr,
+		parser.NewParser(nil), moduleManager, nil, tlsConf, false, 0)
 	err := server.Activate()
 	require.NoError(t, err)
 	return server, queryMgr, commandMgr, moduleManager
@@ -431,6 +432,12 @@ func (t *testQueryManager) getPrepareState() ([]string, []types.ColumnType) {
 	return t.receivedParamNames, t.receivedParamTypes
 }
 
+func (t *testQueryManager) DeleteQuery(parser.DeleteQueryDesc) error {
+	t.lock.Lock()
+	defer t.lock.Unlock()
+	return nil
+}
+
 func (t *testQueryManager) PrepareQuery(parser.PrepareQueryDesc) error {
 	t.lock.Lock()
 	defer t.lock.Unlock()
@@ -487,8 +494,8 @@ func (t *testQueryManager) ExecuteRemoteQuery(*clustermsgs.QueryMessage) error {
 func (t *testQueryManager) ReceiveQueryResult(*clustermsgs.QueryResponse) {
 }
 
-func (t *testQueryManager) GetPreparedQueryParamSchema(string) *evbatch.EventSchema {
-	return nil
+func (t *testQueryManager) GetPreparedQueryParamSchema(string) (*evbatch.EventSchema, bool) {
+	return nil, false
 }
 
 type testCommandManager struct {

@@ -46,6 +46,7 @@ func doShutdown(cfg *conf.Config, client *remoting.Client, succeedIfNodeDown boo
 			// Execute them in parallel for faster shutdown
 			common.Go(func() {
 				log.Debugf("Sending shutdown phase %d to address %s", thePhase, theAddress)
+				start := time.Now()
 				r, err := client.SendRPC(&clustermsgs.ShutdownMessage{Phase: uint32(thePhase)}, theAddress)
 				if err != nil {
 					if thePhase != 8 {
@@ -57,7 +58,7 @@ func doShutdown(cfg *conf.Config, client *remoting.Client, succeedIfNodeDown boo
 						err: err,
 					}
 				} else {
-					log.Debugf("Sending shutdown phase %d for address %s returned", thePhase, theAddress)
+					log.Infof("Shutdown phase %d for address %s took %d ms", thePhase, theAddress, time.Now().Sub(start).Milliseconds())
 					resp := r.(*clustermsgs.ShutdownResponse)
 					ch <- phaseResponse{
 						resp: resp,

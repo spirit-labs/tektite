@@ -6,7 +6,7 @@ import (
 	"encoding/binary"
 	"encoding/csv"
 	"fmt"
-	kafkago "github.com/confluentinc/confluent-kafka-go/kafka"
+	kafkago "github.com/confluentinc/confluent-kafka-go/v2/kafka"
 	"github.com/spirit-labs/tektite/asl/cli"
 	"github.com/spirit-labs/tektite/asl/conf"
 	"github.com/spirit-labs/tektite/asl/errwrap"
