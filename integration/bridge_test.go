@@ -64,9 +64,11 @@ egest_stream := local_topic -> (bridge to %s props = ("bootstrap.servers" = "%s"
 	tektiteKafkaAddress := s.GetConfig().KafkaServerListenerConfig.Addresses[0]
 
 	producer, err := kafkago.NewProducer(&kafkago.ConfigMap{
-		"partitioner":       "murmur2_random", // This matches the default hash algorithm we use, and same as Java client
-		"bootstrap.servers": tektiteKafkaAddress,
-		"acks":              "all"})
+		"partitioner":        "murmur2_random", // This matches the default hash algorithm we use, and same as Java client
+		"bootstrap.servers":  tektiteKafkaAddress,
+		"acks":               "all",
+		"enable.idempotence": "true",
+	})
 	require.NoError(t, err)
 	defer producer.Close()
 
