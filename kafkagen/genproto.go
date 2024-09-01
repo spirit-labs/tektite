@@ -38,6 +38,8 @@ var included = []string{
 	"HeartbeatResponse",
 	"ApiVersionsRequest",
 	"ApiVersionsResponse",
+	"InitProducerIdRequest",
+	"InitProducerIdResponse",
 	"SaslAuthenticateRequest",
 	"SaslAuthenticateResponse",
 	"SaslHandshakeRequest",

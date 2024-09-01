@@ -185,7 +185,7 @@ func NewServerWithClientFactory(config conf.Config, clientFactory kafka.ClientFa
 		if err != nil {
 			return nil, err
 		}
-		kafkaServer = kafkaserver.NewServer(&config, metaProvider, processorManager, kafkaGroupCoordinator, streamManager)
+		kafkaServer = kafkaserver.NewServer(&config, metaProvider, processorManager, kafkaGroupCoordinator, streamManager, sequenceManager)
 	}
 
 	var adminServer *admin.Server

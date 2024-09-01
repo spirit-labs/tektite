@@ -2,6 +2,7 @@ package opers
 
 import (
 	"encoding/binary"
+	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/evbatch"
 	"github.com/spirit-labs/tektite/proc"
 	"github.com/spirit-labs/tektite/types"
@@ -26,30 +27,30 @@ func NewKafkaInOperator(mappingID string, offsetsSlabID int, receiverID int, par
 		nextOffsets[i] = -1
 	}
 	return &KafkaInOperator{
-		offsetsSlabID:           offsetsSlabID,
-		inSchema:                inSchema,
-		outSchema:               outSchema,
-		receiverID:              receiverID,
-		useServerTimestamp:      useServerTimestamp,
-		nextOffsets:             nextOffsets,
-		lastAppendTimes:         make([]int64, partitions),
-		hashCache:               newPartitionHashCache(inSchema.MappingID, inSchema.Partitions),
-		producerSequenceNumbers: map[int]int{},
+		offsetsSlabID:            offsetsSlabID,
+		inSchema:                 inSchema,
+		outSchema:                outSchema,
+		receiverID:               receiverID,
+		useServerTimestamp:       useServerTimestamp,
+		nextOffsets:              nextOffsets,
+		lastAppendTimes:          make([]int64, partitions),
+		hashCache:                newPartitionHashCache(inSchema.MappingID, inSchema.Partitions),
+		partitionProducerMapping: map[int]map[int]int{},
 	}
 }
 
 type KafkaInOperator struct {
 	BaseOperator
-	inSchema                *OperatorSchema
-	outSchema               *OperatorSchema
-	offsetsSlabID           int
-	receiverID              int
-	useServerTimestamp      bool
-	nextOffsets             []int64
-	lastAppendTimes         []int64
-	watermarkOperator       *WaterMarkOperator
-	hashCache               *partitionHashCache
-	producerSequenceNumbers map[int]int
+	inSchema                 *OperatorSchema
+	outSchema                *OperatorSchema
+	offsetsSlabID            int
+	receiverID               int
+	useServerTimestamp       bool
+	nextOffsets              []int64
+	lastAppendTimes          []int64
+	watermarkOperator        *WaterMarkOperator
+	hashCache                *partitionHashCache
+	partitionProducerMapping map[int]map[int]int
 }
 
 func (k *KafkaInOperator) PartitionScheme() *PartitionScheme {
@@ -79,27 +80,46 @@ func (k *KafkaInOperator) IngestBatch(recordBatchBytes []byte, processor proc.Pr
 	processor.GetReplicator().ReplicateBatch(processBatch, complFunc)
 }
 
-func (k *KafkaInOperator) GetIdempotentProducerMetadata(producerID int) (int, bool) {
-	value, exists := k.producerSequenceNumbers[producerID]
-	return value, exists
-}
-
-func (k *KafkaInOperator) SetIdempotentProducerMetadata(producerID int, value int) {
-	if existingValue, exists := k.producerSequenceNumbers[producerID]; exists {
-		k.producerSequenceNumbers[producerID] = max(existingValue, value)
-	} else {
-		k.producerSequenceNumbers[producerID] = value
+func (k *KafkaInOperator) validateBatch(partitionID, producerID, sequenceNumber int) error {
+	// if producerID is 0 then idempotency is disabled on the producer
+	if producerID > 0 {
+		lastSequenceNumber, exists := k.partitionProducerMapping[partitionID][producerID]
+		// we've received batches from this producer for this partition
+		if exists {
+			if sequenceNumber <= lastSequenceNumber {
+				return common.NewTektiteErrorf(common.DuplicateSequence, "duplicate sequence number from producer id %d", producerID)
+			}
+			if sequenceNumber != lastSequenceNumber+1 {
+				return common.NewTektiteErrorf(common.OutOfOrderSequence, "invalid sequence number from producer id %d", producerID)
+			}
+		}
 	}
+	return nil
 }
 
 func (k *KafkaInOperator) HandleStreamBatch(batch *evbatch.Batch, execCtx StreamExecContext) (*evbatch.Batch, error) {
 	// Convert the recordset/messageset into the tektite kafka schema
 	bytes := batch.GetBytesColumn(0).Get(0)
+
+	producerID := int(binary.BigEndian.Uint64(bytes[43:51]))
+	baseSequence := int(binary.BigEndian.Uint32(bytes[53:57]))
+	lastOffsetDelta := int(binary.BigEndian.Uint32(bytes[23:27]))
+	sequenceNumber := baseSequence + lastOffsetDelta
+	err := k.validateBatch(execCtx.PartitionID(), producerID, sequenceNumber)
+	if err != nil {
+		return nil, err
+	}
+
 	outBatch, maxEventTime, err := k.convertRecordset(bytes, execCtx)
 	if err != nil {
 		return nil, err
 	}
 	k.watermarkOperator.updateMaxEventTime(int(maxEventTime), execCtx.Processor().ID())
+	_, exists := k.partitionProducerMapping[execCtx.PartitionID()]
+	if !exists {
+		k.partitionProducerMapping[execCtx.PartitionID()] = make(map[int]int)
+	}
+	k.partitionProducerMapping[execCtx.PartitionID()][producerID] = sequenceNumber
 	return nil, k.sendBatchDownStream(outBatch, execCtx)
 }
 

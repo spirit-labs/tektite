@@ -180,9 +180,11 @@ func waitForNumRows(t *testing.T, topicName string, numMessages int, client clie
 
 func executeProducerClientActionsGoClient(serverAddress string) error {
 	producer, err := kafkago.NewProducer(&kafkago.ConfigMap{
-		"partitioner":       "murmur2_random", // This matches the default hash algorithm we use, and same as Java client
-		"bootstrap.servers": serverAddress,
-		"acks":              "all"})
+		"partitioner":        "murmur2_random", // This matches the default hash algorithm we use, and same as Java client
+		"bootstrap.servers":  serverAddress,
+		"acks":               "all",
+		"enable.idempotence": "true",
+	})
 	if err != nil {
 		return err
 	}

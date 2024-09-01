@@ -3,10 +3,10 @@
 package protocol
 
 import "encoding/binary"
-import "github.com/pkg/errors"
-import "github.com/spirit-labs/tektite/debug"
 import "fmt"
 import "unsafe"
+import "github.com/pkg/errors"
+import "github.com/spirit-labs/tektite/debug"
 
 type ProduceResponseBatchIndexAndErrorMessage struct {
     // The batch index of the record that cause the batch to be dropped

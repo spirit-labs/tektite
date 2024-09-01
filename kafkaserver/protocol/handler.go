@@ -374,6 +374,36 @@ func HandleRequestBuffer(buff []byte, handler RequestHandler, conn net.Conn) err
 		} else {
             err = handler.HandleApiVersionsRequest(&requestHeader, &req, respFunc)   
         }
+    case 22:
+        var req InitProducerIdRequest
+        requestHeaderVersion, responseHeaderVersion := req.HeaderVersions(apiVersion)
+        var requestHeader RequestHeader
+        var offset int
+        if offset, err = requestHeader.Read(requestHeaderVersion, buff); err != nil {
+		    return err
+	    }
+        responseHeader.CorrelationId = requestHeader.CorrelationId
+        if _, err := req.Read(apiVersion, buff[offset:]); err != nil {
+            return err
+        }
+        respFunc := func(resp *InitProducerIdResponse) error {
+            respHeaderSize, hdrTagSizes := responseHeader.CalcSize(responseHeaderVersion, nil)
+            respSize, tagSizes := resp.CalcSize(apiVersion, nil)
+            totRespSize := respHeaderSize + respSize
+			respBuff := make([]byte, 0, 4 + totRespSize)
+            respBuff = binary.BigEndian.AppendUint32(respBuff, uint32(totRespSize))
+            respBuff = responseHeader.Write(responseHeaderVersion, respBuff, hdrTagSizes)
+            respBuff = resp.Write(apiVersion, respBuff, tagSizes)
+            _, err := conn.Write(respBuff)
+            return err
+        }
+ 		minVer, maxVer := req.SupportedApiVersions()
+		if apiVersion < minVer || apiVersion > maxVer {
+			resp := handler.InitProducerIdRequestErrorResponse(ErrorCodeUnsupportedVersion, fmt.Sprintf("version %d for apiKey %d is unsupported. supported versions are %d to %d", apiVersion, apiKey, minVer, maxVer), &req)
+            err = respFunc(resp)
+		} else {
+            err = handler.HandleInitProducerIdRequest(&requestHeader, &req, respFunc)   
+        }
     case 36:
         var req SaslAuthenticateRequest
         requestHeaderVersion, responseHeaderVersion := req.HeaderVersions(apiVersion)
@@ -464,6 +494,8 @@ type RequestHandler interface {
     SyncGroupRequestErrorResponse(errorCode int16, errorMsg string, req *SyncGroupRequest) *SyncGroupResponse
     HandleApiVersionsRequest(hdr *RequestHeader, req *ApiVersionsRequest, completionFunc func(resp *ApiVersionsResponse) error) error
     ApiVersionsRequestErrorResponse(errorCode int16, errorMsg string, req *ApiVersionsRequest) *ApiVersionsResponse
+    HandleInitProducerIdRequest(hdr *RequestHeader, req *InitProducerIdRequest, completionFunc func(resp *InitProducerIdResponse) error) error
+    InitProducerIdRequestErrorResponse(errorCode int16, errorMsg string, req *InitProducerIdRequest) *InitProducerIdResponse
     HandleSaslAuthenticateRequest(hdr *RequestHeader, req *SaslAuthenticateRequest, completionFunc func(resp *SaslAuthenticateResponse) error) error
     SaslAuthenticateRequestErrorResponse(errorCode int16, errorMsg string, req *SaslAuthenticateRequest) *SaslAuthenticateResponse
     HandleSaslHandshakeRequest(hdr *RequestHeader, req *SaslHandshakeRequest, completionFunc func(resp *SaslHandshakeResponse) error) error

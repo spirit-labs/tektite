@@ -7,13 +7,17 @@ import (
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/evbatch"
 	"github.com/spirit-labs/tektite/iteration"
+	"github.com/spirit-labs/tektite/lock"
+	"github.com/spirit-labs/tektite/objstore/dev"
 	"github.com/spirit-labs/tektite/opers"
 	"github.com/spirit-labs/tektite/proc"
+	"github.com/spirit-labs/tektite/sequence"
 	"github.com/stretchr/testify/require"
 	"net"
 	"strconv"
 	"sync"
 	"testing"
+	"time"
 )
 
 func init() {
@@ -188,7 +192,7 @@ func createServer(t *testing.T, topic string, serverAddress string, serverAdvert
 
 	gc, err := NewGroupCoordinator(cfg, procProvider, &testStreamMgr{}, meta, &testBatchForwarder{})
 	require.NoError(t, err)
-	server := NewServer(cfg, meta, procProvider, gc, &testStreamMgr{})
+	server := NewServer(cfg, meta, procProvider, gc, &testStreamMgr{}, sequence.NewSequenceManager(dev.NewInMemStore(0), "sequences_obj", lock.NewInMemLockManager(), 1*time.Millisecond))
 	err = server.Activate()
 	require.NoError(t, err)
 	return server, processor

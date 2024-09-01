@@ -77,21 +77,6 @@ func (n *NewHandler) HandleProduceRequest(_ *protocol.RequestHeader, req *protoc
 			}
 
 			producedRecords := partitionData.Records[0]
-			producerID := int(binary.BigEndian.Uint64(producedRecords[43:51]))
-			baseSequence := int(binary.BigEndian.Uint32(producedRecords[53:57]))
-			lastOffsetDelta := int(binary.BigEndian.Uint32(producedRecords[23:27]))
-			sequenceNumber := baseSequence + lastOffsetDelta
-			// if producerID is 0 then idempotency is disabled on the producer
-			if producerID > 0 {
-				lastSequenceNumber, exists := topicInfo.ProduceInfoProvider.GetIdempotentProducerMetadata(producerID)
-				if exists && sequenceNumber <= lastSequenceNumber {
-					partitionResponses[j].ErrorCode = protocol.ErrorCodeDuplicateSequenceNumber
-					cf.CountDown(nil)
-					continue
-				}
-				topicInfo.ProduceInfoProvider.SetIdempotentProducerMetadata(producerID, sequenceNumber)
-			}
-
 			numRecords := int(binary.BigEndian.Uint32(producedRecords[57:]))
 			magic := producedRecords[16]
 			if magic != 2 {
@@ -111,6 +96,12 @@ func (n *NewHandler) HandleProduceRequest(_ *protocol.RequestHeader, req *protoc
 							// This can occur, e.g. due to insufficient replicas available, or replicas are currently
 							// syncing. It should resolve when sufficient nodes become available or sync completes.
 							errorCode = protocol.ErrorCodeLeaderNotAvailable
+						} else if common.IsOutOfOrderSequenceError(err) {
+							log.Warnf("invalid sequence number %v", err)
+							errorCode = protocol.ErrorCodeOutOfOrderSequenceNumber
+						} else if common.IsDuplicateSequenceError(err) {
+							log.Warnf("duplicate sequence number %v", err)
+							errorCode = protocol.ErrorCodeDuplicateSequenceNumber
 						} else {
 							log.Errorf("failed to replicate produce batch %v", err)
 							errorCode = protocol.ErrorCodeUnknownServerError
@@ -608,6 +599,22 @@ func (n *NewHandler) HandleApiVersionsRequest(_ *protocol.RequestHeader, _ *prot
 	var resp protocol.ApiVersionsResponse
 	resp.ApiKeys = protocol.SupportedAPIVersions
 	return completionFunc(&resp)
+}
+
+func (n *NewHandler) HandleInitProducerIdRequest(hdr *protocol.RequestHeader, req *protocol.InitProducerIdRequest, completionFunc func(resp *protocol.InitProducerIdResponse) error) error {
+	newPid, err := n.conn.s.sequenceManager.GetNextID(n.conn.s.cfg.SequencesObjectName, 1)
+	if err != nil {
+		panic(err)
+	}
+	var resp protocol.InitProducerIdResponse
+	resp.ProducerId = int64(newPid)
+	return completionFunc(&resp)
+}
+
+func (n *NewHandler) InitProducerIdRequestErrorResponse(errorCode int16, errorMsg string, req *protocol.InitProducerIdRequest) *protocol.InitProducerIdResponse {
+	var resp protocol.InitProducerIdResponse
+	resp.ErrorCode = errorCode
+	return &resp
 }
 
 func (n *NewHandler) SaslHandshakeRequestErrorResponse(errorCode int16, _ string, req *protocol.SaslHandshakeRequest) *protocol.SaslHandshakeResponse {

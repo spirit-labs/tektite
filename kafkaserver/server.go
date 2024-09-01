@@ -10,6 +10,7 @@ import (
 	"github.com/spirit-labs/tektite/auth"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/kafkaserver/protocol"
+	"github.com/spirit-labs/tektite/sequence"
 
 	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/opers"
@@ -25,13 +26,14 @@ const (
 )
 
 func NewServer(cfg *conf.Config, metadataProvider MetadataProvider, procProvider processorProvider,
-	groupCoordinator *GroupCoordinator, streamMgr streamMgr) *Server {
+	groupCoordinator *GroupCoordinator, streamMgr streamMgr, sequenceManager sequence.Manager) *Server {
 	return &Server{
 		cfg:              cfg,
 		metadataProvider: metadataProvider,
 		procProvider:     procProvider,
 		groupCoordinator: groupCoordinator,
 		fetcher:          newFetcher(procProvider, streamMgr, int(cfg.KafkaFetchCacheMaxSizeBytes)),
+		sequenceManager:  sequenceManager,
 	}
 }
 
@@ -47,6 +49,7 @@ type Server struct {
 	groupCoordinator    *GroupCoordinator
 	fetcher             *fetcher
 	listenCancel        context.CancelFunc
+	sequenceManager     sequence.Manager
 }
 
 type processorProvider interface {
@@ -347,8 +350,6 @@ type TopicInfoProvider interface {
 	GetLastProducedInfo(partitionID int) (int64, int64)
 	IngestBatch(recordBatchBytes []byte, processor proc.Processor, partitionID int,
 		complFunc func(err error))
-	GetIdempotentProducerMetadata(producerID int) (int, bool)
-	SetIdempotentProducerMetadata(producerID int, sequenceNumber int)
 }
 
 type ConsumerInfoProvider interface {
