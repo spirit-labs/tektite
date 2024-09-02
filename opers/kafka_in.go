@@ -26,6 +26,7 @@ func NewKafkaInOperator(mappingID string, offsetsSlabID int, receiverID int, par
 	for i := range nextOffsets {
 		nextOffsets[i] = -1
 	}
+
 	return &KafkaInOperator{
 		offsetsSlabID:            offsetsSlabID,
 		inSchema:                 inSchema,
@@ -35,7 +36,7 @@ func NewKafkaInOperator(mappingID string, offsetsSlabID int, receiverID int, par
 		nextOffsets:              nextOffsets,
 		lastAppendTimes:          make([]int64, partitions),
 		hashCache:                newPartitionHashCache(inSchema.MappingID, inSchema.Partitions),
-		partitionProducerMapping: map[int]map[int]int{},
+		partitionProducerMapping: make([]map[int]map[int]int, inSchema.PartitionScheme.MaxProcessorID+1),
 	}
 }
 
@@ -50,7 +51,7 @@ type KafkaInOperator struct {
 	lastAppendTimes          []int64
 	watermarkOperator        *WaterMarkOperator
 	hashCache                *partitionHashCache
-	partitionProducerMapping map[int]map[int]int
+	partitionProducerMapping []map[int]map[int]int
 }
 
 func (k *KafkaInOperator) PartitionScheme() *PartitionScheme {
@@ -80,19 +81,36 @@ func (k *KafkaInOperator) IngestBatch(recordBatchBytes []byte, processor proc.Pr
 	processor.GetReplicator().ReplicateBatch(processBatch, complFunc)
 }
 
-func (k *KafkaInOperator) validateBatch(partitionID, producerID, sequenceNumber int) error {
-	// if producerID is 0 then idempotency is disabled on the producer
-	if producerID > 0 {
-		lastSequenceNumber, exists := k.partitionProducerMapping[partitionID][producerID]
+func (k *KafkaInOperator) maybeHandleIdempotentProducerBatch(execCtx StreamExecContext, bytes []byte) error {
+	producerID := int(binary.BigEndian.Uint64(bytes[43:51]))
+	// if the producer doesn't have idempotency enabled, the producer id will be -1
+	if producerID > -1 {
+		partitionID := execCtx.PartitionID()
+		processorID := execCtx.Processor().ID()
+		baseSequence := int(binary.BigEndian.Uint32(bytes[53:57]))
+		lastOffsetDelta := int(binary.BigEndian.Uint32(bytes[23:27]))
+		sequenceNumber := baseSequence + lastOffsetDelta
+		if processorID >= 0 && processorID < len(k.partitionProducerMapping) {
+			if k.partitionProducerMapping[processorID] == nil {
+				k.partitionProducerMapping[processorID] = make(map[int]map[int]int)
+			}
+		} else {
+			panic("unexpected processor ID")
+		}
+		if k.partitionProducerMapping[processorID][partitionID] == nil {
+			k.partitionProducerMapping[processorID][partitionID] = make(map[int]int)
+		}
+		lastSequenceNumber, exists := k.partitionProducerMapping[processorID][partitionID][producerID]
 		// we've received batches from this producer for this partition
 		if exists {
 			if sequenceNumber <= lastSequenceNumber {
 				return common.NewTektiteErrorf(common.DuplicateSequence, "duplicate sequence number from producer id %d", producerID)
 			}
-			if sequenceNumber != lastSequenceNumber+1 {
+			if baseSequence != lastSequenceNumber+1 {
 				return common.NewTektiteErrorf(common.OutOfOrderSequence, "invalid sequence number from producer id %d", producerID)
 			}
 		}
+		k.partitionProducerMapping[processorID][partitionID][producerID] = sequenceNumber
 	}
 	return nil
 }
@@ -107,20 +125,9 @@ func (k *KafkaInOperator) HandleStreamBatch(batch *evbatch.Batch, execCtx Stream
 	}
 	k.watermarkOperator.updateMaxEventTime(int(maxEventTime), execCtx.Processor().ID())
 
-	producerID := int(binary.BigEndian.Uint64(bytes[43:51]))
-	if producerID != -1 {
-		baseSequence := int(binary.BigEndian.Uint32(bytes[53:57]))
-		lastOffsetDelta := int(binary.BigEndian.Uint32(bytes[23:27]))
-		sequenceNumber := baseSequence + lastOffsetDelta
-		err = k.validateBatch(execCtx.PartitionID(), producerID, sequenceNumber)
-		if err != nil {
-			return nil, err
-		}
-		_, exists := k.partitionProducerMapping[execCtx.PartitionID()]
-		if !exists {
-			k.partitionProducerMapping[execCtx.PartitionID()] = make(map[int]int)
-		}
-		k.partitionProducerMapping[execCtx.PartitionID()][producerID] = sequenceNumber
+	err = k.maybeHandleIdempotentProducerBatch(execCtx, bytes)
+	if err != nil {
+		return nil, err
 	}
 
 	return nil, k.sendBatchDownStream(outBatch, execCtx)
