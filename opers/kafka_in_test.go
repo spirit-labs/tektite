@@ -28,7 +28,7 @@ func TestMaybeHandleIdempotentProducerBatch(t *testing.T) {
 			producerID:             1234,
 			baseSequence:           10,
 			lastOffsetDelta:        5,
-			expectedSequenceNumber: 15, // baseSequence + lastOffsetDelta
+			expectedSequenceNumber: 15,
 			expectedError:          -1,
 			expectMappingCreation:  true,
 		},
@@ -60,7 +60,7 @@ func TestMaybeHandleIdempotentProducerBatch(t *testing.T) {
 			name:                   "not idempotent",
 			partitionID:            0,
 			processorID:            0,
-			producerID:             -1, // No idempotency
+			producerID:             -1,
 			expectedSequenceNumber: 0,
 			expectedError:          -1,
 			expectMappingCreation:  false,
