@@ -81,12 +81,10 @@ func (k *KafkaInOperator) IngestBatch(recordBatchBytes []byte, processor proc.Pr
 	processor.GetReplicator().ReplicateBatch(processBatch, complFunc)
 }
 
-func (k *KafkaInOperator) maybeHandleIdempotentProducerBatch(execCtx StreamExecContext, bytes []byte) error {
+func (k *KafkaInOperator) maybeHandleIdempotentProducerBatch(partitionID, processorID int, bytes []byte) error {
 	producerID := int(binary.BigEndian.Uint64(bytes[43:51]))
 	// if the producer doesn't have idempotency enabled, the producer id will be -1
 	if producerID > -1 {
-		partitionID := execCtx.PartitionID()
-		processorID := execCtx.Processor().ID()
 		baseSequence := int(binary.BigEndian.Uint32(bytes[53:57]))
 		lastOffsetDelta := int(binary.BigEndian.Uint32(bytes[23:27]))
 		sequenceNumber := baseSequence + lastOffsetDelta
@@ -125,7 +123,7 @@ func (k *KafkaInOperator) HandleStreamBatch(batch *evbatch.Batch, execCtx Stream
 	}
 	k.watermarkOperator.updateMaxEventTime(int(maxEventTime), execCtx.Processor().ID())
 
-	err = k.maybeHandleIdempotentProducerBatch(execCtx, bytes)
+	err = k.maybeHandleIdempotentProducerBatch(execCtx.PartitionID(), execCtx.Processor().ID(), bytes)
 	if err != nil {
 		return nil, err
 	}
