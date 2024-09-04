@@ -19,12 +19,18 @@ func TestAddAndGet_L0(t *testing.T) {
 	levelManager, tearDown := setupLevelManager(t)
 	defer tearDown(t)
 
-	addedTableIDs := addTables(t, levelManager, 0,
-		3, 5, 6, 7, 8, 12, //contiguous
-		14, 17, 20, 21, 23, 30, //gaps between
-		32, 40, 32, 40, 32, 40, //exactly overlapping
-		42, 50, 45, 47, //one fully inside other
-		51, 54, 52, 56, 54, 60) //each overlapping next one
+	groupedTableRanges := [][]int{
+		{3, 5, 6, 7, 8, 12},      //contiguous
+		{14, 17, 20, 21, 23, 30}, //gaps between
+		{32, 40, 32, 40, 32, 40}, //exactly overlapping
+		{42, 50, 45, 47},         //one fully inside other
+		{51, 54, 52, 56, 54, 60}, //each overlapping next one
+	}
+	var addedTableIDs []QueryTableInfo
+	for processordID, group := range groupedTableRanges {
+		tableInfos := addTablesWithProcessorID(t, levelManager, 0, processordID, group...)
+		addedTableIDs = append(addedTableIDs, tableInfos...)
+	}
 
 	// Before data shouldn't find anything
 	overlapTableIDs := getInRange(t, levelManager, 0, 1)
@@ -935,10 +941,15 @@ func removeTables(t *testing.T, levelManager *LevelManager, level int, tabIDs []
 }
 
 func addTables(t *testing.T, levelManager *LevelManager, level int, pairs ...int) []QueryTableInfo {
+	return addTablesWithProcessorID(t, levelManager, level, 0, pairs...)
+}
+
+func addTablesWithProcessorID(t *testing.T, levelManager *LevelManager, level int, processorID int, pairs ...int) []QueryTableInfo {
 	t.Helper()
 	addRegEntries, addTableIDs := createRegistrationEntries(t, level, pairs...)
 	regBatch := RegistrationBatch{
 		Registrations: addRegEntries,
+		ProcessorID:   processorID,
 	}
 	err := levelManager.ApplyChangesNoCheck(regBatch)
 	require.NoError(t, err)
