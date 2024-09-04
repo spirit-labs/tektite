@@ -196,6 +196,7 @@ func (s *StateMachine[T]) Update(updateFunc func(state T) (T, error)) (T, error)
 	return state, err
 }
 
+// note, the updateFunc must not mutate the incoming state, it must create and return a new state
 func (s *StateMachine[T]) update(updateFunc func(state T) (T, error)) (T, error) {
 	var tZero T
 outer:
