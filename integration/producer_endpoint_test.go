@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"os"
 	"os/exec"
+	"strconv"
 	"testing"
 	"time"
 )
@@ -26,14 +27,18 @@ const (
 )
 
 func TestProducerEndpointGoClient(t *testing.T) {
-	testProducerEndpoint(t, clientTypeGo)
+	testProducerEndpoint(t, clientTypeGo, false)
+}
+
+func TestProducerEndpointGoClientWithIdempotentProducer(t *testing.T) {
+	testProducerEndpoint(t, clientTypeGo, true)
 }
 
 func TestProducerEndpointJavaClient(t *testing.T) {
-	testProducerEndpoint(t, clientTypeJava)
+	testProducerEndpoint(t, clientTypeJava, false)
 }
 
-func testProducerEndpoint(t *testing.T, ct clientType) {
+func testProducerEndpoint(t *testing.T, ct clientType, idempotentProducer bool) {
 
 	clientTLSConfig := client.TLSConfig{
 		TrustedCertsPath: serverCertPath,
@@ -82,7 +87,7 @@ func testProducerEndpoint(t *testing.T, ct clientType) {
 
 	switch ct {
 	case clientTypeGo:
-		err = executeProducerClientActionsGoClient(serverAddress)
+		err = executeProducerClientActionsGoClient(serverAddress, idempotentProducer)
 	case clientTypeJava:
 		err = executeProducerClientActionsJavaClient(serverAddress)
 	default:
@@ -178,12 +183,12 @@ func waitForNumRows(t *testing.T, topicName string, numMessages int, client clie
 // Confluent client
 // ================
 
-func executeProducerClientActionsGoClient(serverAddress string) error {
+func executeProducerClientActionsGoClient(serverAddress string, enableIdempotence bool) error {
 	producer, err := kafkago.NewProducer(&kafkago.ConfigMap{
 		"partitioner":        "murmur2_random", // This matches the default hash algorithm we use, and same as Java client
 		"bootstrap.servers":  serverAddress,
 		"acks":               "all",
-		"enable.idempotence": "true",
+		"enable.idempotence": strconv.FormatBool(enableIdempotence),
 	})
 	if err != nil {
 		return err
