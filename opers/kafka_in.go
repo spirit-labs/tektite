@@ -2,6 +2,7 @@ package opers
 
 import (
 	"encoding/binary"
+	"errors"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/evbatch"
 	"github.com/spirit-labs/tektite/proc"
@@ -88,17 +89,24 @@ func (k *KafkaInOperator) maybeHandleIdempotentProducerBatch(partitionID, proces
 		baseSequence := int(binary.BigEndian.Uint32(bytes[53:57]))
 		lastOffsetDelta := int(binary.BigEndian.Uint32(bytes[23:27]))
 		sequenceNumber := baseSequence + lastOffsetDelta
-		if processorID >= 0 && processorID < len(k.partitionProducerMapping) {
-			if k.partitionProducerMapping[processorID] == nil {
-				k.partitionProducerMapping[processorID] = make(map[int]map[int]int)
-			}
-		} else {
-			panic("unexpected processor ID")
+
+		if processorID < 0 || processorID >= len(k.partitionProducerMapping) {
+			return errors.New("unexpected processor ID")
 		}
-		if k.partitionProducerMapping[processorID][partitionID] == nil {
-			k.partitionProducerMapping[processorID][partitionID] = make(map[int]int)
+
+		partitionMap := k.partitionProducerMapping[processorID]
+		if partitionMap == nil {
+			partitionMap = make(map[int]map[int]int)
+			k.partitionProducerMapping[processorID] = partitionMap
 		}
-		lastSequenceNumber, exists := k.partitionProducerMapping[processorID][partitionID][producerID]
+
+		producerMap := partitionMap[partitionID]
+		if producerMap == nil {
+			producerMap = make(map[int]int)
+			partitionMap[partitionID] = producerMap
+		}
+
+		lastSequenceNumber, exists := producerMap[producerID]
 		// we've received batches from this producer for this partition
 		if exists {
 			if sequenceNumber <= lastSequenceNumber {
@@ -108,7 +116,8 @@ func (k *KafkaInOperator) maybeHandleIdempotentProducerBatch(partitionID, proces
 				return common.NewTektiteErrorf(common.OutOfOrderSequence, "invalid sequence number from producer id %d", producerID)
 			}
 		}
-		k.partitionProducerMapping[processorID][partitionID][producerID] = sequenceNumber
+
+		producerMap[producerID] = sequenceNumber
 	}
 	return nil
 }
