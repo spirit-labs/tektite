@@ -2,7 +2,8 @@ package opers
 
 import (
 	"encoding/binary"
-	"github.com/spirit-labs/tektite/common"
+	"errors"
+	"github.com/spirit-labs/tektite/kafkaserver/protocol"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -18,7 +19,7 @@ func TestMaybeHandleIdempotentProducerBatch(t *testing.T) {
 		lastOffsetDelta        int
 		initialSequenceNumber  int
 		expectedSequenceNumber int
-		expectedError          common.ErrCode
+		expectedError          int16
 		expectMappingCreation  bool
 	}{
 		{
@@ -41,7 +42,7 @@ func TestMaybeHandleIdempotentProducerBatch(t *testing.T) {
 			lastOffsetDelta:        5,
 			initialSequenceNumber:  15,
 			expectedSequenceNumber: 15,
-			expectedError:          common.DuplicateSequence,
+			expectedError:          protocol.ErrorCodeDuplicateSequenceNumber,
 			expectMappingCreation:  true,
 		},
 		{
@@ -53,7 +54,7 @@ func TestMaybeHandleIdempotentProducerBatch(t *testing.T) {
 			lastOffsetDelta:        5,
 			initialSequenceNumber:  15,
 			expectedSequenceNumber: 15,
-			expectedError:          common.OutOfOrderSequence,
+			expectedError:          protocol.ErrorCodeOutOfOrderSequenceNumber,
 			expectMappingCreation:  true,
 		},
 		{
@@ -89,7 +90,9 @@ func TestMaybeHandleIdempotentProducerBatch(t *testing.T) {
 
 			if tc.expectedError > 0 {
 				require.Error(t, err, "expected error, got nil")
-				require.True(t, common.IsTektiteErrorWithCode(err, tc.expectedError), "expected specific error")
+				var kafkaInErr *KafkaInError
+				require.True(t, errors.As(err, &kafkaInErr), "expected KafkaInError")
+				require.Equal(t, tc.expectedError, kafkaInErr.ErrCode, "unexpected error code")
 			} else {
 				require.NoError(t, err, "unexpected error")
 			}
