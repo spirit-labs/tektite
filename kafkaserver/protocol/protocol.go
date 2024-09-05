@@ -14,6 +14,7 @@ const (
 	ApiKeySyncGroup        = 14
 	APIKeySaslHandshake    = 17
 	APIKeyAPIVersions      = 18
+	APIKeyInitProducerId   = 22
 	APIKeySaslAuthenticate = 36
 )
 
@@ -107,6 +108,7 @@ var SupportedAPIVersions = []ApiVersionsResponseApiVersion{
 	{ApiKey: APIKeyOffsetFetch, MinVersion: 1, MaxVersion: 1},
 	{ApiKey: ApiKeyLeaveGroup, MinVersion: 0, MaxVersion: 0},
 	{ApiKey: APIKeySaslHandshake, MinVersion: 0, MaxVersion: 1},
+	{ApiKey: APIKeyInitProducerId, MinVersion: 0, MaxVersion: 0},
 	{ApiKey: APIKeySaslAuthenticate, MinVersion: 0, MaxVersion: 1},
 }
 

@@ -10,6 +10,7 @@ import (
 	"github.com/spirit-labs/tektite/auth"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/kafkaserver/protocol"
+	"github.com/spirit-labs/tektite/sequence"
 
 	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/opers"
@@ -25,7 +26,7 @@ const (
 )
 
 func NewServer(cfg *conf.Config, metadataProvider MetadataProvider, procProvider processorProvider,
-	groupCoordinator *GroupCoordinator, streamMgr streamMgr, scramManager *auth.ScramManager) (*Server, error) {
+	groupCoordinator *GroupCoordinator, streamMgr streamMgr, scramManager *auth.ScramManager, sequenceManager sequence.Manager) (*Server, error) {
 	saslAuthManager, err := auth.NewSaslAuthManager(scramManager)
 	if err != nil {
 		return nil, err
@@ -37,6 +38,7 @@ func NewServer(cfg *conf.Config, metadataProvider MetadataProvider, procProvider
 		groupCoordinator: groupCoordinator,
 		fetcher:          newFetcher(procProvider, streamMgr, int(cfg.KafkaFetchCacheMaxSizeBytes)),
 		saslAuthManager:  saslAuthManager,
+		sequenceManager:  sequenceManager,
 	}, nil
 }
 
@@ -52,6 +54,7 @@ type Server struct {
 	groupCoordinator    *GroupCoordinator
 	fetcher             *fetcher
 	listenCancel        context.CancelFunc
+	sequenceManager     sequence.Manager
 	saslAuthManager     *auth.SaslAuthManager
 }
 

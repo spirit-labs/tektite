@@ -197,7 +197,7 @@ func NewServerWithArgs(config conf.Config, clientFactory kafka.ClientFactory, ob
 		if err != nil {
 			return nil, err
 		}
-		kafkaServer, err = kafkaserver.NewServer(&config, metaProvider, processorManager, kafkaGroupCoordinator, streamManager, scramManager)
+		kafkaServer, err = kafkaserver.NewServer(&config, metaProvider, processorManager, kafkaGroupCoordinator, streamManager, scramManager, sequenceManager)
 		if err != nil {
 			return nil, err
 		}

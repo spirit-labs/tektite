@@ -7,6 +7,7 @@ import (
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/kafkaserver/protocol"
 	log "github.com/spirit-labs/tektite/logger"
+	"github.com/spirit-labs/tektite/opers"
 	"github.com/spirit-labs/tektite/types"
 	"net"
 	"strconv"
@@ -71,6 +72,7 @@ func (c *connection) HandleProduceRequest(_ *protocol.RequestHeader, req *protoc
 				cf.CountDown(nil)
 				continue
 			}
+
 			producedRecords := partitionData.Records[0]
 			numRecords := int(binary.BigEndian.Uint32(producedRecords[57:]))
 			magic := producedRecords[16]
@@ -92,8 +94,14 @@ func (c *connection) HandleProduceRequest(_ *protocol.RequestHeader, req *protoc
 							// syncing. It should resolve when sufficient nodes become available or sync completes.
 							errorCode = protocol.ErrorCodeLeaderNotAvailable
 						} else {
-							log.Errorf("failed to replicate produce batch %v", err)
-							errorCode = protocol.ErrorCodeUnknownServerError
+							var kafkaInErr *opers.KafkaInError
+							if errors.As(err, &kafkaInErr) {
+								log.Warn(kafkaInErr.Error())
+								errorCode = kafkaInErr.ErrCode
+							} else {
+								log.Errorf("failed to replicate produce batch %v", err)
+								errorCode = protocol.ErrorCodeUnknownServerError
+							}
 						}
 						partitionResponses[index].ErrorCode = errorCode
 						cf.CountDown(nil)
@@ -588,6 +596,22 @@ func (c *connection) HandleApiVersionsRequest(_ *protocol.RequestHeader, _ *prot
 	var resp protocol.ApiVersionsResponse
 	resp.ApiKeys = protocol.SupportedAPIVersions
 	return completionFunc(&resp)
+}
+
+func (c *connection) HandleInitProducerIdRequest(_ *protocol.RequestHeader, _ *protocol.InitProducerIdRequest, completionFunc func(resp *protocol.InitProducerIdResponse) error) error {
+	newPid, err := c.s.sequenceManager.GetNextID(c.s.cfg.SequencesObjectName, 1)
+	if err != nil {
+		panic(err)
+	}
+	var resp protocol.InitProducerIdResponse
+	resp.ProducerId = int64(newPid)
+	return completionFunc(&resp)
+}
+
+func (c *connection) InitProducerIdRequestErrorResponse(errorCode int16, errorMsg string, req *protocol.InitProducerIdRequest) *protocol.InitProducerIdResponse {
+	var resp protocol.InitProducerIdResponse
+	resp.ErrorCode = errorCode
+	return &resp
 }
 
 func (c *connection) SaslHandshakeRequestErrorResponse(errorCode int16, _ string, req *protocol.SaslHandshakeRequest) *protocol.SaslHandshakeResponse {

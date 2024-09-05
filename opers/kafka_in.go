@@ -2,7 +2,10 @@ package opers
 
 import (
 	"encoding/binary"
+	"errors"
+	"fmt"
 	"github.com/spirit-labs/tektite/evbatch"
+	"github.com/spirit-labs/tektite/kafkaserver/protocol"
 	"github.com/spirit-labs/tektite/proc"
 	"github.com/spirit-labs/tektite/types"
 	"time"
@@ -25,29 +28,32 @@ func NewKafkaInOperator(mappingID string, offsetsSlabID int, receiverID int, par
 	for i := range nextOffsets {
 		nextOffsets[i] = -1
 	}
+
 	return &KafkaInOperator{
-		offsetsSlabID:      offsetsSlabID,
-		inSchema:           inSchema,
-		outSchema:          outSchema,
-		receiverID:         receiverID,
-		useServerTimestamp: useServerTimestamp,
-		nextOffsets:        nextOffsets,
-		lastAppendTimes:    make([]int64, partitions),
-		hashCache:          newPartitionHashCache(inSchema.MappingID, inSchema.Partitions),
+		offsetsSlabID:            offsetsSlabID,
+		inSchema:                 inSchema,
+		outSchema:                outSchema,
+		receiverID:               receiverID,
+		useServerTimestamp:       useServerTimestamp,
+		nextOffsets:              nextOffsets,
+		lastAppendTimes:          make([]int64, partitions),
+		hashCache:                newPartitionHashCache(inSchema.MappingID, inSchema.Partitions),
+		partitionProducerMapping: make([]map[int]map[int]int, inSchema.PartitionScheme.MaxProcessorID+1),
 	}
 }
 
 type KafkaInOperator struct {
 	BaseOperator
-	inSchema           *OperatorSchema
-	outSchema          *OperatorSchema
-	offsetsSlabID      int
-	receiverID         int
-	useServerTimestamp bool
-	nextOffsets        []int64
-	lastAppendTimes    []int64
-	watermarkOperator  *WaterMarkOperator
-	hashCache          *partitionHashCache
+	inSchema                 *OperatorSchema
+	outSchema                *OperatorSchema
+	offsetsSlabID            int
+	receiverID               int
+	useServerTimestamp       bool
+	nextOffsets              []int64
+	lastAppendTimes          []int64
+	watermarkOperator        *WaterMarkOperator
+	hashCache                *partitionHashCache
+	partitionProducerMapping []map[int]map[int]int
 }
 
 func (k *KafkaInOperator) PartitionScheme() *PartitionScheme {
@@ -77,14 +83,61 @@ func (k *KafkaInOperator) IngestBatch(recordBatchBytes []byte, processor proc.Pr
 	processor.GetReplicator().ReplicateBatch(processBatch, complFunc)
 }
 
+func (k *KafkaInOperator) maybeHandleIdempotentProducerBatch(partitionID, processorID int, bytes []byte) error {
+	producerID := int(binary.BigEndian.Uint64(bytes[43:51]))
+	// if the producer doesn't have idempotency enabled, the producer id will be -1
+	if producerID > -1 {
+		baseSequence := int(binary.BigEndian.Uint32(bytes[53:57]))
+		lastOffsetDelta := int(binary.BigEndian.Uint32(bytes[23:27]))
+		sequenceNumber := baseSequence + lastOffsetDelta
+
+		if processorID < 0 || processorID >= len(k.partitionProducerMapping) {
+			return errors.New("unexpected processor ID")
+		}
+
+		partitionMap := k.partitionProducerMapping[processorID]
+		if partitionMap == nil {
+			partitionMap = make(map[int]map[int]int)
+			k.partitionProducerMapping[processorID] = partitionMap
+		}
+
+		producerMap := partitionMap[partitionID]
+		if producerMap == nil {
+			producerMap = make(map[int]int)
+			partitionMap[partitionID] = producerMap
+		}
+
+		lastSequenceNumber, exists := producerMap[producerID]
+		// we've received batches from this producer for this partition
+		if exists {
+			if sequenceNumber <= lastSequenceNumber {
+				return NewKafkaInError(protocol.ErrorCodeDuplicateSequenceNumber, fmt.Sprintf("duplicate sequence number from producer id %d", producerID))
+			}
+			if baseSequence != lastSequenceNumber+1 {
+				return NewKafkaInError(protocol.ErrorCodeOutOfOrderSequenceNumber, fmt.Sprintf("invalid sequence number from producer id %d", producerID))
+			}
+		}
+
+		producerMap[producerID] = sequenceNumber
+	}
+	return nil
+}
+
 func (k *KafkaInOperator) HandleStreamBatch(batch *evbatch.Batch, execCtx StreamExecContext) (*evbatch.Batch, error) {
 	// Convert the recordset/messageset into the tektite kafka schema
 	bytes := batch.GetBytesColumn(0).Get(0)
+
 	outBatch, maxEventTime, err := k.convertRecordset(bytes, execCtx)
 	if err != nil {
 		return nil, err
 	}
 	k.watermarkOperator.updateMaxEventTime(int(maxEventTime), execCtx.Processor().ID())
+
+	err = k.maybeHandleIdempotentProducerBatch(execCtx.PartitionID(), execCtx.Processor().ID(), bytes)
+	if err != nil {
+		return nil, err
+	}
+
 	return nil, k.sendBatchDownStream(outBatch, execCtx)
 }
 
@@ -217,4 +270,20 @@ func (k *KafkaInOperator) ForwardingProcessorCount() int {
 
 func (k *KafkaInOperator) GetWatermarkOperator() *WaterMarkOperator {
 	return k.watermarkOperator
+}
+
+type KafkaInError struct {
+	ErrCode int16
+	Msg     string
+}
+
+func (e *KafkaInError) Error() string {
+	return fmt.Sprintf("Error code %d: %s", e.ErrCode, e.Msg)
+}
+
+func NewKafkaInError(code int16, msg string) *KafkaInError {
+	return &KafkaInError{
+		ErrCode: code,
+		Msg:     msg,
+	}
 }
