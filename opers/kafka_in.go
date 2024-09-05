@@ -3,8 +3,9 @@ package opers
 import (
 	"encoding/binary"
 	"errors"
-	"github.com/spirit-labs/tektite/common"
+	"fmt"
 	"github.com/spirit-labs/tektite/evbatch"
+	"github.com/spirit-labs/tektite/kafkaserver/protocol"
 	"github.com/spirit-labs/tektite/proc"
 	"github.com/spirit-labs/tektite/types"
 	"time"
@@ -110,10 +111,10 @@ func (k *KafkaInOperator) maybeHandleIdempotentProducerBatch(partitionID, proces
 		// we've received batches from this producer for this partition
 		if exists {
 			if sequenceNumber <= lastSequenceNumber {
-				return common.NewTektiteErrorf(common.DuplicateSequence, "duplicate sequence number from producer id %d", producerID)
+				return NewKafkaInError(protocol.ErrorCodeDuplicateSequenceNumber, fmt.Sprintf("duplicate sequence number from producer id %d", producerID))
 			}
 			if baseSequence != lastSequenceNumber+1 {
-				return common.NewTektiteErrorf(common.OutOfOrderSequence, "invalid sequence number from producer id %d", producerID)
+				return NewKafkaInError(protocol.ErrorCodeOutOfOrderSequenceNumber, fmt.Sprintf("invalid sequence number from producer id %d", producerID))
 			}
 		}
 
@@ -269,4 +270,20 @@ func (k *KafkaInOperator) ForwardingProcessorCount() int {
 
 func (k *KafkaInOperator) GetWatermarkOperator() *WaterMarkOperator {
 	return k.watermarkOperator
+}
+
+type KafkaInError struct {
+	ErrCode int16
+	Msg     string
+}
+
+func (e *KafkaInError) Error() string {
+	return fmt.Sprintf("Error code %d: %s", e.ErrCode, e.Msg)
+}
+
+func NewKafkaInError(code int16, msg string) *KafkaInError {
+	return &KafkaInError{
+		ErrCode: code,
+		Msg:     msg,
+	}
 }

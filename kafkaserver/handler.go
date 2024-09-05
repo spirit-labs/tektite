@@ -7,6 +7,7 @@ import (
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/kafkaserver/protocol"
 	log "github.com/spirit-labs/tektite/logger"
+	"github.com/spirit-labs/tektite/opers"
 	"github.com/spirit-labs/tektite/types"
 	"net"
 	"strconv"
@@ -92,15 +93,15 @@ func (c *connection) HandleProduceRequest(_ *protocol.RequestHeader, req *protoc
 							// This can occur, e.g. due to insufficient replicas available, or replicas are currently
 							// syncing. It should resolve when sufficient nodes become available or sync completes.
 							errorCode = protocol.ErrorCodeLeaderNotAvailable
-						} else if common.IsOutOfOrderSequenceError(err) {
-							log.Warnf("invalid sequence number %v", err)
-							errorCode = protocol.ErrorCodeOutOfOrderSequenceNumber
-						} else if common.IsDuplicateSequenceError(err) {
-							log.Warnf("duplicate sequence number %v", err)
-							errorCode = protocol.ErrorCodeDuplicateSequenceNumber
 						} else {
-							log.Errorf("failed to replicate produce batch %v", err)
-							errorCode = protocol.ErrorCodeUnknownServerError
+							var kafkaInErr *opers.KafkaInError
+							if errors.As(err, &kafkaInErr) {
+								log.Warn(kafkaInErr.Error())
+								errorCode = kafkaInErr.ErrCode
+							} else {
+								log.Errorf("failed to replicate produce batch %v", err)
+								errorCode = protocol.ErrorCodeUnknownServerError
+							}
 						}
 						partitionResponses[index].ErrorCode = errorCode
 						cf.CountDown(nil)

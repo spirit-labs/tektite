@@ -50,14 +50,6 @@ func IsUnavailableError(err error) bool {
 	return IsTektiteErrorWithCode(err, Unavailable)
 }
 
-func IsDuplicateSequenceError(err error) bool {
-	return IsTektiteErrorWithCode(err, DuplicateSequence)
-}
-
-func IsOutOfOrderSequenceError(err error) bool {
-	return IsTektiteErrorWithCode(err, OutOfOrderSequence)
-}
-
 func Error(msg string) error {
 	return errwrap.New(msg)
 }
@@ -91,6 +83,4 @@ const (
 	RegisterDeadVersionWrongClusterVersion
 	InvalidConfiguration ErrCode = iota + 3000
 	InternalError        ErrCode = iota + 5000
-	DuplicateSequence
-	OutOfOrderSequence
 )
