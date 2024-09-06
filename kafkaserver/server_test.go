@@ -148,7 +148,9 @@ func createServer(t *testing.T, topic string, serverAddress string, serverAdvert
 
 	gc, err := NewGroupCoordinator(cfg, procProvider, &testStreamMgr{}, meta, &testBatchForwarder{})
 	require.NoError(t, err)
-	server, err := NewServer(cfg, meta, procProvider, gc, &testStreamMgr{}, nil, sequence.NewSequenceManager(dev.NewInMemStore(0), "sequences_obj", lock.NewInMemLockManager(), 1*time.Millisecond))
+	server, err := NewServer(cfg, meta, procProvider, gc, &testStreamMgr{}, nil,
+		sequence.NewSequenceManager(dev.NewInMemStore(0),
+			"sequences_obj", lock.NewInMemLockManager(), 1*time.Millisecond, cfg.BucketName))
 	require.NoError(t, err)
 	err = server.Activate()
 	require.NoError(t, err)
