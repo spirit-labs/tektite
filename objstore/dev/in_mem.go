@@ -1,8 +1,13 @@
 package dev
 
 import (
+	"context"
 	"github.com/spirit-labs/tektite/common"
 	log "github.com/spirit-labs/tektite/logger"
+	"github.com/spirit-labs/tektite/objstore"
+	"math"
+	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -12,92 +17,153 @@ func NewInMemStore(delay time.Duration) *InMemStore {
 	return &InMemStore{delay: delay}
 }
 
+var _ objstore.Client = &InMemStore{}
+
 // InMemStore - LocalStore is a simple cloud store used for testing
 type InMemStore struct {
 	store       sync.Map
 	delay       time.Duration
 	unavailable atomic.Bool
+	condLock    sync.Mutex
 }
 
-func (f *InMemStore) Get(key []byte) ([]byte, error) {
-	if err := f.checkUnavailable(); err != nil {
+type valueHolder struct {
+	value []byte
+	info  objstore.ObjectInfo
+}
+
+func internalKey(bucket string, key string) string {
+	return bucket + ":" + key
+}
+
+func (im *InMemStore) Get(_ context.Context, bucket string, key string) ([]byte, error) {
+	if err := im.checkUnavailable(); err != nil {
 		return nil, err
 	}
-	f.maybeAddDelay()
-	skey := common.ByteSliceToStringZeroCopy(key)
-	b, ok := f.store.Load(skey)
+	im.maybeAddDelay()
+	skey := internalKey(bucket, key)
+	v, ok := im.store.Load(skey)
 	if !ok {
 		return nil, nil
 	}
-	if b == nil {
+	if v == nil {
 		panic("nil value in obj store")
 	}
-	bytes := b.([]byte)
-	if len(bytes) == 0 {
-		panic("empty bytes in obj store")
-	}
-	return bytes, nil //nolint:forcetypeassert
+	holder := v.(valueHolder)
+	return holder.value, nil //nolint:forcetypeassert
 }
 
-func (f *InMemStore) Put(key []byte, value []byte) error {
-	if err := f.checkUnavailable(); err != nil {
+func (im *InMemStore) Put(_ context.Context, bucket string, key string, value []byte) error {
+	if err := im.checkUnavailable(); err != nil {
 		return err
 	}
-	f.maybeAddDelay()
-	skey := common.ByteSliceToStringZeroCopy(key)
-	log.Debugf("local cloud store %p adding blob with key %v value length %d", f, key, len(value))
-	f.store.Store(skey, value)
+	im.maybeAddDelay()
+	skey := internalKey(bucket, key)
+	log.Debugf("local cloud store %p adding blob with key %v value length %d", im, key, len(value))
+	im.store.Store(skey, valueHolder{value: value, info: objstore.ObjectInfo{Key: key, LastModified: time.Now().UTC()}})
 	return nil
 }
 
-func (f *InMemStore) Delete(key []byte) error {
-	if err := f.checkUnavailable(); err != nil {
+func (im *InMemStore) PutIfNotExists(_ context.Context, bucket string, key string, value []byte) (bool, error) {
+	if err := im.checkUnavailable(); err != nil {
+		return false, err
+	}
+	im.maybeAddDelay()
+	im.condLock.Lock()
+	defer im.condLock.Unlock()
+	skey := internalKey(bucket, key)
+	_, exists := im.store.Load(skey)
+	if exists {
+		return false, nil
+	}
+	im.store.Store(skey, valueHolder{value: value, info: objstore.ObjectInfo{Key: key, LastModified: time.Now()}})
+	return true, nil
+}
+
+func (im *InMemStore) ListObjectsWithPrefix(_ context.Context, bucket string, prefix string, maxKeys int) ([]objstore.ObjectInfo, error) {
+	sPref := internalKey(bucket, prefix)
+	var infos []objstore.ObjectInfo
+	if maxKeys == -1 {
+		maxKeys = math.MaxInt
+	}
+	lb := len(bucket)
+	im.store.Range(func(k, v interface{}) bool {
+		key := k.(string)
+		if strings.HasPrefix(key, sPref) {
+			infos = append(infos, objstore.ObjectInfo{
+				Key:          key[lb + 1:],
+				LastModified: v.(valueHolder).info.LastModified,
+			})
+		}
+		return true
+	})
+	sort.SliceStable(infos, func(i, j int) bool {
+		return strings.Compare(infos[i].Key, infos[j].Key) < 0
+	})
+	if len(infos) > maxKeys {
+		infos = infos[:maxKeys]
+	}
+	return infos, nil
+}
+
+func (im *InMemStore) Delete(_ context.Context, bucket string, key string) error {
+	if err := im.checkUnavailable(); err != nil {
 		return err
 	}
-	log.Debugf("local cloud store %p deleting obj with key %v", f, key)
-	f.maybeAddDelay()
-	skey := common.ByteSliceToStringZeroCopy(key)
-	f.store.Delete(skey)
+	log.Debugf("local cloud store %p deleting obj with key %v", im, key)
+	im.maybeAddDelay()
+	im.store.Delete(internalKey(bucket, key))
 	return nil
 }
 
-func (f *InMemStore) SetUnavailable(unavailable bool) {
-	f.unavailable.Store(unavailable)
+func (im *InMemStore) DeleteAll(_ context.Context, bucket string, keys []string) error {
+	if err := im.checkUnavailable(); err != nil {
+		return err
+	}
+	im.maybeAddDelay()
+	for _, key := range keys {
+		im.store.Delete(internalKey(bucket, key))
+	}
+	return nil
 }
 
-func (f *InMemStore) checkUnavailable() error {
-	if f.unavailable.Load() {
+func (im *InMemStore) SetUnavailable(unavailable bool) {
+	im.unavailable.Store(unavailable)
+}
+
+func (im *InMemStore) checkUnavailable() error {
+	if im.unavailable.Load() {
 		return common.NewTektiteErrorf(common.Unavailable, "cloud store is unavailable")
 	}
 	return nil
 }
 
-func (f *InMemStore) maybeAddDelay() {
-	if f.delay != 0 {
-		time.Sleep(f.delay)
+func (im *InMemStore) maybeAddDelay() {
+	if im.delay != 0 {
+		time.Sleep(im.delay)
 	}
 }
 
-func (f *InMemStore) Size() int {
+func (im *InMemStore) Size() int {
 	size := 0
-	f.store.Range(func(_, _ interface{}) bool {
+	im.store.Range(func(_, _ interface{}) bool {
 		size++
 		return true
 	})
 	return size
 }
 
-func (f *InMemStore) ForEach(fun func(key string, value []byte)) {
-	f.store.Range(func(k, v any) bool {
+func (im *InMemStore) ForEach(fun func(key string, value []byte)) {
+	im.store.Range(func(k, v any) bool {
 		fun(k.(string), v.([]byte))
 		return true
 	})
 }
 
-func (f *InMemStore) Start() error {
+func (im *InMemStore) Start() error {
 	return nil
 }
 
-func (f *InMemStore) Stop() error {
+func (im *InMemStore) Stop() error {
 	return nil
 }

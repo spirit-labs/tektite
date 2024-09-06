@@ -2,6 +2,7 @@ package levels
 
 import (
 	"container/heap"
+	"context"
 	"encoding/binary"
 	"fmt"
 	"github.com/google/uuid"
@@ -699,26 +700,26 @@ func TestDeleteSSTablesAfterCompaction(t *testing.T) {
 	})
 	defer tearDown(t)
 
-	err := lm.objStore.Put([]byte("sst1-1"), []byte("foo"))
+	err := lm.objStore.Put(context.Background(), conf.DefaultBucketName, "sst1-1", []byte("foo"))
 	require.NoError(t, err)
-	err = lm.objStore.Put([]byte("sst1-2"), []byte("foo"))
+	err = lm.objStore.Put(context.Background(), conf.DefaultBucketName, "sst1-2", []byte("foo"))
 	require.NoError(t, err)
-	err = lm.objStore.Put([]byte("sst1-3"), []byte("foo"))
+	err = lm.objStore.Put(context.Background(), conf.DefaultBucketName, "sst1-3", []byte("foo"))
 	require.NoError(t, err)
-	err = lm.objStore.Put([]byte("sst1-4"), []byte("foo"))
+	err = lm.objStore.Put(context.Background(), conf.DefaultBucketName, "sst1-4", []byte("foo"))
 	require.NoError(t, err)
-	err = lm.objStore.Put([]byte("sst1-5"), []byte("foo"))
+	err = lm.objStore.Put(context.Background(), conf.DefaultBucketName, "sst1-5", []byte("foo"))
 	require.NoError(t, err)
 
-	err = lm.objStore.Put([]byte("sst2-1"), []byte("foo"))
+	err = lm.objStore.Put(context.Background(), conf.DefaultBucketName, "sst2-1", []byte("foo"))
 	require.NoError(t, err)
-	err = lm.objStore.Put([]byte("sst2-2"), []byte("foo"))
+	err = lm.objStore.Put(context.Background(), conf.DefaultBucketName, "sst2-2", []byte("foo"))
 	require.NoError(t, err)
-	err = lm.objStore.Put([]byte("sst2-3"), []byte("foo"))
+	err = lm.objStore.Put(context.Background(), conf.DefaultBucketName, "sst2-3", []byte("foo"))
 	require.NoError(t, err)
-	err = lm.objStore.Put([]byte("sst2-4"), []byte("foo"))
+	err = lm.objStore.Put(context.Background(), conf.DefaultBucketName, "sst2-4", []byte("foo"))
 	require.NoError(t, err)
-	err = lm.objStore.Put([]byte("sst2-5"), []byte("foo"))
+	err = lm.objStore.Put(context.Background(), conf.DefaultBucketName, "sst2-5", []byte("foo"))
 	require.NoError(t, err)
 
 	sst1_1 := createTableEntryWithDeleteRatio("sst1-1", 0, 1, 0.1)
@@ -767,45 +768,45 @@ func TestDeleteSSTablesAfterCompaction(t *testing.T) {
 
 	time.Sleep(2*deleteCheckPeriod + 2*deleteDelay)
 
-	v, err := lm.objStore.Get([]byte("sst1-5"))
+	v, err := lm.objStore.Get(context.Background(), conf.DefaultBucketName, "sst1-5")
 	require.NoError(t, err)
 	require.Nil(t, v)
 
-	v, err = lm.objStore.Get([]byte("sst2-3"))
+	v, err = lm.objStore.Get(context.Background(), conf.DefaultBucketName, "sst2-3")
 	require.NoError(t, err)
 	require.Nil(t, v)
 
-	v, err = lm.objStore.Get([]byte("sst2-4"))
+	v, err = lm.objStore.Get(context.Background(), conf.DefaultBucketName, "sst2-4")
 	require.NoError(t, err)
 	require.Nil(t, v)
 
 	// others should still be there
 
-	v, err = lm.objStore.Get([]byte("sst1-1"))
+	v, err = lm.objStore.Get(context.Background(), conf.DefaultBucketName, "sst1-1")
 	require.NoError(t, err)
 	require.NotNil(t, v)
 
-	v, err = lm.objStore.Get([]byte("sst1-2"))
+	v, err = lm.objStore.Get(context.Background(), conf.DefaultBucketName, "sst1-2")
 	require.NoError(t, err)
 	require.NotNil(t, v)
 
-	v, err = lm.objStore.Get([]byte("sst1-3"))
+	v, err = lm.objStore.Get(context.Background(), conf.DefaultBucketName, "sst1-3")
 	require.NoError(t, err)
 	require.NotNil(t, v)
 
-	v, err = lm.objStore.Get([]byte("sst1-4"))
+	v, err = lm.objStore.Get(context.Background(), conf.DefaultBucketName, "sst1-4")
 	require.NoError(t, err)
 	require.NotNil(t, v)
 
-	v, err = lm.objStore.Get([]byte("sst2-1"))
+	v, err = lm.objStore.Get(context.Background(), conf.DefaultBucketName, "sst2-1")
 	require.NoError(t, err)
 	require.NotNil(t, v)
 
-	v, err = lm.objStore.Get([]byte("sst2-2"))
+	v, err = lm.objStore.Get(context.Background(), conf.DefaultBucketName, "sst2-2")
 	require.NoError(t, err)
 	require.NotNil(t, v)
 
-	v, err = lm.objStore.Get([]byte("sst2-5"))
+	v, err = lm.objStore.Get(context.Background(), conf.DefaultBucketName, "sst2-5")
 	require.NoError(t, err)
 	require.NotNil(t, v)
 }

@@ -14,6 +14,7 @@ import (
 	"github.com/spirit-labs/tektite/levels"
 	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/mem"
+	"github.com/spirit-labs/tektite/objstore"
 	sst2 "github.com/spirit-labs/tektite/sst"
 	"golang.org/x/sync/semaphore"
 	"math"
@@ -285,13 +286,14 @@ func (ps *ProcessorStore) buildAndPushTable(entry *flushQueueEntry) error {
 			return err
 		}
 		// Push and register the SSTable
-		id := []byte(fmt.Sprintf("sst-%s", uuid.New().String()))
+		sid := fmt.Sprintf("sst-%s", uuid.New().String())
+		id := []byte(sid)
 		tableBytes := ssTable.Serialize()
 		for {
 			if ps.stopping.Load() {
 				return nil
 			}
-			if err := ps.pm.cloudStoreClient.Put(id, tableBytes); err != nil {
+			if err := objstore.PutWithTimeout(ps.pm.cloudStoreClient, ps.pm.cfg.BucketName, sid, tableBytes, objstore.DefaultCallTimeout); err != nil {
 				if common.IsUnavailableError(err) {
 					// Transient availability error - retry
 					log.Warnf("cloud store is unavailable, will retry: %v", err)

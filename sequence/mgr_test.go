@@ -13,10 +13,12 @@ import (
 const sequencesBatchSize = 10
 const unavailabilityRetryDelay = 1 * time.Millisecond
 
+const bucketName = "test-bucket"
+
 func TestSingleSequence(t *testing.T) {
 	lockMgr := lock.NewInMemLockManager()
 	objStore := dev.NewInMemStore(0)
-	mgr := NewSequenceManager(objStore, "sequences_obj", lockMgr, unavailabilityRetryDelay)
+	mgr := NewSequenceManager(objStore, "sequences_obj", lockMgr, unavailabilityRetryDelay, bucketName)
 	for i := 0; i < 10*sequencesBatchSize; i++ {
 		seq, err := mgr.GetNextID("test_sequence", sequencesBatchSize)
 		require.NoError(t, err)
@@ -24,7 +26,7 @@ func TestSingleSequence(t *testing.T) {
 	}
 
 	// Recreate so state gets reloaded
-	mgr = NewSequenceManager(objStore, "sequences_obj", lockMgr, unavailabilityRetryDelay)
+	mgr = NewSequenceManager(objStore, "sequences_obj", lockMgr, unavailabilityRetryDelay, bucketName)
 
 	for i := 0; i < 10*sequencesBatchSize; i++ {
 		seq, err := mgr.GetNextID("test_sequence", sequencesBatchSize)
@@ -37,7 +39,7 @@ func TestSingleSequence(t *testing.T) {
 func TestMultipleSequences(t *testing.T) {
 	lockMgr := lock.NewInMemLockManager()
 	objStore := dev.NewInMemStore(0)
-	mgr := NewSequenceManager(objStore, "sequences_obj", lockMgr, unavailabilityRetryDelay)
+	mgr := NewSequenceManager(objStore, "sequences_obj", lockMgr, unavailabilityRetryDelay, bucketName)
 
 	for i := 0; i < 10; i++ {
 		sequenceName := fmt.Sprintf("sequence-%d", i)
@@ -48,7 +50,7 @@ func TestMultipleSequences(t *testing.T) {
 		}
 	}
 
-	mgr = NewSequenceManager(objStore, "sequences_obj", lockMgr, unavailabilityRetryDelay)
+	mgr = NewSequenceManager(objStore, "sequences_obj", lockMgr, unavailabilityRetryDelay, bucketName)
 
 	// Reload state
 	for i := 0; i < 10; i++ {
@@ -65,14 +67,14 @@ func TestMultipleSequences(t *testing.T) {
 func TestSequenceBatchSize(t *testing.T) {
 	lockMgr := lock.NewInMemLockManager()
 	objStore := dev.NewInMemStore(0)
-	mgr := NewSequenceManager(objStore, "sequences_obj", lockMgr, unavailabilityRetryDelay)
+	mgr := NewSequenceManager(objStore, "sequences_obj", lockMgr, unavailabilityRetryDelay, bucketName)
 
 	seq, err := mgr.GetNextID("test_sequence", sequencesBatchSize)
 	require.NoError(t, err)
 	require.Equal(t, 0, seq)
 
 	// Recreate so state gets reloaded
-	mgr = NewSequenceManager(objStore, "sequences_obj", lockMgr, unavailabilityRetryDelay)
+	mgr = NewSequenceManager(objStore, "sequences_obj", lockMgr, unavailabilityRetryDelay, bucketName)
 
 	seq, err = mgr.GetNextID("test_sequence", sequencesBatchSize)
 	require.NoError(t, err)
@@ -84,9 +86,9 @@ func TestConcurrentGets(t *testing.T) {
 	objStore := dev.NewInMemStore(0)
 	var seqs1 sync.Map
 	// Note unavailabilityRetryDelay is set to a low value so the different managers gets coincide more
-	mgr1 := NewSequenceManager(objStore, "sequences_obj", lockMgr, unavailabilityRetryDelay)
+	mgr1 := NewSequenceManager(objStore, "sequences_obj", lockMgr, unavailabilityRetryDelay, bucketName)
 	var seqs2 sync.Map
-	mgr2 := NewSequenceManager(objStore, "sequences_obj", lockMgr, unavailabilityRetryDelay)
+	mgr2 := NewSequenceManager(objStore, "sequences_obj", lockMgr, unavailabilityRetryDelay, bucketName)
 
 	wg := sync.WaitGroup{}
 	wg.Add(2)
@@ -139,7 +141,7 @@ func TestConcurrentGets(t *testing.T) {
 func TestCloudStoreUnavailable(t *testing.T) {
 	lockMgr := lock.NewInMemLockManager()
 	store := dev.NewInMemStore(0)
-	mgr := NewSequenceManager(store, "sequences_obj", lockMgr, unavailabilityRetryDelay)
+	mgr := NewSequenceManager(store, "sequences_obj", lockMgr, unavailabilityRetryDelay, bucketName)
 	for i := 0; i < 10*sequencesBatchSize; i++ {
 		seq, err := mgr.GetNextID("test_sequence", sequencesBatchSize)
 		require.NoError(t, err)

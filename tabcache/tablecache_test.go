@@ -1,6 +1,7 @@
 package tabcache
 
 import (
+	"context"
 	"fmt"
 	"github.com/spirit-labs/tektite/asl/conf"
 	"github.com/spirit-labs/tektite/common"
@@ -104,7 +105,7 @@ func TestGetFromCloudStore(t *testing.T) {
 
 	table1 := createSSTable(t)
 
-	err = objStoreClient.Put([]byte("sst1"), table1.Serialize())
+	err = objStoreClient.Put(context.Background(), cfg.BucketName, "sst1", table1.Serialize())
 	require.NoError(t, err)
 
 	res, err = tc.GetSSTable([]byte("sst1"))

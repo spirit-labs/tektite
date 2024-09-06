@@ -118,7 +118,7 @@ func (m *ModuleManager) RegisterModule(metaData ModuleMetadata, moduleBytes []by
 	_, ok := m.registeredModules[metaData.ModuleName]
 	if !ok {
 		modKey, jsonKey := createModuleKeys(metaData.ModuleName)
-		bytes, err := m.objStoreClient.Get(jsonKey)
+		bytes, err := objstore.GetWithTimeout(m.objStoreClient, m.cfg.BucketName, jsonKey, objstore.DefaultCallTimeout)
 		if err != nil {
 			return err
 		}
@@ -127,14 +127,14 @@ func (m *ModuleManager) RegisterModule(metaData ModuleMetadata, moduleBytes []by
 			if err != nil {
 				return err
 			}
-			if err := m.objStoreClient.Put(modKey, moduleBytes); err != nil {
+			if err := objstore.PutWithTimeout(m.objStoreClient, m.cfg.BucketName, modKey, moduleBytes, objstore.DefaultCallTimeout); err != nil {
 				return err
 			}
 			metaBytes, err := json.Marshal(&metaData)
 			if err != nil {
 				return err
 			}
-			if err := m.objStoreClient.Put(jsonKey, metaBytes); err != nil {
+			if err := objstore.PutWithTimeout(m.objStoreClient, m.cfg.BucketName, jsonKey, metaBytes, objstore.DefaultCallTimeout); err != nil {
 				return err
 			}
 			m.registeredModules[metaData.ModuleName] = registeredModule
@@ -194,10 +194,10 @@ func (m *ModuleManager) UnregisterModule(name string) error {
 	registeredModule.close()
 	delete(m.registeredModules, name)
 	modKey, jsonKey := createModuleKeys(name)
-	if err := m.objStoreClient.Delete(modKey); err != nil {
+	if err := objstore.DeleteWithTimeout(m.objStoreClient, m.cfg.BucketName, modKey, objstore.DefaultCallTimeout); err != nil {
 		return err
 	}
-	return m.objStoreClient.Delete(jsonKey)
+	return objstore.DeleteWithTimeout(m.objStoreClient, m.cfg.BucketName, jsonKey, objstore.DefaultCallTimeout)
 }
 
 func (m *ModuleManager) getClusterWideLock() error {
@@ -245,14 +245,14 @@ func (m *ModuleManager) GetFunctionMetadata(fullFuncName string) (expr.FunctionM
 
 func (m *ModuleManager) maybeLoadModule(moduleName string) (*RegisteredModule, error) {
 	modKey, jsonKey := createModuleKeys(moduleName)
-	modBytes, err := m.objStoreClient.Get(modKey)
+	modBytes, err := objstore.GetWithTimeout(m.objStoreClient, m.cfg.BucketName, modKey, objstore.DefaultCallTimeout)
 	if err != nil {
 		return nil, err
 	}
 	if modBytes == nil {
 		return nil, nil
 	}
-	jsonBytes, err := m.objStoreClient.Get(jsonKey)
+	jsonBytes, err := objstore.GetWithTimeout(m.objStoreClient, m.cfg.BucketName, jsonKey, objstore.DefaultCallTimeout)
 	if err != nil {
 		return nil, err
 	}
@@ -575,9 +575,9 @@ func (ii *Invoker) decodeBytesReturn(res uint64, ctx context.Context) ([]byte, f
 	return bytes, freeFunc, nil
 }
 
-func createModuleKeys(modName string) ([]byte, []byte) {
-	return []byte(fmt.Sprintf("%s.%s", moduleObjectStorePrefix, modName)),
-		[]byte(fmt.Sprintf("%s-json.%s", moduleObjectStorePrefix, modName))
+func createModuleKeys(modName string) (string, string) {
+	return fmt.Sprintf("%s.%s", moduleObjectStorePrefix, modName),
+		fmt.Sprintf("%s-json.%s", moduleObjectStorePrefix, modName)
 }
 
 func logString(_ context.Context, m api.Module, offset, byteCount uint32) {

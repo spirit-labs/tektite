@@ -148,7 +148,7 @@ func (lm *LevelManager) levelMaxTablesTrigger(level int) int {
 
 func (lm *LevelManager) initialiseMasterRecord() (*masterRecord, error) {
 	for {
-		buff, err := lm.objStore.Get([]byte(lm.conf.MasterRegistryRecordID))
+		buff, err := objstore.GetWithTimeout(lm.objStore, lm.conf.BucketName, lm.conf.MasterRegistryRecordID, objstore.DefaultCallTimeout)
 		if err != nil {
 			if common.IsUnavailableError(err) {
 				log.Warnf("object store is unavailable - will retry - %v", err)
@@ -172,7 +172,7 @@ func (lm *LevelManager) initialiseMasterRecord() (*masterRecord, error) {
 				stats:                &Stats{LevelStats: map[int]*LevelStats{}},
 			}
 			buff := mr.serialize(nil)
-			if err := lm.objStore.Put([]byte(lm.conf.MasterRegistryRecordID), buff); err != nil {
+			if err := objstore.PutWithTimeout(lm.objStore, lm.conf.BucketName, lm.conf.MasterRegistryRecordID, buff, objstore.DefaultCallTimeout); err != nil {
 				if common.IsUnavailableError(err) {
 					log.Warnf("object store is unavailable - will retry - %v", err)
 					time.Sleep(objStoreRetryInterval)
@@ -1326,7 +1326,7 @@ func (lm *LevelManager) getSegment(segmentID []byte) (*segment, error) {
 	if seg != nil {
 		return seg, nil
 	}
-	buff, err := lm.objStore.Get(segmentID)
+	buff, err := objstore.GetWithTimeout(lm.objStore, lm.conf.BucketName, skey, objstore.DefaultCallTimeout)
 	if err != nil {
 		return nil, err
 	}
@@ -1414,7 +1414,7 @@ func (lm *LevelManager) maybeDeleteTables() {
 			break
 		}
 		log.Debugf("deleted sstable %v", entry.tableID)
-		if err := lm.objStore.Delete(entry.tableID); err != nil {
+		if err := objstore.DeleteWithTimeout(lm.objStore, lm.conf.BucketName, string(entry.tableID), objstore.DefaultCallTimeout); err != nil {
 			log.Errorf("failed to delete ss-table from cloud store: %v", err)
 			break
 		}
@@ -1527,8 +1527,7 @@ func (lm *LevelManager) pushSegmentsAndMasterRecord(masterRecordToFlush *masterR
 	segsDeleted := len(segsToDelete)
 	for sid := range segsToDelete {
 		log.Debugf("LevelManager deleting segment %s from cloud store", sid)
-		segID := common.StringToByteSliceZeroCopy(sid)
-		if err := lm.objStore.Delete(segID); err != nil {
+		if err := objstore.DeleteWithTimeout(lm.objStore, lm.conf.BucketName, sid, objstore.DefaultCallTimeout); err != nil {
 			return 0, 0, err
 		}
 	}
@@ -1536,11 +1535,10 @@ func (lm *LevelManager) pushSegmentsAndMasterRecord(masterRecordToFlush *masterR
 	segsAdded := len(segsToAdd)
 	for sid, seg := range segsToAdd {
 		log.Debugf("LevelManager adding segment %s to cloud store", sid)
-		segID := []byte(sid)
 		buff := make([]byte, 0, lm.segmentBufferSizeEstimate)
 		buff = seg.serialize(buff)
 		lm.updateSegmentBufferSizeEstimate(len(buff))
-		if err := lm.objStore.Put(segID, buff); err != nil {
+		if err := objstore.PutWithTimeout(lm.objStore, lm.conf.BucketName, sid, buff, objstore.DefaultCallTimeout); err != nil {
 			return 0, 0, err
 		}
 		log.Debugf("LevelManager added segment %s to cloud store OK", sid)
@@ -1549,7 +1547,7 @@ func (lm *LevelManager) pushSegmentsAndMasterRecord(masterRecordToFlush *masterR
 	buff := make([]byte, 0, lm.masterRecordBufferSizeEstimate)
 	buff = masterRecordToFlush.serialize(buff)
 	lm.updateMasterRecordBufferSizeEstimate(len(buff))
-	err := lm.objStore.Put([]byte(lm.conf.MasterRegistryRecordID), buff)
+	err := objstore.PutWithTimeout(lm.objStore, lm.conf.BucketName, lm.conf.MasterRegistryRecordID, buff, objstore.DefaultCallTimeout)
 	if err != nil {
 		return 0, 0, err
 	}

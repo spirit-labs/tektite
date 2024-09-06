@@ -15,7 +15,7 @@ type Manager interface {
 }
 
 func NewSequenceManager(objStore objstore.Client, sequencesObjectName string, lockManager lock.Manager,
-	unavailabilityRetryDelay time.Duration) Manager {
+	unavailabilityRetryDelay time.Duration, bucketName string) Manager {
 	if sequencesObjectName == "" {
 		panic("sequencesObjectName must be specified")
 	}
@@ -29,6 +29,7 @@ func NewSequenceManager(objStore objstore.Client, sequencesObjectName string, lo
 		sequencesObjectName:      sequencesObjectName,
 		availSequencesMap:        map[string]*availSequences{},
 		unavailabilityRetryDelay: unavailabilityRetryDelay,
+		bucketName: bucketName,
 	}
 }
 
@@ -43,6 +44,7 @@ type mgr struct {
 	sequencesObjectName      string
 	availSequencesMap        map[string]*availSequences
 	unavailabilityRetryDelay time.Duration
+	bucketName string
 }
 
 type availSequences struct {
@@ -79,7 +81,7 @@ func (m *mgr) GetNextID(sequenceName string, batchSize int) (int, error) {
 	for {
 		// Get batch of sequences from the object store
 		var err error
-		bytes, err = m.objStore.Get([]byte(m.sequencesObjectName))
+		bytes, err = objstore.GetWithTimeout(m.objStore, m.bucketName, m.sequencesObjectName, objstore.DefaultCallTimeout)
 		if err != nil {
 			if common.IsUnavailableError(err) {
 				// Retry on temporary unavailability
@@ -117,7 +119,7 @@ func (m *mgr) GetNextID(sequenceName string, batchSize int) (int, error) {
 	}
 	// and push the sequences back to the object store
 	for {
-		if err := m.objStore.Put([]byte(m.sequencesObjectName), bytes); err != nil {
+		if err := objstore.PutWithTimeout(m.objStore, m.bucketName, m.sequencesObjectName, bytes, objstore.DefaultCallTimeout); err != nil {
 			if common.IsUnavailableError(err) {
 				log.Warnf("sequence manager unable to contact cloud store to store sequence batch, will retry. %v", err)
 				time.Sleep(m.unavailabilityRetryDelay)

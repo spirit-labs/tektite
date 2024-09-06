@@ -70,6 +70,7 @@ const (
 	DefaultVersionManagerStoreFlushedInterval   = 1 * time.Second
 	DefaultVersionManagerLevelManagerRetryDelay = 250 * time.Millisecond
 
+	DefaultBucketName            = "tektite-bucket"
 	DefaultDevObjectStoreAddress = "127.0.0.1:6690"
 
 	DefaultKafkaInitialJoinDelay       = 3 * time.Second
@@ -153,13 +154,13 @@ type Config struct {
 
 	// Object store config
 	ObjectStoreType         string
+	BucketName              string
 	DevObjectStoreAddresses []string
 
-	MinioEndpoint   string
-	MinioAccessKey  string
-	MinioSecretKey  string
-	MinioBucketName string
-	MinioSecure     bool
+	MinioEndpoint string
+	MinioUsername string
+	MinioPassword string
+	MinioSecure   bool
 
 	// store/processor config
 	ProcessorCount                 int
@@ -496,6 +497,10 @@ func (c *Config) ApplyDefaults() {
 
 	if c.LogScope == "" {
 		c.LogScope = DefaultLogScope
+	}
+
+	if c.BucketName == "" {
+		c.BucketName = DefaultBucketName
 	}
 }
 
