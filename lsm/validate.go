@@ -8,7 +8,7 @@ import (
 	"github.com/spirit-labs/tektite/sst"
 )
 
-// Validate checks the LSM is sound - no overlapping keys in L > 0 etc
+// Validate checks the LSM is sound - no overlapping keys in L > 0, keys in each table are sorted, etc.
 func (lm *Manager) Validate(validateTables bool) error {
 	lse := lm.masterRecord.levelEntries
 	if len(lse) == 0 {
