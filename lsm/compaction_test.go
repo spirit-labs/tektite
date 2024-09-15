@@ -905,7 +905,7 @@ func checkLevelEntries(t *testing.T, lm *Manager, level int, entries ...TableEnt
 	levEntry := lm.GetLevelEntry(level)
 	require.Equal(t, len(entries), len(levEntry.tableEntries))
 	for i, expectedTe := range entries {
-		te := levEntry.tableEntries[i].Get(levEntry)
+		te := getTableEntry(lm, levEntry.tableEntries[i], levEntry)
 		require.Equal(t, expectedTe, *te)
 	}
 }

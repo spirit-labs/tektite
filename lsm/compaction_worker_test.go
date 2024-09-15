@@ -573,7 +573,7 @@ func TestCompactionExpiredPrefix(t *testing.T) {
 		levEntry := lm.GetLevelEntry(i)
 		tableEntries := levEntry.tableEntries
 		for _, lte := range tableEntries {
-			te := lte.Get(levEntry)
+			te := getTableEntry(lm, lte, levEntry)
 			overlap := hasOverlap(prefix1, endRange, te.RangeStart, te.RangeEnd)
 			require.False(t, overlap)
 		}
@@ -650,7 +650,7 @@ func TestCompactionDeadVersions(t *testing.T) {
 		levEntry := lm.GetLevelEntry(i)
 		tableEntries := levEntry.tableEntries
 		for _, lte := range tableEntries {
-			te := lte.Get(levEntry)
+			te := getTableEntry(lm, lte, levEntry)
 			require.Nil(t, te.DeadVersionRanges)
 		}
 	}
@@ -761,7 +761,7 @@ func TestCompactionPrefixDeletions(t *testing.T) {
 			levEntry := lm.GetLevelEntry(i)
 			tableEntries := levEntry.tableEntries
 			for _, lte := range tableEntries {
-				te := lte.Get(levEntry)
+				te := getTableEntry(lm, lte, levEntry)
 				if hasOverlap(prefixes[1], endRange, te.RangeStart, te.RangeEnd) {
 					return false, nil
 				}
@@ -900,4 +900,12 @@ func addTableWithMinMaxVersion(t *testing.T, lm *Manager, tableName string, rang
 			require.NoError(t, err)
 		}
 	}
+}
+
+func getTableEntry(lm *Manager, lte levelTableEntry, le *levelEntry) *TableEntry {
+	// Get is normally called with the Manager lock already held so when used in tests we need the lock too or we have
+	// a race condition
+	lm.lock.Lock()
+	defer lm.lock.Unlock()
+	return lte.Get(le)
 }

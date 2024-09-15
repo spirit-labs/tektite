@@ -1211,7 +1211,7 @@ func verifyTablesInLevel(t *testing.T, lm *Manager, level int, expectedTablePair
 		expectedStart := createKey(start)
 		expectedEnd := createKey(end)
 		lte := levEntry.tableEntries[pos]
-		te := lte.Get(levEntry)
+		te := getTableEntry(lm, lte, levEntry)
 		require.Equal(t, expectedStart, te.RangeStart)
 		require.Equal(t, expectedEnd, te.RangeEnd)
 		pos++
