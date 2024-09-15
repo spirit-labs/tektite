@@ -1202,7 +1202,7 @@ func regTableInLevel(t *testing.T, lm *Manager, level int, keyStart int, keyEnd 
 }
 
 func verifyTablesInLevel(t *testing.T, lm *Manager, level int, expectedTablePairs []int) {
-	levEntry := lm.getLevelEntry(level)
+	levEntry := lm.GetLevelEntry(level)
 	require.Equal(t, len(expectedTablePairs), 2*len(levEntry.tableEntries))
 	pos := 0
 	for i := 0; i < len(expectedTablePairs); i += 2 {
