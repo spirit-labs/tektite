@@ -16,7 +16,7 @@ import (
 	"time"
 )
 
-func TestStateMachine(t *testing.T) {
+func TestStateUpdator(t *testing.T) {
 	t.Parallel()
 	objStore := dev.NewInMemStore(0)
 	numMembers := 5
@@ -25,18 +25,18 @@ func TestStateMachine(t *testing.T) {
 		objStores[i] = objStore
 	}
 	runTime := 3 * time.Second
-	applyLoadAndVerifyStateMachine(t, runTime, numMembers, 10*time.Millisecond, StateMachineOpts{}, objStores)
+	applyLoadAndVerifyStateUpdator(t, runTime, numMembers, 10*time.Millisecond, StateUpdatorOpts{}, objStores)
 }
 
-func TestStateMachineAutoUpdate(t *testing.T) {
+func TestStateUpdatorAutoUpdate(t *testing.T) {
 	t.Parallel()
 	objStore := dev.NewInMemStore(0)
 	updateInterval := 100 * time.Millisecond
-	opts := StateMachineOpts{
+	opts := StateUpdatorOpts{
 		AutoUpdate:         true,
 		AutoUpdateInterval: updateInterval,
 	}
-	member := NewStateMachine[stateMachineState]("bucket1", "prefix1", objStore, opts)
+	member := NewStateUpdator("bucket1", "prefix1", objStore, opts)
 	member.Start()
 	defer member.Stop()
 
@@ -47,14 +47,31 @@ func TestStateMachineAutoUpdate(t *testing.T) {
 	require.GreaterOrEqual(t, member.NextSequence(), int(expectedSequenceMin))
 }
 
-func TestStateMachineJoinMember(t *testing.T) {
+func updateWithBytesFunc(f func(s stateMachineState) (stateMachineState, error)) func(buff []byte) ([]byte, error) {
+	fb := func(buff []byte) ([]byte, error) {
+		var s stateMachineState
+		if buff != nil {
+			if err := json.Unmarshal(buff, &s); err != nil {
+				return nil, err
+			}
+		}
+		s, err := f(s)
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(s)
+	}
+	return fb
+}
+
+func TestStateUpdatorJoinMember(t *testing.T) {
 	t.Parallel()
 	objStore := dev.NewInMemStore(0)
 
 	numInitialMembers := 4
-	members := make([]*StateMachine[stateMachineState], numInitialMembers)
+	members := make([]*StateUpdator, numInitialMembers)
 	for i := 0; i < numInitialMembers; i++ {
-		member := NewStateMachine[stateMachineState]("bucket1", "prefix1", objStore, StateMachineOpts{})
+		member := NewStateUpdator("bucket1", "prefix1", objStore, StateUpdatorOpts{})
 		member.Start()
 		defer member.Stop()
 		members[i] = member
@@ -65,11 +82,11 @@ func TestStateMachineJoinMember(t *testing.T) {
 	expectedSeq := 1
 	for i := 0; i < numUpdates; i++ {
 		for _, member := range members {
-			_, err := member.update(func(s stateMachineState) (stateMachineState, error) {
+			_, err := member.update(updateWithBytesFunc(func(s stateMachineState) (stateMachineState, error) {
 				s.Updates = append(s.Updates, fmt.Sprintf("update-%d", s.Val))
 				s.Val++
 				return s, nil
-			})
+			}))
 			require.NoError(t, err)
 			require.Equal(t, expectedSeq, member.NextSequence())
 			expectedSeq++
@@ -77,15 +94,15 @@ func TestStateMachineJoinMember(t *testing.T) {
 	}
 
 	// Now add a new member
-	member := NewStateMachine[stateMachineState]("bucket1", "prefix1", objStore, StateMachineOpts{})
+	member := NewStateUpdator("bucket1", "prefix1", objStore, StateUpdatorOpts{})
 	member.Start()
 	defer member.Stop()
 
-	_, err := member.update(func(s stateMachineState) (stateMachineState, error) {
+	_, err := member.update(updateWithBytesFunc(func(s stateMachineState) (stateMachineState, error) {
 		s.Updates = append(s.Updates, fmt.Sprintf("update-%d", s.Val))
 		s.Val++
 		return s, nil
-	})
+	}))
 	require.NoError(t, err)
 	// Should catch up and get correct sequence
 	require.Equal(t, expectedSeq, member.NextSequence())
@@ -93,20 +110,20 @@ func TestStateMachineJoinMember(t *testing.T) {
 
 }
 
-func TestStateMachineLatestState(t *testing.T) {
+func TestStateUpdatorLatestState(t *testing.T) {
 	t.Parallel()
 	objStore := dev.NewInMemStore(0)
 
-	opts := StateMachineOpts{
+	opts := StateUpdatorOpts{
 		LatestStateBucketName: "latest-bucket",
 	}
 
 	prefix := "prefix1"
 
 	numMembers := 4
-	members := make([]*StateMachine[stateMachineState], numMembers)
+	members := make([]*StateUpdator, numMembers)
 	for i := 0; i < numMembers; i++ {
-		member := NewStateMachine[stateMachineState]("bucket1", prefix, objStore, opts)
+		member := NewStateUpdator("bucket1", prefix, objStore, opts)
 		member.Start()
 		defer member.Stop()
 		members[i] = member
@@ -118,11 +135,11 @@ func TestStateMachineLatestState(t *testing.T) {
 	expectedSeq := 1
 	for i := 0; i < numUpdates; i++ {
 		for _, member := range members {
-			state, err := member.update(func(s stateMachineState) (stateMachineState, error) {
+			state, err := member.update(updateWithBytesFunc(func(s stateMachineState) (stateMachineState, error) {
 				s.Updates = append(s.Updates, fmt.Sprintf("update-%d", s.Val))
 				s.Val++
 				return s, nil
-			})
+			}))
 			require.NoError(t, err)
 			require.Equal(t, expectedSeq, member.NextSequence())
 			expectedSeq++
@@ -138,7 +155,11 @@ func TestStateMachineLatestState(t *testing.T) {
 			err = json.Unmarshal(latestState, &smState)
 			require.NoError(t, err)
 
-			require.Equal(t, state, smState)
+			var expectedSmState stateMachineState
+			err = json.Unmarshal(state, &expectedSmState)
+			require.NoError(t, err)
+
+			require.Equal(t, expectedSmState, smState)
 		}
 	}
 }
@@ -162,14 +183,14 @@ func TestUnavailabilityRetry(t *testing.T) {
 			objStore.(*unavailableObjStoreProxy).stop()
 		}
 	}()
-	opts := StateMachineOpts{
+	opts := StateUpdatorOpts{
 		AutoUpdate:                false,
 		AvailabilityRetryInterval: 10 * time.Millisecond,
 		MaxTimeBeforeReinitialise: 30 * time.Second,
 	}
 	runTime := 3 * time.Second
-	members := applyLoadAndVerifyStateMachine(t, runTime, numMembers, 10*time.Millisecond, opts, objStores)
-	// Make sure where initialised
+	members := applyLoadAndVerifyStateUpdator(t, runTime, numMembers, 10*time.Millisecond, opts, objStores)
+	// Make sure they are initialised
 	for _, member := range members {
 		require.Equal(t, 0, int(atomic.LoadInt64(&member.reinitCount)))
 		require.Greater(t, int(atomic.LoadInt64(&member.retryCount)), 1)
@@ -195,13 +216,13 @@ func TestUnavailabilityTriggerReinitialise(t *testing.T) {
 			objStore.(*unavailableObjStoreProxy).stop()
 		}
 	}()
-	opts := StateMachineOpts{
+	opts := StateUpdatorOpts{
 		AutoUpdate:                false,
 		AvailabilityRetryInterval: 50 * time.Millisecond,
 		MaxTimeBeforeReinitialise: 500 * time.Millisecond,
 	}
 	runTime := 3 * time.Second
-	members := applyLoadAndVerifyStateMachine(t, runTime, numMembers, 10*time.Millisecond, opts, objStores)
+	members := applyLoadAndVerifyStateUpdator(t, runTime, numMembers, 10*time.Millisecond, opts, objStores)
 	// Make sure where initialised
 	for _, member := range members {
 		require.Greater(t, int(atomic.LoadInt64(&member.reinitCount)), 1)
@@ -213,12 +234,12 @@ type stateMachineState struct {
 	Updates []string
 }
 
-func applyLoadAndVerifyStateMachine(t *testing.T, runTime time.Duration, numMembers int, updateDelay time.Duration,
-	opts StateMachineOpts, objStores []objstore.Client) []*StateMachine[stateMachineState] {
+func applyLoadAndVerifyStateUpdator(t *testing.T, runTime time.Duration, numMembers int, updateDelay time.Duration,
+	opts StateUpdatorOpts, objStores []objstore.Client) []*StateUpdator {
 
-	var members []*StateMachine[stateMachineState]
+	var members []*StateUpdator
 	for i := 0; i < numMembers; i++ {
-		member := NewStateMachine[stateMachineState]("bucket1", "prefix1", objStores[i], opts)
+		member := NewStateUpdator("bucket1", "prefix1", objStores[i], opts)
 		members = append(members, member)
 		members[i] = member
 		member.Start()
@@ -235,11 +256,11 @@ func applyLoadAndVerifyStateMachine(t *testing.T, runTime time.Duration, numMemb
 		member := members[i]
 		go func() {
 			for arista.NanoTime() < endTime {
-				_, err := member.Update(func(s stateMachineState) (stateMachineState, error) {
+				_, err := member.Update(updateWithBytesFunc(func(s stateMachineState) (stateMachineState, error) {
 					s.Updates = append(s.Updates, fmt.Sprintf("update-%d", s.Val))
 					s.Val++
 					return s, nil
-				})
+				}))
 				if err != nil {
 					ch <- err
 					return
@@ -258,9 +279,9 @@ func applyLoadAndVerifyStateMachine(t *testing.T, runTime time.Duration, numMemb
 
 	// Do a final no-op update on each member to make sure it loads final state
 	for _, member := range members {
-		_, err := member.Update(func(state stateMachineState) (stateMachineState, error) {
+		_, err := member.Update(updateWithBytesFunc(func(state stateMachineState) (stateMachineState, error) {
 			return state, nil
-		})
+		}))
 		require.NoError(t, err)
 	}
 
@@ -269,10 +290,13 @@ func applyLoadAndVerifyStateMachine(t *testing.T, runTime time.Duration, numMemb
 	for _, member := range members {
 		// State machine updates should be applied serially with multiple concurrent updates
 		finalState, err := member.GetState()
+		var s stateMachineState
+		err = json.Unmarshal(finalState, &s)
 		require.NoError(t, err)
-		require.Equal(t, totUpdates, finalState.Val)
-		require.Equal(t, totUpdates, len(finalState.Updates))
-		for i, update := range finalState.Updates {
+		require.NoError(t, err)
+		require.Equal(t, totUpdates, s.Val)
+		require.Equal(t, totUpdates, len(s.Updates))
+		for i, update := range s.Updates {
 			require.Equal(t, fmt.Sprintf("update-%d", i), update)
 		}
 	}

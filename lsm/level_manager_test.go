@@ -666,7 +666,7 @@ func setupLevelManagerWithConfigSetter(t *testing.T, enableCompaction bool, vali
 	cloudStore := &dev.InMemStore{}
 	lm := NewManager(&cfg, cloudStore, enableCompaction, validate)
 	mr := NewMasterRecord(common.MetadataFormatV1)
-	err := lm.Start(mr)
+	err := lm.Start(mr.Serialize(nil))
 	require.NoError(t, err)
 	return lm, func(t *testing.T) {
 		err := lm.Stop()
@@ -1202,7 +1202,7 @@ func regTableInLevel(t *testing.T, lm *Manager, level int, keyStart int, keyEnd 
 }
 
 func verifyTablesInLevel(t *testing.T, lm *Manager, level int, expectedTablePairs []int) {
-	levEntry := lm.GetLevelEntry(level)
+	levEntry := lm.getLevelEntry(level)
 	require.Equal(t, len(expectedTablePairs), 2*len(levEntry.tableEntries))
 	pos := 0
 	for i := 0; i < len(expectedTablePairs); i += 2 {

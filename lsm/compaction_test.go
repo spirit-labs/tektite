@@ -902,7 +902,7 @@ func getJob(lm *Manager) (*CompactionJob, error) {
 }
 
 func checkLevelEntries(t *testing.T, lm *Manager, level int, entries ...TableEntry) {
-	levEntry := lm.GetLevelEntry(level)
+	levEntry := lm.getLevelEntry(level)
 	require.Equal(t, len(entries), len(levEntry.tableEntries))
 	for i, expectedTe := range entries {
 		te := getTableEntry(lm, levEntry.tableEntries[i], levEntry)

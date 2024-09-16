@@ -19,8 +19,8 @@ import (
 
 type Manager struct {
 	compactionState
-	lock                      sync.RWMutex
-	started                   bool
+	lock    sync.RWMutex
+	started bool
 	conf                      *conf.Config
 	format                    common.MetadataFormat
 	objStore                  objstore.Client
@@ -56,13 +56,18 @@ func NewManager(conf *conf.Config, cloudStore objstore.Client, enableCompaction 
 	return lm
 }
 
-func (lm *Manager) Start(masterRecord *MasterRecord) error {
+func (lm *Manager) Start(masterRecordBytes []byte) error {
 	lm.lock.Lock()
 	defer lm.lock.Unlock()
 	if lm.started {
 		return nil
 	}
-	lm.masterRecord = masterRecord
+	if len(masterRecordBytes) > 0 {
+		lm.masterRecord = &MasterRecord{}
+		lm.masterRecord.Deserialize(masterRecordBytes, 0)
+	} else {
+		lm.masterRecord = NewMasterRecord(lm.conf.RegistryFormat)
+	}
 	lm.scheduleTableDeleteTimer()
 	// Maybe trigger a compaction as levels could be full
 	if err := lm.maybeScheduleCompaction(); err != nil {
@@ -289,6 +294,18 @@ func (lm *Manager) StoreLastFlushedVersion(lastFlushedVersion int64) error {
 	return nil
 }
 
+func (lm *Manager) GetMasterRecordBytes() []byte {
+	lm.lock.Lock()
+	defer lm.lock.Unlock()
+	buffSize := lm.masterRecord.SerializedSize()
+	buff := make([]byte, 0, buffSize)
+	buff = lm.masterRecord.Serialize(buff)
+	if len(buff) != buffSize {
+		log.Warnf("master record serialized size calculation is incorrect - this could result in unnecessary buffer reallocation")
+	}
+	return buff
+}
+
 func (lm *Manager) getOverlappingTables(keyStart []byte, keyEnd []byte, level int,
 	levEntry *levelEntry) ([]*TableEntry, error) {
 	numTableEntries := len(levEntry.tableEntries)
@@ -446,7 +463,7 @@ func (lm *Manager) applyDeRegistrations(deRegistrations []RegistrationEntry) err
 		if len(deRegistration.KeyStart) == 0 || len(deRegistration.KeyEnd) <= 8 {
 			return errwrap.Errorf("deregistration, key start/end does not have a version: %v", deRegistration)
 		}
-		entry := lm.getLevelEntry(deRegistration.Level)
+		entry := lm.levelEntry(deRegistration.Level)
 		if len(entry.tableEntries) == 0 {
 			// Can occur if deRegistration applied more than once - we need to be idempotent
 			continue
@@ -460,11 +477,7 @@ func (lm *Manager) applyDeRegistrations(deRegistrations []RegistrationEntry) err
 			continue
 		}
 		// Now remove it
-		//newTableEntries := make([]*TableEntry, pos)
-		//copy(newTableEntries, entry.tableEntries[:pos])
-		//newTableEntries = append(newTableEntries, entry.tableEntries[pos+1:]...)
 		entry.RemoveAt(pos)
-
 		// Find the new overall start and end range
 		var newStart, newEnd []byte
 		if deRegistration.Level == 0 {
@@ -484,7 +497,6 @@ func (lm *Manager) applyDeRegistrations(deRegistrations []RegistrationEntry) err
 		}
 		entry.rangeStart = newStart
 		entry.rangeEnd = newEnd
-
 		// Update stats
 		lm.masterRecord.levelTableCounts[deRegistration.Level]--
 		lm.masterRecord.stats.TotTables--
@@ -498,8 +510,7 @@ func (lm *Manager) applyDeRegistrations(deRegistrations []RegistrationEntry) err
 	return nil
 }
 
-// use pointers here - no need to copy
-func (lm *Manager) getLevelEntry(level int) *levelEntry {
+func (lm *Manager) levelEntry(level int) *levelEntry {
 	lm.maybeResizeLevelEntries(level)
 	return lm.masterRecord.levelEntries[level]
 }
@@ -536,7 +547,7 @@ func (lm *Manager) applyRegistrations(registrations []RegistrationEntry) error {
 			Size:             registration.TableSize,
 			NumPrefixDeletes: registration.NumPrefixDeletes,
 		}
-		entry := lm.getLevelEntry(registration.Level)
+		entry := lm.levelEntry(registration.Level)
 		if registration.MaxVersion > entry.maxVersion {
 			entry.maxVersion = registration.MaxVersion
 		}
@@ -580,18 +591,6 @@ func (lm *Manager) applyRegistrations(registrations []RegistrationEntry) error {
 				}
 				// Insert the new entry in the table entries in the right place
 				entry.InsertAt(insertPoint, tabEntry)
-				//var newTableEntries []*TableEntry
-				//if insertPoint >= 0 {
-				//	left := entry.tableEntries[:insertPoint]
-				//	right := entry.tableEntries[insertPoint:]
-				//	newTableEntries = append(newTableEntries, left...)
-				//	newTableEntries = append(newTableEntries, tabEntry)
-				//	newTableEntries = append(newTableEntries, right...)
-				//} else if insertPoint == -1 {
-				//	newTableEntries = append(newTableEntries, entry.tableEntries...)
-				//	newTableEntries = append(newTableEntries, tabEntry)
-				//}
-				//entry.tableEntries = newTableEntries
 			}
 		}
 		// Update the ranges
@@ -771,10 +770,10 @@ func (lm *Manager) reset() {
 	lm.masterRecord = nil
 }
 
-func (lm *Manager) GetLevelEntry(level int) *levelEntry {
+func (lm *Manager) getLevelEntry(level int) *levelEntry {
 	lm.lock.Lock()
 	defer lm.lock.Unlock()
-	return lm.getLevelEntry(level)
+	return lm.levelEntry(level)
 }
 
 // Used in testing only

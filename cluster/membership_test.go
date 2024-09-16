@@ -2,7 +2,6 @@ package cluster
 
 import (
 	"fmt"
-	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/objstore/dev"
 	"github.com/stretchr/testify/require"
 	"math/rand"
@@ -36,14 +35,13 @@ func TestJoinSequential(t *testing.T) {
 		waitForMembers(t, memberships...)
 		state, err := membership.GetState()
 		require.NoError(t, err)
-		require.Equal(t, i+1, state.Epoch)
+		require.Equal(t, i+1, state.ClusterVersion)
 	}
 	require.Equal(t, 1, int(becomeLeaderCalledCount.Load()))
 	for _, membership := range memberships {
 		state, err := membership.GetState()
 		require.NoError(t, err)
-		log.Infof("epoch is %d", state.Epoch)
-		require.Equal(t, numMembers, state.Epoch)
+		require.Equal(t, numMembers, state.ClusterVersion)
 		require.Equal(t, numMembers, len(state.Members))
 		// should be in order of joining
 		for i, membership2 := range memberships {
@@ -76,8 +74,7 @@ func TestJoinParallel(t *testing.T) {
 	for _, membership := range memberships {
 		state, err := membership.GetState()
 		require.NoError(t, err)
-		log.Infof("epoch is %d", state.Epoch)
-		require.Equal(t, numMembers, state.Epoch)
+		require.Equal(t, numMembers, state.ClusterVersion)
 	}
 }
 
@@ -111,7 +108,7 @@ func TestNonLeadersEvicted(t *testing.T) {
 		for _, membership := range memberships {
 			state, err := membership.GetState()
 			require.NoError(t, err)
-			require.Equal(t, numMembers+i+1, state.Epoch)
+			require.Equal(t, numMembers+i+1, state.ClusterVersion)
 		}
 	}
 	finalState, err := memberships[0].GetState()
@@ -160,7 +157,7 @@ func TestLeaderEvicted(t *testing.T) {
 		for _, membership := range memberships {
 			state, err := membership.GetState()
 			require.NoError(t, err)
-			require.Equal(t, numMembers+i+1, state.Epoch)
+			require.Equal(t, numMembers+i+1, state.ClusterVersion)
 		}
 	}
 	for i := 0; i < numMembers; i++ {

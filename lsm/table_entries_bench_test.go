@@ -7,7 +7,7 @@ import (
 
 func BenchmarkSerializeManyTableEntries(b *testing.B) {
 
-	numEntries := 1000000
+	numEntries := 62500
 
 	levEntry := levelEntry{}
 	for i := 0; i < numEntries; i++ {
@@ -16,7 +16,7 @@ func BenchmarkSerializeManyTableEntries(b *testing.B) {
 
 	b.ResetTimer()
 
-	buff := make([]byte, 0, 16*1024*1024)
+	buff := make([]byte, 0, 10*1024*1024)
 
 	for i := 0; i < b.N; i++ {
 		buff = levEntry.Serialize(buff)

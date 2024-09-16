@@ -158,6 +158,13 @@ func TestSerializeDeserializeTableEntryWithDeadVersionRanges(t *testing.T) {
 	require.Equal(t, te, teAfter)
 }
 
+func serializeLevelEntryWithBuffSizeCheck(t *testing.T, le *levelEntry) []byte {
+	bse := le.serializedSize()
+	buff := le.Serialize(nil)
+	require.Equal(t, bse, len(buff))
+	return buff
+}
+
 func TestSerializeDeserializeLevelEntry(t *testing.T) {
 	le1 := levelEntry{}
 	numTableEntries := 10
@@ -171,7 +178,7 @@ func TestSerializeDeserializeLevelEntry(t *testing.T) {
 	// Verify table entries before serialize
 	verifyTableEntries(t, expectedEntries, &le1)
 
-	buff := le1.Serialize(nil)
+	buff := serializeLevelEntryWithBuffSizeCheck(t, &le1)
 
 	// Verify after serialize (levelEntry internal state changes after serialization)
 	verifyTableEntries(t, expectedEntries, &le1)
@@ -208,7 +215,7 @@ func TestSerializeDeserializeLevelEntry(t *testing.T) {
 	verifyTableEntries(t, expectedEntries, &le2)
 
 	// Serialize again
-	buff = le2.Serialize(nil)
+	buff = serializeLevelEntryWithBuffSizeCheck(t, &le2)
 	// Verify after serialize
 	verifyTableEntries(t, expectedEntries, &le2)
 
@@ -223,7 +230,7 @@ func TestSerializeDeserializeLevelEntry(t *testing.T) {
 	verifyTableEntries(t, expectedEntries, &le3)
 
 	// Serialize/deserialize again with no changes
-	buff = le3.Serialize(nil)
+	buff = serializeLevelEntryWithBuffSizeCheck(t, &le3)
 	// Verify after serialize
 	verifyTableEntries(t, expectedEntries, &le2)
 
@@ -276,7 +283,7 @@ func TestSerializeDeserializeLevelEntryRandomUpdates(t *testing.T) {
 				expectedEntries = append(expectedEntries[:index], expectedEntries[index+1:]...)
 			}
 		}
-		buff := le.Serialize(nil)
+		buff := serializeLevelEntryWithBuffSizeCheck(t, &le)
 		verifyTableEntries(t, expectedEntries, &le)
 
 		le2 := levelEntry{}
@@ -348,10 +355,17 @@ func TestSerializeDeserializeMasterRecord(t *testing.T) {
 					Entries: 343,
 					Tables:  66,
 				},
+				2: {
+					Bytes:   456456,
+					Entries: 456,
+					Tables:  234234,
+				},
 			},
 		},
 	}
+	buffSize := mr.SerializedSize()
 	buff := mr.Serialize(nil)
+	require.Equal(t, buffSize, len(buff))
 
 	mrAfter := &MasterRecord{}
 	mrAfter.Deserialize(buff, 0)
