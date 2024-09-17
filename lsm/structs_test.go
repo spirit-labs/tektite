@@ -71,11 +71,8 @@ func TestSerializeDeserializeRegistrationEntry(t *testing.T) {
 
 func TestSerializeDeserializeRegistrationBatch(t *testing.T) {
 	regBatch := &RegistrationBatch{
-		ClusterName:    "test_cluster",
-		ClusterVersion: 23,
-		Compaction:     true,
-		JobID:          "job-12345",
-		ProcessorID:    534343,
+		Compaction:  true,
+		JobID:       "job-12345",
 		Registrations: []RegistrationEntry{{
 			Level:      23,
 			TableID:    sst.SSTableID("sometableid1"),

@@ -9,20 +9,20 @@ import (
 )
 
 // Validate checks the LSM is sound - no overlapping keys in L > 0, keys in each table are sorted, etc.
-func (lm *Manager) Validate(validateTables bool) error {
-	lse := lm.masterRecord.levelEntries
+func (m *Manager) Validate(validateTables bool) error {
+	lse := m.masterRecord.levelEntries
 	if len(lse) == 0 {
 		return nil
 	}
 	for level, levEntry := range lse {
-		if err := lm.validateLevelEntry(level, levEntry, validateTables); err != nil {
+		if err := m.validateLevelEntry(level, levEntry, validateTables); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (lm *Manager) validateLevelEntry(level int, levEntry *levelEntry, validateTables bool) error {
+func (m *Manager) validateLevelEntry(level int, levEntry *levelEntry, validateTables bool) error {
 	var smallestKey, largestKey []byte
 	var prevRangeEnd []byte
 	for _, lte := range levEntry.tableEntries {
@@ -41,7 +41,7 @@ func (lm *Manager) validateLevelEntry(level int, levEntry *levelEntry, validateT
 			prevRangeEnd = te.RangeEnd
 		}
 		if validateTables {
-			if err := lm.validateTable(te); err != nil {
+			if err := m.validateTable(te); err != nil {
 				return err
 			}
 		}
@@ -55,8 +55,8 @@ func (lm *Manager) validateLevelEntry(level int, levEntry *levelEntry, validateT
 	return nil
 }
 
-func (lm *Manager) validateTable(te *TableEntry) error {
-	buff, err := objstore.GetWithTimeout(lm.objStore, lm.conf.BucketName, string(te.SSTableID), objstore.DefaultCallTimeout)
+func (m *Manager) validateTable(te *TableEntry) error {
+	buff, err := objstore.GetWithTimeout(m.objStore, m.opts.SSTableBucketName, string(te.SSTableID), objstore.DefaultCallTimeout)
 	if err != nil {
 		return err
 	}

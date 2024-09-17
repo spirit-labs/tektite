@@ -27,7 +27,7 @@ func TestCompactionIncrementingData(t *testing.T) {
 	l0CompactionTrigger := 4
 	l1CompactionTrigger := 4
 	levelMultiplier := 10
-	lm, tearDown := setup(t, func(cfg *conf.Config) {
+	lm, tearDown := setup(t, func(cfg *ManagerOpts) {
 		cfg.L0CompactionTrigger = l0CompactionTrigger
 		cfg.L1CompactionTrigger = l1CompactionTrigger
 		cfg.L0MaxTablesBeforeBlocking = 2 * l0CompactionTrigger
@@ -94,7 +94,7 @@ func TestCompactionOverwritingData(t *testing.T) {
 	l0CompactionTrigger := 4
 	l1CompactionTrigger := 4
 	levelMultiplier := 10
-	lm, tearDown := setup(t, func(cfg *conf.Config) {
+	lm, tearDown := setup(t, func(cfg *ManagerOpts) {
 		cfg.L0CompactionTrigger = l0CompactionTrigger
 		cfg.L1CompactionTrigger = l1CompactionTrigger
 		cfg.L0MaxTablesBeforeBlocking = 2 * l0CompactionTrigger
@@ -218,7 +218,7 @@ func TestCompactionTombstones(t *testing.T) {
 	l0CompactionTrigger := 4
 	l1CompactionTrigger := 4
 	levelMultiplier := 10
-	lm, tearDown := setup(t, func(cfg *conf.Config) {
+	lm, tearDown := setup(t, func(cfg *ManagerOpts) {
 		cfg.L0CompactionTrigger = l0CompactionTrigger
 		cfg.L1CompactionTrigger = l1CompactionTrigger
 		cfg.L0MaxTablesBeforeBlocking = 2 * l0CompactionTrigger
@@ -328,7 +328,7 @@ func TestRandomUpdateDeleteData(t *testing.T) {
 	l0CompactionTrigger := 4
 	l1CompactionTrigger := 4
 	levelMultiplier := 10
-	lm, tearDown := setup(t, func(cfg *conf.Config) {
+	lm, tearDown := setup(t, func(cfg *ManagerOpts) {
 		cfg.L0CompactionTrigger = l0CompactionTrigger
 		cfg.L1CompactionTrigger = l1CompactionTrigger
 		cfg.L0MaxTablesBeforeBlocking = 2 * l0CompactionTrigger
@@ -489,7 +489,7 @@ func TestCompactionExpiredPrefix(t *testing.T) {
 	l0CompactionTrigger := 4
 	l1CompactionTrigger := 4
 	levelMultiplier := 10
-	lm, tearDown := setup(t, func(cfg *conf.Config) {
+	lm, tearDown := setup(t, func(cfg *ManagerOpts) {
 		cfg.L0CompactionTrigger = l0CompactionTrigger
 		cfg.L1CompactionTrigger = l1CompactionTrigger
 		cfg.L0MaxTablesBeforeBlocking = 2 * l0CompactionTrigger
@@ -584,7 +584,7 @@ func TestCompactionDeadVersions(t *testing.T) {
 	l0CompactionTrigger := 2
 	l1CompactionTrigger := 20
 	levelMultiplier := 10
-	lm, tearDown := setup(t, func(cfg *conf.Config) {
+	lm, tearDown := setup(t, func(cfg *ManagerOpts) {
 		cfg.L0CompactionTrigger = l0CompactionTrigger
 		cfg.L1CompactionTrigger = l1CompactionTrigger
 		cfg.L0MaxTablesBeforeBlocking = 2 * l0CompactionTrigger
@@ -619,7 +619,7 @@ func TestCompactionDeadVersions(t *testing.T) {
 		VersionStart: 1500,
 		VersionEnd:   1550,
 	}
-	err = lm.RegisterDeadVersionRange(rng, "test_cluster", 0)
+	err = lm.RegisterDeadVersionRange(rng)
 	require.NoError(t, err)
 
 	// Add a couple more tables to force the previous once out
@@ -660,7 +660,7 @@ func TestCompactionPrefixDeletions(t *testing.T) {
 	l0CompactionTrigger := 4
 	l1CompactionTrigger := 4
 	levelMultiplier := 10
-	lm, tearDown := setup(t, func(cfg *conf.Config) {
+	lm, tearDown := setup(t, func(cfg *ManagerOpts) {
 		cfg.L0CompactionTrigger = l0CompactionTrigger
 		cfg.L1CompactionTrigger = l1CompactionTrigger
 		cfg.L0MaxTablesBeforeBlocking = 2 * l0CompactionTrigger
@@ -774,7 +774,7 @@ func TestCompactionPrefixDeletions(t *testing.T) {
 
 }
 
-func setup(t *testing.T, cfgFunc func(cfg *conf.Config)) (*Manager, func(t *testing.T)) {
+func setup(t *testing.T, cfgFunc func(cfg *ManagerOpts)) (*Manager, func(t *testing.T)) {
 	lm, tearDown := setupLevelManagerWithConfigSetter(t, true, true, cfgFunc)
 
 	cfg := &conf.Config{}
@@ -869,7 +869,6 @@ func addTableWithMinMaxVersion(t *testing.T, lm *Manager, tableName string, rang
 	minVersion int, maxVersion int) {
 	addedTime := uint64(time.Now().UTC().UnixMilli())
 	regBatch := RegistrationBatch{
-		ClusterName: "test_cluster",
 		Registrations: []RegistrationEntry{
 			{
 				Level:      0,
@@ -884,12 +883,13 @@ func addTableWithMinMaxVersion(t *testing.T, lm *Manager, tableName string, rang
 	}
 	validateRegBatch(regBatch, lm.GetObjectStore(), conf.DefaultBucketName)
 	for {
-		ch := make(chan error, 1)
-		lm.RegisterL0Tables(regBatch, func(err error) {
-			ch <- err
-		})
-		err := <-ch
+		ok, err := lm.ApplyChanges(regBatch, false)
 		if err == nil {
+			if !ok {
+				// l0 full - retry
+				time.Sleep(1 * time.Millisecond)
+				continue
+			}
 			break
 		}
 		if common.IsUnavailableError(err) {

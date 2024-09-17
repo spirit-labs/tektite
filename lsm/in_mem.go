@@ -18,20 +18,12 @@ func (c *InMemClient) QueryTablesInRange(keyStart []byte, keyEnd []byte) (Overla
 	return c.LevelManager.QueryTablesInRange(keyStart, keyEnd)
 }
 
-func (c *InMemClient) RegisterL0Tables(registrationBatch RegistrationBatch) error {
-	ch := make(chan error, 1)
-	c.LevelManager.RegisterL0Tables(registrationBatch, func(err error) {
-		ch <- err
-	})
-	return <-ch
+func (c *InMemClient) ApplyChanges(registrationBatch RegistrationBatch) (bool, error) {
+	return c.LevelManager.ApplyChanges(registrationBatch, false)
 }
 
-func (c *InMemClient) ApplyChanges(registrationBatch RegistrationBatch) error {
-	return c.LevelManager.ApplyChanges(registrationBatch)
-}
-
-func (c *InMemClient) RegisterDeadVersionRange(versionRange VersionRange, clusterName string, clusterVersion int) error {
-	return c.LevelManager.RegisterDeadVersionRange(versionRange, clusterName, clusterVersion)
+func (c *InMemClient) RegisterDeadVersionRange(versionRange VersionRange) error {
+	return c.LevelManager.RegisterDeadVersionRange(versionRange)
 }
 
 func (c *InMemClient) PollForJob() (*CompactionJob, error) {

@@ -53,13 +53,8 @@ func (l *LocalConnection) SendRPC(handlerID int, request []byte) ([]byte, error)
 	go func() {
 		if err := handler(msgCopy, nil, func(response []byte, err error) error {
 			if err != nil {
-				var terr common.TektiteError
-				if !errwrap.As(err, &terr) {
-					terr.Code = common.InternalError
-					terr.Msg = err.Error()
-				}
 				ch <- responseHolder{
-					err: terr,
+					err: maybeConvertError(err),
 				}
 			} else {
 				ch <- responseHolder{
@@ -73,6 +68,18 @@ func (l *LocalConnection) SendRPC(handlerID int, request []byte) ([]byte, error)
 	}()
 	respHolder := <-ch
 	return respHolder.response, respHolder.err
+}
+
+func maybeConvertError(err error) error {
+	if err == nil {
+		return nil
+	}
+	var terr common.TektiteError
+	if !errwrap.As(err, &terr) {
+		terr.Code = common.InternalError
+		terr.Msg = err.Error()
+	}
+	return terr
 }
 
 func (l *LocalConnection) Close() error {

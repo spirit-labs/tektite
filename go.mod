@@ -41,7 +41,7 @@ require (
 	github.com/testcontainers/testcontainers-go/modules/minio v0.33.0
 	github.com/tetratelabs/wazero v1.7.1
 	github.com/tidwall/gjson v1.14.4
-	github.com/timandy/routine v1.1.1
+	github.com/timandy/routine v1.1.4
 	github.com/xdg-go/pbkdf2 v1.0.0
 	github.com/xdg-go/scram v1.1.2
 	github.com/yosuke-furukawa/json5 v0.1.1
