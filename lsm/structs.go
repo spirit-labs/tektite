@@ -250,6 +250,12 @@ type Stats struct {
 	LevelStats     map[int]*LevelStats
 }
 
+func (l *Stats) SerializedSize() int {
+	size := 7*8 + 4
+	size += len(l.LevelStats) * (4 + 3*8)
+	return size
+}
+
 func (l *Stats) Serialize(buff []byte) []byte {
 	buff = encoding.AppendUint64ToBufferLE(buff, uint64(l.TotBytes))
 	buff = encoding.AppendUint64ToBufferLE(buff, uint64(l.TotEntries))
@@ -362,6 +368,25 @@ func NewMasterRecord(format common.MetadataFormat) *MasterRecord {
 	}
 }
 
+func (mr *MasterRecord) SerializedSize() int {
+	size :=
+		1 + // format
+			8 + // version
+			4 + // num levels
+			4 + // num level table counts
+			len(mr.levelTableCounts)*(4+8) + // level table counts
+			4 + // num slab retentions
+			len(mr.slabRetentions)*(8+8) + // slab retentions
+			8 // last flushed version
+	for _, levEntry := range mr.levelEntries {
+		size += levEntry.serializedSize()
+	}
+	if mr.stats != nil {
+		size += mr.stats.SerializedSize()
+	}
+	return size
+}
+
 func (mr *MasterRecord) Serialize(buff []byte) []byte {
 	buff = append(buff, byte(mr.format))
 	buff = encoding.AppendUint64ToBufferLE(buff, mr.version)
@@ -428,9 +453,11 @@ type levelEntry struct {
 	tableEntries     []levelTableEntry
 	tableEntriesBuff []byte
 	addedTablesBuff  []byte
+	totEntrySizes    int
 }
 
 func (le *levelEntry) SetAt(index int, te *TableEntry) {
+	prevLength := le.tableEntries[index].length
 	pos := len(le.addedTablesBuff)
 	le.addedTablesBuff = te.serialize(le.addedTablesBuff)
 	length := uint32(len(le.addedTablesBuff) - pos)
@@ -439,6 +466,7 @@ func (le *levelEntry) SetAt(index int, te *TableEntry) {
 		length: length,
 	}
 	le.tableEntries[index] = lte
+	le.totEntrySizes += int(length - prevLength)
 }
 
 func (le *levelEntry) InsertAt(index int, te *TableEntry) {
@@ -453,13 +481,28 @@ func (le *levelEntry) InsertAt(index int, te *TableEntry) {
 		length: length,
 	}
 	le.tableEntries = insertInSlice(le.tableEntries, index, lte)
+	le.totEntrySizes += int(length)
 }
 
 func (le *levelEntry) RemoveAt(index int) {
+	prevLength := le.tableEntries[index].length
 	le.tableEntries = append(le.tableEntries[:index], le.tableEntries[index+1:]...)
+	le.totEntrySizes -= int(prevLength)
 }
 
 var eightZeroBytes = []byte{0, 0, 0, 0, 0, 0, 0, 0}
+
+func (le *levelEntry) serializedSize() int {
+	return 8 + //  max version
+		4 + // len(rangeStart)
+		len(le.rangeStart) +
+		4 + // len(rangeEnd)
+		len(le.rangeEnd) +
+		8 + // positionPos
+		8 + // num table entries
+		le.totEntrySizes +
+		len(le.tableEntries)*8 // positions
+}
 
 func (le *levelEntry) Serialize(buff []byte) []byte {
 	buff = encoding.AppendUint64ToBufferLE(buff, le.maxVersion)
@@ -467,6 +510,9 @@ func (le *levelEntry) Serialize(buff []byte) []byte {
 	buff = append(buff, le.rangeStart...)
 	buff = encoding.AppendUint32ToBufferLE(buff, uint32(len(le.rangeEnd)))
 	buff = append(buff, le.rangeEnd...)
+	// The positions go at the end of the serialized state, and this is the position in the buffer of the start of the
+	// positions. We fill it in first with zeros (as we don't know the value until we have serialized all the entries),
+	// then we fill it in at the end.
 	positionsPos := len(buff)
 	buff = append(buff, eightZeroBytes...)
 	blockStart := -1
@@ -526,6 +572,7 @@ func (le *levelEntry) Serialize(buff []byte) []byte {
 }
 
 func (le *levelEntry) Deserialize(buff []byte, offset int) int {
+	totEntriesSize := 0
 	le.maxVersion, offset = encoding.ReadUint64FromBufferLE(buff, offset)
 	var l uint32
 	l, offset = encoding.ReadUint32FromBufferLE(buff, offset)
@@ -554,17 +601,23 @@ func (le *levelEntry) Deserialize(buff []byte, offset int) int {
 		pos, offset = encoding.ReadUint64FromBufferLE(buff, offset)
 		le.tableEntries[i].pos = int(pos)
 		if i > 0 {
-			le.tableEntries[i-1].length = uint32(pos - prevPos)
+			l := pos - prevPos
+			totEntriesSize += int(l)
+			le.tableEntries[i-1].length = uint32(l)
 		}
 		prevPos = pos
 	}
 	if numEntries == 1 {
+		totEntriesSize += entriesSize
 		le.tableEntries[0].length = uint32(entriesSize)
 	} else if numEntries > 1 {
 		lastButOne := le.tableEntries[numEntries-2]
-		le.tableEntries[numEntries-1].length = uint32(int(positionPos) - lastButOne.pos - int(lastButOne.length))
+		l := int(positionPos) - lastButOne.pos - int(lastButOne.length)
+		totEntriesSize += l
+		le.tableEntries[numEntries-1].length = uint32(l)
 	}
 	le.addedTablesBuff = nil
+	le.totEntrySizes = totEntriesSize
 	return offset
 }
 

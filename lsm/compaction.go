@@ -77,7 +77,7 @@ func (lm *Manager) maybeScheduleCompaction() error {
 }
 
 func (lm *Manager) getAllL0Tables() ([][]*TableEntry, error) {
-	entry := lm.getLevelEntry(0)
+	entry := lm.levelEntry(0)
 	tableEntries := make([]*TableEntry, len(entry.tableEntries))
 	for i, lte := range entry.tableEntries {
 		tableEntries[i] = lte.Get(entry)
@@ -88,7 +88,7 @@ func (lm *Manager) getAllL0Tables() ([][]*TableEntry, error) {
 func (lm *Manager) scheduleCompaction(level int, tableSlices [][]*TableEntry, completionFunc func(error)) (int, bool, error) {
 	// If we are compacting into the last level, then we delete tombstones
 	var jobs []CompactionJob
-	destLevelEntries := lm.getLevelEntry(level + 1)
+	destLevelEntries := lm.levelEntry(level + 1)
 	destLevelExists := len(destLevelEntries.tableEntries) > 0
 	hasLocked := false
 	now := uint64(time.Now().UTC().UnixMilli())
@@ -409,7 +409,7 @@ func (lm *Manager) chooseTablesToCompact(level int, maxTables int) ([][]*TableEn
 		// We compact the whole level -this is done as a single job, as there can be overlap between L0 tables
 		return lm.getAllL0Tables()
 	}
-	levEntry := lm.getLevelEntry(level)
+	levEntry := lm.levelEntry(level)
 	tables, err := chooseTablesToCompactFromLevel(levEntry, maxTables)
 	if err != nil {
 		return nil, err
@@ -645,7 +645,7 @@ func (lm *Manager) checkForDeadEntries(rng VersionRange) bool {
 func (lm *Manager) forceCompaction(level int, maxTables int) error {
 	lm.lock.Lock()
 	defer lm.lock.Unlock()
-	entries := lm.getLevelEntry(level)
+	entries := lm.levelEntry(level)
 	if len(entries.tableEntries) == 0 {
 		return nil
 	}

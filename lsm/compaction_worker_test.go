@@ -570,7 +570,7 @@ func TestCompactionExpiredPrefix(t *testing.T) {
 
 	endRange := common.IncBigEndianBytes(prefix1)
 	for i := 0; i < lm.getLastLevel(); i++ {
-		levEntry := lm.GetLevelEntry(i)
+		levEntry := lm.getLevelEntry(i)
 		tableEntries := levEntry.tableEntries
 		for _, lte := range tableEntries {
 			te := getTableEntry(lm, lte, levEntry)
@@ -647,7 +647,7 @@ func TestCompactionDeadVersions(t *testing.T) {
 
 	// Should be no dead versions
 	for i := 0; i <= lm.getLastLevel(); i++ {
-		levEntry := lm.GetLevelEntry(i)
+		levEntry := lm.getLevelEntry(i)
 		tableEntries := levEntry.tableEntries
 		for _, lte := range tableEntries {
 			te := getTableEntry(lm, lte, levEntry)
@@ -758,7 +758,7 @@ func TestCompactionPrefixDeletions(t *testing.T) {
 		// There should be no prefix1 in any levels
 		endRange := common.IncBigEndianBytes(prefixes[1])
 		for i := 0; i < lm.getLastLevel(); i++ {
-			levEntry := lm.GetLevelEntry(i)
+			levEntry := lm.getLevelEntry(i)
 			tableEntries := levEntry.tableEntries
 			for _, lte := range tableEntries {
 				te := getTableEntry(lm, lte, levEntry)
