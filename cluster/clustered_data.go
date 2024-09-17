@@ -18,15 +18,15 @@ and then new state stored without fear of another member overwriting the state.
 
 This is used in Tektite for persisting the controller metadata.
 
-A member of the cluster takes ownership of the state by calling `LoadState` which atomically increments an 'epoch' value
+A member of the cluster takes ownership of the data by calling `AcquireData` which atomically increments an 'epoch' value
 in a `StateUpdator` instance and returns the current state, if any.
 
-The owner makes changes to the state then calls `StoreState` to persist it. This stores the state as on object in the
+The owner makes changes to the state then calls `StoreData` to persist it. This stores the state as on object in the
 object store external to the `StateUpdator`. Ideally we would store the state in the `StateUpdator` but the current S3
 implementation of conditional PUTs requires us to create a new object on each update. If the object is large this
 results in a lot of objects and a lot of storage under load.
 
-Before the call to `StoreState` returns a no-op update on `StatePersistor` occurs to read the latest epoch. If this does
+Before the call to `StoreData` returns a no-op update on `StatePersistor` occurs to read the latest epoch. If this does
 not match the epoch the state was stored with thew call returns an error.
 
 The key that we store the state under includes the epoch in it, e.g. `my-data-key-prefix-0000000234`. When data is
@@ -76,7 +76,8 @@ func (mo *ClusteredDataOpts) setDefaults() {
 	}
 }
 
-func (m *ClusteredData) LoadData() ([]byte, error) {
+// AcquireData - increments the epoch atomically then loads the latest data from the previously highest epoch
+func (m *ClusteredData) AcquireData() ([]byte, error) {
 	m.lock.Lock()
 	defer m.lock.Unlock()
 	if m.readyState == clusteredDataStateStopped {
@@ -107,10 +108,12 @@ func (m *ClusteredData) LoadData() ([]byte, error) {
 			// no key found - try with next lower epoch
 			if prevEpoch == 0 {
 				// No data to load
+				log.Debugf("clustered data - no data found for epoch %d", prevEpoch)
 				break
 			}
 			prevEpoch--
 		} else {
+			log.Debugf("clustered data - data found at epoch %d", prevEpoch)
 			break
 		}
 	}
@@ -118,6 +121,7 @@ func (m *ClusteredData) LoadData() ([]byte, error) {
 	return data, nil
 }
 
+// StoreData stores the data, failing if the epoch has been updated by another member since the load
 func (m *ClusteredData) StoreData(data []byte) (bool, error) {
 	m.lock.Lock()
 	defer m.lock.Unlock()
@@ -138,7 +142,7 @@ func (m *ClusteredData) StoreData(data []byte) (bool, error) {
 	currEpoch := buffToEpoch(buff)
 	if currEpoch != m.epoch {
 		// Epoch has changed - fail the store
-		log.Debug("controller failed to store metadata as epoch has changed")
+		log.Warn("controller failed to store metadata as epoch has changed")
 		return false, nil
 	}
 	return true, nil
@@ -165,6 +169,7 @@ func (m *ClusteredData) getWithRetry(dataKey string) ([]byte, error) {
 			return nil, err
 		}
 		// retry
+		logUnavailable(err)
 		time.Sleep(m.opts.AvailabilityRetryInterval)
 	}
 }
@@ -182,8 +187,13 @@ func (m *ClusteredData) putWithRetry(dataKey string, data []byte) error {
 			return err
 		}
 		// retry
+		logUnavailable(err)
 		time.Sleep(m.opts.AvailabilityRetryInterval)
 	}
+}
+
+func logUnavailable(err error) {
+	log.Warnf("object store is unavailable, will retry after delay. %v", err)
 }
 
 func (m *ClusteredData) createDataKey(epoch uint64) string {

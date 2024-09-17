@@ -16,11 +16,11 @@ import (
 )
 
 /*
-StateUpdator persists its state using object storage. Clients concurrently update the state through their own instances
+StateUpdator persists its state in object storage. Clients concurrently update the state through their own instances
 of this struct by supplying a function that takes the previous state and returns the new state. The struct provides
-serializability to updates even though clients are distributed. It can be used as the foundation for various distributed
-concurrency primitives, such as finite state machines, group membership, distributed locks, distributed sequences, and
-more.
+serializability to updates even though clients are distributed. Updates occur as if they happened one after another.
+It can be used as the foundation for various distributed concurrency primitives, such as finite state machines, group
+membership, distributed locks, distributed sequences, and more.
 
 StateUpdator uses conditional writes via the PutIfNotExists method of the object store. This method atomically stores an
 object only if no existing object with the same key is present.
@@ -62,9 +62,9 @@ type StateUpdator struct {
 	stateKeyPrefix string
 	keyBucket      string
 	objStoreClient objstore.Client
-	memberID string
-	opts     StateUpdatorOpts
-	started  bool
+	memberID       string
+	opts           StateUpdatorOpts
+	started        bool
 	stopping       atomic.Bool
 	updateTimer    *time.Timer
 	lastUpdateTime int64

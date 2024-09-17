@@ -15,7 +15,7 @@ func TestClusteredData(t *testing.T) {
 	cd1 := NewClusteredData("statebucket", "stateprefix",
 		"databucket", "dataprefix", objStore, ClusteredDataOpts{})
 
-	data, err := cd1.LoadData()
+	data, err := cd1.AcquireData()
 	require.NoError(t, err)
 	require.Nil(t, data)
 
@@ -28,7 +28,7 @@ func TestClusteredData(t *testing.T) {
 	cd2 := NewClusteredData("statebucket", "stateprefix",
 		"databucket", "dataprefix", objStore, ClusteredDataOpts{})
 
-	data, err = cd2.LoadData()
+	data, err = cd2.AcquireData()
 	require.NoError(t, err)
 	require.NotNil(t, data)
 	require.Equal(t, sData, string(data))
@@ -39,7 +39,7 @@ func TestClusteredData(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, ok)
 
-	data, err = cd2.LoadData()
+	data, err = cd2.AcquireData()
 	require.NoError(t, err)
 	require.NotNil(t, data)
 	require.Equal(t, sData, string(data))
@@ -56,7 +56,7 @@ func TestClusteredData(t *testing.T) {
 	cd3 := NewClusteredData("statebucket", "stateprefix",
 		"databucket", "dataprefix", objStore, ClusteredDataOpts{})
 
-	data, err = cd3.LoadData()
+	data, err = cd3.AcquireData()
 	require.NoError(t, err)
 	require.NotNil(t, data)
 	require.Equal(t, sData, string(data))
@@ -74,16 +74,16 @@ func TestClusteredDataReadyState(t *testing.T) {
 	require.Equal(t, "not loaded", err.Error())
 	require.False(t, ok)
 
-	_, err = cd.LoadData()
+	_, err = cd.AcquireData()
 	require.NoError(t, err)
 
 	// Can load more than once
-	_, err = cd.LoadData()
+	_, err = cd.AcquireData()
 	require.NoError(t, err)
 
 	cd.Stop()
 
-	_, err = cd.LoadData()
+	_, err = cd.AcquireData()
 	require.Error(t, err)
 	require.Equal(t, "stopped", err.Error())
 
@@ -122,7 +122,7 @@ func TestClusteredDataConcurrency(t *testing.T) {
 	// Check final state
 	cd := NewClusteredData("statebucket", "stateprefix",
 		"databucket", "dataprefix", objStore, ClusteredDataOpts{})
-	data, err := cd.LoadData()
+	data, err := cd.AcquireData()
 	require.NoError(t, err)
 
 	m := deserializeMap(data)
@@ -148,7 +148,7 @@ func (r *runner) run() error {
 		for {
 			cd := NewClusteredData("statebucket", "stateprefix",
 				"databucket", "dataprefix", r.objStore, ClusteredDataOpts{})
-			data, err := cd.LoadData()
+			data, err := cd.AcquireData()
 			if err != nil {
 				return err
 			}

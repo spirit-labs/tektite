@@ -15,7 +15,7 @@ type Membership struct {
 	updateTimer          *time.Timer
 	lock                 sync.Mutex
 	started              bool
-	stateMachine         *StateUpdator
+	stateUpdator         *StateUpdator
 	address              string
 	leader               bool
 	becomeLeaderCallback func()
@@ -25,7 +25,7 @@ func NewMembership(bucket string, keyPrefix string, address string, objStoreClie
 	evictionInterval time.Duration, becomeLeaderCallback func()) *Membership {
 	return &Membership{
 		address:              address,
-		stateMachine:         NewStateUpdator(bucket, keyPrefix, objStoreClient, StateUpdatorOpts{}),
+		stateUpdator:         NewStateUpdator(bucket, keyPrefix, objStoreClient, StateUpdatorOpts{}),
 		updateInterval:       updateInterval,
 		evictionInterval:     evictionInterval,
 		becomeLeaderCallback: becomeLeaderCallback,
@@ -38,7 +38,7 @@ func (m *Membership) Start() {
 	if m.started {
 		return
 	}
-	m.stateMachine.Start()
+	m.stateUpdator.Start()
 	m.scheduleTimer()
 	m.started = true
 }
@@ -51,7 +51,7 @@ func (m *Membership) Stop() {
 	}
 	m.started = false
 	m.updateTimer.Stop()
-	m.stateMachine.Stop()
+	m.stateUpdator.Stop()
 }
 
 func (m *Membership) scheduleTimer() {
@@ -71,7 +71,7 @@ func (m *Membership) updateOnTimer() {
 }
 
 func (m *Membership) update() error {
-	buff, err := m.stateMachine.Update(m.updateState)
+	buff, err := m.stateUpdator.Update(m.updateState)
 	if err != nil {
 		return err
 	}
@@ -147,7 +147,7 @@ func (m *Membership) GetState() (MembershipState, error) {
 	if !m.started {
 		return MembershipState{}, errors.New("not started")
 	}
-	buff, err := m.stateMachine.GetState()
+	buff, err := m.stateUpdator.GetState()
 	if err != nil {
 		return MembershipState{}, err
 	}
