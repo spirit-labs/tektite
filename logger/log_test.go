@@ -6,6 +6,13 @@ import (
 	"testing"
 )
 
+func TestGlobalLoggerWithoutExplicitlyInitializing(t *testing.T) {
+	Debugf("testing %s", "test")
+	Infof("testing %s", "test")
+	Warnf("testing %s", "test")
+	Errorf("testing %s", "test")
+}
+
 func TestTektiteLoggerEnabledLevels(t *testing.T) {
 	config := Config{
 		Level:  "warn",
