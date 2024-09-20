@@ -435,6 +435,8 @@ func convertNetworkError(err error) error {
 }
 
 func (s *SocketConnection) createRequest(handlerID int, request []byte) ([]byte, chan responseHolder) {
+	s.lock.Lock()
+	defer s.lock.Unlock()
 	/*
 			The request wire format is as follows:
 			1. message length - int, 4 bytes, big endian
@@ -451,8 +453,6 @@ func (s *SocketConnection) createRequest(handlerID int, request []byte) ([]byte,
 	binary.BigEndian.PutUint64(buff[14:], uint64(handlerID))
 	copy(buff[22:], request)
 	ch := make(chan responseHolder, 1)
-	s.lock.Lock()
-	defer s.lock.Unlock()
 	s.responseChannels[s.correlationIDSequence] = ch
 	s.correlationIDSequence++
 	return buff, ch
