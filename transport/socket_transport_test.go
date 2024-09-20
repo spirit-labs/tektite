@@ -23,12 +23,12 @@ const (
 )
 
 func TestSocketTransportNoTls(t *testing.T) {
-	serverFactor, connFactory := setup2(t, conf.TLSConfig{}, nil)
+	serverFactor, connFactory := setup(t, conf.TLSConfig{}, nil)
 	runTestCases(t, serverFactor, connFactory)
 }
 
 func TestSocketTransportServerTls(t *testing.T) {
-	serverFactory, connFactory := setup2(t, conf.TLSConfig{
+	serverFactory, connFactory := setup(t, conf.TLSConfig{
 		Enabled:  true,
 		KeyPath:  serverKeyPath,
 		CertPath: serverCertPath,
@@ -39,7 +39,7 @@ func TestSocketTransportServerTls(t *testing.T) {
 }
 
 func TestSocketTransportMutualTls(t *testing.T) {
-	serverFactory, connFactory := setup2(t, conf.TLSConfig{
+	serverFactory, connFactory := setup(t, conf.TLSConfig{
 		Enabled:         true,
 		KeyPath:         serverKeyPath,
 		CertPath:        serverCertPath,
@@ -107,8 +107,8 @@ func TestWriteErrorServerNotAvailable(t *testing.T) {
 	require.True(t, common.IsTektiteErrorWithCode(err, common.Unavailable))
 }
 
-func setup2(t *testing.T, serverTlsConf conf.TLSConfig, clientTlsConf *client.TLSConfig) (ServerFactory, ConnectionFactory) {
-	serverfactory := func(t *testing.T) Server {
+func setup(t *testing.T, serverTlsConf conf.TLSConfig, clientTlsConf *client.TLSConfig) (ServerFactory, ConnectionFactory) {
+	serverFactory := func(t *testing.T) Server {
 		address, err := common.AddressWithPort("localhost")
 		require.NoError(t, err)
 		server := NewSocketServer(address, serverTlsConf)
@@ -119,37 +119,5 @@ func setup2(t *testing.T, serverTlsConf conf.TLSConfig, clientTlsConf *client.TL
 	cl, err := NewSocketClient(clientTlsConf)
 	require.NoError(t, err)
 	connFactory := cl.CreateConnection
-	return serverfactory, connFactory
+	return serverFactory, connFactory
 }
-//
-//func createSocketServer(t *testing.T) {
-//	address, err := common.AddressWithPort("localhost")
-//	require.NoError(t, err)
-//	server := NewSocketServer(address, serverTlsConf)
-//	err = server.Start()
-//	require.NoError(t, err)
-//}
-//
-//func setup(serverTlsConf conf.TLSConfig, clientTlsConf *client.TLSConfig) setUpFunc {
-//	return func(t *testing.T) ([]Server, ConnectionFactory, func(*testing.T)) {
-//		nodeCount := 5
-//		transports := make([]Server, nodeCount)
-//		for i := 0; i < nodeCount; i++ {
-//			address, err := common.AddressWithPort("localhost")
-//			require.NoError(t, err)
-//			server := NewSocketServer(address, serverTlsConf)
-//			err = server.Start()
-//			require.NoError(t, err)
-//			transports[i] = server
-//		}
-//		cl, err := NewSocketClient(clientTlsConf)
-//		require.NoError(t, err)
-//		tearDown := func(t *testing.T) {
-//			for _, transport := range transports {
-//				err := transport.(*SocketServer).Stop()
-//				require.NoError(t, err)
-//			}
-//		}
-//		return transports, cl.CreateConnection, tearDown
-//	}
-//}
