@@ -65,7 +65,7 @@ func (s *SocketServer) Start() error {
 	s.started = true
 	s.acceptLoopExitGroup.Add(1)
 	common.Go(s.acceptLoop)
-	log.Debugf("started socket transport server on address %s", s.address)
+	log.Infof("started socket transport server on address %s", s.address)
 	return nil
 }
 
@@ -280,6 +280,14 @@ func (c *serverConnection) handleMessage(buff []byte) error {
 	if !ok {
 		return errors.Errorf("no handler found with id %d", handlerID)
 	}
+	/*
+		The response wire format is as follows:
+		1. message length - int, 4 bytes, big endian
+		2. socket transport version - int - 2 bytes, big endian
+		3. correlation id - int - 8 bytes, big endian
+		4. OK/error - byte, 0 if OK, 1 if error response
+		5. the operation specific response bytes
+	*/
 	responseBuff := make([]byte, 15, responseBuffInitialSize)
 	return handler(buff[18:], responseBuff, func(response []byte, err error) error {
 		if err != nil {
@@ -427,8 +435,14 @@ func convertNetworkError(err error) error {
 }
 
 func (s *SocketConnection) createRequest(handlerID int, request []byte) ([]byte, chan responseHolder) {
-	s.lock.Lock()
-	defer s.lock.Unlock()
+	/*
+			The request wire format is as follows:
+			1. message length - int, 4 bytes, big endian
+			2. socket transport version - int - 2 bytes, big endian
+			3. correlation id - int - 8 bytes, big endian
+		    4. handler id - int - 8 bytes, big endian
+			5. the operation specific response bytes
+	*/
 	length := len(request) + 22
 	buff := make([]byte, length)
 	binary.BigEndian.PutUint32(buff, uint32(length-4))
@@ -437,6 +451,8 @@ func (s *SocketConnection) createRequest(handlerID int, request []byte) ([]byte,
 	binary.BigEndian.PutUint64(buff[14:], uint64(handlerID))
 	copy(buff[22:], request)
 	ch := make(chan responseHolder, 1)
+	s.lock.Lock()
+	defer s.lock.Unlock()
 	s.responseChannels[s.correlationIDSequence] = ch
 	s.correlationIDSequence++
 	return buff, ch
