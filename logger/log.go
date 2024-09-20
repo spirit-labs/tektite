@@ -40,6 +40,10 @@ var globalLevel zapcore.Level
 var DebugEnabled = false
 var loggersByName = make(map[string]*TektiteLogger)
 
+func init() {
+	initialise(zapcore.InfoLevel, "console", false)
+}
+
 type Config struct {
 	Format string `help:"Format to write log lines in" enum:"console,json" default:"console"`
 	Level  string `help:"Lowest log level that will be emitted" enum:"debug,info,warn,error" default:"info"`
