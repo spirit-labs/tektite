@@ -204,7 +204,7 @@ func (t *TektiteLogger) Infof(format string, args ...interface{}) {
 }
 
 func (t *TektiteLogger) Debug(args ...interface{}) {
-	if !DebugEnabled {
+	if !t.debugEnabled {
 		return
 	}
 	t.log.Debug(append([]interface{}{t.prefix}, args...)...)
