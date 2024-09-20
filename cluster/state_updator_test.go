@@ -107,7 +107,6 @@ func TestStateUpdatorJoinMember(t *testing.T) {
 	// Should catch up and get correct sequence
 	require.Equal(t, expectedSeq, member.NextSequence())
 	expectedSeq++
-
 }
 
 func TestStateUpdatorLatestState(t *testing.T) {
@@ -277,11 +276,9 @@ func applyLoadAndVerifyStateUpdator(t *testing.T, runTime time.Duration, numMemb
 		require.NoError(t, err)
 	}
 
-	// Do a final no-op update on each member to make sure it loads final state
+	// Do a final fetch on each member to make sure it loads final state
 	for _, member := range members {
-		_, err := member.Update(updateWithBytesFunc(func(state stateMachineState) (stateMachineState, error) {
-			return state, nil
-		}))
+		_, err := member.FetchLatestState()
 		require.NoError(t, err)
 	}
 

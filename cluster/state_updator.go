@@ -183,9 +183,22 @@ func (s *StateUpdator) extractSequenceFromKey(key string) (int, error) {
 	return math.MaxInt64 - i, nil
 }
 
-// Update updates the state based on the previous state. The update function provides the operation to update the state
-// based on the previous state, returning the new state which will be stored. The function returns when the new state
-// has been committed to object storage, or an error occurs.
+func (s *StateUpdator) GetState() ([]byte, error) {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+	return s.state, nil
+}
+
+// FetchLatestState fetches the latest state by performing a no-op update.
+func (s *StateUpdator) FetchLatestState() ([]byte, error) {
+	return s.Update(func(buffer []byte) ([]byte, error) {
+		return buffer, nil
+	})
+}
+
+// The Update function provides the operation to update the state based on the previous state, returning the new state which will be stored.
+// Through the use of the monotonically-decreasing sequence number, it ensures that the update is based on the latest state.
+// The function returns when the new state has been committed to object storage, or an error occurs.
 func (s *StateUpdator) Update(updateFunc func(state []byte) ([]byte, error)) ([]byte, error) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
@@ -326,10 +339,4 @@ func (s *StateUpdator) initInner() error {
 		s.state = nil
 	}
 	return nil
-}
-
-func (s *StateUpdator) GetState() ([]byte, error) {
-	s.lock.Lock()
-	defer s.lock.Unlock()
-	return s.state, nil
 }
