@@ -1,8 +1,15 @@
 module github.com/spirit-labs/tektite
 
-go 1.21
+go 1.22
 
-toolchain go1.22.3
+toolchain go1.22.4
+
+//ToDo: remove this when we get a new release > v0.33.0 in testcontainers-go
+replace (
+	github.com/testcontainers/testcontainers-go => github.com/testcontainers/testcontainers-go v0.33.1-0.20240920111606-b823aad932f7
+	github.com/testcontainers/testcontainers-go/modules/kafka => github.com/testcontainers/testcontainers-go/modules/kafka v0.33.1-0.20240920111606-b823aad932f7
+	github.com/testcontainers/testcontainers-go/modules/minio => github.com/testcontainers/testcontainers-go/modules/minio v0.33.1-0.20240920111606-b823aad932f7
+)
 
 require (
 	github.com/alecthomas/kong v0.2.17

@@ -3,10 +3,12 @@ package testutils
 import (
 	"context"
 	"fmt"
+	"os"
+	"sync"
+
 	"github.com/docker/go-connections/nat"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
-	"sync"
 )
 
 type EtcdHolder struct {
@@ -22,7 +24,7 @@ func (e *EtcdHolder) Stop() {
 	if !e.started {
 		return
 	}
-	if err := e.container.Stop(context.Background(), nil); err != nil {
+	if err := e.container.Terminate(context.Background()); err != nil {
 		panic(err)
 	}
 	e.started = false
@@ -33,6 +35,11 @@ func (e *EtcdHolder) Address() string {
 }
 
 func CreateEtcdContainer() (*EtcdHolder, error) {
+	// Currently, Podman doesn't support Ryuk
+	// Raised an issue on testcontainers-go
+	// https://github.com/testcontainers/testcontainers-go/issues/2781
+	// ToDo: Remove the below line once the above issue is resolved
+	os.Setenv("TESTCONTAINERS_RYUK_DISABLED", "true")
 	ctx := context.Background()
 	req := testcontainers.ContainerRequest{
 		Image:        "gcr.io/etcd-development/etcd:v3.5.10",
