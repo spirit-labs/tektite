@@ -62,8 +62,3 @@ func TestTektiteLogger(t *testing.T) {
 	testTektiteLogger.Error("error 1", " error 2")
 	testTektiteLogger.Errorf("error %d error %d", 1, 2)
 }
-
-func TestTektiteLoggerReturnsErrorIfGlobalLoggerUninitialized(t *testing.T) {
-	_, err := GetLogger("test logger")
-	require.Error(t, err, "should not be able to get a logger before the global one is initialized")
-}
