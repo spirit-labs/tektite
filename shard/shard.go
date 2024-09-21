@@ -137,9 +137,6 @@ func (s *LsmShard) maybeRetryApplies0() error {
 			return queuedReg.completionFunc(err)
 		}
 		if ok {
-			if queuedReg.completionFunc == nil {
-				log.Infof("foo")
-			}
 			completionFuncs = append(completionFuncs, queuedReg.completionFunc)
 			pos++
 		} else {
@@ -179,10 +176,6 @@ func (s *LsmShard) maybeRetryApplies0() error {
 		}
 		// Call the completions
 		for _, cf := range completionFuncs {
-			log.Infof("calling cf %v", cf)
-			if cf == nil {
-				log.Infof("foo")
-			}
 			if err := cf(nil); err != nil {
 				log.Errorf("failed to apply completion function: %v", err)
 			}

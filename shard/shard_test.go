@@ -2,7 +2,6 @@ package shard
 
 import (
 	"github.com/google/uuid"
-	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/lsm"
 	"github.com/spirit-labs/tektite/objstore/dev"
 	"github.com/spirit-labs/tektite/sst"
@@ -123,9 +122,7 @@ func TestApplyChangesL0Full(t *testing.T) {
 		batch := createBatch(0, tableID, keyStart, keyEnd)
 		ch := make(chan error, 1)
 		chans = append(chans, ch)
-		index := i
 		err = shard.ApplyLsmChanges(batch, func(err error) error {
-			log.Infof("calling completion %d", index)
 			cc.Store(true)
 			ch <- err
 			return nil

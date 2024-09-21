@@ -106,8 +106,7 @@ func expectedShardMemberMapping(numShards int, members []cluster.MembershipEntry
 
 func TestClientNoMembersOnCreation(t *testing.T) {
 	numShards := 10
-	numMembers := 3
-	managers, tearDown := setupManagers(t, numMembers, numShards)
+	managers, tearDown := setupManagers(t, 1, numShards)
 	defer tearDown(t)
 
 	// There are no members in the cluster at this point
@@ -121,10 +120,9 @@ func TestClientNoMembersOnCreation(t *testing.T) {
 
 func TestClientWrongClusterVersion(t *testing.T) {
 	numShards := 10
-	numMembers := 3
-	managers, tearDown := setupManagers(t, numMembers, numShards)
+	managers, tearDown := setupManagers(t, 1, numShards)
 	defer tearDown(t)
-	updateMembership(t, 1, managers, 0, 1, 2)
+	updateMembership(t, 1, managers, 0)
 
 	keyStart := []byte("key000001")
 	keyEnd := []byte("key000010")
@@ -135,7 +133,7 @@ func TestClientWrongClusterVersion(t *testing.T) {
 	require.NoError(t, err)
 
 	// Now update membership again so cluster version increases
-	updateMembership(t, 2, managers, 0, 1)
+	updateMembership(t, 2, managers, 0)
 
 	err = cl.ApplyLsmChanges(batch)
 	require.Error(t, err)
@@ -150,11 +148,10 @@ func TestClientWrongClusterVersion(t *testing.T) {
 
 func TestManagerUseClosedClient(t *testing.T) {
 	numShards := 10
-	numMembers := 3
-	managers, tearDown := setupManagers(t, numMembers, numShards)
+	managers, tearDown := setupManagers(t, 1, numShards)
 	defer tearDown(t)
 
-	updateMembership(t, 1, managers, 0, 1, 2)
+	updateMembership(t, 1, managers, 0)
 
 	cl, err := managers[0].Client(7)
 	require.NoError(t, err)
@@ -191,11 +188,10 @@ func TestManagerUseClosedClient(t *testing.T) {
 
 func TestManagerApplyChanges(t *testing.T) {
 	numShards := 10
-	numMembers := 3
-	managers, tearDown := setupManagers(t, numMembers, numShards)
+	managers, tearDown := setupManagers(t, 1, numShards)
 	defer tearDown(t)
 
-	updateMembership(t, 1, managers, 0, 1, 2)
+	updateMembership(t, 1, managers, 0)
 
 	cl, err := managers[0].Client(7)
 	require.NoError(t, err)
@@ -230,18 +226,63 @@ func TestManagerApplyChanges(t *testing.T) {
 	require.Equal(t, tableID, []byte(resTableID))
 }
 
+func TestManagerGetOffsets(t *testing.T) {
+	numShards := 10
+	managers, tearDown := setupManagersWithOffsetProviders(t, 1, numShards, testTopicProvider, testOffsetLoader)
+	defer tearDown(t)
+
+	updateMembership(t, 1, managers, 0)
+
+	cl, err := managers[0].Client(7)
+	require.NoError(t, err)
+	defer func() {
+		err := cl.Close()
+		require.NoError(t, err)
+	}()
+
+	offsets, err := cl.GetOffsets([]GetOffsetInfo{
+		{
+			TopicID:     7,
+			PartitionID: 0,
+			NumOffsets:  100,
+		},
+		{
+			TopicID:     7,
+			PartitionID: 1,
+			NumOffsets:  200,
+		},
+		{
+			TopicID:     8,
+			PartitionID: 0,
+			NumOffsets:  150,
+		},
+	})
+	require.NoError(t, err)
+	require.Equal(t, 3, len(offsets))
+
+	require.Equal(t, 1234+1, int(offsets[0]))
+	require.Equal(t, 3456+1, int(offsets[1]))
+	require.Equal(t, 5678+1, int(offsets[2]))
+	require.NoError(t, err)
+}
+
 func setupManagers(t *testing.T, numMembers int, numShards int) ([]*Manager, func(t *testing.T)) {
+	topicProvider := &testTopicInfoProvider{}
+	offsetLoader := &testPartitionOffsetLoader{}
+	return setupManagersWithOffsetProviders(t, numMembers, numShards, topicProvider, offsetLoader)
+}
+
+func setupManagersWithOffsetProviders(t *testing.T, numMembers int, numShards int, topicProvider topicInfoProvider,
+	offsetLoader partitionOffsetLoader) ([]*Manager, func(t *testing.T)) {
 	localTransports := transport.NewLocalTransports()
-	var addresses []string
 	var managers []*Manager
 	for i := 0; i < numMembers; i++ {
 		address := uuid.New().String()
-		addresses = append(addresses, address)
 		transportServer, err := localTransports.NewLocalServer(address)
 		require.NoError(t, err)
 		objStore := dev.NewInMemStore(0)
 		mgr := NewManager(numShards, stateUpdatorBucketName, stateUpdatorKeyprefix, dataBucketName, dataKeyprefix,
-			objStore, localTransports.CreateConnection, transportServer, lsm.ManagerOpts{})
+			objStore, localTransports.CreateConnection, transportServer, topicProvider, offsetLoader, lsm.ManagerOpts{})
 		err = mgr.Start()
 		require.NoError(t, err)
 		managers = append(managers, mgr)
@@ -252,4 +293,20 @@ func setupManagers(t *testing.T, numMembers int, numShards int) ([]*Manager, fun
 			require.NoError(t, err)
 		}
 	}
+}
+
+type testTopicInfoProvider struct {
+	infos []TopicInfo
+}
+
+func (t *testTopicInfoProvider) GetTopicsForShard(shardID int) ([]TopicInfo, error) {
+	return t.infos, nil
+}
+
+type testPartitionOffsetLoader struct {
+	offsets []StoredOffset
+}
+
+func (t *testPartitionOffsetLoader) LoadOffsetsForShard(shardID int) ([]StoredOffset, error) {
+	return t.offsets, nil
 }
