@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"github.com/google/uuid"
 	"github.com/spirit-labs/tektite/asl/conf"
-	"github.com/spirit-labs/tektite/kafkaserver/protocol"
+	"github.com/spirit-labs/tektite/kafkaprotocol"
 	"github.com/spirit-labs/tektite/opers"
 	"github.com/spirit-labs/tektite/types"
 	"github.com/stretchr/testify/require"
@@ -60,7 +60,7 @@ func TestInitialJoinNoMemberID(t *testing.T) {
 	res := callJoinGroupSyncWithApiVersion(gc, groupID, clientID, "", defaultProtocolType,
 		protocols, defaultSessionTimeout, defaultRebalanceTimeout, 4)
 	require.True(t, time.Now().Sub(start) < defaultInitialJoinDelay) // Should be no delay
-	require.Equal(t, protocol.ErrorCodeUnknownMemberID, res.ErrorCode)
+	require.Equal(t, kafkaprotocol.ErrorCodeUnknownMemberID, res.ErrorCode)
 	require.True(t, strings.HasPrefix(res.MemberID, clientID))
 	require.Equal(t, 37, len(res.MemberID)-len(clientID))
 	require.Equal(t, "", res.LeaderMemberID)
@@ -83,7 +83,7 @@ func TestInitialMemberJoinAfterDelay(t *testing.T) {
 	start := time.Now()
 	res := callJoinGroupSync(gc, groupID, clientID, "", defaultProtocolType,
 		protocols, defaultSessionTimeout, defaultRebalanceTimeout)
-	require.Equal(t, protocol.ErrorCodeNone, res.ErrorCode)
+	require.Equal(t, kafkaprotocol.ErrorCodeNone, res.ErrorCode)
 	dur := time.Now().Sub(start)
 	require.True(t, dur >= defaultInitialJoinDelay)
 	require.True(t, strings.HasPrefix(res.MemberID, clientID))
@@ -132,7 +132,7 @@ func TestJoinMultipleMembersBeforeInitialDelay(t *testing.T) {
 		// It's twice defaultInitialJoinDelay because we delay once, and if any new members join since last delay we
 		// delay again, until no new members join.
 		require.True(t, time.Now().Sub(start) >= 2*initialJoinDelay)
-		require.Equal(t, protocol.ErrorCodeNone, res.ErrorCode)
+		require.Equal(t, kafkaprotocol.ErrorCodeNone, res.ErrorCode)
 		require.True(t, strings.HasPrefix(res.MemberID, defaultClientID))
 		require.Equal(t, 37, len(res.MemberID)-len(defaultClientID))
 		require.Equal(t, defaultProtocolName, res.ProtocolName)
@@ -193,7 +193,7 @@ func TestExtendInitialJoinDelayToRebalanceTimeout(t *testing.T) {
 		require.True(t, delay > rebalanceTimeout)
 		require.True(t, delay < rebalanceTimeout+initialJoinDelay)
 
-		require.Equal(t, protocol.ErrorCodeNone, res.ErrorCode)
+		require.Equal(t, kafkaprotocol.ErrorCodeNone, res.ErrorCode)
 		require.True(t, strings.HasPrefix(res.MemberID, defaultClientID))
 		require.Equal(t, 37, len(res.MemberID)-len(defaultClientID))
 		require.Equal(t, defaultProtocolName, res.ProtocolName)
@@ -254,7 +254,7 @@ func testChooseProtocol(t *testing.T, infos [][]ProtocolInfo, expectedProtocol s
 	}
 	for _, ch := range chans {
 		res := <-ch
-		require.Equal(t, protocol.ErrorCodeNone, res.ErrorCode)
+		require.Equal(t, kafkaprotocol.ErrorCodeNone, res.ErrorCode)
 		require.Equal(t, expectedProtocol, res.ProtocolName)
 	}
 }
@@ -270,7 +270,7 @@ func TestJoinUnsupportedProtocol(t *testing.T) {
 
 	protocols2 := []ProtocolInfo{{"prot3", []byte("foo")}, {"prot4", []byte("foo")}}
 	res = callJoinGroupSync(gc, groupID, defaultClientID, "", "pt1", protocols2, defaultSessionTimeout, defaultRebalanceTimeout)
-	require.Equal(t, protocol.ErrorCodeInconsistentGroupProtocol, res.ErrorCode)
+	require.Equal(t, kafkaprotocol.ErrorCodeInconsistentGroupProtocol, res.ErrorCode)
 }
 
 func TestJoinNotController(t *testing.T) {
@@ -283,7 +283,7 @@ func TestJoinNotController(t *testing.T) {
 			if gc != coordinator {
 				res := callJoinGroupSync(gc, groupID, defaultClientID, "", defaultProtocolType,
 					nil, 0, 0)
-				require.Equal(t, protocol.ErrorCodeNotCoordinator, res.ErrorCode)
+				require.Equal(t, kafkaprotocol.ErrorCodeNotCoordinator, res.ErrorCode)
 			}
 		}
 	}
@@ -336,7 +336,7 @@ func TestSyncGroup(t *testing.T) {
 		r, ok := syncResults.Load(expectedAssignment.MemberID)
 		require.True(t, ok)
 		res := r.(syncResult)
-		require.Equal(t, protocol.ErrorCodeNone, res.errorCode)
+		require.Equal(t, kafkaprotocol.ErrorCodeNone, res.errorCode)
 		require.Equal(t, expectedAssignment.Assignment, res.assignment)
 	}
 }
@@ -405,7 +405,7 @@ func TestJoinNewMemberWhileAwaitingRebalance(t *testing.T) {
 	// assignment
 	for _, ch := range chans {
 		sr := <-ch
-		require.Equal(t, protocol.ErrorCodeRebalanceInProgress, sr.errorCode)
+		require.Equal(t, kafkaprotocol.ErrorCodeRebalanceInProgress, sr.errorCode)
 		require.Equal(t, 0, len(sr.assignment))
 	}
 
@@ -427,7 +427,7 @@ func TestJoinNewMemberWhileAwaitingRebalance(t *testing.T) {
 	// And the join should complete successfully
 	for _, ch := range chans2 {
 		jr := <-ch
-		require.Equal(t, protocol.ErrorCodeNone, jr.ErrorCode)
+		require.Equal(t, kafkaprotocol.ErrorCodeNone, jr.ErrorCode)
 		require.Equal(t, defaultProtocolName, jr.ProtocolName)
 		// generation should have incremented
 		require.Equal(t, 2, jr.GenerationID)
@@ -517,14 +517,14 @@ func TestExistingMembersRejoinWithDifferentProtocolMetadataWhileAwaitingRebalanc
 	// The sync results should all return re-balance in progress and have empty assignments
 	for _, ch := range chans {
 		sr := <-ch
-		require.Equal(t, protocol.ErrorCodeRebalanceInProgress, sr.errorCode)
+		require.Equal(t, kafkaprotocol.ErrorCodeRebalanceInProgress, sr.errorCode)
 		require.Equal(t, 0, len(sr.assignment))
 	}
 
 	// And the re-joins should complete successfully
 	for _, ch := range chans2 {
 		jr := <-ch
-		require.Equal(t, protocol.ErrorCodeNone, jr.ErrorCode)
+		require.Equal(t, kafkaprotocol.ErrorCodeNone, jr.ErrorCode)
 		require.Equal(t, defaultProtocolName, jr.ProtocolName)
 		// generation should have incremented
 		require.Equal(t, 2, jr.GenerationID)
@@ -614,7 +614,7 @@ func TestExistingMembersRejoinWithSameProtocolMetadataWhileAwaitingRebalance(t *
 	// And the joins should return straight-away with the current state as no metadata change
 	for _, ch := range chans2 {
 		jr := <-ch
-		require.Equal(t, protocol.ErrorCodeNone, jr.ErrorCode)
+		require.Equal(t, kafkaprotocol.ErrorCodeNone, jr.ErrorCode)
 		require.Equal(t, defaultProtocolName, jr.ProtocolName)
 		// generation should be same
 		require.Equal(t, 1, jr.GenerationID)
@@ -654,7 +654,7 @@ func TestExistingMembersRejoinWithSameProtocolMetadataWhileAwaitingRebalance(t *
 	for i, ch := range chans {
 		memberID := memberIDs[i]
 		sr := <-ch
-		require.Equal(t, protocol.ErrorCodeNone, sr.errorCode)
+		require.Equal(t, kafkaprotocol.ErrorCodeNone, sr.errorCode)
 		require.Equal(t, assignmentMap[memberID], sr.assignment)
 	}
 
@@ -702,7 +702,7 @@ func TestJoinNewMemberWhileActive(t *testing.T) {
 	// The sync results should all return ok
 	for _, ch := range chans {
 		sr := <-ch
-		require.Equal(t, protocol.ErrorCodeNone, sr.errorCode)
+		require.Equal(t, kafkaprotocol.ErrorCodeNone, sr.errorCode)
 	}
 
 	// Now join a new member
@@ -735,7 +735,7 @@ func TestJoinNewMemberWhileActive(t *testing.T) {
 	// And the join should complete successfully
 	for _, ch := range chans2 {
 		jr := <-ch
-		require.Equal(t, protocol.ErrorCodeNone, jr.ErrorCode)
+		require.Equal(t, kafkaprotocol.ErrorCodeNone, jr.ErrorCode)
 		require.Equal(t, defaultProtocolName, jr.ProtocolName)
 		// generation should have incremented
 		require.Equal(t, 2, jr.GenerationID)
@@ -800,7 +800,7 @@ func TestRejoinLeaderWhileActive(t *testing.T) {
 	// The sync results should all return ok
 	for _, ch := range chans {
 		sr := <-ch
-		require.Equal(t, protocol.ErrorCodeNone, sr.errorCode)
+		require.Equal(t, kafkaprotocol.ErrorCodeNone, sr.errorCode)
 	}
 
 	// Now rejoin the leader
@@ -820,7 +820,7 @@ func TestRejoinLeaderWhileActive(t *testing.T) {
 
 	// This should trigger a rebalance
 	errorCode := gc.HeartbeatGroup(groupID, leader, 1)
-	require.Equal(t, protocol.ErrorCodeRebalanceInProgress, errorCode)
+	require.Equal(t, kafkaprotocol.ErrorCodeRebalanceInProgress, errorCode)
 
 	// Now we rejoin all the others members
 	members.Range(func(key, value any) bool {
@@ -843,7 +843,7 @@ func TestRejoinLeaderWhileActive(t *testing.T) {
 	// And the join should complete successfully
 	for _, ch := range chans2 {
 		jr := <-ch
-		require.Equal(t, protocol.ErrorCodeNone, jr.ErrorCode)
+		require.Equal(t, kafkaprotocol.ErrorCodeNone, jr.ErrorCode)
 		require.Equal(t, defaultProtocolName, jr.ProtocolName)
 		// generation should have incremented
 		require.Equal(t, 2, jr.GenerationID)
@@ -906,7 +906,7 @@ func TestRejoinNonLeaderWhileActive(t *testing.T) {
 	// The sync results should all return ok
 	for _, ch := range chans {
 		sr := <-ch
-		require.Equal(t, protocol.ErrorCodeNone, sr.errorCode)
+		require.Equal(t, kafkaprotocol.ErrorCodeNone, sr.errorCode)
 	}
 
 	// Now rejoin the non leaders - should just return current state
@@ -937,7 +937,7 @@ func TestRejoinNonLeaderWhileActive(t *testing.T) {
 	// And the join should complete successfully
 	for _, ch := range chans2 {
 		jr := <-ch
-		require.Equal(t, protocol.ErrorCodeNone, jr.ErrorCode)
+		require.Equal(t, kafkaprotocol.ErrorCodeNone, jr.ErrorCode)
 		require.Equal(t, defaultProtocolName, jr.ProtocolName)
 		require.Equal(t, 1, jr.GenerationID)
 		isLeader := jr.MemberID == jr.LeaderMemberID
@@ -976,7 +976,7 @@ func TestSyncInJoinPhaseFails(t *testing.T) {
 		ch <- errorCode
 	})
 	errorCode := <-ch
-	require.Equal(t, protocol.ErrorCodeRebalanceInProgress, errorCode)
+	require.Equal(t, kafkaprotocol.ErrorCodeRebalanceInProgress, errorCode)
 }
 
 func TestSyncWhenActiveReturnsCurrentState(t *testing.T) {
@@ -1002,7 +1002,7 @@ func TestSyncWhenActiveReturnsCurrentState(t *testing.T) {
 		ch <- errorCode
 	})
 	errorCode := <-ch
-	require.Equal(t, protocol.ErrorCodeUnknownMemberID, errorCode)
+	require.Equal(t, kafkaprotocol.ErrorCodeUnknownMemberID, errorCode)
 
 	// Sync with actual members - should just return current state
 	members.Range(func(key, value any) bool {
@@ -1016,7 +1016,7 @@ func TestSyncWhenActiveReturnsCurrentState(t *testing.T) {
 			}
 		})
 		res := <-ch
-		require.Equal(t, protocol.ErrorCodeNone, res.errorCode)
+		require.Equal(t, kafkaprotocol.ErrorCodeNone, res.errorCode)
 		assignment, ok := assignmentMap[memberID]
 		require.True(t, ok)
 		require.Equal(t, assignment, res.assignment)
@@ -1039,10 +1039,10 @@ func setupJoinedGroupWithArgs(t *testing.T, numMembers int, groupID string, gcs 
 	for i := 0; i < numMembers; i++ {
 		protocols := []ProtocolInfo{{defaultProtocolName, []byte(fmt.Sprintf("metadata-%d", i))}}
 		gc.JoinGroup(4, groupID, defaultClientID, "", defaultProtocolType, protocols, defaultSessionTimeout, rebalanceTimeout, func(result JoinResult) {
-			require.Equal(t, protocol.ErrorCodeUnknownMemberID, result.ErrorCode)
+			require.Equal(t, kafkaprotocol.ErrorCodeUnknownMemberID, result.ErrorCode)
 			go func() {
 				gc.JoinGroup(0, groupID, defaultClientID, result.MemberID, defaultProtocolType, protocols, defaultSessionTimeout, rebalanceTimeout, func(result JoinResult) {
-					if result.ErrorCode != protocol.ErrorCodeNone {
+					if result.ErrorCode != kafkaprotocol.ErrorCodeNone {
 						panic(fmt.Sprintf("join returned error %d", result.ErrorCode))
 					}
 					isLeader := result.LeaderMemberID == result.MemberID
@@ -1085,7 +1085,7 @@ func syncGroup(groupID string, numMembers int, members *sync.Map, gcs []*GroupCo
 			theAssignments = assignments
 		}
 		gc.SyncGroup(groupID, memberID, 1, theAssignments, func(errorCode int, assignment []byte) {
-			if errorCode != protocol.ErrorCodeNone {
+			if errorCode != kafkaprotocol.ErrorCodeNone {
 				panic(fmt.Sprintf("sync returned error %d", errorCode))
 			}
 			wg.Done()
@@ -1114,7 +1114,7 @@ func TestSyncWrongGeneration(t *testing.T) {
 		ch <- errorCode
 	})
 	err := <-ch
-	require.Equal(t, protocol.ErrorCodeIllegalGeneration, err)
+	require.Equal(t, kafkaprotocol.ErrorCodeIllegalGeneration, err)
 }
 
 func TestAddNewMembersAfterSync(t *testing.T) {
@@ -1174,7 +1174,7 @@ func TestAddNewMembersAfterSync(t *testing.T) {
 	// This should make all the joins return
 	for _, ch := range chans {
 		jr := <-ch
-		require.Equal(t, protocol.ErrorCodeNone, jr.ErrorCode)
+		require.Equal(t, kafkaprotocol.ErrorCodeNone, jr.ErrorCode)
 		require.Equal(t, leader, jr.LeaderMemberID)
 		_, ok := members.Load(jr.MemberID)
 		if !ok {
@@ -1213,7 +1213,7 @@ func TestSyncNotController(t *testing.T) {
 					ch <- errorCode
 				})
 				errorCode := <-ch
-				require.Equal(t, protocol.ErrorCodeNotCoordinator, errorCode)
+				require.Equal(t, kafkaprotocol.ErrorCodeNotCoordinator, errorCode)
 			}
 		}
 	}
@@ -1231,7 +1231,7 @@ func TestSyncEmptyMemberID(t *testing.T) {
 		ch <- errorCode
 	})
 	errorCode := <-ch
-	require.Equal(t, protocol.ErrorCodeUnknownMemberID, errorCode)
+	require.Equal(t, kafkaprotocol.ErrorCodeUnknownMemberID, errorCode)
 }
 
 func TestSyncUnknownGroupID(t *testing.T) {
@@ -1246,7 +1246,7 @@ func TestSyncUnknownGroupID(t *testing.T) {
 		ch <- errorCode
 	})
 	errorCode := <-ch
-	require.Equal(t, protocol.ErrorCodeGroupIDNotFound, errorCode)
+	require.Equal(t, kafkaprotocol.ErrorCodeGroupIDNotFound, errorCode)
 }
 
 func TestHeartbeatNonCoordinator(t *testing.T) {
@@ -1259,7 +1259,7 @@ func TestHeartbeatNonCoordinator(t *testing.T) {
 		for _, gc := range gcs {
 			if gc != coordinator {
 				errorCode := gc.HeartbeatGroup(groupID, "foo", 1)
-				require.Equal(t, protocol.ErrorCodeNotCoordinator, errorCode)
+				require.Equal(t, kafkaprotocol.ErrorCodeNotCoordinator, errorCode)
 			}
 		}
 	}
@@ -1272,7 +1272,7 @@ func TestHeartbeatEmptyMemberID(t *testing.T) {
 	groupID := uuid.New().String()
 	coordinator := findNode(groupID, gcs)
 	errorCode := coordinator.HeartbeatGroup(groupID, "", 1)
-	require.Equal(t, protocol.ErrorCodeUnknownMemberID, errorCode)
+	require.Equal(t, kafkaprotocol.ErrorCodeUnknownMemberID, errorCode)
 }
 
 func TestHeartbeatUnknownGroupID(t *testing.T) {
@@ -1282,7 +1282,7 @@ func TestHeartbeatUnknownGroupID(t *testing.T) {
 	groupID := uuid.New().String()
 	coordinator := findNode(groupID, gcs)
 	errorCode := coordinator.HeartbeatGroup(groupID, "foo", 1)
-	require.Equal(t, protocol.ErrorCodeGroupIDNotFound, errorCode)
+	require.Equal(t, kafkaprotocol.ErrorCodeGroupIDNotFound, errorCode)
 }
 
 func TestHeartbeatIllegalGeneration(t *testing.T) {
@@ -1306,7 +1306,7 @@ func TestHeartbeatIllegalGeneration(t *testing.T) {
 	require.Equal(t, stateAwaitingRebalance, gc.getState(groupID))
 
 	errorCode := gc.HeartbeatGroup(groupID, res.MemberID, 100)
-	require.Equal(t, protocol.ErrorCodeIllegalGeneration, errorCode)
+	require.Equal(t, kafkaprotocol.ErrorCodeIllegalGeneration, errorCode)
 }
 
 func TestHeartbeatAwaitingRebalance(t *testing.T) {
@@ -1326,7 +1326,7 @@ func TestHeartbeatAwaitingRebalance(t *testing.T) {
 	require.Equal(t, stateAwaitingRebalance, gc.getState(groupID))
 
 	errorCode := gc.HeartbeatGroup(groupID, memberID, 1)
-	require.Equal(t, protocol.ErrorCodeNone, errorCode)
+	require.Equal(t, kafkaprotocol.ErrorCodeNone, errorCode)
 }
 
 func TestHeartbeatWhileActive(t *testing.T) {
@@ -1351,7 +1351,7 @@ func TestHeartbeatWhileActive(t *testing.T) {
 	require.Equal(t, stateActive, gc.getState(groupID))
 
 	errorCode := gc.HeartbeatGroup(groupID, memberID, 1)
-	require.Equal(t, protocol.ErrorCodeNone, errorCode)
+	require.Equal(t, kafkaprotocol.ErrorCodeNone, errorCode)
 }
 
 func TestJoinTimeoutMembersRemovedAndJoinCompletes(t *testing.T) {
@@ -1410,7 +1410,7 @@ func TestJoinTimeoutMembersRemovedAndJoinCompletes(t *testing.T) {
 		delay := time.Now().Sub(start)
 		// The re-join timeout is the rebalance timeout
 		require.True(t, delay > rebalanceTimeout)
-		require.Equal(t, protocol.ErrorCodeNone, res.ErrorCode)
+		require.Equal(t, kafkaprotocol.ErrorCodeNone, res.ErrorCode)
 		require.Equal(t, 2, res.GenerationID)
 		_, ok := skippedMembers[res.MemberID]
 		require.False(t, ok)
@@ -1494,7 +1494,7 @@ func TestJoinTimeoutMembersRemovedIncludingLeaderAndJoinCompletes(t *testing.T) 
 		delay := time.Now().Sub(start)
 		// The re-join timeout is the rebalance timeout
 		require.True(t, delay > rebalanceTimeout)
-		require.Equal(t, protocol.ErrorCodeNone, res.ErrorCode)
+		require.Equal(t, kafkaprotocol.ErrorCodeNone, res.ErrorCode)
 		require.Equal(t, 2, res.GenerationID)
 		_, ok := skippedMembers[res.MemberID]
 		require.False(t, ok)
@@ -1627,7 +1627,7 @@ func TestSessionTimeoutWhenActive(t *testing.T) {
 
 	var members sync.Map
 	for _, res := range results {
-		require.Equal(t, protocol.ErrorCodeNone, res.ErrorCode)
+		require.Equal(t, kafkaprotocol.ErrorCodeNone, res.ErrorCode)
 		isLeader := res.LeaderMemberID == res.MemberID
 		members.Store(res.MemberID, isLeader)
 	}

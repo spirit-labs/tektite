@@ -8,7 +8,7 @@ import (
 	encoding2 "github.com/spirit-labs/tektite/asl/encoding"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/evbatch"
-	"github.com/spirit-labs/tektite/kafkaserver/protocol"
+	"github.com/spirit-labs/tektite/kafkaprotocol"
 	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/opers"
 	"github.com/spirit-labs/tektite/proc"
@@ -136,11 +136,11 @@ func (gc *GroupCoordinator) groupHasMember(groupID string, memberID string) bool
 func (gc *GroupCoordinator) JoinGroup(apiVersion int16, groupID string, clientID string, memberID string, protocolType string,
 	protocols []ProtocolInfo, sessionTimeout time.Duration, rebalanceTimeout time.Duration, complFunc JoinCompletion) {
 	if !gc.checkLeader(groupID) {
-		gc.sendJoinError(complFunc, protocol.ErrorCodeNotCoordinator)
+		gc.sendJoinError(complFunc, kafkaprotocol.ErrorCodeNotCoordinator)
 		return
 	}
 	if sessionTimeout < gc.cfg.KafkaMinSessionTimeout || sessionTimeout > gc.cfg.KafkaMaxSessionTimeout {
-		gc.sendJoinError(complFunc, protocol.ErrorCodeInvalidSessionTimeout)
+		gc.sendJoinError(complFunc, kafkaprotocol.ErrorCodeInvalidSessionTimeout)
 		return
 	}
 	gc.groupsLock.RLock()
@@ -155,18 +155,18 @@ func (gc *GroupCoordinator) JoinGroup(apiVersion int16, groupID string, clientID
 func (gc *GroupCoordinator) SyncGroup(groupID string, memberID string, generationID int, assignments []AssignmentInfo,
 	complFunc SyncCompletion) {
 	if !gc.checkLeader(groupID) {
-		gc.sendSyncError(complFunc, protocol.ErrorCodeNotCoordinator)
+		gc.sendSyncError(complFunc, kafkaprotocol.ErrorCodeNotCoordinator)
 		return
 	}
 	if memberID == "" {
-		gc.sendSyncError(complFunc, protocol.ErrorCodeUnknownMemberID)
+		gc.sendSyncError(complFunc, kafkaprotocol.ErrorCodeUnknownMemberID)
 		return
 	}
 	gc.groupsLock.RLock()
 	g, ok := gc.groups[groupID]
 	gc.groupsLock.RUnlock()
 	if !ok {
-		gc.sendSyncError(complFunc, protocol.ErrorCodeGroupIDNotFound)
+		gc.sendSyncError(complFunc, kafkaprotocol.ErrorCodeGroupIDNotFound)
 		return
 	}
 	g.Sync(memberID, generationID, assignments, complFunc)
@@ -174,16 +174,16 @@ func (gc *GroupCoordinator) SyncGroup(groupID string, memberID string, generatio
 
 func (gc *GroupCoordinator) HeartbeatGroup(groupID string, memberID string, generationID int) int {
 	if !gc.checkLeader(groupID) {
-		return protocol.ErrorCodeNotCoordinator
+		return kafkaprotocol.ErrorCodeNotCoordinator
 	}
 	if memberID == "" {
-		return protocol.ErrorCodeUnknownMemberID
+		return kafkaprotocol.ErrorCodeUnknownMemberID
 	}
 	gc.groupsLock.RLock()
 	g, ok := gc.groups[groupID]
 	gc.groupsLock.RUnlock()
 	if !ok {
-		return protocol.ErrorCodeGroupIDNotFound
+		return kafkaprotocol.ErrorCodeGroupIDNotFound
 	}
 	return g.Heartbeat(memberID, generationID)
 }
@@ -195,13 +195,13 @@ type MemberLeaveInfo struct {
 
 func (gc *GroupCoordinator) LeaveGroup(groupID string, leaveInfos []MemberLeaveInfo) int16 {
 	if !gc.checkLeader(groupID) {
-		return protocol.ErrorCodeNotCoordinator
+		return kafkaprotocol.ErrorCodeNotCoordinator
 	}
 	gc.groupsLock.RLock()
 	g, ok := gc.groups[groupID]
 	gc.groupsLock.RUnlock()
 	if !ok {
-		return protocol.ErrorCodeGroupIDNotFound
+		return kafkaprotocol.ErrorCodeGroupIDNotFound
 	}
 	return g.Leave(leaveInfos)
 }
@@ -214,13 +214,13 @@ func (gc *GroupCoordinator) OffsetCommit(groupID string, memberID string, genera
 		errorCodes[i] = make([]int16, len(partitionIDs[i]))
 	}
 	if !gc.checkLeader(groupID) {
-		return fillAllErrorCodes(protocol.ErrorCodeNotCoordinator, errorCodes)
+		return fillAllErrorCodes(kafkaprotocol.ErrorCodeNotCoordinator, errorCodes)
 	}
 	gc.groupsLock.RLock()
 	g, ok := gc.groups[groupID]
 	gc.groupsLock.RUnlock()
 	if !ok {
-		return fillAllErrorCodes(protocol.ErrorCodeGroupIDNotFound, errorCodes)
+		return fillAllErrorCodes(kafkaprotocol.ErrorCodeGroupIDNotFound, errorCodes)
 	}
 	return g.offsetCommit(memberID, generationID, topicNames, partitionIDs, offsets, errorCodes)
 }
@@ -233,16 +233,16 @@ func (gc *GroupCoordinator) OffsetFetch(groupID string, topicNames []string,
 		errorCodes[i] = make([]int16, len(partitionIDs[i]))
 	}
 	if !gc.checkLeader(groupID) {
-		return nil, nil, protocol.ErrorCodeNotCoordinator
+		return nil, nil, kafkaprotocol.ErrorCodeNotCoordinator
 	}
 	gc.groupsLock.RLock()
 	g, ok := gc.groups[groupID]
 	gc.groupsLock.RUnlock()
 	if !ok {
-		return nil, nil, protocol.ErrorCodeGroupIDNotFound
+		return nil, nil, kafkaprotocol.ErrorCodeGroupIDNotFound
 	}
 	offsets, errorCodes := g.offsetFetch(topicNames, partitionIDs, errorCodes)
-	return offsets, errorCodes, protocol.ErrorCodeNone
+	return offsets, errorCodes, kafkaprotocol.ErrorCodeNone
 }
 
 func (gc *GroupCoordinator) createGroup(groupID string) *group {
@@ -416,7 +416,7 @@ func (g *group) Join(apiVersion int16, clientID string, memberID string, protoco
 	g.lock.Lock()
 	defer g.lock.Unlock()
 	if g.state != stateEmpty && !g.canSupportProtocols(protocols) {
-		complFunc(JoinResult{ErrorCode: protocol.ErrorCodeInconsistentGroupProtocol, MemberID: ""})
+		complFunc(JoinResult{ErrorCode: kafkaprotocol.ErrorCodeInconsistentGroupProtocol, MemberID: ""})
 		return
 	}
 	if memberID == "" {
@@ -428,7 +428,7 @@ func (g *group) Join(apiVersion int16, clientID string, memberID string, protoco
 			// As of KIP-394 Kafka broker doesn't let members join until they call in with a non-empty member id
 			// We send back and error and the member will call back in with the member-id
 			g.pendingMemberIDs[memberID] = struct{}{}
-			complFunc(JoinResult{ErrorCode: protocol.ErrorCodeUnknownMemberID, MemberID: memberID})
+			complFunc(JoinResult{ErrorCode: kafkaprotocol.ErrorCodeUnknownMemberID, MemberID: memberID})
 			return
 		}
 	}
@@ -495,7 +495,7 @@ func (g *group) Join(apiVersion int16, clientID string, memberID string, protoco
 			}
 		}
 	case stateDead:
-		complFunc(JoinResult{ErrorCode: protocol.ErrorCodeCoordinatorNotAvailable, MemberID: memberID})
+		complFunc(JoinResult{ErrorCode: kafkaprotocol.ErrorCodeCoordinatorNotAvailable, MemberID: memberID})
 		return
 	}
 }
@@ -540,7 +540,7 @@ func (g *group) resetSync() {
 	g.assignments = nil
 	for _, member := range g.members {
 		if member.syncCompletion != nil {
-			member.syncCompletion(protocol.ErrorCodeRebalanceInProgress, nil)
+			member.syncCompletion(kafkaprotocol.ErrorCodeRebalanceInProgress, nil)
 		}
 	}
 	g.triggerRebalance()
@@ -762,7 +762,7 @@ func (g *group) sendJoinResult(memberID string, complFunc JoinCompletion) {
 
 func (g *group) sendJoinResultWithMembers(memberID string, memberInfos []MemberInfo, complFunc JoinCompletion) {
 	jr := JoinResult{
-		ErrorCode:      protocol.ErrorCodeNone,
+		ErrorCode:      kafkaprotocol.ErrorCodeNone,
 		MemberID:       memberID,
 		LeaderMemberID: g.leader,
 		ProtocolName:   g.protocolName,
@@ -779,17 +779,17 @@ func (g *group) Sync(memberID string, generationID int, assignments []Assignment
 	g.lock.Lock()
 	defer g.lock.Unlock()
 	if generationID != g.generationID {
-		complFunc(protocol.ErrorCodeIllegalGeneration, nil)
+		complFunc(kafkaprotocol.ErrorCodeIllegalGeneration, nil)
 		return
 	}
 	switch g.state {
 	case statePreRebalance:
-		complFunc(protocol.ErrorCodeRebalanceInProgress, nil)
+		complFunc(kafkaprotocol.ErrorCodeRebalanceInProgress, nil)
 		return
 	case stateAwaitingRebalance:
 		m, ok := g.members[memberID]
 		if !ok {
-			complFunc(protocol.ErrorCodeUnknownMemberID, nil)
+			complFunc(kafkaprotocol.ErrorCodeUnknownMemberID, nil)
 			return
 		}
 		// sanity - validate assignments
@@ -799,7 +799,7 @@ func (g *group) Sync(memberID string, generationID int, assignments []Assignment
 				_, exists := assignMentsMap[assignment.MemberID]
 				if exists {
 					log.Errorf("memberID %s exists more than once in assignments provided at sync by member %s", assignment.MemberID, memberID)
-					complFunc(protocol.ErrorCodeUnknownServerError, nil)
+					complFunc(kafkaprotocol.ErrorCodeUnknownServerError, nil)
 					return
 				}
 				assignMentsMap[assignment.MemberID] = struct{}{}
@@ -828,14 +828,14 @@ func (g *group) Sync(memberID string, generationID int, assignments []Assignment
 			}
 		}
 		if assignment == nil {
-			complFunc(protocol.ErrorCodeUnknownMemberID, nil)
+			complFunc(kafkaprotocol.ErrorCodeUnknownMemberID, nil)
 			return
 		}
-		complFunc(protocol.ErrorCodeNone, assignment)
+		complFunc(kafkaprotocol.ErrorCodeNone, assignment)
 		return
 	case stateDead:
 		log.Error("received SyncGroup for dead group")
-		complFunc(protocol.ErrorCodeUnknownServerError, nil)
+		complFunc(kafkaprotocol.ErrorCodeUnknownServerError, nil)
 		return
 	default:
 		// should never occur
@@ -849,7 +849,7 @@ func (g *group) completeSync() {
 		if !ok {
 			panic(fmt.Sprintf("cannot find member in assignments %s", assignment.MemberID))
 		}
-		m.syncCompletion(protocol.ErrorCodeNone, assignment.Assignment)
+		m.syncCompletion(kafkaprotocol.ErrorCodeNone, assignment.Assignment)
 		m.syncCompletion = nil
 		memberID := assignment.MemberID
 		g.gc.rescheduleTimer(memberID, m.sessionTimeout, func() {
@@ -865,26 +865,26 @@ func (g *group) Heartbeat(memberID string, generationID int) int {
 	g.lock.Lock()
 	defer g.lock.Unlock()
 	if generationID != g.generationID {
-		return protocol.ErrorCodeIllegalGeneration
+		return kafkaprotocol.ErrorCodeIllegalGeneration
 	}
 	switch g.state {
 	case stateEmpty:
-		return protocol.ErrorCodeUnknownMemberID
+		return kafkaprotocol.ErrorCodeUnknownMemberID
 	case statePreRebalance:
 		// Re-balance is required - this will cause client to rejoin group
-		return protocol.ErrorCodeRebalanceInProgress
+		return kafkaprotocol.ErrorCodeRebalanceInProgress
 	case stateAwaitingRebalance, stateActive:
 		member, ok := g.members[memberID]
 		if !ok {
-			return protocol.ErrorCodeUnknownMemberID
+			return kafkaprotocol.ErrorCodeUnknownMemberID
 		}
 		g.gc.rescheduleTimer(memberID, member.sessionTimeout, func() {
 			g.sessionTimeoutExpired(memberID)
 		})
-		return protocol.ErrorCodeNone
+		return kafkaprotocol.ErrorCodeNone
 	default:
 		log.Warn("heartbeat on dead group")
-		return protocol.ErrorCodeNone
+		return kafkaprotocol.ErrorCodeNone
 	}
 }
 
@@ -915,7 +915,7 @@ func (g *group) Leave(leaveInfos []MemberLeaveInfo) int16 {
 			g.state = stateEmpty
 		}
 	}
-	return protocol.ErrorCodeNone
+	return kafkaprotocol.ErrorCodeNone
 }
 
 func (g *group) getState() int {
@@ -949,7 +949,7 @@ func (g *group) sessionTimeoutExpired(memberID string) {
 		// New members get timed out in join - send back unknown-member-id and they will retry
 		if member.joinCompletion != nil {
 			jr := JoinResult{
-				ErrorCode: protocol.ErrorCodeUnknownMemberID,
+				ErrorCode: kafkaprotocol.ErrorCodeUnknownMemberID,
 				MemberID:  "",
 			}
 			member.joinCompletion(jr)
@@ -998,11 +998,11 @@ func (g *group) offsetCommit(memberID string, generationID int, topicNames []str
 	g.lock.Lock()
 	defer g.lock.Unlock()
 	if generationID != g.generationID {
-		return fillAllErrorCodes(protocol.ErrorCodeIllegalGeneration, errorCodes)
+		return fillAllErrorCodes(kafkaprotocol.ErrorCodeIllegalGeneration, errorCodes)
 	}
 	_, ok := g.members[memberID]
 	if !ok {
-		return fillAllErrorCodes(protocol.ErrorCodeUnknownMemberID, errorCodes)
+		return fillAllErrorCodes(kafkaprotocol.ErrorCodeUnknownMemberID, errorCodes)
 	}
 	consumerOffsetsPartitionID := g.gc.calcConsumerOffsetsPartition(g.id)
 	processorID, ok := g.gc.consumerOffsetsPPM[consumerOffsetsPartitionID]
@@ -1011,16 +1011,16 @@ func (g *group) offsetCommit(memberID string, generationID int, topicNames []str
 	}
 	processor := g.gc.processorProvider.GetProcessor(processorID)
 	if processor == nil {
-		return fillAllErrorCodes(protocol.ErrorCodeUnknownTopicOrPartition, errorCodes)
+		return fillAllErrorCodes(kafkaprotocol.ErrorCodeUnknownTopicOrPartition, errorCodes)
 	}
 	if !processor.IsLeader() {
-		return fillAllErrorCodes(protocol.ErrorCodeNotLeaderOrFollower, errorCodes)
+		return fillAllErrorCodes(kafkaprotocol.ErrorCodeNotLeaderOrFollower, errorCodes)
 	}
 	colBuilders := evbatch.CreateColBuilders(ConsumerOffsetsColumnTypes)
 	for i, topicName := range topicNames {
 		topicInfo, ok := g.topicInfoForName(topicName)
 		if !ok {
-			fillErrorCodes(protocol.ErrorCodeUnknownTopicOrPartition, i, errorCodes)
+			fillErrorCodes(kafkaprotocol.ErrorCodeUnknownTopicOrPartition, i, errorCodes)
 			continue
 		}
 		topicID := int64(topicInfo.ConsumerInfoProvider.SlabID())
@@ -1049,10 +1049,10 @@ func (g *group) offsetCommit(memberID string, generationID int, topicNames []str
 			log.Warnf("failed to replicate offset commit batch %v", err)
 			// If we have a temp error in replicating - e.g. sync in progress, we send back ErrorCodeNotLeaderOrFollower
 			// this causes the client to retry
-			errorCode = protocol.ErrorCodeNotLeaderOrFollower
+			errorCode = kafkaprotocol.ErrorCodeNotLeaderOrFollower
 		} else {
 			log.Errorf("failed to replicate offset commit batch %v", err)
-			errorCode = protocol.ErrorCodeUnknownServerError
+			errorCode = kafkaprotocol.ErrorCodeUnknownServerError
 		}
 		return fillAllErrorCodes(errorCode, errorCodes)
 	}
@@ -1096,7 +1096,7 @@ func (g *group) offsetFetch(topicNames []string, partitionIDs [][]int32, errorCo
 	for i, topicName := range topicNames {
 		topicInfo, ok := g.topicInfoForName(topicName)
 		if !ok {
-			fillErrorCodes(protocol.ErrorCodeUnknownTopicOrPartition, i, errorCodes)
+			fillErrorCodes(kafkaprotocol.ErrorCodeUnknownTopicOrPartition, i, errorCodes)
 			continue
 		}
 		topicID := int64(topicInfo.ConsumerInfoProvider.SlabID())
@@ -1115,7 +1115,7 @@ func (g *group) offsetFetch(topicNames []string, partitionIDs [][]int32, errorCo
 				offset, ok, err = g.loadOffset(topicInfo, partitionID)
 				if err != nil {
 					log.Errorf("failed to load offset %v", err)
-					fillAllErrorCodes(protocol.ErrorCodeUnknownServerError, errorCodes)
+					fillAllErrorCodes(kafkaprotocol.ErrorCodeUnknownServerError, errorCodes)
 					return nil, errorCodes
 				}
 				if !ok {

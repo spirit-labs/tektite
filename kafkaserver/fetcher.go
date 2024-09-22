@@ -6,7 +6,7 @@ import (
 	encoding2 "github.com/spirit-labs/tektite/asl/encoding"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/kafkaencoding"
-	"github.com/spirit-labs/tektite/kafkaserver/protocol"
+	"github.com/spirit-labs/tektite/kafkaprotocol"
 	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/proc"
 	"github.com/spirit-labs/tektite/types"
@@ -303,7 +303,7 @@ func (f *PartitionFetcher) Fetch(fetchOffset int64, minBytes int, maxBytes int, 
 	// We will wait.
 	if f.waiter != nil {
 		// Already have a waiter - send an error on it
-		f.waiter.complFunc(nil, 0, KafkaProtocolError{ErrorCode: protocol.ErrorCodeUnknownServerError})
+		f.waiter.complFunc(nil, 0, KafkaProtocolError{ErrorCode: kafkaprotocol.ErrorCodeUnknownServerError})
 		f.waiter = nil
 	}
 	return &Waiter{

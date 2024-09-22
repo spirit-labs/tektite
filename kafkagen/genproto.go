@@ -3,7 +3,7 @@ package kafkagen
 import (
 	"fmt"
 	"github.com/pkg/errors"
-	"github.com/spirit-labs/tektite/kafkaserver/protocol"
+	"github.com/spirit-labs/tektite/kafkaprotocol"
 	"github.com/yosuke-furukawa/json5/encoding/json5"
 	"os"
 	"regexp"
@@ -86,8 +86,8 @@ func toSnakeCase(str string) string {
 func generateHandler(specs []MessageSpec) (string, error) {
 	var sbBufHandler strings.Builder
 	head :=
-		`// Package protocol - This is a generated file, please do not edit
-package protocol
+		`// Package kafkaprotocol - This is a generated file, please do not edit
+package kafkaprotocol
 
 import (
     "encoding/binary"
@@ -393,7 +393,7 @@ func generateSupportedApiVersions(ms *MessageSpec, gc *genContext) error {
 }
 
 func supportedVersions(apiKey int16) (int16, int16, bool) {
-	for _, ver := range protocol.SupportedAPIVersions {
+	for _, ver := range kafkaprotocol.SupportedAPIVersions {
 		if ver.ApiKey == apiKey {
 			return ver.MinVersion, ver.MaxVersion, true
 		}
@@ -1634,8 +1634,8 @@ func (gc *genContext) flexibleRangeForField(field *MessageField) (*versionRange,
 
 func (gc *genContext) string() string {
 	var sb strings.Builder
-	sb.WriteString("// Package protocol - This is a generated file, please do not edit\n\n")
-	sb.WriteString("package protocol\n\n")
+	sb.WriteString("// Package kafkaprotocol - This is a generated file, please do not edit\n\n")
+	sb.WriteString("package kafkaprotocol\n\n")
 	sb.WriteString("import \"encoding/binary\"\n")
 	var imports []string
 	for imp := range gc.imports {

@@ -62,7 +62,7 @@ func TestSocketTransportServerTlsUntrustedServer(t *testing.T) {
 	}
 	address, err := common.AddressWithPort("localhost")
 	require.NoError(t, err)
-	server := NewSocketServer(address, serverTlsConf)
+	server := NewSocketTransportServer(address, serverTlsConf)
 	err = server.Start()
 	require.NoError(t, err)
 	cl, err := NewSocketClient(&client.TLSConfig{})
@@ -88,7 +88,7 @@ func TestSocketTransportMutualTlsUntrustedClient(t *testing.T) {
 	}
 	address, err := common.AddressWithPort("localhost")
 	require.NoError(t, err)
-	server := NewSocketServer(address, serverTlsConf)
+	server := NewSocketTransportServer(address, serverTlsConf)
 	err = server.Start()
 	require.NoError(t, err)
 	cl, err := NewSocketClient(clientTlsConf)
@@ -111,7 +111,7 @@ func setup(t *testing.T, serverTlsConf conf.TLSConfig, clientTlsConf *client.TLS
 	serverFactory := func(t *testing.T) Server {
 		address, err := common.AddressWithPort("localhost")
 		require.NoError(t, err)
-		server := NewSocketServer(address, serverTlsConf)
+		server := NewSocketTransportServer(address, serverTlsConf)
 		err = server.Start()
 		require.NoError(t, err)
 		return server
