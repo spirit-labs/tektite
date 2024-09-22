@@ -54,17 +54,17 @@ func (lr *lockedRange) overlaps(rng *lockedRange) bool {
 	return !dontOverlap
 }
 
-func (lm *Manager) maybeScheduleCompaction() error {
+func (m *Manager) maybeScheduleCompaction() error {
 	// Get a level to compact (if any)
-	level, numTables := lm.chooseLevelToCompact()
+	level, numTables := m.chooseLevelToCompact()
 	if level == -1 {
 		if log.DebugEnabled {
-			lm.dumpLevelInfo()
+			m.dumpLevelInfo()
 		}
 		// nothing to do
 		return nil
 	}
-	tables, err := lm.chooseTablesToCompact(level, numTables)
+	tables, err := m.chooseTablesToCompact(level, numTables)
 	if err != nil {
 		return err
 	}
@@ -72,12 +72,12 @@ func (lm *Manager) maybeScheduleCompaction() error {
 	if len(tables) == 0 {
 		return nil
 	}
-	_, _, err = lm.scheduleCompaction(level, tables, nil)
+	_, _, err = m.scheduleCompaction(level, tables, nil)
 	return err
 }
 
-func (lm *Manager) getAllL0Tables() ([][]*TableEntry, error) {
-	entry := lm.levelEntry(0)
+func (m *Manager) getAllL0Tables() ([][]*TableEntry, error) {
+	entry := m.levelEntry(0)
 	tableEntries := make([]*TableEntry, len(entry.tableEntries))
 	for i, lte := range entry.tableEntries {
 		tableEntries[i] = lte.Get(entry)
@@ -85,27 +85,27 @@ func (lm *Manager) getAllL0Tables() ([][]*TableEntry, error) {
 	return [][]*TableEntry{tableEntries}, nil
 }
 
-func (lm *Manager) scheduleCompaction(level int, tableSlices [][]*TableEntry, completionFunc func(error)) (int, bool, error) {
+func (m *Manager) scheduleCompaction(level int, tableSlices [][]*TableEntry, completionFunc func(error)) (int, bool, error) {
 	// If we are compacting into the last level, then we delete tombstones
 	var jobs []CompactionJob
-	destLevelEntries := lm.levelEntry(level + 1)
+	destLevelEntries := m.levelEntry(level + 1)
 	destLevelExists := len(destLevelEntries.tableEntries) > 0
 	hasLocked := false
 	now := uint64(time.Now().UTC().UnixMilli())
-	lfv := lm.masterRecord.lastFlushedVersion
+	lfv := m.masterRecord.lastFlushedVersion
 outer:
 	for _, tables := range tableSlices {
 		// We compact each inner slice in its own job
 		var tablesToCompact [][]tableToCompact
 		// Calculate overall range of source tables
-		sourceRangeStart, sourceRangeEnd := lm.calculateOverallRange(tables)
+		sourceRangeStart, sourceRangeEnd := m.calculateOverallRange(tables)
 		sourceRange := lockedRange{
 			level: level,
 			start: sourceRangeStart,
 			end:   sourceRangeEnd,
 		}
 		// First check if this range is already locked
-		if lm.isRangeLocked(sourceRange) {
+		if m.isRangeLocked(sourceRange) {
 			// there's already a job that includes this range - we can't compact this slice
 			hasLocked = true
 			continue outer
@@ -116,7 +116,7 @@ outer:
 			// note: rangeEnd param to getOverlappingTables is exclusive, so we need to increment
 			rangeEnd := common.IncBigEndianBytes(sourceRangeEnd)
 			var err error
-			overlapping, err = lm.getOverlappingTables(sourceRangeStart, rangeEnd, level+1, destLevelEntries)
+			overlapping, err = m.getOverlappingTables(sourceRangeStart, rangeEnd, level+1, destLevelEntries)
 			if err != nil {
 				return 0, false, err
 			}
@@ -125,7 +125,7 @@ outer:
 		destRangeStart := sourceRangeStart
 		destRangeEnd := sourceRangeEnd
 		if len(overlapping) > 0 {
-			destRangeStart, destRangeEnd = lm.calculateOverallRange(append(tables, overlapping...))
+			destRangeStart, destRangeEnd = m.calculateOverallRange(append(tables, overlapping...))
 		}
 		destRange := lockedRange{
 			level: level + 1,
@@ -135,7 +135,7 @@ outer:
 		// Now check if overall result range is already locked in destination level - note that we lock ranges instead
 		// of locking destination tables, as when compacting into an empty level we still need to lock the destination
 		// range to prevent more than once concurrent compaction compacting into the same destination range
-		if lm.isRangeLocked(destRange) {
+		if m.isRangeLocked(destRange) {
 			// there's already a job that includes this table - we can't compact this slice
 			hasLocked = true
 			continue outer
@@ -157,7 +157,7 @@ outer:
 			}})
 			tableIDs = append(tableIDs, st.SSTableID)
 			if !hasPotentialExpiredEntries {
-				hasPotentialExpiredEntries = lm.hasPotentialExpiredEntries(st, now)
+				hasPotentialExpiredEntries = m.hasPotentialExpiredEntries(st, now)
 			}
 			if !hasDeletes {
 				hasDeletes = st.DeleteRatio > 0
@@ -196,12 +196,12 @@ outer:
 		// 5. We're not moving to the last level or there are no deletes in the table (we want to remove deletes on the last
 		// level, so we can't move in that case)
 		move := len(tables) == 1 && !hasPotentialExpiredEntries && !hasDeadVersionRanges && len(overlapping) == 0 &&
-			(level+1 != lm.getLastLevel() || !hasDeletes)
+			(level+1 != m.getLastLevel() || !hasDeletes)
 		id := uuid.New().String()
 		destLevel := level + 1
 		// We preserve tombstones if we're not compacting into the last level or there are entries in any table
 		// in the compaction with a non compactable version (> last flushed version)
-		preserveTombstones := !canCompact || lm.getLastLevel() > destLevel
+		preserveTombstones := !canCompact || m.getLastLevel() > destLevel
 		job := CompactionJob{
 			id:                 id,
 			levelFrom:          level,
@@ -210,14 +210,14 @@ outer:
 			preserveTombstones: preserveTombstones,
 			scheduleTime:       arista.NanoTime(),
 			serverTime:         uint64(time.Now().UTC().UnixMilli()),
-			lastFlushedVersion: lm.masterRecord.lastFlushedVersion,
+			lastFlushedVersion: m.masterRecord.lastFlushedVersion,
 			sourceRange:        sourceRange,
 			destRange:          destRange,
 		}
 		log.Debugf("created compaction job %s from level %d last level is %d, preserve tombstones is %t",
-			id, level, lm.getLastLevel(), preserveTombstones)
+			id, level, m.getLastLevel(), preserveTombstones)
 		jobs = append(jobs, job)
-		lm.lockTablesForJob(job)
+		m.lockTablesForJob(job)
 	}
 	var complFunc func(error)
 	if completionFunc != nil {
@@ -233,14 +233,14 @@ outer:
 			}
 			log.Debugf("compaction created job %s %s", job.id, sb.String())
 		}
-		lm.queueOrDespatchJob(job, complFunc)
+		m.queueOrDespatchJob(job, complFunc)
 	}
 	// return number of jobs, whether any tables were locked
 	return len(jobs), hasLocked, nil
 }
 
-func (lm *Manager) isRangeLocked(rng lockedRange) bool {
-	rngs, ok := lm.lockedRanges[rng.level]
+func (m *Manager) isRangeLocked(rng lockedRange) bool {
+	rngs, ok := m.lockedRanges[rng.level]
 	if !ok {
 		return false
 	}
@@ -252,8 +252,8 @@ func (lm *Manager) isRangeLocked(rng lockedRange) bool {
 	return false
 }
 
-func (lm *Manager) hasPotentialExpiredEntries(te *TableEntry, now uint64) bool {
-	if len(lm.masterRecord.slabRetentions) == 0 {
+func (m *Manager) hasPotentialExpiredEntries(te *TableEntry, now uint64) bool {
+	if len(m.masterRecord.slabRetentions) == 0 {
 		return false
 	}
 	// If all the entries in the table are for the same partition hash then we can directly look at the slab id
@@ -267,7 +267,7 @@ func (lm *Manager) hasPotentialExpiredEntries(te *TableEntry, now uint64) bool {
 	}
 	slabID1 := binary.BigEndian.Uint64(te.RangeStart[16:])
 	slabID2 := binary.BigEndian.Uint64(te.RangeEnd[16:])
-	for slabID, ret := range lm.masterRecord.slabRetentions {
+	for slabID, ret := range m.masterRecord.slabRetentions {
 		retMillis := uint64(time.Duration(ret).Milliseconds())
 		if slabID >= slabID1 && slabID <= slabID2 {
 			age := now - te.AddedTime
@@ -279,19 +279,19 @@ func (lm *Manager) hasPotentialExpiredEntries(te *TableEntry, now uint64) bool {
 	return false
 }
 
-func (lm *Manager) queueOrDespatchJob(job CompactionJob, complFunc func(error)) {
-	if lm.pollers.Len() > 0 {
+func (m *Manager) queueOrDespatchJob(job CompactionJob, complFunc func(error)) {
+	if m.pollers.Len() > 0 {
 		// We have a waiting poller - hand the job to the poller straightaway
 		holder := jobHolder{
 			job:            job,
 			completionFunc: complFunc,
 		}
-		lm.stats.InProgressJobs++
-		poller := lm.pollers.pop()
+		m.stats.InProgressJobs++
+		poller := m.pollers.pop()
 		poller.timer.Stop()
 		poller.timer = nil
-		timer := lm.scheduleJobTimeout(holder, poller.connectionID)
-		lm.inProgress[job.id] = inProgressCompaction{
+		timer := m.scheduleJobTimeout(holder, poller.connectionID)
+		m.inProgress[job.id] = inProgressCompaction{
 			timer:        timer,
 			jobHolder:    holder,
 			connectionID: poller.connectionID,
@@ -300,43 +300,43 @@ func (lm *Manager) queueOrDespatchJob(job CompactionJob, complFunc func(error)) 
 		poller.completionFunc(&theJob, nil)
 	} else {
 		// append the job to the job queue
-		lm.jobQueue = append(lm.jobQueue, jobHolder{
+		m.jobQueue = append(m.jobQueue, jobHolder{
 			job:            job,
 			completionFunc: complFunc,
 		})
-		lm.stats.QueuedJobs++
+		m.stats.QueuedJobs++
 	}
-	lm.pendingCompactions[job.levelFrom]++
+	m.pendingCompactions[job.levelFrom]++
 }
 
-func (lm *Manager) lockTablesForJob(job CompactionJob) {
-	lm.lockRange(job.sourceRange)
-	lm.lockRange(job.destRange)
+func (m *Manager) lockTablesForJob(job CompactionJob) {
+	m.lockRange(job.sourceRange)
+	m.lockRange(job.destRange)
 }
 
-func (lm *Manager) unlockTablesForJob(job CompactionJob) {
-	lm.unlockRange(job.sourceRange)
-	lm.unlockRange(job.destRange)
+func (m *Manager) unlockTablesForJob(job CompactionJob) {
+	m.unlockRange(job.sourceRange)
+	m.unlockRange(job.destRange)
 }
 
-func (lm *Manager) LockRange(rng lockedRange) {
-	lm.lock.Lock()
-	defer lm.lock.Unlock()
-	lm.lockRange(rng)
+func (m *Manager) LockRange(rng lockedRange) {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+	m.lockRange(rng)
 }
 
-func (lm *Manager) lockRange(rng lockedRange) {
-	lm.lockedRanges[rng.level] = append(lm.lockedRanges[rng.level], rng)
+func (m *Manager) lockRange(rng lockedRange) {
+	m.lockedRanges[rng.level] = append(m.lockedRanges[rng.level], rng)
 }
 
-func (lm *Manager) UnlockRange(rng lockedRange) {
-	lm.lock.Lock()
-	defer lm.lock.Unlock()
-	lm.unlockRange(rng)
+func (m *Manager) UnlockRange(rng lockedRange) {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+	m.unlockRange(rng)
 }
 
-func (lm *Manager) unlockRange(r lockedRange) {
-	levelRanges, ok := lm.lockedRanges[r.level]
+func (m *Manager) unlockRange(r lockedRange) {
+	levelRanges, ok := m.lockedRanges[r.level]
 	if ok {
 		var newRanges []lockedRange
 		found := false
@@ -348,14 +348,14 @@ func (lm *Manager) unlockRange(r lockedRange) {
 			}
 		}
 		if found {
-			lm.lockedRanges[r.level] = newRanges
+			m.lockedRanges[r.level] = newRanges
 			return
 		}
 	}
 	panic(fmt.Sprintf("failed to unlock range %v - not found", r))
 }
 
-func (lm *Manager) calculateOverallRange(tables []*TableEntry) ([]byte, []byte) {
+func (m *Manager) calculateOverallRange(tables []*TableEntry) ([]byte, []byte) {
 	first := true
 	var rangeStart, rangeEnd []byte
 	for _, table := range tables {
@@ -377,16 +377,16 @@ func (lm *Manager) calculateOverallRange(tables []*TableEntry) ([]byte, []byte) 
 	return rangeStart[:len(rangeStart)-8], rangeEnd[:len(rangeEnd)-8]
 }
 
-func (lm *Manager) chooseLevelToCompact() (int, int) {
+func (m *Manager) chooseLevelToCompact() (int, int) {
 	// We choose a level to compact based on ratio of number of tables / max tables trigger
 	toCompact := -1
 	var maxRatio float64
 	var numTables int
-	for level := range lm.masterRecord.levelTableCounts {
-		trigger := lm.levelMaxTablesTrigger(level)
-		tableCount := lm.tableCount(level)
+	for level := range m.masterRecord.levelTableCounts {
+		trigger := m.levelMaxTablesTrigger(level)
+		tableCount := m.tableCount(level)
 		// we take any already scheduled compactions for the level into account
-		pending := lm.pendingCompactions[level]
+		pending := m.pendingCompactions[level]
 		availableTables := tableCount - pending
 		if availableTables > trigger {
 			ratio := float64(availableTables) / float64(trigger)
@@ -400,16 +400,16 @@ func (lm *Manager) chooseLevelToCompact() (int, int) {
 	return toCompact, numTables
 }
 
-func (lm *Manager) tableCount(level int) int {
-	return lm.masterRecord.levelTableCounts[level]
+func (m *Manager) tableCount(level int) int {
+	return m.masterRecord.levelTableCounts[level]
 }
 
-func (lm *Manager) chooseTablesToCompact(level int, maxTables int) ([][]*TableEntry, error) {
+func (m *Manager) chooseTablesToCompact(level int, maxTables int) ([][]*TableEntry, error) {
 	if level == 0 {
 		// We compact the whole level -this is done as a single job, as there can be overlap between L0 tables
-		return lm.getAllL0Tables()
+		return m.getAllL0Tables()
 	}
-	levEntry := lm.levelEntry(level)
+	levEntry := m.levelEntry(level)
 	tables, err := chooseTablesToCompactFromLevel(levEntry, maxTables)
 	if err != nil {
 		return nil, err
@@ -506,25 +506,25 @@ func (h *scoreHeap) Pop() interface{} {
 	return x
 }
 
-func (lm *Manager) jobInProgress(jobID string) bool {
-	_, ok := lm.inProgress[jobID]
+func (m *Manager) jobInProgress(jobID string) bool {
+	_, ok := m.inProgress[jobID]
 	return ok
 }
 
-func (lm *Manager) compactionComplete(jobID string) error {
-	compactionJob, ok := lm.inProgress[jobID]
+func (m *Manager) compactionComplete(jobID string) error {
+	compactionJob, ok := m.inProgress[jobID]
 	if !ok {
 		panic("cannot find compactionJob")
 	}
 	job := compactionJob.jobHolder.job
-	delete(lm.inProgress, job.id)
-	lm.pendingCompactions[job.levelFrom]--
+	delete(m.inProgress, job.id)
+	m.pendingCompactions[job.levelFrom]--
 	if compactionJob.timer != nil {
 		compactionJob.timer.Stop()
 	}
-	lm.unlockTablesForJob(job)
-	lm.stats.InProgressJobs--
-	lm.stats.CompletedJobs++
+	m.unlockTablesForJob(job)
+	m.stats.InProgressJobs--
+	m.stats.CompletedJobs++
 	dur := time.Duration(arista.NanoTime() - job.scheduleTime)
 	log.Debugf("compaction complete job %s - time from schedule %d ms", job.id, dur.Milliseconds())
 	cf := compactionJob.jobHolder.completionFunc
@@ -533,28 +533,28 @@ func (lm *Manager) compactionComplete(jobID string) error {
 		cf(nil)
 	}
 	if log.DebugEnabled {
-		lm.dumpLevelInfo()
+		m.dumpLevelInfo()
 	}
 	// After compaction, the dest level might need compaction, or we might have more dead entries to remove,
 	// so we trigger a check
-	return lm.maybeScheduleCompaction()
+	return m.maybeScheduleCompaction()
 }
 
-func (lm *Manager) pollForJob(connectionID int, completionFunc func(job *CompactionJob, err error)) {
-	lm.lock.Lock()
-	defer lm.lock.Unlock()
-	if len(lm.jobQueue) > 0 {
-		holder := lm.jobQueue[0]
-		lm.jobQueue = lm.jobQueue[1:]
-		lm.stats.QueuedJobs--
+func (m *Manager) pollForJob(connectionID int, completionFunc func(job *CompactionJob, err error)) {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+	if len(m.jobQueue) > 0 {
+		holder := m.jobQueue[0]
+		m.jobQueue = m.jobQueue[1:]
+		m.stats.QueuedJobs--
 		job := holder.job
-		timer := lm.scheduleJobTimeout(holder, connectionID)
-		lm.inProgress[job.id] = inProgressCompaction{
+		timer := m.scheduleJobTimeout(holder, connectionID)
+		m.inProgress[job.id] = inProgressCompaction{
 			timer:        timer,
 			jobHolder:    holder,
 			connectionID: connectionID,
 		}
-		lm.stats.InProgressJobs++
+		m.stats.InProgressJobs++
 		jobCopy := job
 		completionFunc(&jobCopy, nil)
 		return
@@ -564,72 +564,72 @@ func (lm *Manager) pollForJob(connectionID int, completionFunc func(job *Compact
 		completionFunc: completionFunc,
 		connectionID:   connectionID,
 	}
-	lm.schedulePollerTimeout(poller)
-	lm.pollers.add(poller)
+	m.schedulePollerTimeout(poller)
+	m.pollers.add(poller)
 }
 
-func (lm *Manager) schedulePollerTimeout(poller *poller) {
-	timer := common.ScheduleTimer(lm.conf.CompactionPollerTimeout, false, func() {
+func (m *Manager) schedulePollerTimeout(poller *poller) {
+	timer := common.ScheduleTimer(m.opts.CompactionPollerTimeout, false, func() {
 		// run on separate GR to avoid deadlock with stopping timer when job dispatched and level manager lock
 		common.Go(func() {
-			lm.lock.Lock()
-			defer lm.lock.Unlock()
+			m.lock.Lock()
+			defer m.lock.Unlock()
 			if poller.timer == nil {
 				// already complete
 				return
 			}
-			lm.pollers.remove(poller)
+			m.pollers.remove(poller)
 			poller.completionFunc(nil, common.NewTektiteErrorf(common.CompactionPollTimeout, "no job available"))
 		})
 	})
 	poller.timer = timer
 }
 
-func (lm *Manager) scheduleJobTimeout(holder jobHolder, connectionID int) *time.Timer {
-	return time.AfterFunc(lm.conf.CompactionJobTimeout, func() {
-		lm.lock.Lock()
-		defer lm.lock.Unlock()
+func (m *Manager) scheduleJobTimeout(holder jobHolder, connectionID int) *time.Timer {
+	return time.AfterFunc(m.opts.CompactionJobTimeout, func() {
+		m.lock.Lock()
+		defer m.lock.Unlock()
 		log.Debugf("compaction job timedout %s with connection id %d", holder.job.id, connectionID)
-		lm.cancelInProgressJob(holder)
+		m.cancelInProgressJob(holder)
 	})
 }
 
-func (lm *Manager) cancelInProgressJob(holder jobHolder) {
+func (m *Manager) cancelInProgressJob(holder jobHolder) {
 	log.Debugf("cancelling in progress job: %s", holder.job.id)
 	job := holder.job
-	_, ok := lm.inProgress[job.id]
+	_, ok := m.inProgress[job.id]
 	if !ok {
 		return // already complete
 	}
 	log.Debugf("compaction job: %s timed out, will be made available to pollers again", holder.job.id)
-	delete(lm.inProgress, job.id)
+	delete(m.inProgress, job.id)
 
-	lm.pendingCompactions[job.levelFrom]--
-	lm.stats.InProgressJobs--
-	lm.stats.TimedOutJobs++
+	m.pendingCompactions[job.levelFrom]--
+	m.stats.InProgressJobs--
+	m.stats.TimedOutJobs++
 
-	lm.queueOrDespatchJob(job, holder.completionFunc)
+	m.queueOrDespatchJob(job, holder.completionFunc)
 }
 
-func (lm *Manager) connectionClosed(connectionID int) {
-	lm.lock.Lock()
-	defer lm.lock.Unlock()
-	log.Debugf("connectionClosed %d num inprog jobs:%d", connectionID, len(lm.inProgress))
+func (m *Manager) connectionClosed(connectionID int) {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+	log.Debugf("connectionClosed %d num inprog jobs:%d", connectionID, len(m.inProgress))
 	// Cancel any in progress compactions that were polled for on the connection that was closed. This indicates
 	// the node has failed, cancelling them on close of connection is quicker than waiting for job timeout which can
 	// be a significant time. We don't want compaction to stall for a long time when a node dies, as this can cause
 	// L0 to reach max size and registrations to block.
-	for _, inProg := range lm.inProgress {
+	for _, inProg := range m.inProgress {
 		log.Debugf("inprogress job: %s connection id:%d", inProg.jobHolder.job.id, inProg.connectionID)
 		if inProg.connectionID == connectionID {
 			log.Debugf("cancelling inprogress job %s on connection close", inProg.jobHolder.job.id)
-			lm.cancelInProgressJob(inProg.jobHolder)
+			m.cancelInProgressJob(inProg.jobHolder)
 		}
 	}
 }
 
-func (lm *Manager) checkForDeadEntries(rng VersionRange) bool {
-	for level, entry := range lm.masterRecord.levelEntries {
+func (m *Manager) checkForDeadEntries(rng VersionRange) bool {
+	for level, entry := range m.masterRecord.levelEntries {
 		for _, lte := range entry.tableEntries {
 			te := lte.Get(entry)
 			// Only add the tables that match
@@ -642,28 +642,28 @@ func (lm *Manager) checkForDeadEntries(rng VersionRange) bool {
 	return false
 }
 
-func (lm *Manager) forceCompaction(level int, maxTables int) error {
-	lm.lock.Lock()
-	defer lm.lock.Unlock()
-	entries := lm.levelEntry(level)
+func (m *Manager) forceCompaction(level int, maxTables int) error {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+	entries := m.levelEntry(level)
 	if len(entries.tableEntries) == 0 {
 		return nil
 	}
-	tables, err := lm.chooseTablesToCompact(level, maxTables)
+	tables, err := m.chooseTablesToCompact(level, maxTables)
 	if err != nil {
 		return err
 	}
 	if len(tables) == 0 {
 		return nil
 	}
-	_, _, err = lm.scheduleCompaction(level, tables, nil)
+	_, _, err = m.scheduleCompaction(level, tables, nil)
 	return err
 }
 
-func (lm *Manager) GetCompactionStats() CompactionStats {
-	lm.lock.RLock()
-	defer lm.lock.RUnlock()
-	return lm.stats
+func (m *Manager) GetCompactionStats() CompactionStats {
+	m.lock.RLock()
+	defer m.lock.RUnlock()
+	return m.stats
 }
 
 type CompactionStats struct {

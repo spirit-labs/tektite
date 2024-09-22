@@ -150,7 +150,7 @@ func (c *compactionWorker) loop() {
 					Registrations:   registrations,
 					DeRegistrations: deRegistrations,
 				}
-				err = c.client.ApplyChanges(regBatch)
+				_, err := c.client.ApplyChanges(regBatch)
 				if err == nil {
 					// success
 					break

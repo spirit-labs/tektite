@@ -114,21 +114,15 @@ func (re *RegistrationEntry) deserialize(buff []byte, offset int) int {
 }
 
 type RegistrationBatch struct {
-	ClusterName     string
-	ClusterVersion  int
 	Compaction      bool
 	JobID           string
-	ProcessorID     int
 	Registrations   []RegistrationEntry
 	DeRegistrations []RegistrationEntry
 }
 
 func (rb *RegistrationBatch) Serialize(buff []byte) []byte {
-	buff = encoding.AppendStringToBufferLE(buff, rb.ClusterName)
-	buff = encoding.AppendUint64ToBufferLE(buff, uint64(rb.ClusterVersion))
 	buff = encoding.AppendBoolToBuffer(buff, rb.Compaction)
 	buff = encoding.AppendStringToBufferLE(buff, rb.JobID)
-	buff = encoding.AppendUint64ToBufferLE(buff, uint64(rb.ProcessorID))
 	buff = encoding.AppendUint32ToBufferLE(buff, uint32(len(rb.Registrations)))
 	for _, reg := range rb.Registrations {
 		buff = reg.serialize(buff)
@@ -141,17 +135,8 @@ func (rb *RegistrationBatch) Serialize(buff []byte) []byte {
 }
 
 func (rb *RegistrationBatch) Deserialize(buff []byte, offset int) int {
-	var s string
-	s, offset = encoding.ReadStringFromBufferLE(buff, offset)
-	rb.ClusterName = s
-	var ver uint64
-	ver, offset = encoding.ReadUint64FromBufferLE(buff, offset)
-	rb.ClusterVersion = int(ver)
 	rb.Compaction, offset = encoding.ReadBoolFromBuffer(buff, offset)
 	rb.JobID, offset = encoding.ReadStringFromBufferLE(buff, offset)
-	var pid uint64
-	pid, offset = encoding.ReadUint64FromBufferLE(buff, offset)
-	rb.ProcessorID = int(pid)
 	var l uint32
 	l, offset = encoding.ReadUint32FromBufferLE(buff, offset)
 	rb.Registrations = make([]RegistrationEntry, l)

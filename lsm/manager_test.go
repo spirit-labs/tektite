@@ -3,7 +3,6 @@ package lsm
 import (
 	"fmt"
 	"github.com/google/uuid"
-	"github.com/spirit-labs/tektite/asl/conf"
 	encoding2 "github.com/spirit-labs/tektite/asl/encoding"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/objstore/dev"
@@ -268,8 +267,9 @@ func TestAddAndRemove_L0(t *testing.T) {
 	deregBatch := RegistrationBatch{
 		DeRegistrations: []RegistrationEntry{deregEntry0},
 	}
-	err := levelManager.ApplyChangesNoCheck(deregBatch)
+	ok, err := levelManager.ApplyChanges(deregBatch, true)
 	require.NoError(t, err)
+	require.True(t, ok)
 
 	overlapTableIDs2 := getInRange(t, levelManager, 2, 31)
 	validateTabIds(t, OverlappingTables{
@@ -298,8 +298,9 @@ func TestAddAndRemove_L0(t *testing.T) {
 	deregBatch2 := RegistrationBatch{
 		DeRegistrations: []RegistrationEntry{deregEntry2, deregEntry4},
 	}
-	err = levelManager.ApplyChangesNoCheck(deregBatch2)
+	ok, err = levelManager.ApplyChanges(deregBatch2, true)
 	require.NoError(t, err)
+	require.True(t, ok)
 
 	overlapTableIDs3 := getInRange(t, levelManager, 2, 31)
 	validateTabIds(t, OverlappingTables{
@@ -327,8 +328,9 @@ func TestAddAndRemove_L0(t *testing.T) {
 	deregBatch3 := RegistrationBatch{
 		DeRegistrations: []RegistrationEntry{deregEntry1, deregEntry3},
 	}
-	err = levelManager.ApplyChangesNoCheck(deregBatch3)
+	ok, err = levelManager.ApplyChanges(deregBatch3, true)
 	require.NoError(t, err)
+	require.True(t, ok)
 
 	verifyTablesInLevel(t, levelManager, 0, nil)
 
@@ -336,7 +338,9 @@ func TestAddAndRemove_L0(t *testing.T) {
 }
 
 func TestAddRemove_L0(t *testing.T) {
-	levelManager, tearDown := setupLevelManager(t)
+	levelManager, tearDown := setupLevelManagerWithConfigSetter(t, false, true, func(cfg *ManagerOpts) {
+		cfg.L0MaxTablesBeforeBlocking = 100
+	})
 	defer tearDown(t)
 
 	mr := levelManager.getMasterRecord()
@@ -457,8 +461,9 @@ func TestAddAndRemoveSameBatch(t *testing.T) {
 			KeyEnd:   createKey(7),
 		}},
 	}
-	err = levelManager.ApplyChangesNoCheck(regBatch)
+	ok, err := levelManager.ApplyChanges(regBatch, true)
 	require.NoError(t, err)
+	require.True(t, ok)
 
 	oTabIDs, err := levelManager.QueryTablesInRange(createKey(3), createKey(1000))
 	require.NoError(t, err)
@@ -539,8 +544,9 @@ func testAddRemoveNonOverlapping(t *testing.T, ordered bool, level int, rangeGap
 			KeyEnd:   ent.keyEnd,
 		})
 		if len(regBatch.Registrations) == batchSize || entryNum == len(entries)-1 {
-			err = levelManager.ApplyChangesNoCheck(*regBatch)
+			ok, err := levelManager.ApplyChanges(*regBatch, true)
 			require.NoError(t, err)
+			require.True(t, ok)
 			// Get the table ids to make sure they were added ok
 			for i := 0; i < len(regBatch.Registrations); i++ {
 				oIDs, err := levelManager.QueryTablesInRange(regBatch.Registrations[i].KeyStart,
@@ -580,8 +586,9 @@ func testAddRemoveNonOverlapping(t *testing.T, ordered bool, level int, rangeGap
 			KeyEnd:   ent.keyEnd,
 		})
 		if len(regBatch.DeRegistrations) == batchSize || entryNum == len(entries)-1 {
-			err := levelManager.ApplyChangesNoCheck(*regBatch)
+			ok, err := levelManager.ApplyChanges(*regBatch, true)
 			require.NoError(t, err)
+			require.True(t, ok)
 			// Get the table ids to make sure they were removed ok
 			for i := 0; i < len(regBatch.DeRegistrations); i++ {
 				oIDs, err := levelManager.QueryTablesInRange(regBatch.DeRegistrations[i].KeyStart,
@@ -654,17 +661,16 @@ func getInRange(t *testing.T, levelManager *Manager, ks int, ke int) Overlapping
 
 func setupLevelManager(t *testing.T) (*Manager, func(t *testing.T)) {
 	t.Helper()
-	return setupLevelManagerWithConfigSetter(t, false, true, func(cfg *conf.Config) {})
+	return setupLevelManagerWithConfigSetter(t, false, true, func(cfg *ManagerOpts) {})
 }
 
 func setupLevelManagerWithConfigSetter(t *testing.T, enableCompaction bool, validate bool,
-	configSetter func(cfg *conf.Config)) (*Manager, func(t *testing.T)) {
+	configSetter func(cfg *ManagerOpts)) (*Manager, func(t *testing.T)) {
 	t.Helper()
-	cfg := conf.Config{}
-	cfg.ApplyDefaults()
+	cfg := ManagerOpts{}
 	configSetter(&cfg)
 	cloudStore := &dev.InMemStore{}
-	lm := NewManager(&cfg, cloudStore, enableCompaction, validate)
+	lm := NewManager(cloudStore, func() {}, enableCompaction, validate, cfg)
 	mr := NewMasterRecord(common.MetadataFormatV1)
 	err := lm.Start(mr.Serialize(nil))
 	require.NoError(t, err)
@@ -708,8 +714,9 @@ func removeTables(t *testing.T, levelManager *Manager, level int, tabIDs []Query
 	regBatch := RegistrationBatch{
 		DeRegistrations: regEntries,
 	}
-	err := levelManager.ApplyChangesNoCheck(regBatch)
+	ok, err := levelManager.ApplyChanges(regBatch, true)
 	require.NoError(t, err)
+	require.True(t, ok)
 }
 
 func addTables(t *testing.T, levelManager *Manager, level int, pairs ...int) []QueryTableInfo {
@@ -718,8 +725,9 @@ func addTables(t *testing.T, levelManager *Manager, level int, pairs ...int) []Q
 	regBatch := RegistrationBatch{
 		Registrations: addRegEntries,
 	}
-	err := levelManager.ApplyChangesNoCheck(regBatch)
+	ok, err := levelManager.ApplyChanges(regBatch, true)
 	require.NoError(t, err)
+	require.True(t, ok)
 	return addTableIDs
 }
 
@@ -772,71 +780,6 @@ func TestRegisterAndGetSlabRetentions(t *testing.T) {
 	require.Equal(t, time.Duration(0), ret)
 }
 
-func TestVersionOnApplyChanges(t *testing.T) {
-	levelManager, tearDown := setupLevelManager(t)
-	defer tearDown(t)
-
-	clusterName := "test_cluster"
-
-	tabID, err := uuid.New().MarshalBinary()
-	require.NoError(t, err)
-	regBatch := RegistrationBatch{
-		ClusterName:    clusterName,
-		ClusterVersion: 100,
-		Registrations: []RegistrationEntry{{
-			Level:    0,
-			TableID:  tabID,
-			KeyStart: createKey(0),
-			KeyEnd:   createKey(10),
-		}},
-	}
-	err = callRegisterL0Tables(levelManager, regBatch)
-	require.NoError(t, err)
-
-	// higher version
-	tabID, err = uuid.New().MarshalBinary()
-	require.NoError(t, err)
-	regBatch = RegistrationBatch{
-		ClusterName:    clusterName,
-		ClusterVersion: 101,
-		Registrations: []RegistrationEntry{{
-			Level:    0,
-			TableID:  tabID,
-			KeyStart: createKey(0),
-			KeyEnd:   createKey(10),
-		}},
-	}
-	err = callRegisterL0Tables(levelManager, regBatch)
-	require.NoError(t, err)
-
-	// Now with older version
-	tabID, err = uuid.New().MarshalBinary()
-	require.NoError(t, err)
-	regBatch = RegistrationBatch{
-		ClusterName:    clusterName,
-		ClusterVersion: 99,
-		Registrations: []RegistrationEntry{{
-			Level:    0,
-			TableID:  tabID,
-			KeyStart: createKey(0),
-			KeyEnd:   createKey(10),
-		}},
-	}
-	err = callRegisterL0Tables(levelManager, regBatch)
-	require.Error(t, err)
-	require.True(t, common.IsTektiteErrorWithCode(err, common.Unavailable))
-
-	afterTest(t, levelManager)
-}
-
-func callRegisterL0Tables(lm *Manager, regBatch RegistrationBatch) error {
-	ch := make(chan error, 1)
-	lm.RegisterL0Tables(regBatch, func(err error) {
-		ch <- err
-	})
-	return <-ch
-}
-
 func TestStats(t *testing.T) {
 	lm, tearDown := setupLevelManager(t)
 	defer tearDown(t)
@@ -866,8 +809,9 @@ func TestStats(t *testing.T) {
 	regBatch0 := RegistrationBatch{
 		Registrations: registrations,
 	}
-	err := lm.ApplyChangesNoCheck(regBatch0)
+	ok, err := lm.ApplyChanges(regBatch0, true)
 	require.NoError(t, err)
+	require.True(t, ok)
 
 	stats := lm.GetStats()
 	require.Equal(t, l0NumTables, stats.TablesIn)
@@ -909,8 +853,9 @@ func TestStats(t *testing.T) {
 	regBatch1 := RegistrationBatch{
 		Registrations: registrations,
 	}
-	err = lm.ApplyChangesNoCheck(regBatch1)
+	ok, err = lm.ApplyChanges(regBatch1, true)
 	require.NoError(t, err)
+	require.True(t, ok)
 
 	stats = lm.GetStats()
 	require.Equal(t, l0NumTables, stats.TablesIn)
@@ -957,8 +902,9 @@ func TestStats(t *testing.T) {
 	regBatch2 := RegistrationBatch{
 		Registrations: registrations,
 	}
-	err = lm.ApplyChangesNoCheck(regBatch2)
+	ok, err = lm.ApplyChanges(regBatch2, true)
 	require.NoError(t, err)
+	require.True(t, ok)
 
 	stats = lm.GetStats()
 	require.Equal(t, l0NumTables, stats.TablesIn)
@@ -996,8 +942,9 @@ func TestStats(t *testing.T) {
 			deregBatch2,
 		},
 	}
-	err = lm.ApplyChangesNoCheck(deregBatch)
+	ok, err = lm.ApplyChanges(deregBatch, true)
 	require.NoError(t, err)
+	require.True(t, ok)
 
 	stats = lm.GetStats()
 	require.Equal(t, l0NumTables, stats.TablesIn)
@@ -1178,7 +1125,7 @@ func TestRegisterDeadVersionRanges(t *testing.T) {
 }
 
 func validateDeadVersions(t *testing.T, lm *Manager, rng VersionRange, expected []NonOverlappingTables) {
-	err := lm.RegisterDeadVersionRange(rng, "test_cluster", 0)
+	err := lm.RegisterDeadVersionRange(rng)
 	require.NoError(t, err)
 	tables := getInRange(t, lm, 0, 30)
 	require.Equal(t, OverlappingTables(expected), tables)
@@ -1195,9 +1142,10 @@ func regTableInLevel(t *testing.T, lm *Manager, level int, keyStart int, keyEnd 
 		MinVersion: uint64(minVersion),
 		MaxVersion: uint64(maxVersion),
 	}
-	regBatch := RegistrationBatch{Registrations: []RegistrationEntry{regEntry}, ProcessorID: processorID}
-	err = lm.ApplyChangesNoCheck(regBatch)
+	regBatch := RegistrationBatch{Registrations: []RegistrationEntry{regEntry}}
+	ok, err := lm.ApplyChanges(regBatch, true)
 	require.NoError(t, err)
+	require.True(t, ok)
 	return &regEntry
 }
 

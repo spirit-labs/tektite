@@ -19,89 +19,128 @@ import (
 
 type Manager struct {
 	compactionState
-	lock    sync.RWMutex
-	started bool
-	conf                      *conf.Config
+	lock                      sync.RWMutex
+	started                   bool
+	opts                      ManagerOpts
 	format                    common.MetadataFormat
 	objStore                  objstore.Client
+	l0FreeCallback            func()
 	masterRecord              *MasterRecord
 	hasChanges                bool
-	clusterVersions           map[string]int
 	enableCompaction          bool
 	validateOnEachStateChange bool
-	pendingAddsQueue          []pendingL0Add
 }
 
-type pendingL0Add struct {
-	regBatch       RegistrationBatch
-	completionFunc func(error)
+type ManagerOpts struct {
+	RegistryFormat             common.MetadataFormat
+	SSTableBucketName          string
+	L0CompactionTrigger        int
+	L1CompactionTrigger        int
+	LevelMultiplier            int
+	L0MaxTablesBeforeBlocking  int
+	SSTableDeleteDelay         time.Duration
+	SSTableDeleteCheckInterval time.Duration
+	CompactionPollerTimeout    time.Duration
+	CompactionJobTimeout       time.Duration
 }
 
-type deleteTableEntry struct {
-	tableID   sst.SSTableID
-	addedTime uint64
+func (c *ManagerOpts) ApplyDefaults() {
+	// TODO remove dependency on conf.Config
+	if c.RegistryFormat == 0 {
+		c.RegistryFormat = conf.DefaultRegistryFormat
+	}
+	if c.SSTableBucketName == "" {
+		c.SSTableBucketName = conf.DefaultBucketName
+	}
+	if c.SSTableDeleteCheckInterval == 0 {
+		c.SSTableBucketName = conf.DefaultBucketName
+	}
+	if c.L0CompactionTrigger == 0 {
+		c.L0CompactionTrigger = conf.DefaultL0CompactionTrigger
+	}
+	if c.L1CompactionTrigger == 0 {
+		c.L1CompactionTrigger = conf.DefaultL1CompactionTrigger
+	}
+	if c.LevelMultiplier == 0 {
+		c.LevelMultiplier = conf.DefaultLevelMultiplier
+	}
+	if c.L0MaxTablesBeforeBlocking == 0 {
+		c.L0MaxTablesBeforeBlocking = conf.DefaultL0MaxTablesBeforeBlocking
+	}
+	if c.SSTableDeleteDelay == 0 {
+		c.SSTableDeleteDelay = conf.DefaultSSTableDeleteDelay
+	}
+	if c.SSTableDeleteCheckInterval == 0 {
+		c.SSTableDeleteCheckInterval = conf.DefaultSSTableDeleteCheckInterval
+	}
+	if c.CompactionPollerTimeout == 0 {
+		c.CompactionPollerTimeout = conf.DefaultCompactionPollerTimeout
+	}
+	if c.CompactionJobTimeout == 0 {
+		c.CompactionJobTimeout = conf.DefaultCompactionJobTimeout
+	}
 }
 
-func NewManager(conf *conf.Config, cloudStore objstore.Client, enableCompaction bool,
-	validateOnEachStateChange bool) *Manager {
+func NewManager(objStore objstore.Client, l0FreeCallback func(), enableCompaction bool, validateOnEachStateChange bool,
+	opts ManagerOpts) *Manager {
+	opts.ApplyDefaults()
 	lm := &Manager{
 		compactionState:           newCompactionState(),
-		format:                    conf.RegistryFormat,
-		objStore:                  cloudStore,
-		conf:                      conf,
-		clusterVersions:           map[string]int{},
+		objStore:                  objStore,
+		l0FreeCallback:            l0FreeCallback,
+		opts:                      opts,
 		enableCompaction:          enableCompaction,
 		validateOnEachStateChange: validateOnEachStateChange,
 	}
 	return lm
 }
 
-func (lm *Manager) Start(masterRecordBytes []byte) error {
-	lm.lock.Lock()
-	defer lm.lock.Unlock()
-	if lm.started {
+func (m *Manager) Start(masterRecordBytes []byte) error {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+	if m.started {
 		return nil
 	}
 	if len(masterRecordBytes) > 0 {
-		lm.masterRecord = &MasterRecord{}
-		lm.masterRecord.Deserialize(masterRecordBytes, 0)
+		m.masterRecord = &MasterRecord{}
+		m.masterRecord.Deserialize(masterRecordBytes, 0)
 	} else {
-		lm.masterRecord = NewMasterRecord(lm.conf.RegistryFormat)
+		m.masterRecord = NewMasterRecord(m.opts.RegistryFormat)
 	}
-	lm.scheduleTableDeleteTimer()
+	m.scheduleTableDeleteTimer()
 	// Maybe trigger a compaction as levels could be full
-	if err := lm.maybeScheduleCompaction(); err != nil {
+	if err := m.maybeScheduleCompaction(); err != nil {
 		return err
 	}
-	lm.started = true
+	m.started = true
 	return nil
 }
 
-func (lm *Manager) Stop() error {
-	lm.lock.Lock()
-	defer lm.lock.Unlock()
-	if !lm.started {
+func (m *Manager) Stop() error {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+	if !m.started {
 		return nil
 	}
-	lm.tableDeleteTimer.Stop()
-	for _, inProg := range lm.inProgress {
+	m.tableDeleteTimer.Stop()
+	for _, inProg := range m.inProgress {
 		if inProg.timer != nil {
 			inProg.timer.Stop()
 		}
 	}
-	lm.started = false
+	m.started = false
 	return nil
 }
 
-func (lm *Manager) QueryTablesInRange(keyStart []byte, keyEnd []byte) (OverlappingTables, error) {
-	lm.lock.RLock()
-	defer lm.lock.RUnlock()
-	if !lm.started {
+func (m *Manager) QueryTablesInRange(keyStart []byte, keyEnd []byte) (OverlappingTables, error) {
+	m.lock.RLock()
+	defer m.lock.RUnlock()
+	if !m.started {
 		return nil, errors.New("not started")
 	}
 	var overlapping OverlappingTables
-	for level, entry := range lm.masterRecord.levelEntries {
-		tables, err := lm.getOverlappingTables(keyStart, keyEnd, level, entry)
+	for level, entry := range m.masterRecord.levelEntries {
+		tables, err := m.getOverlappingTables(keyStart, keyEnd, level, entry)
 		if err != nil {
 			return nil, err
 		}
@@ -125,94 +164,65 @@ func (lm *Manager) QueryTablesInRange(keyStart []byte, keyEnd []byte) (Overlappi
 	return overlapping, nil
 }
 
-func (lm *Manager) RegisterL0Tables(registrationBatch RegistrationBatch, completionFunc func(error)) {
-	lm.lock.Lock()
-	defer lm.lock.Unlock()
-	if !lm.started {
-		completionFunc(common.NewTektiteErrorf(common.Unavailable, "not started"))
-		return
+func (m *Manager) ApplyChanges(regBatch RegistrationBatch, noCompaction bool) (bool, error) {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+	if !m.started {
+		return false, errors.New("not started")
 	}
-	if !(len(registrationBatch.DeRegistrations) == 0 && len(registrationBatch.Registrations) == 1) ||
-		registrationBatch.Registrations[0].Level != 0 || registrationBatch.Compaction {
-		completionFunc(errwrap.Errorf("not an L0 registration %v", registrationBatch))
-		return
+	l0FreeSpaceBefore := m.getL0FreeSpace()
+	isL0Reg := false
+	for _, reg := range regBatch.Registrations {
+		if reg.Level == 0 {
+			isL0Reg = true
+			break
+		}
 	}
-	// we check cluster version - this protects against network partition where node is lost but is still running, new
-	// node takes over, but old store tries to register tables after new node is active.
-	lowestVersion := lm.clusterVersions[registrationBatch.ClusterName]
-	if registrationBatch.ClusterVersion < lowestVersion {
-		completionFunc(common.NewTektiteErrorf(common.Unavailable, "registration batch version is too low"))
-		return
-	}
-	lm.clusterVersions[registrationBatch.ClusterName] = registrationBatch.ClusterVersion
-	if lm.getL0FreeSpace() >= 1 {
-		log.Debugf("in lsm.Manager RegisterL0Tables - enough free space so applying now")
-		completionFunc(lm.doApplyChangesAndMaybeCompact(registrationBatch))
-		return
-	}
-	// queue the request
-	log.Debugf("in lsm.Manager RegisterL0Tables - not enough free space so queuing- %d", lm.getL0FreeSpace())
-	lm.pendingAddsQueue = append(lm.pendingAddsQueue, pendingL0Add{
-		regBatch:       registrationBatch,
-		completionFunc: completionFunc,
-	})
-}
-
-func (lm *Manager) ApplyChanges(regBatch RegistrationBatch) error {
-	lm.lock.Lock()
-	defer lm.lock.Unlock()
-	if !lm.started {
-		return errors.New("not started")
+	if isL0Reg && m.getL0FreeSpace() <= 0 {
+		// L0 is full - push back
+		return false, nil
 	}
 	if regBatch.Compaction {
-		return lm.applyCompactionChanges(regBatch)
+		if err := m.applyCompactionChanges(regBatch); err != nil {
+			return false, err
+		}
+	} else {
+		if err := m.doApplyChanges(regBatch); err != nil {
+			return false, err
+		}
+		if !noCompaction && m.enableCompaction && (isL0Reg || regBatch.Compaction) {
+			if err := m.maybeScheduleCompaction(); err != nil {
+				return false, err
+			}
+		}
 	}
-	if err := lm.doApplyChanges(regBatch); err != nil {
-		return err
+	if l0FreeSpaceBefore <= 0 && m.getL0FreeSpace() > 0 {
+		// Space has been freed in L0, call the callback so any waiting writers can retry their writes
+		go m.l0FreeCallback()
 	}
-	log.Debugf("registered l0 table: %v now dumping, reprocess? %t", regBatch.Registrations[0].TableID)
-	if log.DebugEnabled {
-		lm.dump()
-	}
-	if lm.enableCompaction {
-		return lm.maybeScheduleCompaction()
-	}
-	return nil
+	return true, nil
 }
 
-func (lm *Manager) ApplyChangesNoCheck(regBatch RegistrationBatch) error {
-	lm.lock.Lock()
-	defer lm.lock.Unlock()
-	return lm.doApplyChanges(regBatch)
-}
-
-func (lm *Manager) MaybeScheduleCompaction() error {
-	lm.lock.Lock()
-	defer lm.lock.Unlock()
-	if !lm.started {
+func (m *Manager) MaybeScheduleCompaction() error {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+	if !m.started {
 		return errors.New("not started")
 	}
-	return lm.maybeScheduleCompaction()
+	return m.maybeScheduleCompaction()
 }
 
 // RegisterDeadVersionRange - registers a range of versions as dead - versions in the dead range will be removed from
 // the store via compaction, asynchronously. Note the version range is inclusive.
-func (lm *Manager) RegisterDeadVersionRange(versionRange VersionRange, clusterName string, clusterVersion int) error {
-	lm.lock.Lock()
-	defer lm.lock.Unlock()
-	if !lm.started {
+func (m *Manager) RegisterDeadVersionRange(versionRange VersionRange) error {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+	if !m.started {
 		return errors.New("not started")
-	}
-	lowestVersion := lm.clusterVersions[clusterName]
-	if clusterVersion < lowestVersion {
-		// Note we send back RegisterDeadVersionWrongClusterVersion as we do not want the sender to retry - failure
-		// should be cancelled
-		return common.NewTektiteErrorf(common.RegisterDeadVersionWrongClusterVersion,
-			"RegisterDeadVersionRange - cluster version is too low %d expected %d", clusterVersion, lowestVersion)
 	}
 	requiresMasterRecordUpdate := false
 	// Find all tables that possibly might have entries in the dead range and update the table entry to include that
-	for _, entry := range lm.masterRecord.levelEntries {
+	for _, entry := range m.masterRecord.levelEntries {
 		if entry.maxVersion < versionRange.VersionStart {
 			continue
 		}
@@ -240,73 +250,70 @@ func (lm *Manager) RegisterDeadVersionRange(versionRange VersionRange, clusterNa
 			}
 		}
 	}
-	// We update the cluster version - this prevents L0 tables with a dead version range being pushed after this has been
-	// called - as we clear the local store when we get the new cluster version in proc mgr.
-	lm.clusterVersions[clusterName] = clusterVersion
 	if requiresMasterRecordUpdate {
-		lm.hasChanges = true
+		m.hasChanges = true
 	}
 	return nil
 }
 
-func (lm *Manager) GetSlabRetention(slabID int) (time.Duration, error) {
-	lm.lock.Lock()
-	defer lm.lock.Unlock()
-	if !lm.started {
+func (m *Manager) GetSlabRetention(slabID int) (time.Duration, error) {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+	if !m.started {
 		return 0, errors.New("not started")
 	}
-	ret := time.Duration(lm.masterRecord.slabRetentions[uint64(slabID)])
+	ret := time.Duration(m.masterRecord.slabRetentions[uint64(slabID)])
 	return ret, nil
 }
 
-func (lm *Manager) RegisterSlabRetention(slabID int, retention time.Duration) error {
-	lm.lock.Lock()
-	defer lm.lock.Unlock()
-	if !lm.started {
+func (m *Manager) RegisterSlabRetention(slabID int, retention time.Duration) error {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+	if !m.started {
 		return errors.New("not started")
 	}
-	lm.masterRecord.slabRetentions[uint64(slabID)] = uint64(retention)
-	lm.masterRecord.version++
-	lm.hasChanges = true
+	m.masterRecord.slabRetentions[uint64(slabID)] = uint64(retention)
+	m.masterRecord.version++
+	m.hasChanges = true
 	return nil
 }
 
-func (lm *Manager) UnregisterSlabRetention(slabID int) error {
-	lm.lock.Lock()
-	defer lm.lock.Unlock()
-	if !lm.started {
+func (m *Manager) UnregisterSlabRetention(slabID int) error {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+	if !m.started {
 		return errors.New("not started")
 	}
-	delete(lm.masterRecord.slabRetentions, uint64(slabID))
-	lm.masterRecord.version++
-	lm.hasChanges = true
+	delete(m.masterRecord.slabRetentions, uint64(slabID))
+	m.masterRecord.version++
+	m.hasChanges = true
 	return nil
 }
 
-func (lm *Manager) StoreLastFlushedVersion(lastFlushedVersion int64) error {
-	lm.lock.Lock()
-	defer lm.lock.Unlock()
-	if !lm.started {
+func (m *Manager) StoreLastFlushedVersion(lastFlushedVersion int64) error {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+	if !m.started {
 		return errors.New("not started")
 	}
-	lm.masterRecord.lastFlushedVersion = lastFlushedVersion
-	lm.hasChanges = true
+	m.masterRecord.lastFlushedVersion = lastFlushedVersion
+	m.hasChanges = true
 	return nil
 }
 
-func (lm *Manager) GetMasterRecordBytes() []byte {
-	lm.lock.Lock()
-	defer lm.lock.Unlock()
-	buffSize := lm.masterRecord.SerializedSize()
+func (m *Manager) GetMasterRecordBytes() []byte {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+	buffSize := m.masterRecord.SerializedSize()
 	buff := make([]byte, 0, buffSize)
-	buff = lm.masterRecord.Serialize(buff)
+	buff = m.masterRecord.Serialize(buff)
 	if len(buff) != buffSize {
 		log.Warnf("master record serialized size calculation is incorrect - this could result in unnecessary buffer reallocation")
 	}
 	return buff
 }
 
-func (lm *Manager) getOverlappingTables(keyStart []byte, keyEnd []byte, level int,
+func (m *Manager) getOverlappingTables(keyStart []byte, keyEnd []byte, level int,
 	levEntry *levelEntry) ([]*TableEntry, error) {
 	numTableEntries := len(levEntry.tableEntries)
 	// Note that keyEnd is exclusive!
@@ -344,27 +351,27 @@ func (lm *Manager) getOverlappingTables(keyStart []byte, keyEnd []byte, level in
 	return tables, nil
 }
 
-func (lm *Manager) levelMaxTablesTrigger(level int) int {
+func (m *Manager) levelMaxTablesTrigger(level int) int {
 	if level == 0 {
-		return lm.conf.L0CompactionTrigger
+		return m.opts.L0CompactionTrigger
 	}
-	mt := lm.conf.L1CompactionTrigger
+	mt := m.opts.L1CompactionTrigger
 	for i := 1; i < level; i++ {
-		mt *= lm.conf.LevelMultiplier
+		mt *= m.opts.LevelMultiplier
 	}
 	return mt
 }
 
-func (lm *Manager) getL0FreeSpace() int {
-	return lm.conf.L0MaxTablesBeforeBlocking - lm.masterRecord.levelTableCounts[0]
+func (m *Manager) getL0FreeSpace() int {
+	return m.opts.L0MaxTablesBeforeBlocking - m.masterRecord.levelTableCounts[0]
 }
 
-func (lm *Manager) applyCompactionChanges(regBatch RegistrationBatch) error {
-	jobExists := lm.jobInProgress(regBatch.JobID)
+func (m *Manager) applyCompactionChanges(regBatch RegistrationBatch) error {
+	jobExists := m.jobInProgress(regBatch.JobID)
 	if !jobExists {
 		return common.NewTektiteErrorf(common.CompactionJobNotFound, "job not found %s", regBatch.JobID)
 	}
-	if err := lm.doApplyChanges(regBatch); err != nil {
+	if err := m.doApplyChanges(regBatch); err != nil {
 		return err
 	}
 	registeredTables := make(map[string]struct{}, len(regBatch.Registrations))
@@ -390,44 +397,18 @@ func (lm *Manager) applyCompactionChanges(regBatch RegistrationBatch) error {
 		}
 	}
 	// ss-tables are deleted after a delay - this allows any queries currently in execution some time
-	lm.tablesToDelete = append(lm.tablesToDelete, tablesToDelete...)
-	if err := lm.compactionComplete(regBatch.JobID); err != nil {
+	m.tablesToDelete = append(m.tablesToDelete, tablesToDelete...)
+	if err := m.compactionComplete(regBatch.JobID); err != nil {
 		return err
 	}
-	lm.maybeDespatchPendingL0Adds()
 	return nil
 }
 
-func (lm *Manager) maybeDespatchPendingL0Adds() {
-	freeSpace := lm.getL0FreeSpace()
-	log.Debugf("in levelmanager maybeDespatchPendingL0Adds, freespace is %d", freeSpace)
-	if freeSpace <= 0 {
-		return
-	}
-	toDespatch := freeSpace
-	if len(lm.pendingAddsQueue) < toDespatch {
-		toDespatch = len(lm.pendingAddsQueue)
-	}
-	log.Debugf("sending %d queueing l0 add", toDespatch)
-	for i := 0; i < toDespatch; i++ {
-		pending := lm.pendingAddsQueue[i]
-		pending.completionFunc(lm.doApplyChangesAndMaybeCompact(pending.regBatch))
-	}
-	lm.pendingAddsQueue = lm.pendingAddsQueue[toDespatch:]
+func (m *Manager) getLastLevel() int {
+	return len(m.masterRecord.levelEntries) - 1
 }
 
-func (lm *Manager) getLastLevel() int {
-	return len(lm.masterRecord.levelEntries) - 1
-}
-
-func (lm *Manager) doApplyChangesAndMaybeCompact(regBatch RegistrationBatch) error {
-	if err := lm.doApplyChanges(regBatch); err != nil {
-		return err
-	}
-	return lm.maybeScheduleCompaction()
-}
-
-func (lm *Manager) doApplyChanges(regBatch RegistrationBatch) error {
+func (m *Manager) doApplyChanges(regBatch RegistrationBatch) error {
 	if log.DebugEnabled {
 		var dsb strings.Builder
 		for _, dereg := range regBatch.DeRegistrations {
@@ -442,28 +423,28 @@ func (lm *Manager) doApplyChanges(regBatch RegistrationBatch) error {
 		log.Debugf("applychanges: deregistering: %s registering: %s", dsb.String(), rsb.String())
 	}
 	// We must process the de-registrations before registrations, or we can temporarily have overlapping keys
-	if err := lm.applyDeRegistrations(regBatch.DeRegistrations); err != nil {
+	if err := m.applyDeRegistrations(regBatch.DeRegistrations); err != nil {
 		return err
 	}
-	if err := lm.applyRegistrations(regBatch.Registrations); err != nil {
+	if err := m.applyRegistrations(regBatch.Registrations); err != nil {
 		return err
 	}
-	if lm.validateOnEachStateChange {
-		if err := lm.Validate(false); err != nil {
+	if m.validateOnEachStateChange {
+		if err := m.Validate(false); err != nil {
 			return err
 		}
 	}
-	lm.masterRecord.version++
-	lm.hasChanges = true
+	m.masterRecord.version++
+	m.hasChanges = true
 	return nil
 }
 
-func (lm *Manager) applyDeRegistrations(deRegistrations []RegistrationEntry) error { //nolint:gocyclo
+func (m *Manager) applyDeRegistrations(deRegistrations []RegistrationEntry) error { //nolint:gocyclo
 	for _, deRegistration := range deRegistrations {
 		if len(deRegistration.KeyStart) == 0 || len(deRegistration.KeyEnd) <= 8 {
 			return errwrap.Errorf("deregistration, key start/end does not have a version: %v", deRegistration)
 		}
-		entry := lm.levelEntry(deRegistration.Level)
+		entry := m.levelEntry(deRegistration.Level)
 		if len(entry.tableEntries) == 0 {
 			// Can occur if deRegistration applied more than once - we need to be idempotent
 			continue
@@ -498,11 +479,11 @@ func (lm *Manager) applyDeRegistrations(deRegistrations []RegistrationEntry) err
 		entry.rangeStart = newStart
 		entry.rangeEnd = newEnd
 		// Update stats
-		lm.masterRecord.levelTableCounts[deRegistration.Level]--
-		lm.masterRecord.stats.TotTables--
-		lm.masterRecord.stats.TotBytes -= int(deRegistration.TableSize)
-		lm.masterRecord.stats.TotEntries -= int(deRegistration.NumEntries)
-		levStats := lm.getLevelStats(deRegistration.Level)
+		m.masterRecord.levelTableCounts[deRegistration.Level]--
+		m.masterRecord.stats.TotTables--
+		m.masterRecord.stats.TotBytes -= int(deRegistration.TableSize)
+		m.masterRecord.stats.TotEntries -= int(deRegistration.NumEntries)
+		levStats := m.getLevelStats(deRegistration.Level)
 		levStats.Tables--
 		levStats.Bytes -= int(deRegistration.TableSize)
 		levStats.Entries -= int(deRegistration.NumEntries)
@@ -510,23 +491,23 @@ func (lm *Manager) applyDeRegistrations(deRegistrations []RegistrationEntry) err
 	return nil
 }
 
-func (lm *Manager) levelEntry(level int) *levelEntry {
-	lm.maybeResizeLevelEntries(level)
-	return lm.masterRecord.levelEntries[level]
+func (m *Manager) levelEntry(level int) *levelEntry {
+	m.maybeResizeLevelEntries(level)
+	return m.masterRecord.levelEntries[level]
 }
 
-func (lm *Manager) maybeResizeLevelEntries(level int) {
-	if level >= len(lm.masterRecord.levelEntries) {
+func (m *Manager) maybeResizeLevelEntries(level int) {
+	if level >= len(m.masterRecord.levelEntries) {
 		newEntries := make([]*levelEntry, level+1)
-		copy(newEntries, lm.masterRecord.levelEntries)
-		for j := len(lm.masterRecord.levelEntries); j < level+1; j++ {
+		copy(newEntries, m.masterRecord.levelEntries)
+		for j := len(m.masterRecord.levelEntries); j < level+1; j++ {
 			newEntries[j] = &levelEntry{}
 		}
-		lm.masterRecord.levelEntries = newEntries
+		m.masterRecord.levelEntries = newEntries
 	}
 }
 
-func (lm *Manager) applyRegistrations(registrations []RegistrationEntry) error { //nolint:gocyclo
+func (m *Manager) applyRegistrations(registrations []RegistrationEntry) error { //nolint:gocyclo
 	for _, registration := range registrations {
 		log.Debugf("got reg keystart %v keyend %v", registration.KeyStart, registration.KeyEnd)
 		if len(registration.KeyStart) == 0 || len(registration.KeyEnd) <= 8 {
@@ -547,7 +528,7 @@ func (lm *Manager) applyRegistrations(registrations []RegistrationEntry) error {
 			Size:             registration.TableSize,
 			NumPrefixDeletes: registration.NumPrefixDeletes,
 		}
-		entry := lm.levelEntry(registration.Level)
+		entry := m.levelEntry(registration.Level)
 		if registration.MaxVersion > entry.maxVersion {
 			entry.maxVersion = registration.MaxVersion
 		}
@@ -600,17 +581,17 @@ func (lm *Manager) applyRegistrations(registrations []RegistrationEntry) error {
 		if bytes.Compare(registration.KeyEnd, entry.rangeEnd) > 0 {
 			entry.rangeEnd = registration.KeyEnd
 		}
-		lm.masterRecord.levelTableCounts[registration.Level]++
+		m.masterRecord.levelTableCounts[registration.Level]++
 		// Update stats
 		if registration.Level == 0 {
-			lm.masterRecord.stats.TablesIn++
-			lm.masterRecord.stats.BytesIn += int(registration.TableSize)
-			lm.masterRecord.stats.EntriesIn += int(registration.NumEntries)
+			m.masterRecord.stats.TablesIn++
+			m.masterRecord.stats.BytesIn += int(registration.TableSize)
+			m.masterRecord.stats.EntriesIn += int(registration.NumEntries)
 		}
-		lm.masterRecord.stats.TotTables++
-		lm.masterRecord.stats.TotBytes += int(registration.TableSize)
-		lm.masterRecord.stats.TotEntries += int(registration.NumEntries)
-		levStats := lm.getLevelStats(registration.Level)
+		m.masterRecord.stats.TotTables++
+		m.masterRecord.stats.TotBytes += int(registration.TableSize)
+		m.masterRecord.stats.TotEntries += int(registration.NumEntries)
+		levStats := m.getLevelStats(registration.Level)
 		levStats.Tables++
 		levStats.Bytes += int(registration.TableSize)
 		levStats.Entries += int(registration.NumEntries)
@@ -618,45 +599,45 @@ func (lm *Manager) applyRegistrations(registrations []RegistrationEntry) error {
 	return nil
 }
 
-func (lm *Manager) getLevelStats(level int) *LevelStats {
-	levStats, ok := lm.masterRecord.stats.LevelStats[level]
+func (m *Manager) getLevelStats(level int) *LevelStats {
+	levStats, ok := m.masterRecord.stats.LevelStats[level]
 	if !ok {
 		levStats = &LevelStats{}
-		lm.masterRecord.stats.LevelStats[level] = levStats
+		m.masterRecord.stats.LevelStats[level] = levStats
 	}
 	return levStats
 }
 
-func (lm *Manager) scheduleTableDeleteTimer() {
-	lm.tableDeleteTimer = time.AfterFunc(lm.conf.SSTableDeleteCheckInterval, func() {
-		lm.maybeDeleteTables()
+func (m *Manager) scheduleTableDeleteTimer() {
+	m.tableDeleteTimer = time.AfterFunc(m.opts.SSTableDeleteCheckInterval, func() {
+		m.maybeDeleteTables()
 	})
 }
 
-func (lm *Manager) maybeDeleteTables() {
-	lm.lock.Lock()
-	defer lm.lock.Unlock()
-	if !lm.started {
+func (m *Manager) maybeDeleteTables() {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+	if !m.started {
 		return
 	}
 	pos := -1
 	now := arista.NanoTime()
-	for i, entry := range lm.tablesToDelete {
+	for i, entry := range m.tablesToDelete {
 		age := time.Duration(now - entry.addedTime)
-		if age < lm.conf.SSTableDeleteDelay {
+		if age < m.opts.SSTableDeleteDelay {
 			break
 		}
 		log.Debugf("deleted sstable %v", entry.tableID)
-		if err := objstore.DeleteWithTimeout(lm.objStore, lm.conf.BucketName, string(entry.tableID), objstore.DefaultCallTimeout); err != nil {
+		if err := objstore.DeleteWithTimeout(m.objStore, m.opts.SSTableBucketName, string(entry.tableID), objstore.DefaultCallTimeout); err != nil {
 			log.Errorf("failed to delete ss-table from cloud store: %v", err)
 			break
 		}
 		pos = i
 	}
 	if pos != -1 {
-		lm.tablesToDelete = lm.tablesToDelete[pos+1:]
+		m.tablesToDelete = m.tablesToDelete[pos+1:]
 	}
-	lm.scheduleTableDeleteTimer()
+	m.scheduleTableDeleteTimer()
 }
 
 func hasOverlap(keyStart []byte, keyEnd []byte, blockKeyStart []byte, blockKeyEnd []byte) bool {
@@ -668,30 +649,30 @@ func hasOverlap(keyStart []byte, keyEnd []byte, blockKeyStart []byte, blockKeyEn
 	return !dontOverlap
 }
 
-func (lm *Manager) DumpLevelInfo() {
-	lm.lock.Lock()
-	defer lm.lock.Unlock()
-	lm.dumpLevelInfo()
+func (m *Manager) DumpLevelInfo() {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+	m.dumpLevelInfo()
 }
 
-func (lm *Manager) dumpLevelInfo() {
+func (m *Manager) dumpLevelInfo() {
 	builder := strings.Builder{}
-	for level := range lm.masterRecord.levelEntries {
-		tableCount := lm.masterRecord.levelTableCounts[level]
+	for level := range m.masterRecord.levelEntries {
+		tableCount := m.masterRecord.levelTableCounts[level]
 		builder.WriteString(fmt.Sprintf("level:%d table_count:%d, ", level, tableCount))
 	}
 	log.Info(builder.String())
 }
 
-func (lm *Manager) Dump() {
-	lm.lock.Lock()
-	defer lm.lock.Unlock()
-	lm.dump()
+func (m *Manager) Dump() {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+	m.dump()
 }
 
-func (lm *Manager) dump() {
+func (m *Manager) dump() {
 	log.Infof("Dumping LevelManager ====================")
-	for level, entry := range lm.masterRecord.levelEntries {
+	for level, entry := range m.masterRecord.levelEntries {
 		log.Infof("Dumping level %d. Max version %d. Range Start: %v Range End: %v. There are %d table entries",
 			level, entry.maxVersion, entry.rangeStart, entry.rangeEnd, len(entry.tableEntries))
 		for _, lte := range entry.tableEntries {
@@ -700,7 +681,7 @@ func (lm *Manager) dump() {
 				string(te.RangeStart), string(te.RangeEnd), te.DeleteRatio, te.DeleteRatio > 0)
 		}
 	}
-	for prefix := range lm.masterRecord.slabRetentions {
+	for prefix := range m.masterRecord.slabRetentions {
 		log.Infof("prefix %v", prefix)
 	}
 }
@@ -740,49 +721,53 @@ func getTableEntryForDeregistration(levEntry *levelEntry, deRegistration Registr
 	return pos
 }
 
-func (lm *Manager) GetObjectStore() objstore.Client {
-	return lm.objStore
+func (m *Manager) GetObjectStore() objstore.Client {
+	return m.objStore
 }
 
-func (lm *Manager) GetLevelTableCounts() map[int]int {
-	lm.lock.Lock()
-	defer lm.lock.Unlock()
+func (m *Manager) GetLevelTableCounts() map[int]int {
+	m.lock.Lock()
+	defer m.lock.Unlock()
 	counts := map[int]int{}
-	for level, count := range lm.masterRecord.levelTableCounts {
+	for level, count := range m.masterRecord.levelTableCounts {
 		counts[level] = count
 	}
 	return counts
 }
 
-func (lm *Manager) GetStats() Stats {
-	lm.lock.RLock()
-	defer lm.lock.RUnlock()
-	statsCopy := lm.masterRecord.stats.copy()
+func (m *Manager) GetStats() Stats {
+	m.lock.RLock()
+	defer m.lock.RUnlock()
+	statsCopy := m.masterRecord.stats.copy()
 	return *statsCopy
 }
 
 // Only used in testing
-func (lm *Manager) reset() {
-	lm.lock.Lock()
-	defer lm.lock.Unlock()
-	lm.started = false
-	lm.clusterVersions = map[string]int{}
-	lm.masterRecord = nil
+func (m *Manager) reset() {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+	m.started = false
+	m.masterRecord = nil
 }
 
-func (lm *Manager) getLevelEntry(level int) *levelEntry {
-	lm.lock.Lock()
-	defer lm.lock.Unlock()
-	return lm.levelEntry(level)
+func (m *Manager) getLevelEntry(level int) *levelEntry {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+	return m.levelEntry(level)
 }
 
 // Used in testing only
-func (lm *Manager) getMasterRecord() *MasterRecord {
-	lm.lock.Lock()
-	defer lm.lock.Unlock()
+func (m *Manager) getMasterRecord() *MasterRecord {
+	m.lock.Lock()
+	defer m.lock.Unlock()
 	// Serialize/Deserialize so not to expose internal MasterRecord directly
-	buff := lm.masterRecord.Serialize(nil)
+	buff := m.masterRecord.Serialize(nil)
 	mr := &MasterRecord{}
 	mr.Deserialize(buff, 0)
 	return mr
+}
+
+type deleteTableEntry struct {
+	tableID   sst.SSTableID
+	addedTime uint64
 }

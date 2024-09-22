@@ -24,7 +24,7 @@ const maxTableSize = 1300
 
 func TestPollerTimeout(t *testing.T) {
 	pollerTimeout := 250 * time.Millisecond
-	lm, tearDown := setupLevelManagerWithConfigSetter(t, true, true, func(cfg *conf.Config) {
+	lm, tearDown := setupLevelManagerWithConfigSetter(t, true, true, func(cfg *ManagerOpts) {
 		cfg.CompactionPollerTimeout = pollerTimeout
 	})
 	defer tearDown(t)
@@ -51,7 +51,7 @@ func TestPollerTimeout(t *testing.T) {
 }
 
 func TestPollForJobWhenAlreadyInQueue(t *testing.T) {
-	lm, tearDown := setupLevelManagerWithConfigSetter(t, true, true, func(cfg *conf.Config) {
+	lm, tearDown := setupLevelManagerWithConfigSetter(t, true, true, func(cfg *ManagerOpts) {
 		cfg.L1CompactionTrigger = 1
 	})
 	defer tearDown(t)
@@ -76,7 +76,7 @@ func TestPollForJobWhenAlreadyInQueue(t *testing.T) {
 }
 
 func TestPollForJobWhenNotAlreadyInQueue(t *testing.T) {
-	lm, tearDown := setupLevelManagerWithConfigSetter(t, true, true, func(cfg *conf.Config) {
+	lm, tearDown := setupLevelManagerWithConfigSetter(t, true, true, func(cfg *ManagerOpts) {
 		cfg.L1CompactionTrigger = 1
 	})
 	defer tearDown(t)
@@ -114,7 +114,7 @@ func TestPollForJobWhenNotAlreadyInQueue(t *testing.T) {
 }
 
 func TestPollersGetJobsInOrder(t *testing.T) {
-	lm, tearDown := setupLevelManagerWithConfigSetter(t, true, true, func(cfg *conf.Config) {
+	lm, tearDown := setupLevelManagerWithConfigSetter(t, true, true, func(cfg *ManagerOpts) {
 		cfg.L1CompactionTrigger = 1
 	})
 	defer tearDown(t)
@@ -160,7 +160,7 @@ func TestPollersGetJobsInOrder(t *testing.T) {
 }
 
 func TestPollJobAndCompleteItLevel0To1(t *testing.T) {
-	lm, tearDown := setupLevelManagerWithConfigSetter(t, true, true, func(cfg *conf.Config) {
+	lm, tearDown := setupLevelManagerWithConfigSetter(t, true, true, func(cfg *ManagerOpts) {
 		cfg.L0CompactionTrigger = 1
 		cfg.L1CompactionTrigger = 10
 	})
@@ -276,18 +276,18 @@ func TestPollJobAndCompleteItLevel0To1(t *testing.T) {
 func sendCompactionComplete(t *testing.T, lm *Manager, job *CompactionJob, newTables []TableEntry) {
 	registrations, deRegistrations := changesToApply(newTables, job)
 	regBatch := RegistrationBatch{
-		ClusterName:     "test_cluster",
 		Compaction:      true,
 		JobID:           job.id,
 		Registrations:   registrations,
 		DeRegistrations: deRegistrations,
 	}
-	err := lm.ApplyChanges(regBatch)
+	ok, err := lm.ApplyChanges(regBatch, false)
 	require.NoError(t, err)
+	require.True(t, ok)
 }
 
 func TestPollJobAndCompleteItLevel0To1EmptyL1(t *testing.T) {
-	lm, tearDown := setupLevelManagerWithConfigSetter(t, true, true, func(cfg *conf.Config) {
+	lm, tearDown := setupLevelManagerWithConfigSetter(t, true, true, func(cfg *ManagerOpts) {
 		cfg.L0CompactionTrigger = 1
 	})
 	defer tearDown(t)
@@ -387,7 +387,7 @@ func TestPollJobAndCompleteItLevel0To1EmptyL1(t *testing.T) {
 }
 
 func TestPollJobAndCompleteItLevel1To2(t *testing.T) {
-	lm, tearDown := setupLevelManagerWithConfigSetter(t, true, true, func(cfg *conf.Config) {
+	lm, tearDown := setupLevelManagerWithConfigSetter(t, true, true, func(cfg *ManagerOpts) {
 		cfg.L0CompactionTrigger = 2
 		cfg.LevelMultiplier = 2
 	})
@@ -441,12 +441,12 @@ func TestPollJobAndCompleteItLevel1To2(t *testing.T) {
 
 	// try and complete with wrong id
 	regBatch := RegistrationBatch{
-		ClusterName: "test_cluster",
-		Compaction:  true,
-		JobID:       "unknown",
+		Compaction: true,
+		JobID:      "unknown",
 	}
-	err = lm.ApplyChanges(regBatch)
+	ok, err := lm.ApplyChanges(regBatch, true)
 	require.Error(t, err)
+	require.False(t, ok)
 
 	newTables := []TableEntry{
 		createTableEntryWithDeleteRatio("sst2-6", 10, 15, 1.23),
@@ -468,7 +468,7 @@ func TestPollJobAndCompleteItLevel1To2(t *testing.T) {
 
 func TestCompactionTimeout(t *testing.T) {
 	compactionTimeout := 100 * time.Millisecond
-	lm, tearDown := setupLevelManagerWithConfigSetter(t, true, true, func(cfg *conf.Config) {
+	lm, tearDown := setupLevelManagerWithConfigSetter(t, true, true, func(cfg *ManagerOpts) {
 		cfg.L0CompactionTrigger = 1
 		cfg.L1CompactionTrigger = 1
 		cfg.LevelMultiplier = 1
@@ -522,7 +522,7 @@ func TestCompactionTimeout(t *testing.T) {
 }
 
 func TestTablesMovedToLastLevelWhenNoOverlapAndNoDeletes(t *testing.T) {
-	lm, tearDown := setupLevelManagerWithConfigSetter(t, true, true, func(cfg *conf.Config) {
+	lm, tearDown := setupLevelManagerWithConfigSetter(t, true, true, func(cfg *ManagerOpts) {
 		cfg.L1CompactionTrigger = 1
 	})
 	defer tearDown(t)
@@ -547,7 +547,7 @@ func TestTablesMovedToLastLevelWhenNoOverlapAndNoDeletes(t *testing.T) {
 }
 
 func TestTablesNotMovedToLastLevelWhenNoOverlapAndDeletes(t *testing.T) {
-	lm, tearDown := setupLevelManagerWithConfigSetter(t, true, true, func(cfg *conf.Config) {
+	lm, tearDown := setupLevelManagerWithConfigSetter(t, true, true, func(cfg *ManagerOpts) {
 		cfg.L1CompactionTrigger = 1
 	})
 	defer tearDown(t)
@@ -572,7 +572,7 @@ func TestTablesNotMovedToLastLevelWhenNoOverlapAndDeletes(t *testing.T) {
 }
 
 func TestTablesMovedToNonLastLevelWhenNoOverlapAndDeletes(t *testing.T) {
-	lm, tearDown := setupLevelManagerWithConfigSetter(t, true, true, func(cfg *conf.Config) {
+	lm, tearDown := setupLevelManagerWithConfigSetter(t, true, true, func(cfg *ManagerOpts) {
 		cfg.L1CompactionTrigger = 1
 	})
 	defer tearDown(t)
@@ -602,7 +602,7 @@ func TestTablesMovedToNonLastLevelWhenNoOverlapAndDeletes(t *testing.T) {
 }
 
 func TestFileLockingOnNextLevel(t *testing.T) {
-	lm, tearDown := setupLevelManagerWithConfigSetter(t, true, true, func(cfg *conf.Config) {
+	lm, tearDown := setupLevelManagerWithConfigSetter(t, true, true, func(cfg *ManagerOpts) {
 		cfg.L1CompactionTrigger = 1
 	})
 	defer tearDown(t)
@@ -647,7 +647,7 @@ func TestFileLockingOnNextLevel(t *testing.T) {
 }
 
 func TestFileLocking(t *testing.T) {
-	lm, tearDown := setupLevelManagerWithConfigSetter(t, true, true, func(cfg *conf.Config) {
+	lm, tearDown := setupLevelManagerWithConfigSetter(t, true, true, func(cfg *ManagerOpts) {
 		cfg.L1CompactionTrigger = 1
 	})
 	defer tearDown(t)
@@ -692,7 +692,7 @@ func TestFileLocking(t *testing.T) {
 func TestDeleteSSTablesAfterCompaction(t *testing.T) {
 	deleteCheckPeriod := 100 * time.Millisecond
 	deleteDelay := 100 * time.Millisecond
-	lm, tearDown := setupLevelManagerWithConfigSetter(t, true, true, func(cfg *conf.Config) {
+	lm, tearDown := setupLevelManagerWithConfigSetter(t, true, true, func(cfg *ManagerOpts) {
 		cfg.L0CompactionTrigger = 2
 		cfg.LevelMultiplier = 2
 		cfg.SSTableDeleteCheckInterval = deleteCheckPeriod
@@ -828,7 +828,7 @@ func TestChooseLevelToCompact1(t *testing.T) {
 }
 
 func testChooseLevelToCompact(t *testing.T, level int, adderFunc func(lm *Manager)) {
-	lm, tearDown := setupLevelManagerWithConfigSetter(t, true, true, func(cfg *conf.Config) {
+	lm, tearDown := setupLevelManagerWithConfigSetter(t, true, true, func(cfg *ManagerOpts) {
 		cfg.L0CompactionTrigger = 1
 		cfg.L1CompactionTrigger = 1
 		cfg.LevelMultiplier = 1
@@ -852,7 +852,7 @@ func TestChooseTableToCompact(t *testing.T) {
 }
 
 func testChooseTableToCompact(t *testing.T, expectedRatio float64, deleteRatios ...float64) {
-	lm, tearDown := setupLevelManagerWithConfigSetter(t, true, true, func(cfg *conf.Config) {
+	lm, tearDown := setupLevelManagerWithConfigSetter(t, true, true, func(cfg *ManagerOpts) {
 		cfg.L0CompactionTrigger = 1
 		cfg.L1CompactionTrigger = 1
 		cfg.LevelMultiplier = 1
@@ -927,8 +927,9 @@ func populateLevel(t *testing.T, lm *Manager, level int, entries ...TableEntry) 
 		})
 	}
 	regBatch := RegistrationBatch{Registrations: registrations}
-	err := lm.ApplyChangesNoCheck(regBatch)
+	ok, err := lm.ApplyChanges(regBatch, true)
 	require.NoError(t, err)
+	require.True(t, ok)
 }
 
 func TestMergeInterleaved(t *testing.T) {
@@ -1675,7 +1676,7 @@ func TestCompactionTriggers(t *testing.T) {
 	l0Trigger := 8
 	l1Trigger := 10
 	levelMult := 10
-	lm, tearDown := setupLevelManagerWithConfigSetter(t, true, true, func(cfg *conf.Config) {
+	lm, tearDown := setupLevelManagerWithConfigSetter(t, true, true, func(cfg *ManagerOpts) {
 		cfg.L0CompactionTrigger = l0Trigger
 		cfg.L1CompactionTrigger = l1Trigger
 		cfg.LevelMultiplier = levelMult
@@ -1774,7 +1775,7 @@ func trimVersion(key []byte) []byte {
 }
 
 func TestNoPreserveTombstonesWhenTableCompactedToLastLevelVersionsFlushed(t *testing.T) {
-	lm, tearDown := setupLevelManagerWithConfigSetter(t, true, true, func(cfg *conf.Config) {
+	lm, tearDown := setupLevelManagerWithConfigSetter(t, true, true, func(cfg *ManagerOpts) {
 		cfg.L1CompactionTrigger = 1
 	})
 	defer tearDown(t)
@@ -1799,7 +1800,7 @@ func TestNoPreserveTombstonesWhenTableCompactedToLastLevelVersionsFlushed(t *tes
 }
 
 func TestNoPreserveTombstonesWhenTableCompactedToLastLevelVersionsNotFlushed(t *testing.T) {
-	lm, tearDown := setupLevelManagerWithConfigSetter(t, true, true, func(cfg *conf.Config) {
+	lm, tearDown := setupLevelManagerWithConfigSetter(t, true, true, func(cfg *ManagerOpts) {
 		cfg.L1CompactionTrigger = 1
 	})
 	defer tearDown(t)
@@ -1821,7 +1822,7 @@ func TestNoPreserveTombstonesWhenTableCompactedToLastLevelVersionsNotFlushed(t *
 }
 
 func TestClosePollersForConnectionID(t *testing.T) {
-	lm, tearDown := setupLevelManagerWithConfigSetter(t, true, true, func(cfg *conf.Config) {
+	lm, tearDown := setupLevelManagerWithConfigSetter(t, true, true, func(cfg *ManagerOpts) {
 		cfg.L1CompactionTrigger = 1
 		cfg.CompactionJobTimeout = time.Hour
 	})
@@ -1861,7 +1862,7 @@ func TestClosePollersForConnectionID(t *testing.T) {
 }
 
 func TestJobCreatedWithLastFlushedVersion(t *testing.T) {
-	lm, tearDown := setupLevelManagerWithConfigSetter(t, true, true, func(cfg *conf.Config) {
+	lm, tearDown := setupLevelManagerWithConfigSetter(t, true, true, func(cfg *ManagerOpts) {
 		cfg.L1CompactionTrigger = 1
 		cfg.CompactionJobTimeout = time.Hour
 	})
