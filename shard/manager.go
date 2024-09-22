@@ -27,14 +27,25 @@ type Manager struct {
 	objStoreClient         objstore.Client
 	connectionFactory      transport.ConnectionFactory
 	transportServer        transport.Server
+	topicProvider topicInfoProvider
+	offsetLoader partitionOffsetLoader
 	lsmOpts                lsm.ManagerOpts
-	shards                 map[int]*LsmShard
+	shards                 map[int]*ShardHolder
 	currentMembership      cluster.MembershipState
+}
+
+type ShardHolder struct {
+	LsmShard     *LsmShard
+	OffsetsCache *OffsetsCache
+}
+
+func (s *ShardHolder) stop() error {
+	return s.LsmShard.Stop()
 }
 
 func NewManager(numShards int, stateUpdatorBucketName string, stateUpdatorKeyPrefix string, dataBucketName string,
 	dataKeyPrefix string, objStoreClient objstore.Client, connectionFactory transport.ConnectionFactory,
-	transportServer transport.Server, lsmOpts lsm.ManagerOpts) *Manager {
+	transportServer transport.Server, topicProvider topicInfoProvider, offsetLoader partitionOffsetLoader, lsmOpts lsm.ManagerOpts) *Manager {
 	return &Manager{
 		numShards:              numShards,
 		stateUpdatorBucketName: stateUpdatorBucketName,
@@ -44,8 +55,10 @@ func NewManager(numShards int, stateUpdatorBucketName string, stateUpdatorKeyPre
 		objStoreClient:         objStoreClient,
 		connectionFactory:      connectionFactory,
 		transportServer:        transportServer,
+		topicProvider:          topicProvider,
+		offsetLoader:           offsetLoader,
 		lsmOpts:                lsmOpts,
-		shards:                 map[int]*LsmShard{},
+		shards:                 map[int]*ShardHolder{},
 	}
 }
 
@@ -58,6 +71,7 @@ func (sm *Manager) Start() error {
 	// Register the handlers
 	sm.transportServer.RegisterHandler(transport.HandlerIDShardApplyChanges, sm.handleApplyChanges)
 	sm.transportServer.RegisterHandler(transport.HandlerIDShardQueryTablesInRange, sm.handleQueryTablesInRange)
+	sm.transportServer.RegisterHandler(transport.HandlerIDShardGetOffsets, sm.handleGetOffsets)
 	sm.started = true
 	return nil
 }
@@ -69,11 +83,11 @@ func (sm *Manager) Stop() error {
 		return nil
 	}
 	for _, shard := range sm.shards {
-		if err := shard.Stop(); err != nil {
+		if err := shard.stop(); err != nil {
 			return err
 		}
 	}
-	sm.shards = map[int]*LsmShard{}
+	sm.shards = map[int]*ShardHolder{}
 	sm.currentMembership = cluster.MembershipState{}
 	sm.started = false
 	return nil
@@ -89,7 +103,7 @@ func (sm *Manager) MembershipChanged(newState cluster.MembershipState) error {
 	}
 	sm.currentMembership = newState
 	address := sm.transportServer.Address()
-	newShards := make(map[int]*LsmShard, len(sm.shards))
+	newShards := make(map[int]*ShardHolder, len(sm.shards))
 	for shardID := 0; shardID < sm.numShards; shardID++ {
 		shardAddress, ok := sm.addressForShard(shardID)
 		if ok && (shardAddress == address) {
@@ -103,18 +117,26 @@ func (sm *Manager) MembershipChanged(newState cluster.MembershipState) error {
 				// Note, each shard needs a unique prefix for updator and data keys
 				updatorPrefix := fmt.Sprintf("%s-%06d", sm.stateUpdatorKeyPrefix, shardID)
 				dataKeyPrefix := fmt.Sprintf("%s-%06d", sm.dataKeyPrefix, shardID)
-				shard = NewLsmShard(sm.stateUpdatorBucketName, updatorPrefix, sm.dataBucketName,
+				lsmShard := NewLsmShard(sm.stateUpdatorBucketName, updatorPrefix, sm.dataBucketName,
 					dataKeyPrefix, sm.objStoreClient, sm.lsmOpts)
-				if err := shard.Start(); err != nil {
+				if err := lsmShard.Start(); err != nil {
 					return err
 				}
-				newShards[shardID] = shard
+				offsets := NewOffsetsCache(shardID, sm.topicProvider, sm.offsetLoader)
+				if err := offsets.Start(); err != nil {
+					return err
+				}
+				sh := &ShardHolder{
+					LsmShard:     lsmShard,
+					OffsetsCache: offsets,
+				}
+				newShards[shardID] = sh
 			}
 		} else {
 			shard, ok := sm.shards[shardID]
 			if ok {
 				// The shard was on this node but has moved, so we need to close the one here
-				if err := shard.Stop(); err != nil {
+				if err := shard.stop(); err != nil {
 					return err
 				}
 			}
@@ -142,13 +164,13 @@ func (sm *Manager) Client(shardID int) (Client, error) {
 	}, nil
 }
 
-func (sm *Manager) GetShard(shardID int) (*LsmShard, bool) {
+func (sm *Manager) GetShard(shardID int) (*ShardHolder, bool) {
 	sm.lock.RLock()
 	defer sm.lock.RUnlock()
 	return sm.getShard(shardID)
 }
 
-func (sm *Manager) getShard(shardID int) (*LsmShard, bool) {
+func (sm *Manager) getShard(shardID int) (*ShardHolder, bool) {
 	controller, ok := sm.shards[shardID]
 	return controller, ok
 }
@@ -177,7 +199,7 @@ func (sm *Manager) handleApplyChanges(request []byte, responseBuff []byte, respo
 	if err != nil {
 		return responseWriter(nil, err)
 	}
-	return shard.ApplyLsmChanges(req.RegBatch, func(err error) error {
+	return shard.LsmShard.ApplyLsmChanges(req.RegBatch, func(err error) error {
 		if err != nil {
 			return responseWriter(nil, err)
 		}
@@ -202,7 +224,7 @@ func (sm *Manager) handleQueryTablesInRange(request []byte, responseBuff []byte,
 	if err != nil {
 		return responseWriter(nil, err)
 	}
-	res, err := shard.QueryTablesInRange(req.KeyStart, req.KeyEnd)
+	res, err := shard.LsmShard.QueryTablesInRange(req.KeyStart, req.KeyEnd)
 	if err != nil {
 		return responseWriter(nil, err)
 	}
@@ -210,7 +232,32 @@ func (sm *Manager) handleQueryTablesInRange(request []byte, responseBuff []byte,
 	return responseWriter(responseBuff, nil)
 }
 
-func (sm *Manager) getShardWithError(shardID int) (*LsmShard, error) {
+
+func (sm *Manager) handleGetOffsets(request []byte, responseBuff []byte, responseWriter transport.ResponseWriter) error {
+	sm.lock.RLock()
+	defer sm.lock.RUnlock()
+	if err := checkRPCVersion(request); err != nil {
+		return responseWriter(nil, err)
+	}
+	var req GetOffsetsRequest
+	req.Deserialize(request, 2)
+	if err := sm.checkClusterVersion(req.ClusterVersion); err != nil {
+		return responseWriter(nil, err)
+	}
+	shard, err := sm.getShardWithError(req.ShardID)
+	if err != nil {
+		return responseWriter(nil, err)
+	}
+	offsets, err := shard.OffsetsCache.GetOffsets(req.Infos)
+	if err != nil {
+		return responseWriter(nil, err)
+	}
+	resp := GetOffsetsResponse{Offsets: offsets}
+	responseBuff = resp.Serialize(responseBuff)
+	return responseWriter(responseBuff, nil)
+}
+
+func (sm *Manager) getShardWithError(shardID int) (*ShardHolder, error) {
 	shard, ok := sm.getShard(shardID)
 	if !ok {
 		// Shard not found - most likely membership changed. We send back an error and the client will retry
@@ -238,10 +285,10 @@ func (sm *Manager) checkClusterVersion(clusterVersion int) error {
 	return nil
 }
 
-func (sm *Manager) getShards() map[int]*LsmShard {
+func (sm *Manager) getShards() map[int]*ShardHolder {
 	sm.lock.RLock()
 	defer sm.lock.RUnlock()
-	shards := make(map[int]*LsmShard, len(sm.shards))
+	shards := make(map[int]*ShardHolder, len(sm.shards))
 	for shardID, shard := range sm.shards {
 		shards[shardID] = shard
 	}

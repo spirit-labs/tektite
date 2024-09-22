@@ -33,7 +33,6 @@ func TestApi(t *testing.T, client Client) {
 		}
 
 		t.Run(tc.testName, func(t *testing.T) {
-			log.Infof("running test: %s", tc.testName)
 			tc.test(t, client)
 		})
 	}
@@ -226,7 +225,6 @@ func testListAllObjects(t *testing.T, client Client) {
 			require.LessOrEqual(t, info.LastModified.UnixMilli(), afterMs)
 		}
 	}
-	log.Info("done testListAllObjects")
 }
 
 func testListSomeObjects(t *testing.T, client Client) {

@@ -13,6 +13,8 @@ type Client interface {
 
 	QueryTablesInRange(keyStart []byte, keyEnd []byte) (lsm.OverlappingTables, error)
 
+	GetOffsets(infos []GetOffsetInfo) ([]int64, error)
+
 	Close() error
 }
 
@@ -95,6 +97,27 @@ func (c *client) QueryTablesInRange(keyStart []byte, keyEnd []byte) (lsm.Overlap
 	}
 	return lsm.DeserializeOverlappingTables(respBuff, 0), nil
 }
+
+func (c *client) GetOffsets(infos []GetOffsetInfo) ([]int64, error) {
+	conn, err := c.getConnection()
+	if err != nil {
+		return nil, err
+	}
+	req := GetOffsetsRequest{
+		ShardID: c.shardID,
+		ClusterVersion: c.clusterVersion,
+		Infos: infos,
+	}
+	request := req.Serialize(createRequestBuffer())
+	respBuff, err := conn.SendRPC(transport.HandlerIDShardGetOffsets, request)
+	if err != nil {
+		return nil, err
+	}
+	var resp GetOffsetsResponse
+	resp.Deserialize(respBuff, 0)
+	return resp.Offsets, nil
+}
+
 
 func createRequestBuffer() []byte {
 	buff := make([]byte, 0, 128)                  // Initial size guess
