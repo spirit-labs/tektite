@@ -13,12 +13,14 @@ import (
 )
 
 type KafkaServer struct {
+	lock               sync.Mutex
 	address            string
 	tlsConf            conf.TLSConfig
 	socketServer       *sockserver.SocketServer
 	saslAuthManager    *auth.SaslAuthManager
 	authenticationType string
 	handlerFactory     HandlerFactory
+	started            bool
 }
 
 type HandlerFactory func(ctx ConnectionContext) kafkaprotocol.RequestHandler
@@ -37,16 +39,31 @@ func NewKafkaServer(address string, tlsConf conf.TLSConfig, authenticationType s
 }
 
 func (k *KafkaServer) Start() error {
+	k.lock.Lock()
+	defer k.lock.Unlock()
+	if k.started {
+		return nil
+	}
 	socketServer := sockserver.NewSocketServer(k.address, k.tlsConf, k.createConnection)
 	if err := socketServer.Start(); err != nil {
 		return err
 	}
 	k.socketServer = socketServer
+	k.started = true
 	return nil
 }
 
 func (k *KafkaServer) Stop() error {
-	return k.socketServer.Stop()
+	k.lock.Lock()
+	defer k.lock.Unlock()
+	if !k.started {
+		return nil
+	}
+	if err := k.socketServer.Stop(); err != nil {
+		return err
+	}
+	k.started = false
+	return nil
 }
 
 func (k *KafkaServer) createConnection(conn net.Conn) sockserver.ServerConnection {

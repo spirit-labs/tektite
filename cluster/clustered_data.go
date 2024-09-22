@@ -19,22 +19,22 @@ and then new state stored without fear of another member overwriting the state.
 This is used in Tektite for persisting the controller metadata.
 
 In essence, it uses two object store keys:
-- one to store the latest epoch (i.e acquire ownership of the data via StateUpdator)
+- one to store the latest epoch (i.e acquire ownership of the data via StateUpdater)
 - another data key (which has the epoch in it) to store the actual data.
 
 The data key that we store the state under includes the epoch in it in the form of `<key_prefix>-<epoch>`, e.g. `my-data-key-prefix-0000000234`.
 When data is loaded, the key with the highest epoch prefix is loaded.
 
-(Ideally we would store the data in the `StateUpdator`, but the current S3 implementation of conditional PUTs requires us
+(Ideally we would store the data in the `StateUpdater`, but the current S3 implementation of conditional PUTs requires us
 to create a new object on each update. If the object is large, this results in a lot of objects and a lot of storage under load.)
 
 A member of the cluster takes ownership of the data by calling `AcquireData` which:
-1. atomically increments an 'epoch' value in a `StateUpdator` instance
+1. atomically increments an 'epoch' value in a `StateUpdater` instance
 2. fetches the latest data (likely persisted by a previous instance) and returns it, if any.
 
 The owner makes changes to the state and then calls `StoreData` to persist it. This:
 1. stores the state in the data key
-2. fetches the latest epoch via the `StateUpdator`. If this does not match the epoch the state was stored with - the call returns an error.
+2. fetches the latest epoch via the `StateUpdater`. If this does not match the epoch the state was stored with - the call returns an error.
 
 Since we check the epoch after the write has occurred, we know that the epoch hasn't changed before the write occurred,
 so data cannot be lost - any new instance changing the epoch is bound to load the latest data (recall that AcquireData acquires the epoch first and then loads).
@@ -43,7 +43,7 @@ type ClusteredData struct {
 	lock           sync.Mutex
 	dataBucketName string
 	dataKeyPrefix  string
-	stateMachine   *StateUpdator
+	stateMachine   *StateUpdater
 	objStoreClient objstore.Client
 	epoch          uint64
 	opts           ClusteredDataOpts

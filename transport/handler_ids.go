@@ -1,7 +1,7 @@
 package transport
 
 const (
-	HandlerIDShardApplyChanges = iota + 10
-	HandlerIDShardQueryTablesInRange
-	HandlerIDShardGetOffsets
+	HandlerIDControllerApplyChanges = iota + 10
+	HandlerIDControllerQueryTablesInRange
+	HandlerIDControllerGetOffsets
 )

@@ -425,7 +425,7 @@ func mergeSSTables(format common.DataFormat, tables [][]tableToMerge, preserveTo
 		// estimate of how much space an entry takes up in the sstable (data and index)
 
 		if size >= maxTableSize || isLast {
-			iter := newSliceIterator(mergeResults[iLast : i+1])
+			iter := common.NewKvSliceIterator(mergeResults[iLast : i+1])
 			ssTable, smallestKey, largestKey, minVersion, maxVersion, err := sst.BuildSSTable(format, size, i+1-iLast,
 				iter)
 			if err != nil {

@@ -69,7 +69,7 @@ func TestStateUpdatorJoinMember(t *testing.T) {
 	objStore := dev.NewInMemStore(0)
 
 	numInitialMembers := 4
-	members := make([]*StateUpdator, numInitialMembers)
+	members := make([]*StateUpdater, numInitialMembers)
 	for i := 0; i < numInitialMembers; i++ {
 		member := NewStateUpdator("bucket1", "prefix1", objStore, StateUpdatorOpts{})
 		member.Start()
@@ -120,7 +120,7 @@ func TestStateUpdatorLatestState(t *testing.T) {
 	prefix := "prefix1"
 
 	numMembers := 4
-	members := make([]*StateUpdator, numMembers)
+	members := make([]*StateUpdater, numMembers)
 	for i := 0; i < numMembers; i++ {
 		member := NewStateUpdator("bucket1", prefix, objStore, opts)
 		member.Start()
@@ -234,9 +234,9 @@ type stateMachineState struct {
 }
 
 func applyLoadAndVerifyStateUpdator(t *testing.T, runTime time.Duration, numMembers int, updateDelay time.Duration,
-	opts StateUpdatorOpts, objStores []objstore.Client) []*StateUpdator {
+	opts StateUpdatorOpts, objStores []objstore.Client) []*StateUpdater {
 
-	var members []*StateUpdator
+	var members []*StateUpdater
 	for i := 0; i < numMembers; i++ {
 		member := NewStateUpdator("bucket1", "prefix1", objStores[i], opts)
 		members = append(members, member)

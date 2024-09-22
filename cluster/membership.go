@@ -15,7 +15,7 @@ type Membership struct {
 	updateTimer          *time.Timer
 	lock                 sync.Mutex
 	started              bool
-	stateUpdator         *StateUpdator
+	stateUpdator         *StateUpdater
 	address              string
 	leader               bool
 	becomeLeaderCallback func()

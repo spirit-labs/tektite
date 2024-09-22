@@ -1,4 +1,4 @@
-package shard
+package control
 
 import (
 	"github.com/google/uuid"
@@ -8,110 +8,16 @@ import (
 	"github.com/spirit-labs/tektite/objstore/dev"
 	"github.com/spirit-labs/tektite/transport"
 	"github.com/stretchr/testify/require"
-	"math/rand"
 	"testing"
 	"time"
 )
 
-func TestManagerAddRemoveShard(t *testing.T) {
-	numShards := 10
-	numMembers := 3
-	managers, tearDown := setupManagers(t, numMembers, numShards)
-	defer tearDown(t)
-
-	newMembers := updateMembership(t, 1, managers, 0, 1, 2)
-	checkMapping(t, managers, numShards, newMembers)
-
-	// Now remove a member
-	newMembers = updateMembership(t, 2, managers, 1, 2)
-	checkMapping(t, managers, numShards, newMembers)
-
-	// Now reduce to zero
-	newMembers = updateMembership(t, 3, managers)
-	checkMapping(t, managers, numShards, newMembers)
-}
-
-// TestManagerShardRandomAddRemove - exercises the shard mapping logic by creating random combinations of members
-// and verify the mapping of shard to manager is correct
-func TestManagerShardRandomAddRemove(t *testing.T) {
-	numShards := 10
-	numMembers := 5
-	managers, tearDown := setupManagers(t, numMembers, numShards)
-	defer tearDown(t)
-	for i := 0; i < 100; i++ {
-
-		var memberIndexes []int
-		for j := 0; j < numMembers; j++ {
-			// toss a coin to see if member is added
-			if rand.Intn(2) == 0 {
-				memberIndexes = append(memberIndexes, j)
-			}
-		}
-		// shuffle them
-		rand.Shuffle(len(memberIndexes), func(i, j int) { memberIndexes[i], memberIndexes[j] = memberIndexes[j], memberIndexes[i] })
-		newMembers := updateMembership(t, i, managers, memberIndexes...)
-		checkMapping(t, managers, numShards, newMembers)
-	}
-}
-
-func updateMembership(t *testing.T, clusterVersion int, managers []*Manager, memberIndexes ...int) []cluster.MembershipEntry {
-	now := time.Now().UnixMilli()
-	var members []cluster.MembershipEntry
-	for _, memberIndex := range memberIndexes {
-		members = append(members, cluster.MembershipEntry{
-			Address:    managers[memberIndex].transportServer.Address(),
-			UpdateTime: now,
-		})
-	}
-	newState := cluster.MembershipState{
-		ClusterVersion: clusterVersion,
-		Members:        members,
-	}
-	for _, mgr := range managers {
-		err := mgr.MembershipChanged(newState)
-		require.NoError(t, err)
-	}
-	return members
-}
-
-func checkMapping(t *testing.T, managers []*Manager, numShards int, members []cluster.MembershipEntry) {
-	mapping := expectedShardMemberMapping(numShards, members)
-	for shardID, address := range mapping {
-		for _, mgr := range managers {
-			if address == mgr.transportServer.Address() {
-				// shard must be on this member
-				s, ok := mgr.GetShard(shardID)
-				require.True(t, ok)
-				require.NotNil(t, s)
-			} else {
-				// must not be here
-				s, ok := mgr.GetShard(shardID)
-				require.False(t, ok)
-				require.Nil(t, s)
-			}
-		}
-	}
-}
-
-func expectedShardMemberMapping(numShards int, members []cluster.MembershipEntry) map[int]string {
-	mapping := map[int]string{}
-	if len(members) > 0 {
-		for shard := 0; shard < numShards; shard++ {
-			i := shard % len(members)
-			mapping[shard] = members[i].Address
-		}
-	}
-	return mapping
-}
-
 func TestClientNoMembersOnCreation(t *testing.T) {
-	numShards := 10
-	managers, tearDown := setupManagers(t, 1, numShards)
+	managers, tearDown := setupManagers(t, 1)
 	defer tearDown(t)
 
 	// There are no members in the cluster at this point
-
-	_, err := managers[0].Client(7)
+	_, err := managers[0].Client()
 	require.Error(t, err)
 	// caller should get an unavailable error so it can retry
 	require.True(t, common.IsTektiteErrorWithCode(err, common.Unavailable))
@@ -119,8 +25,7 @@ func TestClientNoMembersOnCreation(t *testing.T) {
 }
 
 func TestClientWrongClusterVersion(t *testing.T) {
-	numShards := 10
-	managers, tearDown := setupManagers(t, 1, numShards)
+	managers, tearDown := setupManagers(t, 1)
 	defer tearDown(t)
 	updateMembership(t, 1, managers, 0)
 
@@ -129,7 +34,7 @@ func TestClientWrongClusterVersion(t *testing.T) {
 	tableID := []byte(uuid.New().String())
 	batch := createBatch(1, tableID, keyStart, keyEnd)
 
-	cl, err := managers[0].Client(7)
+	cl, err := managers[0].Client()
 	require.NoError(t, err)
 
 	// Now update membership again so cluster version increases
@@ -138,22 +43,21 @@ func TestClientWrongClusterVersion(t *testing.T) {
 	err = cl.ApplyLsmChanges(batch)
 	require.Error(t, err)
 	require.True(t, common.IsTektiteErrorWithCode(err, common.Unavailable))
-	require.Equal(t, "shard manager - cluster version mismatch", err.Error())
+	require.Equal(t, "controller - cluster version mismatch", err.Error())
 
 	_, err = cl.QueryTablesInRange(nil, nil)
 	require.Error(t, err)
 	require.True(t, common.IsTektiteErrorWithCode(err, common.Unavailable))
-	require.Equal(t, "shard manager - cluster version mismatch", err.Error())
+	require.Equal(t, "controller - cluster version mismatch", err.Error())
 }
 
 func TestManagerUseClosedClient(t *testing.T) {
-	numShards := 10
-	managers, tearDown := setupManagers(t, 1, numShards)
+	managers, tearDown := setupManagers(t, 1)
 	defer tearDown(t)
 
 	updateMembership(t, 1, managers, 0)
 
-	cl, err := managers[0].Client(7)
+	cl, err := managers[0].Client()
 	require.NoError(t, err)
 	// close client before using it
 	err = cl.Close()
@@ -170,7 +74,7 @@ func TestManagerUseClosedClient(t *testing.T) {
 	require.False(t, common.IsUnavailableError(err))
 
 	// create new client
-	cl, err = managers[0].Client(7)
+	cl, err = managers[0].Client()
 	require.NoError(t, err)
 	// use it
 	err = cl.ApplyLsmChanges(batch)
@@ -187,13 +91,12 @@ func TestManagerUseClosedClient(t *testing.T) {
 }
 
 func TestManagerApplyChanges(t *testing.T) {
-	numShards := 10
-	managers, tearDown := setupManagers(t, 1, numShards)
+	managers, tearDown := setupManagers(t, 1)
 	defer tearDown(t)
 
 	updateMembership(t, 1, managers, 0)
 
-	cl, err := managers[0].Client(7)
+	cl, err := managers[0].Client()
 	require.NoError(t, err)
 	defer func() {
 		err := cl.Close()
@@ -227,13 +130,12 @@ func TestManagerApplyChanges(t *testing.T) {
 }
 
 func TestManagerGetOffsets(t *testing.T) {
-	numShards := 10
-	managers, tearDown := setupManagersWithOffsetProviders(t, 1, numShards, testTopicProvider, testOffsetLoader)
+	managers, tearDown := setupManagersWithOffsetProviders(t, 1, testTopicProvider, testOffsetLoader)
 	defer tearDown(t)
 
 	updateMembership(t, 1, managers, 0)
 
-	cl, err := managers[0].Client(7)
+	cl, err := managers[0].Client()
 	require.NoError(t, err)
 	defer func() {
 		err := cl.Close()
@@ -266,22 +168,20 @@ func TestManagerGetOffsets(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func setupManagers(t *testing.T, numMembers int, numShards int) ([]*Manager, func(t *testing.T)) {
-	topicProvider := &testTopicInfoProvider{}
-	offsetLoader := &testPartitionOffsetLoader{}
-	return setupManagersWithOffsetProviders(t, numMembers, numShards, topicProvider, offsetLoader)
+func setupManagers(t *testing.T, numMembers int) ([]*Controller, func(t *testing.T)) {
+	return setupManagersWithOffsetProviders(t, numMembers, testTopicProvider, testOffsetLoader)
 }
 
-func setupManagersWithOffsetProviders(t *testing.T, numMembers int, numShards int, topicProvider topicInfoProvider,
-	offsetLoader partitionOffsetLoader) ([]*Manager, func(t *testing.T)) {
+func setupManagersWithOffsetProviders(t *testing.T, numMembers int, topicProvider topicInfoProvider,
+	offsetLoader partitionOffsetLoader) ([]*Controller, func(t *testing.T)) {
 	localTransports := transport.NewLocalTransports()
-	var managers []*Manager
+	var managers []*Controller
 	for i := 0; i < numMembers; i++ {
 		address := uuid.New().String()
 		transportServer, err := localTransports.NewLocalServer(address)
 		require.NoError(t, err)
 		objStore := dev.NewInMemStore(0)
-		mgr := NewManager(numShards, stateUpdatorBucketName, stateUpdatorKeyprefix, dataBucketName, dataKeyprefix,
+		mgr := NewManager(stateUpdatorBucketName, stateUpdatorKeyprefix, dataBucketName, dataKeyprefix,
 			objStore, localTransports.CreateConnection, transportServer, topicProvider, offsetLoader, lsm.ManagerOpts{})
 		err = mgr.Start()
 		require.NoError(t, err)
@@ -299,14 +199,34 @@ type testTopicInfoProvider struct {
 	infos []TopicInfo
 }
 
-func (t *testTopicInfoProvider) GetTopicsForShard(shardID int) ([]TopicInfo, error) {
+func (t *testTopicInfoProvider) GetAllTopics() ([]TopicInfo, error) {
 	return t.infos, nil
 }
 
 type testPartitionOffsetLoader struct {
-	offsets []StoredOffset
+	topicOffsets map[int][]StoredOffset
 }
 
-func (t *testPartitionOffsetLoader) LoadOffsetsForShard(shardID int) ([]StoredOffset, error) {
-	return t.offsets, nil
+func (t *testPartitionOffsetLoader) LoadOffsetsForTopic(topicID int) ([]StoredOffset, error) {
+	return t.topicOffsets[topicID], nil
+}
+
+func updateMembership(t *testing.T, clusterVersion int, managers []*Controller, memberIndexes ...int) []cluster.MembershipEntry {
+	now := time.Now().UnixMilli()
+	var members []cluster.MembershipEntry
+	for _, memberIndex := range memberIndexes {
+		members = append(members, cluster.MembershipEntry{
+			Address:    managers[memberIndex].transportServer.Address(),
+			UpdateTime: now,
+		})
+	}
+	newState := cluster.MembershipState{
+		ClusterVersion: clusterVersion,
+		Members:        members,
+	}
+	for _, mgr := range managers {
+		err := mgr.MembershipChanged(newState)
+		require.NoError(t, err)
+	}
+	return members
 }

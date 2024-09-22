@@ -16,17 +16,17 @@ import (
 )
 
 /*
-StateUpdator persists its state in object storage. Clients concurrently update the state through their own instances
+StateUpdater persists its state in object storage. Clients concurrently update the state through their own instances
 of this struct by supplying a function that takes the previous state and returns the new state. The struct provides
 serializability to updates even though clients are distributed. Updates occur as if they happened one after another.
 It can be used as the foundation for various distributed concurrency primitives, such as finite state machines, group
 membership, distributed locks, distributed sequences, and more.
 
-StateUpdator uses conditional writes via the PutIfNotExists method of the object store. This method atomically stores an
+StateUpdater uses conditional writes via the PutIfNotExists method of the object store. This method atomically stores an
 object only if no existing object with the same key is present.
 
-Each StateUpdator instance maintains an internal sequence. When updating the state, it attempts to store a key composed
-of a prefix and a sequence number. If the key already exists, it indicates that another StateUpdator instance has
+Each StateUpdater instance maintains an internal sequence. When updating the state, it attempts to store a key composed
+of a prefix and a sequence number. If the key already exists, it indicates that another StateUpdater instance has
 updated the state based on the previous state. In this scenario, the latest state is loaded, and the update is retried
 until successful. The sequence number is stored as MaxInt64 - sequence, ensuring that keys are ordered from newest to
 oldest lexicographically. This ordering makes it faster to retrieve the most recent key during initialization, as it
@@ -40,7 +40,7 @@ might fall significantly behind. In this case, the instance may experience multi
 before succeeding. To prevent instances from lagging too much, no-op updates that don’t change the state but update
 the sequence can be made periodically by settings `AutoUpdate` to `true` on the options and providing an `AutoUpdateInterval`.
 
-StateUpdator does not delete old keys. Deleting keys is challenging because members might lag behind due to network
+StateUpdater does not delete old keys. Deleting keys is challenging because members might lag behind due to network
 issues or other factors. Members retry updates based on their current sequence value up to a time limit before
 discarding that value and reinitializing upon reconnection. This approach prevents members from relying on outdated
 sequences for an extended period. It's crucial not to delete keys associated with in-use sequences, as doing so could
@@ -49,14 +49,14 @@ result in lost state.
 For key management, it's recommended to store the keys in a dedicated bucket with an expiration policy set to an
 appropriate duration (e.g., 7 days), longer than the maximum retry time for the state machine.
 
-If the object store becomes unavailable, or if all StateUpdator instances are shut down for a period longer than the
+If the object store becomes unavailable, or if all StateUpdater instances are shut down for a period longer than the
 expiration time, all state will be lost.
 
-Optionally, StateUpdator can be configured to write the latest state to a dedicated key for each member as a backup.
+Optionally, StateUpdater can be configured to write the latest state to a dedicated key for each member as a backup.
 This is done by specifying the LatestStateBucketName in the options. The bucket should have no expiration policy. In the
 rare event that the most recent state machine key is lost, the key can be restored from this backup to the state machine bucket.
 */
-type StateUpdator struct {
+type StateUpdater struct {
 	lock           sync.Mutex
 	stateBucket    string
 	stateKeyPrefix string
@@ -89,7 +89,7 @@ type StateUpdatorOpts struct {
 }
 
 func NewStateUpdator(stateBucket string, stateKeyPrefix string, objStoreClient objstore.Client,
-	opts StateUpdatorOpts) *StateUpdator {
+	opts StateUpdatorOpts) *StateUpdater {
 	if opts.MaxTimeBeforeReinitialise == 0 {
 		opts.MaxTimeBeforeReinitialise = DefaultMaxTimeBeforeReinitialise
 	}
@@ -106,7 +106,7 @@ func NewStateUpdator(stateBucket string, stateKeyPrefix string, objStoreClient o
 	if opts.LatestStateBucketName != "" {
 		memberID = uuid.New().String()
 	}
-	sm := &StateUpdator{
+	sm := &StateUpdater{
 		stateBucket:    stateBucket,
 		stateKeyPrefix: stateKeyPrefix,
 		objStoreClient: objStoreClient,
@@ -118,7 +118,7 @@ func NewStateUpdator(stateBucket string, stateKeyPrefix string, objStoreClient o
 	return sm
 }
 
-func (s *StateUpdator) Start() {
+func (s *StateUpdater) Start() {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 	if s.started {
@@ -130,7 +130,7 @@ func (s *StateUpdator) Start() {
 	s.started = true
 }
 
-func (s *StateUpdator) Stop() {
+func (s *StateUpdater) Stop() {
 	s.stopping.Store(true)
 	s.lock.Lock()
 	defer s.lock.Unlock()
@@ -143,13 +143,13 @@ func (s *StateUpdator) Stop() {
 	s.started = false
 }
 
-func (s *StateUpdator) NextSequence() int {
+func (s *StateUpdater) NextSequence() int {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 	return s.nextSequence
 }
 
-func (s *StateUpdator) scheduleUpdate() {
+func (s *StateUpdater) scheduleUpdate() {
 	s.updateTimer = time.AfterFunc(s.opts.AutoUpdateInterval, func() {
 		s.lock.Lock()
 		defer s.lock.Unlock()
@@ -169,13 +169,13 @@ func (s *StateUpdator) scheduleUpdate() {
 	})
 }
 
-func (s *StateUpdator) createKey(sequence int) string {
+func (s *StateUpdater) createKey(sequence int) string {
 	// Note that later keys have a smaller key - this allows us to init more quickly as we just load the first key
 	key := fmt.Sprintf("%s-%09d", s.stateKeyPrefix, math.MaxInt64-sequence)
 	return key
 }
 
-func (s *StateUpdator) extractSequenceFromKey(key string) (int, error) {
+func (s *StateUpdater) extractSequenceFromKey(key string) (int, error) {
 	i, err := strconv.Atoi(key[len(s.stateKeyPrefix)+1:])
 	if err != nil {
 		return 0, err
@@ -183,14 +183,14 @@ func (s *StateUpdator) extractSequenceFromKey(key string) (int, error) {
 	return math.MaxInt64 - i, nil
 }
 
-func (s *StateUpdator) GetState() ([]byte, error) {
+func (s *StateUpdater) GetState() ([]byte, error) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 	return s.state, nil
 }
 
 // FetchLatestState fetches the latest state by performing a no-op update.
-func (s *StateUpdator) FetchLatestState() ([]byte, error) {
+func (s *StateUpdater) FetchLatestState() ([]byte, error) {
 	return s.Update(func(buffer []byte) ([]byte, error) {
 		return buffer, nil
 	})
@@ -199,7 +199,7 @@ func (s *StateUpdator) FetchLatestState() ([]byte, error) {
 // The Update function provides the operation to update the state based on the previous state, returning the new state which will be stored.
 // Through the use of the monotonically-decreasing sequence number, it ensures that the update is based on the latest state.
 // The function returns when the new state has been committed to object storage, or an error occurs.
-func (s *StateUpdator) Update(updateFunc func(state []byte) ([]byte, error)) ([]byte, error) {
+func (s *StateUpdater) Update(updateFunc func(state []byte) ([]byte, error)) ([]byte, error) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 	state, err := s.update(updateFunc)
@@ -207,7 +207,7 @@ func (s *StateUpdator) Update(updateFunc func(state []byte) ([]byte, error)) ([]
 	return state, err
 }
 
-func (s *StateUpdator) update(updateFunc func(state []byte) ([]byte, error)) ([]byte, error) {
+func (s *StateUpdater) update(updateFunc func(state []byte) ([]byte, error)) ([]byte, error) {
 	var tZero []byte
 outer:
 	for {
@@ -258,7 +258,7 @@ outer:
 	}
 }
 
-func (s *StateUpdator) innerUpdate(seq int, state []byte, updateFunc func(state []byte) ([]byte, error)) (bool, []byte, error) {
+func (s *StateUpdater) innerUpdate(seq int, state []byte, updateFunc func(state []byte) ([]byte, error)) (bool, []byte, error) {
 	var err error
 	state, err = updateFunc(state)
 	if err != nil {
@@ -292,7 +292,7 @@ func (s *StateUpdator) innerUpdate(seq int, state []byte, updateFunc func(state 
 	return false, state, nil
 }
 
-func (s *StateUpdator) init() error {
+func (s *StateUpdater) init() error {
 	for {
 		if s.stopping.Load() {
 			return errors.New("state machine is stopping")
@@ -309,7 +309,7 @@ func (s *StateUpdator) init() error {
 	}
 }
 
-func (s *StateUpdator) initInner() error {
+func (s *StateUpdater) initInner() error {
 	// We store keys in reverse order, so the latest key will be the first one returned - we only need to list 1 key
 	existingInfos, err := objstore.ListObjectsWithPrefixWithTimeout(s.objStoreClient, s.stateBucket, s.stateKeyPrefix,
 		1, s.opts.ObjStoreCallTimeout)

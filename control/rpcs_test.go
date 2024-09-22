@@ -1,4 +1,4 @@
-package shard
+package control
 
 import (
 	"github.com/spirit-labs/tektite/lsm"
@@ -9,7 +9,6 @@ import (
 
 func TestSerializeDeserializeApplyChangesRequest(t *testing.T) {
 	req := ApplyChangesRequest{
-		ShardID: 12345,
 		ClusterVersion: 4555,
 		RegBatch: lsm.RegistrationBatch{
 			Compaction: true,
@@ -51,27 +50,24 @@ func TestSerializeDeserializeApplyChangesRequest(t *testing.T) {
 
 func TestSerializeDeserializeQueryTablesInRangeRequest(t *testing.T) {
 	req := QueryTablesInRangeRequest{
-		ShardID:  123345,
 		ClusterVersion: 567456,
-		KeyStart: []byte("keystart1"),
-		KeyEnd:   []byte("keyend1"),
+		KeyStart:       []byte("keystart1"),
+		KeyEnd:         []byte("keyend1"),
 	}
 	testSerializeDeserializeQueryTablesInRangeRequest(t, req)
 
 	// And with nil ranges
 	req = QueryTablesInRangeRequest{
-		ShardID:  123345,
 		ClusterVersion: 456456,
-		KeyStart: nil,
-		KeyEnd:   []byte("keyend1"),
+		KeyStart:       nil,
+		KeyEnd:         []byte("keyend1"),
 	}
 	testSerializeDeserializeQueryTablesInRangeRequest(t, req)
 
 	req = QueryTablesInRangeRequest{
-		ShardID:  123345,
 		ClusterVersion: 23424,
-		KeyStart: nil,
-		KeyEnd:   nil,
+		KeyStart:       nil,
+		KeyEnd:         nil,
 	}
 	testSerializeDeserializeQueryTablesInRangeRequest(t, req)
 }
@@ -87,4 +83,34 @@ func testSerializeDeserializeQueryTablesInRangeRequest(t *testing.T, req QueryTa
 	require.Equal(t, off, len(buff))
 
 	// And with null ranges
+}
+
+func TestSerializeDeserializeGetOffsetsRequest(t *testing.T) {
+	req := GetOffsetsRequest{
+		CacheNum:       123,
+		ClusterVersion: 4536,
+		Infos: []GetOffsetInfo{
+			{TopicID: 3, PartitionID: 23, NumOffsets: 345},
+			{TopicID: 7, PartitionID: 54, NumOffsets: 45},
+			{TopicID: 0, PartitionID: 2, NumOffsets: 45645},
+		},
+	}
+	var buff []byte
+	buff = append(buff, 1, 2, 3)
+	buff = req.Serialize(buff)
+	var req2 GetOffsetsRequest
+	off := req2.Deserialize(buff, 3)
+	require.Equal(t, req, req2)
+	require.Equal(t, off, len(buff))
+}
+
+func TestSerializeDeserializeGetOffsetsResponse(t *testing.T) {
+	resp := GetOffsetsResponse{Offsets: []int64{3423423, 234234, 343453, 456456, 768678, 6789769}}
+	var buff []byte
+	buff = append(buff, 1, 2, 3)
+	buff = resp.Serialize(buff)
+	var resp2 GetOffsetsResponse
+	off := resp2.Deserialize(buff, 3)
+	require.Equal(t, resp, resp2)
+	require.Equal(t, off, len(buff))
 }
