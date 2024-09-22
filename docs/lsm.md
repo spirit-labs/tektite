@@ -27,3 +27,36 @@ Each processor holds a reference to a processor manager which maintains the clus
 Similarly, each processor maintains their own current version and last processed version.
 After the processor builds and pushes the SSTable to object storage, the processor manager sends the processor's version, along with the cluster version it holds to the version manager.
 The version manager also maintains versions and when it receives versions it validates them and updates and broadcasts new versions accordingly.
+
+# Level Manager
+After successfully pushing the SSTable to object storage, it is added to the table cache, and then registered with the Level Manager.
+It is first registered at the first level, `L0` as a [RegistrationBatch](../levels/structs.go) which includes metadata like the cluster version, processor id, min/max version, key start/end, etc.
+The level manager will do some initial validation of the cluster version to guard against network partitions, then replicate the registration command.
+As part of the registration process, the level manager first applies deregistrations, then registrations, but when writing new data, the registration batch won't have any deregistrations, but if running as part of a compaction job, it might.
+
+When applying registrations, it first creates a [TableEntry](../levels/structs.go) with metadata from the registration batch, ie
+```go
+tabEntry := &TableEntry{
+SSTableID:        registration.TableID,
+RangeStart:       registration.KeyStart,
+RangeEnd:         registration.KeyEnd,
+MinVersion:       registration.MinVersion,
+MaxVersion:       registration.MaxVersion,
+DeleteRatio:      registration.DeleteRatio,
+AddedTime:        registration.AddedTime,
+NumEntries:       registration.NumEntries,
+Size:             registration.TableSize,
+NumPrefixDeletes: registration.NumPrefixDeletes,
+}
+```
+This will be used to determine the appropriate level in the LSM.
+A new SSTable will be registered in `L0`, but a compaction job might create entries in higher levels.
+The level manager uses segments to organize table entries in the various levels. A segment is a slice of table entries.
+Since `L0` can have overlapping table key ranges, but higher levels cannot, there is only one segment in `L0`.
+The level manager will grow the `L0` segment as needed.
+
+If the table entry is destined for a higher level, it will find the appropriate segment to add it to.
+If the new table were to exceed the max number of table entries, it will create a new one, possibly splitting the current one into, or merging it with the next one.
+
+Afterwards, the master record is updated.
+
