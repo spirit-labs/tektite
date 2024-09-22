@@ -3,18 +3,23 @@ package minio
 import (
 	"context"
 	"fmt"
+	"os"
+	"testing"
+
 	miniolib "github.com/minio/minio-go/v7"
 	"github.com/spirit-labs/tektite/asl/conf"
 	"github.com/spirit-labs/tektite/objstore"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go/modules/minio"
-	"testing"
 )
 
 func TestMinioObjStore(t *testing.T) {
-
+	// Currently, Podman doesn't support Ryuk
+	// Raised an issue on testcontainers-go
+	// https://github.com/testcontainers/testcontainers-go/issues/2781
+	// ToDo: Remove the below line once the above issue is resolved
+	os.Setenv("TESTCONTAINERS_RYUK_DISABLED", "true")
 	ctx := context.Background()
-
 	minioContainer, err := minio.Run(ctx, "minio/minio:RELEASE.2024-08-26T15-33-07Z", minio.WithUsername("minioadmin"), minio.WithPassword("minioadmin"))
 	require.NoError(t, err)
 
