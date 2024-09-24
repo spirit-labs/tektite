@@ -1,6 +1,28 @@
+/*
+log.go provides a centralized logging system for the application.
+
+It offers a global logger as well as the ability to create named loggers
+for different parts of Tektite. The package wraps the zap logging
+library, providing a simplified interface while leveraging zap's performance.
+
+Usage:
+
+	// Using the global logger
+	import log "github.com/spirit-labs/tektite/logger"
+	log.Info("Application started")
+	log.Errorf("Failed to connect: %v", err)
+	=> "Failed  to connect: connection refused"
+
+	// Creating and using a named logger
+	log, _ := logger.GetLogger("clustered_data.go")
+	log.Debug("Something happened!")
+	=> "[clustered_data.go] Something happened!"
+*/
 package logger
 
 import (
+	"fmt"
+	"github.com/pkg/errors"
 	"github.com/spirit-labs/tektite/asl/errwrap"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -9,10 +31,14 @@ import (
 	"time"
 )
 
-var logger *zap.Logger
-var log *zap.SugaredLogger
+var globalLogger *zap.Logger
+var globalLog *zap.SugaredLogger
 var initLock sync.Mutex
 var initialised bool
+var globalEncoding string
+var globalLevel zapcore.Level
+var DebugEnabled = false
+var loggersByName = make(map[string]*TektiteLogger)
 
 func init() {
 	initialise(zapcore.InfoLevel, "console", false)
@@ -32,14 +58,8 @@ func (cfg *Config) Configure() error {
 	if format != "console" && format != "json" {
 		return errwrap.New("log-format must be one of 'console' or 'json'")
 	}
-	Initialise(level, format)
+	initialise(level, format, true)
 	return nil
-}
-
-var DebugEnabled = false
-
-func Initialise(level zapcore.Level, encoding string) {
-	initialise(level, encoding, true)
 }
 
 func initialise(level zapcore.Level, encoding string, override bool) {
@@ -48,11 +68,12 @@ func initialise(level zapcore.Level, encoding string, override bool) {
 	if initialised && !override {
 		return
 	}
-	logger = CreateLogger(level, encoding)
-	log = logger.Sugar()
-
+	globalLogger = CreateLogger(level, encoding)
+	globalLog = globalLogger.Sugar()
 	// Cache as simple bool to avoid atomics - we never change it after initialisation so this is ok
-	DebugEnabled = log.Desugar().Core().Enabled(zap.DebugLevel)
+	DebugEnabled = globalLog.Desugar().Core().Enabled(zap.DebugLevel)
+	globalEncoding = encoding
+	globalLevel = level
 
 	initialised = true
 }
@@ -73,16 +94,19 @@ func CreateLogger(level zapcore.Level, encoding string) *zap.Logger {
 		EncodeCaller:   zapcore.ShortCallerEncoder,
 	}
 	conf := zap.Config{
-		Level:            zap.NewAtomicLevelAt(level),
-		Development:      false,
-		Sampling:         nil,
-		Encoding:         encoding,
-		EncoderConfig:    encoderConf,
-		OutputPaths:      []string{"stdout"},
-		ErrorOutputPaths: []string{"stdout"},
+		Level:       zap.NewAtomicLevelAt(level),
+		Development: false,
+		Sampling: &zap.SamplingConfig{
+			Initial:    150,
+			Thereafter: 150,
+		},
+		Encoding:          encoding,
+		EncoderConfig:     encoderConf,
+		OutputPaths:       []string{"stdout"},
+		ErrorOutputPaths:  []string{"stdout"},
+		DisableCaller:     true,
+		DisableStacktrace: true,
 	}
-	conf.DisableCaller = true
-	conf.DisableStacktrace = true
 	l, _ := conf.Build()
 	return l
 }
@@ -92,44 +116,128 @@ func timeEncoder(t time.Time, enc zapcore.PrimitiveArrayEncoder) {
 }
 
 func Info(args ...interface{}) {
-	log.Info(args)
+	globalLog.Info(args)
 }
 
 func Infof(format string, args ...interface{}) {
-	log.Infof(format, args...)
+	globalLog.Infof(format, args...)
 }
 
 func Debug(args ...interface{}) {
 	if !DebugEnabled {
 		return
 	}
-	log.Debug(args)
+	globalLog.Debug(args)
 }
 
 func Debugf(format string, args ...interface{}) {
-	log.Debugf(format, args...)
+	globalLog.Debugf(format, args...)
 }
 
 func Warn(args ...interface{}) {
-	log.Warn(args)
+	globalLog.Warn(args)
 }
 
 func Warnf(format string, args ...interface{}) {
-	log.Warnf(format, args...)
+	globalLog.Warnf(format, args...)
 }
 
 func Error(args ...interface{}) {
-	log.Error(args)
+	globalLog.Error(args)
 }
 
 func Errorf(format string, args ...interface{}) {
-	log.Errorf(format, args...)
+	globalLog.Errorf(format, args...)
 }
 
 func Fatal(args ...interface{}) {
-	log.Fatal(args)
+	globalLog.Fatal(args)
 }
 
 func Fatalf(format string, args ...interface{}) {
-	log.Fatalf(format, args...)
+	globalLog.Fatalf(format, args...)
+}
+
+// GetLogger gets a logger with the given name. The name is logged as a prefix for any message coming from this logger.
+func GetLogger(loggerName string) (*TektiteLogger, error) {
+	return GetLoggerWithLevel(loggerName, globalLevel)
+}
+
+func GetLoggerWithLevel(loggerName string, level zapcore.Level) (*TektiteLogger, error) {
+	initLock.Lock()
+	defer initLock.Unlock()
+	if !initialised {
+		return nil, errors.Errorf("cannot create a logger with name %s before the global logger is initialised", loggerName)
+	}
+
+	if value, exists := loggersByName[loggerName]; exists {
+		Warnf("tried to create a duplicate logger with name %s", loggerName)
+		return value, nil
+	}
+
+	logger := CreateLogger(level, globalEncoding)
+	tektiteLogger := NewTektiteLogger(logger, loggerName)
+	loggersByName[loggerName] = tektiteLogger
+	return tektiteLogger, nil
+}
+
+type TektiteLogger struct {
+	logger       *zap.Logger
+	log          *zap.SugaredLogger
+	debugEnabled bool
+	prefix       string
+}
+
+func NewTektiteLogger(logger *zap.Logger, loggerName string) *TektiteLogger {
+	log := logger.Sugar()
+
+	return &TektiteLogger{
+		logger:       logger,
+		log:          log,
+		debugEnabled: log.Desugar().Core().Enabled(zap.DebugLevel),
+		prefix:       fmt.Sprintf("[%s] ", loggerName),
+	}
+}
+
+func (t *TektiteLogger) Info(args ...interface{}) {
+	t.log.Info(append([]interface{}{t.prefix}, args...)...)
+}
+
+func (t *TektiteLogger) Infof(format string, args ...interface{}) {
+	t.log.Infof(t.prefix+format, args...)
+}
+
+func (t *TektiteLogger) Debug(args ...interface{}) {
+	if !t.debugEnabled {
+		return
+	}
+	t.log.Debug(append([]interface{}{t.prefix}, args...)...)
+}
+
+func (t *TektiteLogger) Debugf(format string, args ...interface{}) {
+	t.log.Debugf(t.prefix+format, args...)
+}
+
+func (t *TektiteLogger) Warn(args ...interface{}) {
+	t.log.Warn(append([]interface{}{t.prefix}, args...)...)
+}
+
+func (t *TektiteLogger) Warnf(format string, args ...interface{}) {
+	t.log.Warnf(t.prefix+format, args...)
+}
+
+func (t *TektiteLogger) Error(args ...interface{}) {
+	t.log.Error(append([]interface{}{t.prefix}, args...)...)
+}
+
+func (t *TektiteLogger) Errorf(format string, args ...interface{}) {
+	t.log.Errorf(t.prefix+format, args...)
+}
+
+func (t *TektiteLogger) Fatal(args ...interface{}) {
+	t.log.Fatal(append([]interface{}{t.prefix}, args...)...)
+}
+
+func (t *TektiteLogger) Fatalf(format string, args ...interface{}) {
+	t.log.Fatalf(t.prefix+format, args...)
 }
