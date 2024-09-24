@@ -3,7 +3,7 @@ package opers
 import (
 	"encoding/binary"
 	"errors"
-	"github.com/spirit-labs/tektite/kafkaserver/protocol"
+	"github.com/spirit-labs/tektite/kafkaprotocol"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -42,7 +42,7 @@ func TestMaybeHandleIdempotentProducerBatch(t *testing.T) {
 			lastOffsetDelta:        5,
 			initialSequenceNumber:  15,
 			expectedSequenceNumber: 15,
-			expectedError:          protocol.ErrorCodeDuplicateSequenceNumber,
+			expectedError:          kafkaprotocol.ErrorCodeDuplicateSequenceNumber,
 			expectMappingCreation:  true,
 		},
 		{
@@ -54,7 +54,7 @@ func TestMaybeHandleIdempotentProducerBatch(t *testing.T) {
 			lastOffsetDelta:        5,
 			initialSequenceNumber:  15,
 			expectedSequenceNumber: 15,
-			expectedError:          protocol.ErrorCodeOutOfOrderSequenceNumber,
+			expectedError:          kafkaprotocol.ErrorCodeOutOfOrderSequenceNumber,
 			expectMappingCreation:  true,
 		},
 		{

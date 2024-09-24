@@ -6,6 +6,6 @@ import (
 )
 
 func TestGenProto(t *testing.T) {
-	err := Generate("../asl/kafka/spec", "../kafkaserver/protocol")
+	err := Generate("../asl/kafka/spec", "../kafkaprotocol")
 	require.NoError(t, err)
 }

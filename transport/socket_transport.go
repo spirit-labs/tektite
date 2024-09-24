@@ -9,9 +9,8 @@ import (
 	"github.com/spirit-labs/tektite/client"
 	"github.com/spirit-labs/tektite/common"
 	log "github.com/spirit-labs/tektite/logger"
-	"io"
+	"github.com/spirit-labs/tektite/sockserver"
 	"net"
-	"strings"
 	"sync"
 	"time"
 )
@@ -20,78 +19,48 @@ type SocketTransportVersion uint16
 
 const (
 	SocketTransportV1       SocketTransportVersion = 1
-	readBuffSize                                   = 8 * 1024
 	responseBuffInitialSize                        = 4 * 1024
 	dialTimeout                                    = 5 * time.Second
-	writeTimeout                                   = 5 * time.Second
+	writeTimeout
 )
 
-var _ Server = (*SocketServer)(nil)
+var _ Server = (*SocketTransportServer)(nil)
 
 /*
-SocketServer is a transport Server implementation that uses TCP sockets for communication between client and server.
+SocketTransportServer is a transport Server implementation that uses TCP sockets for communication between client and server.
 It can also be configured to use TLS.
 */
-type SocketServer struct {
-	tlsConf             conf.TLSConfig
-	lock                sync.RWMutex
-	address             string
-	handlers            map[int]RequestHandler
-	started             bool
-	listener            net.Listener
-	acceptLoopExitGroup sync.WaitGroup
-	serverConnections   sync.Map
+type SocketTransportServer struct {
+	lock         sync.RWMutex
+	handlers     map[int]RequestHandler
+	socketServer *sockserver.SocketServer
 }
 
-func NewSocketServer(address string, tlsConf conf.TLSConfig) *SocketServer {
-	return &SocketServer{
-		tlsConf:  tlsConf,
-		address:  address,
+func NewSocketTransportServer(address string, tlsConf conf.TLSConfig) *SocketTransportServer {
+	server := &SocketTransportServer{
 		handlers: make(map[int]RequestHandler),
 	}
+	server.socketServer = sockserver.NewSocketServer(address, tlsConf, server.newConnection)
+	return server
 }
 
-func (s *SocketServer) Start() error {
+func (s *SocketTransportServer) Start() error {
 	s.lock.Lock()
 	defer s.lock.Unlock()
-	if s.started {
-		return nil
-	}
-	list, err := s.createNetworkListener()
-	if err != nil {
+	if err := s.socketServer.Start(); err != nil {
 		return err
 	}
-	s.listener = list
-	s.started = true
-	s.acceptLoopExitGroup.Add(1)
-	common.Go(s.acceptLoop)
-	log.Infof("started socket transport server on address %s", s.address)
+	log.Infof("started socket transport server on address %s", s.socketServer.Address())
 	return nil
 }
 
-func (s *SocketServer) Stop() error {
+func (s *SocketTransportServer) Stop() error {
 	s.lock.Lock()
 	defer s.lock.Unlock()
-	if !s.started {
-		return nil
-	}
-	if s.listener != nil {
-		if err := s.listener.Close(); err != nil {
-			// Ignore
-		}
-	}
-	// Wait for accept loop to exit
-	s.acceptLoopExitGroup.Wait()
-	// Now close connections
-	s.serverConnections.Range(func(conn, _ interface{}) bool {
-		conn.(*serverConnection).stop()
-		return true
-	})
-	s.started = false
-	return nil
+	return s.socketServer.Stop()
 }
 
-func (s *SocketServer) RegisterHandler(handlerID int, handler RequestHandler) bool {
+func (s *SocketTransportServer) RegisterHandler(handlerID int, handler RequestHandler) bool {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 	_, exists := s.handlers[handlerID]
@@ -101,175 +70,30 @@ func (s *SocketServer) RegisterHandler(handlerID int, handler RequestHandler) bo
 	s.handlers[handlerID] = handler
 	return true
 }
+func (s *SocketTransportServer) Address() string {
+	return s.socketServer.Address()
+}
 
-func (s *SocketServer) getRequestHandler(handlerID int) (RequestHandler, bool) {
+func (s *SocketTransportServer) getRequestHandler(handlerID int) (RequestHandler, bool) {
 	s.lock.RLock()
 	defer s.lock.RUnlock()
 	handler, exists := s.handlers[handlerID]
 	return handler, exists
 }
 
-func (s *SocketServer) Address() string {
-	return s.address
-}
-
-func (s *SocketServer) createNetworkListener() (net.Listener, error) {
-	var list net.Listener
-	var err error
-	var tlsConfig *tls.Config
-	if s.tlsConf.Enabled {
-		tlsConfig, err = conf.CreateServerTLSConfig(s.tlsConf)
-		if err != nil {
-			return nil, err
-		}
-		list, err = common.Listen("tcp", s.address)
-		if err == nil {
-			list = tls.NewListener(list, tlsConfig)
-		}
-	} else {
-		list, err = common.Listen("tcp", s.address)
-	}
-	if err != nil {
-		return nil, err
-	}
-	return list, nil
-}
-
-func (s *SocketServer) acceptLoop() {
-	defer s.acceptLoopExitGroup.Done()
-	for {
-		conn, err := s.listener.Accept()
-		if err != nil {
-			// Ok - was closed
-			break
-		}
-		c := &serverConnection{
-			s:    s,
-			conn: conn,
-		}
-		s.serverConnections.Store(c, struct{}{})
-		c.start()
+func (s *SocketTransportServer) newConnection(conn net.Conn) sockserver.ServerConnection {
+	return &SocketTransportServerConn{
+		s:    s,
+		conn: conn,
 	}
 }
 
-func (s *SocketServer) removeConnection(conn *serverConnection) {
-	s.serverConnections.Delete(conn)
+type SocketTransportServerConn struct {
+	s    *SocketTransportServer
+	conn net.Conn
 }
 
-type serverConnection struct {
-	s          *SocketServer
-	conn       net.Conn
-	closeGroup sync.WaitGroup
-	lock       sync.Mutex
-	closed     bool
-}
-
-func (c *serverConnection) start() {
-	c.lock.Lock()
-	defer c.lock.Unlock()
-	c.closeGroup.Add(1)
-	common.Go(c.readLoop)
-}
-
-func (c *serverConnection) readLoop() {
-	defer c.readPanicHandler()
-	defer c.closeGroup.Done()
-	if err := readMessage(c.conn, c.handleMessage); err != nil {
-		// Closed connection errors are normal on server shutdown - we ignore them
-		ignoreErr := false
-		if err == io.EOF {
-			ignoreErr = true
-		} else if ne, ok := err.(net.Error); ok {
-			msg := ne.Error()
-			ignoreErr = strings.Contains(msg, "use of closed network connection")
-		}
-		if !ignoreErr {
-			log.Errorf("error in reading from server connection: %v", err)
-		}
-		if err := c.conn.Close(); err != nil {
-			// Ignore
-		}
-	}
-	c.cleanUp()
-}
-
-func (c *serverConnection) cleanUp() {
-	c.s.removeConnection(c)
-	c.lock.Lock()
-	defer c.lock.Unlock()
-	c.closed = true
-}
-
-func (c *serverConnection) readPanicHandler() {
-	// We use a custom panic handler as we don't want the server to panic and crash if it receives a malformed
-	// request which has insufficient bytes in the buffer which would cause a runtime error: index out of range panic
-	if r := recover(); r != nil {
-		log.Errorf("failure in connection readLoop: %v", r)
-		if err := c.conn.Close(); err != nil {
-			// Ignore
-		}
-		c.cleanUp()
-	}
-}
-
-func readMessage(conn net.Conn, messageHandler func([]byte) error) error {
-	buff := make([]byte, readBuffSize)
-	var err error
-	var readPos, n int
-	for {
-		// read the message size
-		bytesRequired := 4 - readPos
-		if bytesRequired > 0 {
-			n, err = io.ReadAtLeast(conn, buff[readPos:], bytesRequired)
-			if err != nil {
-				break
-			}
-			readPos += n
-		}
-		totSize := 4 + int(binary.BigEndian.Uint32(buff))
-		bytesRequired = totSize - readPos
-		if bytesRequired > 0 {
-			// If we haven't already read enough bytes, read the entire message body
-			if totSize > len(buff) {
-				// buffer isn't big enough, resize it
-				nb := make([]byte, totSize)
-				copy(nb, buff)
-				buff = nb
-			}
-			n, err = io.ReadAtLeast(conn, buff[readPos:], bytesRequired)
-			if err != nil {
-				break
-			}
-			readPos += n
-		}
-		// Note that the buffer is reused so it's up to the protocol structs to copy any data in the message such
-		// as records, uuid, []byte before the call to handleMessage returns
-		err = messageHandler(buff[4:totSize])
-		if err != nil {
-			break
-		}
-		remainingBytes := readPos - totSize
-		if remainingBytes > 0 {
-			// Bytes for another message(s) have already been read, don't throw these away
-			if remainingBytes < totSize {
-				// we can copy directly as no overlap
-				copy(buff, buff[totSize:readPos])
-			} else {
-				// too many bytes remaining, we have to create a new buffer
-				nb := make([]byte, len(buff))
-				copy(nb, buff[totSize:readPos])
-				buff = nb
-			}
-		}
-		readPos = remainingBytes
-	}
-	if err == io.EOF {
-		return nil
-	}
-	return err
-}
-
-func (c *serverConnection) handleMessage(buff []byte) error {
+func (c *SocketTransportServerConn) HandleMessage(buff []byte) error {
 	version := SocketTransportVersion(binary.BigEndian.Uint16(buff))
 	if version != SocketTransportV1 {
 		return errors.Errorf("invalid transport version: %d - only version %d supported", version, SocketTransportV1)
@@ -317,17 +141,9 @@ func encodeErrorResponse(buff []byte, err error) []byte {
 	return buff
 }
 
-func (c *serverConnection) stop() {
-	c.lock.Lock()
-	c.closed = true
-	if err := c.conn.Close(); err != nil {
-		// Do nothing - connection might already have been closed (e.g. from Client)
-	}
-	c.lock.Unlock()
-	c.closeGroup.Wait()
-}
+// Client
 
-type SocketConnection struct {
+type SocketTransportConnection struct {
 	lock                  sync.Mutex
 	correlationIDSequence int64
 	conn                  net.Conn
@@ -335,19 +151,19 @@ type SocketConnection struct {
 	responseChannels      map[int64]chan responseHolder
 }
 
-func (s *SocketConnection) start() {
+func (s *SocketTransportConnection) start() {
 	s.closeWaitGroup.Add(1)
 	go func() {
 		defer s.readPanicHandler()
 		defer s.closeWaitGroup.Done()
-		if err := readMessage(s.conn, s.responseHandler); err != nil {
+		if err := sockserver.ReadMessage(s.conn, s.responseHandler); err != nil {
 			log.Errorf("failed to read response message: %v", err)
 			s.sendErrorResponsesAndCloseConnection(err)
 		}
 	}()
 }
 
-func (s *SocketConnection) sendErrorResponsesAndCloseConnection(err error) {
+func (s *SocketTransportConnection) sendErrorResponsesAndCloseConnection(err error) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 	// With TLS client auth and client cert is invalid, only get an error on read - so we propagate this back to any
@@ -360,7 +176,7 @@ func (s *SocketConnection) sendErrorResponsesAndCloseConnection(err error) {
 	}
 }
 
-func (s *SocketConnection) readPanicHandler() {
+func (s *SocketTransportConnection) readPanicHandler() {
 	if r := recover(); r != nil {
 		log.Errorf("failure in client connection readLoop: %v", r)
 		if err := s.conn.Close(); err != nil {
@@ -369,7 +185,7 @@ func (s *SocketConnection) readPanicHandler() {
 	}
 }
 
-func (s *SocketConnection) responseHandler(buff []byte) error {
+func (s *SocketTransportConnection) responseHandler(buff []byte) error {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 	version := SocketTransportVersion(binary.BigEndian.Uint16(buff))
@@ -401,7 +217,7 @@ func (s *SocketConnection) responseHandler(buff []byte) error {
 	return nil
 }
 
-func (s *SocketConnection) SendRPC(handlerID int, request []byte) ([]byte, error) {
+func (s *SocketTransportConnection) SendRPC(handlerID int, request []byte) ([]byte, error) {
 	ch, err := s.sendRequest(handlerID, request)
 	if err != nil {
 		// If we get an error writing the request we consider the connection broken, so we close it
@@ -415,7 +231,7 @@ func (s *SocketConnection) SendRPC(handlerID int, request []byte) ([]byte, error
 	return holder.response, holder.err
 }
 
-func (s *SocketConnection) sendRequest(handlerID int, request []byte) (chan responseHolder, error) {
+func (s *SocketTransportConnection) sendRequest(handlerID int, request []byte) (chan responseHolder, error) {
 	buff, ch := s.createRequest(handlerID, request)
 	// Set a write deadline so the write doesn't block for a long time in case the other side of the TCP connection
 	// disappears
@@ -434,7 +250,7 @@ func convertNetworkError(err error) error {
 	return common.NewTektiteErrorf(common.Unavailable, "transport error when sending rpc: %v", err)
 }
 
-func (s *SocketConnection) createRequest(handlerID int, request []byte) ([]byte, chan responseHolder) {
+func (s *SocketTransportConnection) createRequest(handlerID int, request []byte) ([]byte, chan responseHolder) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 	/*
@@ -463,7 +279,7 @@ type responseHolder struct {
 	err      error
 }
 
-func (s *SocketConnection) Close() error {
+func (s *SocketTransportConnection) Close() error {
 	err := s.conn.Close()
 	s.closeWaitGroup.Wait()
 	return err
@@ -489,28 +305,31 @@ type SocketClient struct {
 
 func (s *SocketClient) CreateConnection(address string) (Connection, error) {
 	var netConn net.Conn
+	var tcpConn *net.TCPConn
 	if s.tlsConf != nil {
 		var err error
 		netConn, err = tls.Dial("tcp", address, s.tlsConf)
 		if err != nil {
 			return nil, convertNetworkError(err)
 		}
+		rawConn := netConn.(*tls.Conn).NetConn()
+		tcpConn = rawConn.(*net.TCPConn)
 	} else {
 		d := net.Dialer{Timeout: dialTimeout}
-		conn, err := d.Dial("tcp", address)
+		var err error
+		netConn, err = d.Dial("tcp", address)
 		if err != nil {
 			return nil, convertNetworkError(err)
 		}
-		tcpNetConn := conn.(*net.TCPConn)
-		if err = tcpNetConn.SetNoDelay(true); err != nil {
-			return nil, err
-		}
-		if err = tcpNetConn.SetKeepAlive(true); err != nil {
-			return nil, err
-		}
-		netConn = tcpNetConn
+		tcpConn = netConn.(*net.TCPConn)
 	}
-	sc := &SocketConnection{
+	if err := tcpConn.SetNoDelay(true); err != nil {
+		return nil, err
+	}
+	if err := tcpConn.SetKeepAlive(true); err != nil {
+		return nil, err
+	}
+	sc := &SocketTransportConnection{
 		conn:             netConn,
 		responseChannels: map[int64]chan responseHolder{},
 	}

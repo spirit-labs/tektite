@@ -455,5 +455,5 @@ func RenewCerts() error {
 
 // GenKafkaProtocol generates the Kafka protocol code from the protocol JSON descriptors
 func GenKafkaProtocol() error {
-	return kafkagen.Generate("asl/kafka/spec", "kafkaserver/protocol")
+	return kafkagen.Generate("asl/kafka/spec", "kafkaprotocol")
 }

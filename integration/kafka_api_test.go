@@ -11,7 +11,7 @@ import (
 	"github.com/spirit-labs/tektite/auth"
 	"github.com/spirit-labs/tektite/client"
 	"github.com/spirit-labs/tektite/common"
-	"github.com/spirit-labs/tektite/kafkaserver/protocol"
+	"github.com/spirit-labs/tektite/kafkaprotocol"
 	"github.com/stretchr/testify/require"
 	"io"
 	"net"
@@ -87,33 +87,33 @@ func createConn(t *testing.T, address string) net.Conn {
 
 func testApiVersions(t *testing.T, address string) {
 	conn := createConn(t, address)
-	var req protocol.ApiVersionsRequest
+	var req kafkaprotocol.ApiVersionsRequest
 	req.ClientSoftwareVersion = stringPtr("1.23")
 	req.ClientSoftwareName = stringPtr("software1")
-	var resp protocol.ApiVersionsResponse
-	writeRequest(t, protocol.APIKeyAPIVersions, 3, &req, &resp, conn)
-	require.Equal(t, protocol.ErrorCodeNone, int(resp.ErrorCode))
-	require.Equal(t, protocol.SupportedAPIVersions, resp.ApiKeys)
+	var resp kafkaprotocol.ApiVersionsResponse
+	writeRequest(t, kafkaprotocol.APIKeyAPIVersions, 3, &req, &resp, conn)
+	require.Equal(t, kafkaprotocol.ErrorCodeNone, int(resp.ErrorCode))
+	require.Equal(t, kafkaprotocol.SupportedAPIVersions, resp.ApiKeys)
 }
 
 func testApiVersionsUnsupportedVersion(t *testing.T, address string) {
 	conn := createConn(t, address)
-	var req protocol.ApiVersionsRequest
+	var req kafkaprotocol.ApiVersionsRequest
 	req.ClientSoftwareVersion = stringPtr("1.23")
 	req.ClientSoftwareName = stringPtr("software1")
-	var resp protocol.ApiVersionsResponse
-	writeRequest(t, protocol.APIKeyAPIVersions, 100, &req, &resp, conn)
-	require.Equal(t, protocol.ErrorCodeUnsupportedVersion, int(resp.ErrorCode))
+	var resp kafkaprotocol.ApiVersionsResponse
+	writeRequest(t, kafkaprotocol.APIKeyAPIVersions, 100, &req, &resp, conn)
+	require.Equal(t, kafkaprotocol.ErrorCodeUnsupportedVersion, int(resp.ErrorCode))
 	require.Equal(t, 0, len(resp.ApiKeys))
 }
 
 func testProduceErrorUnknownTopic(t *testing.T, address string) {
 	conn := createConn(t, address)
-	req := protocol.ProduceRequest{
-		TopicData: []protocol.ProduceRequestTopicProduceData{
+	req := kafkaprotocol.ProduceRequest{
+		TopicData: []kafkaprotocol.ProduceRequestTopicProduceData{
 			{
 				Name: stringPtr("unknown_topic1"),
-				PartitionData: []protocol.ProduceRequestPartitionProduceData{
+				PartitionData: []kafkaprotocol.ProduceRequestPartitionProduceData{
 					{
 						Index:   1,
 						Records: [][]byte{[]byte("abc")},
@@ -126,7 +126,7 @@ func testProduceErrorUnknownTopic(t *testing.T, address string) {
 			},
 			{
 				Name: stringPtr("unknown_topic2"),
-				PartitionData: []protocol.ProduceRequestPartitionProduceData{
+				PartitionData: []kafkaprotocol.ProduceRequestPartitionProduceData{
 					{
 						Index:   2,
 						Records: [][]byte{[]byte("abc")},
@@ -139,24 +139,24 @@ func testProduceErrorUnknownTopic(t *testing.T, address string) {
 			},
 		},
 	}
-	var resp protocol.ProduceResponse
-	writeRequest(t, protocol.APIKeyProduce, 3, &req, &resp, conn)
+	var resp kafkaprotocol.ProduceResponse
+	writeRequest(t, kafkaprotocol.APIKeyProduce, 3, &req, &resp, conn)
 	require.Equal(t, 2, len(resp.Responses))
 	require.Equal(t, 2, len(resp.Responses[0].PartitionResponses))
 	require.Equal(t, 2, len(resp.Responses[1].PartitionResponses))
-	require.Equal(t, protocol.ErrorCodeUnknownTopicOrPartition, int(resp.Responses[0].PartitionResponses[0].ErrorCode))
-	require.Equal(t, protocol.ErrorCodeUnknownTopicOrPartition, int(resp.Responses[0].PartitionResponses[1].ErrorCode))
-	require.Equal(t, protocol.ErrorCodeUnknownTopicOrPartition, int(resp.Responses[1].PartitionResponses[0].ErrorCode))
-	require.Equal(t, protocol.ErrorCodeUnknownTopicOrPartition, int(resp.Responses[1].PartitionResponses[1].ErrorCode))
+	require.Equal(t, kafkaprotocol.ErrorCodeUnknownTopicOrPartition, int(resp.Responses[0].PartitionResponses[0].ErrorCode))
+	require.Equal(t, kafkaprotocol.ErrorCodeUnknownTopicOrPartition, int(resp.Responses[0].PartitionResponses[1].ErrorCode))
+	require.Equal(t, kafkaprotocol.ErrorCodeUnknownTopicOrPartition, int(resp.Responses[1].PartitionResponses[0].ErrorCode))
+	require.Equal(t, kafkaprotocol.ErrorCodeUnknownTopicOrPartition, int(resp.Responses[1].PartitionResponses[1].ErrorCode))
 }
 
 func testProduceErrorUnsupportedVersion(t *testing.T, address string) {
 	conn := createConn(t, address)
-	req := protocol.ProduceRequest{
-		TopicData: []protocol.ProduceRequestTopicProduceData{
+	req := kafkaprotocol.ProduceRequest{
+		TopicData: []kafkaprotocol.ProduceRequestTopicProduceData{
 			{
 				Name: stringPtr("unknown_topic1"),
-				PartitionData: []protocol.ProduceRequestPartitionProduceData{
+				PartitionData: []kafkaprotocol.ProduceRequestPartitionProduceData{
 					{
 						Index:   1,
 						Records: [][]byte{[]byte("abc")},
@@ -169,7 +169,7 @@ func testProduceErrorUnsupportedVersion(t *testing.T, address string) {
 			},
 			{
 				Name: stringPtr("unknown_topic2"),
-				PartitionData: []protocol.ProduceRequestPartitionProduceData{
+				PartitionData: []kafkaprotocol.ProduceRequestPartitionProduceData{
 					{
 						Index:   2,
 						Records: [][]byte{[]byte("abc")},
@@ -182,24 +182,24 @@ func testProduceErrorUnsupportedVersion(t *testing.T, address string) {
 			},
 		},
 	}
-	var resp protocol.ProduceResponse
-	writeRequest(t, protocol.APIKeyProduce, 100, &req, &resp, conn)
+	var resp kafkaprotocol.ProduceResponse
+	writeRequest(t, kafkaprotocol.APIKeyProduce, 100, &req, &resp, conn)
 	require.Equal(t, 2, len(resp.Responses))
 	require.Equal(t, 2, len(resp.Responses[0].PartitionResponses))
 	require.Equal(t, 2, len(resp.Responses[1].PartitionResponses))
-	require.Equal(t, protocol.ErrorCodeUnsupportedVersion, int(resp.Responses[0].PartitionResponses[0].ErrorCode))
-	require.Equal(t, protocol.ErrorCodeUnsupportedVersion, int(resp.Responses[0].PartitionResponses[1].ErrorCode))
-	require.Equal(t, protocol.ErrorCodeUnsupportedVersion, int(resp.Responses[1].PartitionResponses[0].ErrorCode))
-	require.Equal(t, protocol.ErrorCodeUnsupportedVersion, int(resp.Responses[1].PartitionResponses[1].ErrorCode))
+	require.Equal(t, kafkaprotocol.ErrorCodeUnsupportedVersion, int(resp.Responses[0].PartitionResponses[0].ErrorCode))
+	require.Equal(t, kafkaprotocol.ErrorCodeUnsupportedVersion, int(resp.Responses[0].PartitionResponses[1].ErrorCode))
+	require.Equal(t, kafkaprotocol.ErrorCodeUnsupportedVersion, int(resp.Responses[1].PartitionResponses[0].ErrorCode))
+	require.Equal(t, kafkaprotocol.ErrorCodeUnsupportedVersion, int(resp.Responses[1].PartitionResponses[1].ErrorCode))
 }
 
 func testFetchErrorUnknownTopic(t *testing.T, address string) {
 	conn := createConn(t, address)
-	req := protocol.FetchRequest{
-		Topics: []protocol.FetchRequestFetchTopic{
+	req := kafkaprotocol.FetchRequest{
+		Topics: []kafkaprotocol.FetchRequestFetchTopic{
 			{
 				Topic: stringPtr("topic1"),
-				Partitions: []protocol.FetchRequestFetchPartition{
+				Partitions: []kafkaprotocol.FetchRequestFetchPartition{
 					{
 						Partition:   1,
 						FetchOffset: 1234,
@@ -212,7 +212,7 @@ func testFetchErrorUnknownTopic(t *testing.T, address string) {
 			},
 			{
 				Topic: stringPtr("topic2"),
-				Partitions: []protocol.FetchRequestFetchPartition{
+				Partitions: []kafkaprotocol.FetchRequestFetchPartition{
 					{
 						Partition:   2,
 						FetchOffset: 2234,
@@ -225,21 +225,21 @@ func testFetchErrorUnknownTopic(t *testing.T, address string) {
 			},
 		},
 	}
-	var resp protocol.FetchResponse
-	writeRequest(t, protocol.APIKeyFetch, 4, &req, &resp, conn)
+	var resp kafkaprotocol.FetchResponse
+	writeRequest(t, kafkaprotocol.APIKeyFetch, 4, &req, &resp, conn)
 	require.Equal(t, 2, len(resp.Responses))
 	require.Equal(t, 2, len(resp.Responses[0].Partitions))
 	require.Equal(t, 2, len(resp.Responses[1].Partitions))
-	require.Equal(t, protocol.ErrorCodeUnknownTopicOrPartition, int(resp.Responses[0].Partitions[0].ErrorCode))
-	require.Equal(t, protocol.ErrorCodeUnknownTopicOrPartition, int(resp.Responses[0].Partitions[1].ErrorCode))
-	require.Equal(t, protocol.ErrorCodeUnknownTopicOrPartition, int(resp.Responses[1].Partitions[0].ErrorCode))
-	require.Equal(t, protocol.ErrorCodeUnknownTopicOrPartition, int(resp.Responses[1].Partitions[1].ErrorCode))
+	require.Equal(t, kafkaprotocol.ErrorCodeUnknownTopicOrPartition, int(resp.Responses[0].Partitions[0].ErrorCode))
+	require.Equal(t, kafkaprotocol.ErrorCodeUnknownTopicOrPartition, int(resp.Responses[0].Partitions[1].ErrorCode))
+	require.Equal(t, kafkaprotocol.ErrorCodeUnknownTopicOrPartition, int(resp.Responses[1].Partitions[0].ErrorCode))
+	require.Equal(t, kafkaprotocol.ErrorCodeUnknownTopicOrPartition, int(resp.Responses[1].Partitions[1].ErrorCode))
 }
 
 func testFetchErrorUnsupportedVersion(t *testing.T, address string) {
 	conn := createConn(t, address)
-	req := protocol.FetchRequest{
-		ReplicaState: protocol.FetchRequestReplicaState{
+	req := kafkaprotocol.FetchRequest{
+		ReplicaState: kafkaprotocol.FetchRequestReplicaState{
 			ReplicaId:    1001,
 			ReplicaEpoch: 34,
 		},
@@ -250,45 +250,45 @@ func testFetchErrorUnsupportedVersion(t *testing.T, address string) {
 		SessionId:      45464,
 		SessionEpoch:   456,
 		ClusterId:      stringPtr("someclusterid"),
-		Topics: []protocol.FetchRequestFetchTopic{
+		Topics: []kafkaprotocol.FetchRequestFetchTopic{
 			{
 				TopicId: randomUUID(),
-				Partitions: []protocol.FetchRequestFetchPartition{
+				Partitions: []kafkaprotocol.FetchRequestFetchPartition{
 					{Partition: 1, FetchOffset: 230000, PartitionMaxBytes: 4453453, LogStartOffset: 120000, CurrentLeaderEpoch: 12, LastFetchedEpoch: 13, ReplicaDirectoryId: randomUUID()},
 					{Partition: 5, FetchOffset: 576484, PartitionMaxBytes: 575757, LogStartOffset: 36358888, CurrentLeaderEpoch: 43, LastFetchedEpoch: 67, ReplicaDirectoryId: randomUUID()},
 				},
 			},
 			{
 				TopicId: randomUUID(),
-				Partitions: []protocol.FetchRequestFetchPartition{
+				Partitions: []kafkaprotocol.FetchRequestFetchPartition{
 					{Partition: 7, FetchOffset: 266000, PartitionMaxBytes: 723663, LogStartOffset: 4363636, CurrentLeaderEpoch: 1, LastFetchedEpoch: 3, ReplicaDirectoryId: randomUUID()},
 					{Partition: 9, FetchOffset: 5978484, PartitionMaxBytes: 56595, LogStartOffset: 4743545, CurrentLeaderEpoch: 67, LastFetchedEpoch: 5, ReplicaDirectoryId: randomUUID()},
 				},
 			},
 		},
-		ForgottenTopicsData: []protocol.FetchRequestForgottenTopic{
+		ForgottenTopicsData: []kafkaprotocol.FetchRequestForgottenTopic{
 			{TopicId: randomUUID(), Partitions: []int32{34, 456, 6, 7}},
 			{TopicId: randomUUID(), Partitions: []int32{34, 456, 6, 7}},
 		},
 		RackId: stringPtr("rack1"),
 	}
-	var resp protocol.FetchResponse
-	writeRequest(t, protocol.APIKeyFetch, 100, &req, &resp, conn)
+	var resp kafkaprotocol.FetchResponse
+	writeRequest(t, kafkaprotocol.APIKeyFetch, 100, &req, &resp, conn)
 	require.Equal(t, 2, len(resp.Responses))
 	require.Equal(t, 2, len(resp.Responses[0].Partitions))
 	require.Equal(t, 2, len(resp.Responses[1].Partitions))
-	require.Equal(t, protocol.ErrorCodeUnsupportedVersion, int(resp.Responses[0].Partitions[0].ErrorCode))
-	require.Equal(t, protocol.ErrorCodeUnsupportedVersion, int(resp.Responses[0].Partitions[1].ErrorCode))
-	require.Equal(t, protocol.ErrorCodeUnsupportedVersion, int(resp.Responses[1].Partitions[0].ErrorCode))
-	require.Equal(t, protocol.ErrorCodeUnsupportedVersion, int(resp.Responses[1].Partitions[1].ErrorCode))
+	require.Equal(t, kafkaprotocol.ErrorCodeUnsupportedVersion, int(resp.Responses[0].Partitions[0].ErrorCode))
+	require.Equal(t, kafkaprotocol.ErrorCodeUnsupportedVersion, int(resp.Responses[0].Partitions[1].ErrorCode))
+	require.Equal(t, kafkaprotocol.ErrorCodeUnsupportedVersion, int(resp.Responses[1].Partitions[0].ErrorCode))
+	require.Equal(t, kafkaprotocol.ErrorCodeUnsupportedVersion, int(resp.Responses[1].Partitions[1].ErrorCode))
 }
 
 func testSaslHandshakeRequest(t *testing.T, address string) {
 	conn := createConn(t, address)
-	var req protocol.SaslHandshakeRequest
+	var req kafkaprotocol.SaslHandshakeRequest
 	req.Mechanism = stringPtr("PLAIN")
-	var resp protocol.SaslHandshakeResponse
-	writeRequest(t, protocol.APIKeySaslHandshake, 1, &req, &resp, conn)
+	var resp kafkaprotocol.SaslHandshakeResponse
+	writeRequest(t, kafkaprotocol.APIKeySaslHandshake, 1, &req, &resp, conn)
 	require.Equal(t, 1, len(resp.Mechanisms))
 	auth256 := auth.AuthenticationSaslScramSha256
 	require.Equal(t, []*string{&auth256}, resp.Mechanisms)
@@ -296,31 +296,31 @@ func testSaslHandshakeRequest(t *testing.T, address string) {
 
 func testSaslHandshakeErrorUnsupportedVersion(t *testing.T, address string) {
 	conn := createConn(t, address)
-	var req protocol.SaslHandshakeRequest
+	var req kafkaprotocol.SaslHandshakeRequest
 	req.Mechanism = stringPtr("PLAIN")
-	var resp protocol.SaslHandshakeResponse
-	writeRequest(t, protocol.APIKeySaslHandshake, 100, &req, &resp, conn)
-	require.Equal(t, protocol.ErrorCodeUnsupportedVersion, int(resp.ErrorCode))
+	var resp kafkaprotocol.SaslHandshakeResponse
+	writeRequest(t, kafkaprotocol.APIKeySaslHandshake, 100, &req, &resp, conn)
+	require.Equal(t, kafkaprotocol.ErrorCodeUnsupportedVersion, int(resp.ErrorCode))
 }
 
 // testSaslAuthenticateRequest simply validates that the handler is called, tests for actual sasl authentication are
 // in kafka auth integration tests
 func testSaslAuthenticateRequest(t *testing.T, address string) {
 	conn := createConn(t, address)
-	var req protocol.SaslAuthenticateRequest
+	var req kafkaprotocol.SaslAuthenticateRequest
 	req.AuthBytes = []byte("foo")
-	var resp protocol.SaslAuthenticateResponse
-	writeRequest(t, protocol.APIKeySaslAuthenticate, 1, &req, &resp, conn)
-	require.Equal(t, protocol.ErrorCodeIllegalSaslState, int(resp.ErrorCode))
+	var resp kafkaprotocol.SaslAuthenticateResponse
+	writeRequest(t, kafkaprotocol.APIKeySaslAuthenticate, 1, &req, &resp, conn)
+	require.Equal(t, kafkaprotocol.ErrorCodeIllegalSaslState, int(resp.ErrorCode))
 }
 
 func testSaslAuthenticateUnsupportedVersion(t *testing.T, address string) {
 	conn := createConn(t, address)
-	var req protocol.SaslAuthenticateRequest
+	var req kafkaprotocol.SaslAuthenticateRequest
 	req.AuthBytes = []byte("foo")
-	var resp protocol.SaslAuthenticateResponse
-	writeRequest(t, protocol.APIKeySaslAuthenticate, 100, &req, &resp, conn)
-	require.Equal(t, protocol.ErrorCodeUnsupportedVersion, int(resp.ErrorCode))
+	var resp kafkaprotocol.SaslAuthenticateResponse
+	writeRequest(t, kafkaprotocol.APIKeySaslAuthenticate, 100, &req, &resp, conn)
+	require.Equal(t, kafkaprotocol.ErrorCodeUnsupportedVersion, int(resp.ErrorCode))
 }
 
 func TestKafkaApiNotAuthenticated(t *testing.T) {
@@ -336,11 +336,11 @@ func TestKafkaApiNotAuthenticated(t *testing.T) {
 
 	// Try and send a produce request
 	conn := createConn(t, serverAddress)
-	req := protocol.ProduceRequest{
-		TopicData: []protocol.ProduceRequestTopicProduceData{
+	req := kafkaprotocol.ProduceRequest{
+		TopicData: []kafkaprotocol.ProduceRequestTopicProduceData{
 			{
 				Name: stringPtr("unknown_topic1"),
-				PartitionData: []protocol.ProduceRequestPartitionProduceData{
+				PartitionData: []kafkaprotocol.ProduceRequestPartitionProduceData{
 					{
 						Index:   1,
 						Records: [][]byte{[]byte("abc")},
@@ -353,7 +353,7 @@ func TestKafkaApiNotAuthenticated(t *testing.T) {
 			},
 			{
 				Name: stringPtr("unknown_topic2"),
-				PartitionData: []protocol.ProduceRequestPartitionProduceData{
+				PartitionData: []kafkaprotocol.ProduceRequestPartitionProduceData{
 					{
 						Index:   2,
 						Records: [][]byte{[]byte("abc")},
@@ -366,18 +366,18 @@ func TestKafkaApiNotAuthenticated(t *testing.T) {
 			},
 		},
 	}
-	var resp protocol.ProduceResponse
+	var resp kafkaprotocol.ProduceResponse
 	// Connection should be closed
-	writeRequestWithError(t, protocol.APIKeyProduce, 3, &req, &resp, conn, io.EOF)
+	writeRequestWithError(t, kafkaprotocol.APIKeyProduce, 3, &req, &resp, conn, io.EOF)
 }
 
-func writeRequest(t *testing.T, apiKey int16, apiVersion int16, req request, resp serializable, conn net.Conn) *protocol.ResponseHeader {
+func writeRequest(t *testing.T, apiKey int16, apiVersion int16, req request, resp serializable, conn net.Conn) *kafkaprotocol.ResponseHeader {
 	return writeRequestWithError(t, apiKey, apiVersion, req, resp, conn, nil)
 }
 
 func writeRequestWithError(t *testing.T, apiKey int16, apiVersion int16, req request, resp serializable, conn net.Conn,
-	expectedErr error) *protocol.ResponseHeader {
-	var reqHdr protocol.RequestHeader
+	expectedErr error) *kafkaprotocol.ResponseHeader {
+	var reqHdr kafkaprotocol.RequestHeader
 	reqHdr.RequestApiKey = apiKey
 	reqHdr.RequestApiVersion = apiVersion
 	reqHdr.CorrelationId = 333
@@ -403,7 +403,7 @@ func writeRequestWithError(t *testing.T, apiKey int16, apiVersion int16, req req
 	msgBuff := make([]byte, respMsgSize)
 	_, err = io.ReadAtLeast(conn, msgBuff, int(respMsgSize))
 	require.NoError(t, err)
-	var respHdr protocol.ResponseHeader
+	var respHdr kafkaprotocol.ResponseHeader
 	offset, err := respHdr.Read(responseHeaderVersion, msgBuff)
 	require.NoError(t, err)
 	require.Equal(t, 333, int(respHdr.CorrelationId))
