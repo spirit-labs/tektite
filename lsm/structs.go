@@ -71,7 +71,7 @@ type RegistrationEntry struct {
 	NumPrefixDeletes uint32
 }
 
-func (re *RegistrationEntry) serialize(buff []byte) []byte {
+func (re *RegistrationEntry) Serialize(buff []byte) []byte {
 	buff = encoding.AppendUint32ToBufferLE(buff, uint32(re.Level))
 	buff = encoding.AppendUint32ToBufferLE(buff, uint32(len(re.TableID)))
 	buff = append(buff, re.TableID...)
@@ -89,7 +89,7 @@ func (re *RegistrationEntry) serialize(buff []byte) []byte {
 	return buff
 }
 
-func (re *RegistrationEntry) deserialize(buff []byte, offset int) int {
+func (re *RegistrationEntry) Deserialize(buff []byte, offset int) int {
 	var lev uint32
 	lev, offset = encoding.ReadUint32FromBufferLE(buff, offset)
 	re.Level = int(lev)
@@ -125,11 +125,11 @@ func (rb *RegistrationBatch) Serialize(buff []byte) []byte {
 	buff = encoding.AppendStringToBufferLE(buff, rb.JobID)
 	buff = encoding.AppendUint32ToBufferLE(buff, uint32(len(rb.Registrations)))
 	for _, reg := range rb.Registrations {
-		buff = reg.serialize(buff)
+		buff = reg.Serialize(buff)
 	}
 	buff = encoding.AppendUint32ToBufferLE(buff, uint32(len(rb.DeRegistrations)))
 	for _, dereg := range rb.DeRegistrations {
-		buff = dereg.serialize(buff)
+		buff = dereg.Serialize(buff)
 	}
 	return buff
 }
@@ -141,12 +141,12 @@ func (rb *RegistrationBatch) Deserialize(buff []byte, offset int) int {
 	l, offset = encoding.ReadUint32FromBufferLE(buff, offset)
 	rb.Registrations = make([]RegistrationEntry, l)
 	for i := 0; i < int(l); i++ {
-		offset = rb.Registrations[i].deserialize(buff, offset)
+		offset = rb.Registrations[i].Deserialize(buff, offset)
 	}
 	l, offset = encoding.ReadUint32FromBufferLE(buff, offset)
 	rb.DeRegistrations = make([]RegistrationEntry, l)
 	for i := 0; i < int(l); i++ {
-		offset = rb.DeRegistrations[i].deserialize(buff, offset)
+		offset = rb.DeRegistrations[i].Deserialize(buff, offset)
 	}
 	return offset
 }
@@ -634,7 +634,7 @@ func insertInSlice[T any](s []T, index int, value T) []T {
 
 /*
 levelTableEntry - holds the position and length of the table-entry in the underlying buffer.
-Note, that we do not deserialize all table entries when the master record is deserialized, instead we keep them
+Note, that we do not Deserialize all table entries when the master record is deserialized, instead we keep them
 as a byte slice. This is more memory efficient than deserializing them all. When the database is large, it's important
 we keep the in-memory size small. Also, during a typical operation only a small number of table entries are
 updated/added/removed, this means the majority do not need to get serialized - we can use the original buffer.

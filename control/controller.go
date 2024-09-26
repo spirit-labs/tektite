@@ -7,6 +7,7 @@ import (
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/lsm"
 	"github.com/spirit-labs/tektite/objstore"
+	"github.com/spirit-labs/tektite/offsets"
 	"github.com/spirit-labs/tektite/transport"
 	"sync"
 )
@@ -25,17 +26,17 @@ type Controller struct {
 	objStoreClient         objstore.Client
 	connectionFactory      transport.ConnectionFactory
 	transportServer        transport.Server
-	topicProvider          topicInfoProvider
-	offsetLoader           partitionOffsetLoader
+	topicProvider          offsets.TopicInfoProvider
+	offsetLoader           offsets.PartitionOffsetLoader
 	lsmOpts                lsm.ManagerOpts
 	lsmHolder              *LsmHolder
-	offsetsCache           *OffsetsCache
+	offsetsCache           *offsets.Cache
 	currentMembership      cluster.MembershipState
 }
 
 func NewManager(stateUpdatorBucketName string, stateUpdatorKeyPrefix string, dataBucketName string,
 	dataKeyPrefix string, objStoreClient objstore.Client, connectionFactory transport.ConnectionFactory,
-	transportServer transport.Server, topicProvider topicInfoProvider, offsetLoader partitionOffsetLoader, lsmOpts lsm.ManagerOpts) *Controller {
+	transportServer transport.Server, topicProvider offsets.TopicInfoProvider, offsetLoader offsets.PartitionOffsetLoader, lsmOpts lsm.ManagerOpts) *Controller {
 	return &Controller{
 		stateUpdatorBucketName: stateUpdatorBucketName,
 		stateUpdatorKeyPrefix:  stateUpdatorKeyPrefix,
@@ -57,10 +58,10 @@ func (sm *Controller) Start() error {
 		return nil
 	}
 	// Register the handlers
+	sm.transportServer.RegisterHandler(transport.HandlerIDControllerRegisterL0Table, sm.handleRegisterL0Request)
 	sm.transportServer.RegisterHandler(transport.HandlerIDControllerApplyChanges, sm.handleApplyChanges)
 	sm.transportServer.RegisterHandler(transport.HandlerIDControllerQueryTablesInRange, sm.handleQueryTablesInRange)
 	sm.transportServer.RegisterHandler(transport.HandlerIDControllerGetOffsets, sm.handleGetOffsets)
-
 	sm.started = true
 	return nil
 }
@@ -96,7 +97,7 @@ func (sm *Controller) MembershipChanged(newState cluster.MembershipState) error 
 		if err := lsmHolder.Start(); err != nil {
 			return err
 		}
-		cache := NewOffsetsCache(sm.topicProvider, sm.offsetLoader)
+		cache := offsets.NewOffsetsCache(sm.topicProvider, sm.offsetLoader)
 		if err := cache.Start(); err != nil {
 			return err
 		}
@@ -112,6 +113,7 @@ func (sm *Controller) MembershipChanged(newState cluster.MembershipState) error 
 		}
 	}
 	sm.currentMembership = newState
+	sm.offsetsCache.MembershipChanged()
 	return nil
 }
 
@@ -128,6 +130,33 @@ func (sm *Controller) Client() (Client, error) {
 		clusterVersion: sm.currentMembership.ClusterVersion,
 		connFactory:    sm.connectionFactory,
 	}, nil
+}
+
+func (sm *Controller) handleRegisterL0Request(request []byte, responseBuff []byte, responseWriter transport.ResponseWriter) error {
+	sm.lock.Lock()
+	defer sm.lock.Unlock()
+	if err := checkRPCVersion(request); err != nil {
+		return responseWriter(nil, err)
+	}
+	var req RegisterL0Request
+	req.Deserialize(request, 2)
+	if err := sm.checkClusterVersion(req.ClusterVersion); err != nil {
+		return responseWriter(nil, err)
+	}
+	if err := sm.offsetsCache.UpdateWrittenOffsets(req.OffsetInfos); err != nil {
+		return err
+	}
+	regBatch := lsm.RegistrationBatch{
+		Registrations: []lsm.RegistrationEntry{req.RegEntry},
+	}
+	return sm.lsmHolder.ApplyLsmChanges(regBatch, func(err error) error {
+		if err != nil {
+			return responseWriter(nil, err)
+		}
+		// Send back zero byte to represent nil OK response
+		responseBuff = append(responseBuff, 0)
+		return responseWriter(responseBuff, nil)
+	})
 }
 
 func (sm *Controller) handleApplyChanges(request []byte, responseBuff []byte, responseWriter transport.ResponseWriter) error {
@@ -181,11 +210,11 @@ func (sm *Controller) handleGetOffsets(request []byte, responseBuff []byte, resp
 	if err := sm.checkClusterVersion(req.ClusterVersion); err != nil {
 		return responseWriter(nil, err)
 	}
-	offsets, err := sm.offsetsCache.GetOffsets(req.Infos)
+	offs, err := sm.offsetsCache.GetOffsets(req.Infos)
 	if err != nil {
 		return responseWriter(nil, err)
 	}
-	resp := GetOffsetsResponse{Offsets: offsets}
+	resp := GetOffsetsResponse{Offsets: offs}
 	responseBuff = resp.Serialize(responseBuff)
 	return responseWriter(responseBuff, nil)
 }

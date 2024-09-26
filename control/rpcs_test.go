@@ -2,10 +2,70 @@ package control
 
 import (
 	"github.com/spirit-labs/tektite/lsm"
+	"github.com/spirit-labs/tektite/offsets"
 	"github.com/spirit-labs/tektite/sst"
 	"github.com/stretchr/testify/require"
 	"testing"
+	"time"
 )
+
+func TestSerializeDeserializeRegisterL0Request(t *testing.T) {
+	req := RegisterL0Request{
+		ClusterVersion: 4555,
+		OffsetInfos: []offsets.UpdateWrittenOffsetInfo{
+			{
+				TopicID: 1234,
+				PartitionID: 12,
+				OffsetStart: 1001,
+				NumOffsets:  213,
+			},
+			{
+				TopicID: 1234,
+				PartitionID: 0,
+				OffsetStart: 23,
+				NumOffsets:  456,
+			},
+			{
+				TopicID: 1234,
+				PartitionID: 45,
+				OffsetStart: 3453,
+				NumOffsets:  32334,
+			},
+			{
+				TopicID: 234234,
+				PartitionID: 45,
+				OffsetStart: 23423,
+				NumOffsets:  234,
+			},
+			{
+				TopicID: 123,
+				PartitionID: 34534,
+				OffsetStart: 433,
+				NumOffsets:  444,
+			},
+		},
+		RegEntry: lsm.RegistrationEntry{
+			Level:            0,
+			TableID:          sst.SSTableID("sometableid1"),
+			MinVersion:       2323,
+			MaxVersion:       100001,
+			KeyStart:         []byte("keystart1"),
+			KeyEnd:           []byte("keyend1"),
+			DeleteRatio:      0.12,
+			AddedTime:        uint64(time.Now().UnixMilli()),
+			NumEntries:       12345,
+			TableSize:        13123123,
+			NumPrefixDeletes: 23,
+		},
+	}
+	var buff []byte
+	buff = append(buff, 1, 2, 3)
+	buff = req.Serialize(buff)
+	var req2 RegisterL0Request
+	off := req2.Deserialize(buff, 3)
+	require.Equal(t, req, req2)
+	require.Equal(t, off, len(buff))
+}
 
 func TestSerializeDeserializeApplyChangesRequest(t *testing.T) {
 	req := ApplyChangesRequest{
@@ -89,7 +149,7 @@ func TestSerializeDeserializeGetOffsetsRequest(t *testing.T) {
 	req := GetOffsetsRequest{
 		CacheNum:       123,
 		ClusterVersion: 4536,
-		Infos: []GetOffsetInfo{
+		Infos: []offsets.GetOffsetTopicInfo{
 			{TopicID: 3, PartitionID: 23, NumOffsets: 345},
 			{TopicID: 7, PartitionID: 54, NumOffsets: 45},
 			{TopicID: 0, PartitionID: 2, NumOffsets: 45645},

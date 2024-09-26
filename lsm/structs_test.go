@@ -61,18 +61,18 @@ func TestSerializeDeserializeRegistrationEntry(t *testing.T) {
 	}
 	var buff []byte
 	buff = append(buff, 1, 2, 3)
-	buff = regEntry.serialize(buff)
+	buff = regEntry.Serialize(buff)
 
 	regEntryAfter := &RegistrationEntry{}
-	regEntryAfter.deserialize(buff, 3)
+	regEntryAfter.Deserialize(buff, 3)
 
 	require.Equal(t, regEntry, regEntryAfter)
 }
 
 func TestSerializeDeserializeRegistrationBatch(t *testing.T) {
 	regBatch := &RegistrationBatch{
-		Compaction:  true,
-		JobID:       "job-12345",
+		Compaction: true,
+		JobID:      "job-12345",
 		Registrations: []RegistrationEntry{{
 			Level:      23,
 			TableID:    sst.SSTableID("sometableid1"),
@@ -172,12 +172,12 @@ func TestSerializeDeserializeLevelEntry(t *testing.T) {
 		le1.InsertAt(i, te)
 	}
 
-	// Verify table entries before serialize
+	// Verify table entries before Serialize
 	verifyTableEntries(t, expectedEntries, &le1)
 
 	buff := serializeLevelEntryWithBuffSizeCheck(t, &le1)
 
-	// Verify after serialize (levelEntry internal state changes after serialization)
+	// Verify after Serialize (levelEntry internal state changes after serialization)
 	verifyTableEntries(t, expectedEntries, &le1)
 
 	// Deserialize
@@ -213,7 +213,7 @@ func TestSerializeDeserializeLevelEntry(t *testing.T) {
 
 	// Serialize again
 	buff = serializeLevelEntryWithBuffSizeCheck(t, &le2)
-	// Verify after serialize
+	// Verify after Serialize
 	verifyTableEntries(t, expectedEntries, &le2)
 
 	// Deserialize
@@ -226,9 +226,9 @@ func TestSerializeDeserializeLevelEntry(t *testing.T) {
 	require.Equal(t, le1.maxVersion, le3.maxVersion)
 	verifyTableEntries(t, expectedEntries, &le3)
 
-	// Serialize/deserialize again with no changes
+	// Serialize/Deserialize again with no changes
 	buff = serializeLevelEntryWithBuffSizeCheck(t, &le3)
-	// Verify after serialize
+	// Verify after Serialize
 	verifyTableEntries(t, expectedEntries, &le2)
 
 	le4 := levelEntry{}

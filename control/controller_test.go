@@ -6,6 +6,7 @@ import (
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/lsm"
 	"github.com/spirit-labs/tektite/objstore/dev"
+	"github.com/spirit-labs/tektite/offsets"
 	"github.com/spirit-labs/tektite/transport"
 	"github.com/stretchr/testify/require"
 	"testing"
@@ -129,6 +130,97 @@ func TestManagerApplyChanges(t *testing.T) {
 	require.Equal(t, tableID, []byte(resTableID))
 }
 
+func TestManagerRegisterL0(t *testing.T) {
+
+	managers, tearDown := setupManagers(t, 1)
+	defer tearDown(t)
+
+	updateMembership(t, 1, managers, 0)
+
+	cl, err := managers[0].Client()
+	require.NoError(t, err)
+	defer func() {
+		err := cl.Close()
+		require.NoError(t, err)
+	}()
+
+	// First get some offsets
+	offs, err := cl.GetOffsets([]offsets.GetOffsetTopicInfo{
+		{
+			TopicID:     7,
+			PartitionID: 1,
+			NumOffsets:  100,
+		},
+		{
+			TopicID:     7,
+			PartitionID: 2,
+			NumOffsets:  100,
+		},
+		{
+			TopicID:     8,
+			PartitionID: 1,
+			NumOffsets:  100,
+		},
+	})
+	require.NoError(t, err)
+	require.Equal(t, 3, len(offs))
+
+	keyStart := []byte("key000001")
+	keyEnd := []byte("key000010")
+	tableID := []byte(uuid.New().String())
+	regEntry := lsm.RegistrationEntry{
+		Level:      0,
+		TableID:    tableID,
+		MinVersion: 123,
+		MaxVersion: 1235,
+		KeyStart:   keyStart,
+		KeyEnd:     keyEnd,
+		AddedTime:  uint64(time.Now().UnixMilli()),
+		NumEntries: 1234,
+		TableSize:  12345567,
+	}
+	writtenOffs := []offsets.UpdateWrittenOffsetInfo{
+		{
+			TopicID:     7,
+			PartitionID: 1,
+			OffsetStart: offs[0],
+			NumOffsets:  100,
+		},
+		{
+			TopicID:     7,
+			PartitionID: 2,
+			OffsetStart: offs[1],
+			NumOffsets:  100,
+		},
+		{
+			TopicID:     8,
+			PartitionID: 1,
+			OffsetStart: offs[2],
+			NumOffsets:  100,
+		},
+	}
+
+	err = cl.RegisterL0Table(writtenOffs, regEntry)
+	require.NoError(t, err)
+
+	res, err := cl.QueryTablesInRange(keyStart, keyEnd)
+	require.NoError(t, err)
+
+	require.Equal(t, 1, len(res))
+	require.Equal(t, 1, len(res[0]))
+	resTableID := res[0][0].ID
+	require.Equal(t, tableID, []byte(resTableID))
+
+	// And with nil keyStart and end
+	res, err = cl.QueryTablesInRange(nil, nil)
+	require.NoError(t, err)
+
+	require.Equal(t, 1, len(res))
+	require.Equal(t, 1, len(res[0]))
+	resTableID = res[0][0].ID
+	require.Equal(t, tableID, []byte(resTableID))
+}
+
 func TestManagerGetOffsets(t *testing.T) {
 	managers, tearDown := setupManagersWithOffsetProviders(t, 1, testTopicProvider, testOffsetLoader)
 	defer tearDown(t)
@@ -142,7 +234,7 @@ func TestManagerGetOffsets(t *testing.T) {
 		require.NoError(t, err)
 	}()
 
-	offsets, err := cl.GetOffsets([]GetOffsetInfo{
+	offs, err := cl.GetOffsets([]offsets.GetOffsetTopicInfo{
 		{
 			TopicID:     7,
 			PartitionID: 0,
@@ -160,11 +252,11 @@ func TestManagerGetOffsets(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	require.Equal(t, 3, len(offsets))
+	require.Equal(t, 3, len(offs))
 
-	require.Equal(t, 1234+1, int(offsets[0]))
-	require.Equal(t, 3456+1, int(offsets[1]))
-	require.Equal(t, 5678+1, int(offsets[2]))
+	require.Equal(t, 1234+1, int(offs[0]))
+	require.Equal(t, 3456+1, int(offs[1]))
+	require.Equal(t, 5678+1, int(offs[2]))
 	require.NoError(t, err)
 }
 
@@ -172,8 +264,8 @@ func setupManagers(t *testing.T, numMembers int) ([]*Controller, func(t *testing
 	return setupManagersWithOffsetProviders(t, numMembers, testTopicProvider, testOffsetLoader)
 }
 
-func setupManagersWithOffsetProviders(t *testing.T, numMembers int, topicProvider topicInfoProvider,
-	offsetLoader partitionOffsetLoader) ([]*Controller, func(t *testing.T)) {
+func setupManagersWithOffsetProviders(t *testing.T, numMembers int, topicProvider offsets.TopicInfoProvider,
+	offsetLoader offsets.PartitionOffsetLoader) ([]*Controller, func(t *testing.T)) {
 	localTransports := transport.NewLocalTransports()
 	var managers []*Controller
 	for i := 0; i < numMembers; i++ {
@@ -196,18 +288,18 @@ func setupManagersWithOffsetProviders(t *testing.T, numMembers int, topicProvide
 }
 
 type testTopicInfoProvider struct {
-	infos []TopicInfo
+	infos []offsets.TopicInfo
 }
 
-func (t *testTopicInfoProvider) GetAllTopics() ([]TopicInfo, error) {
+func (t *testTopicInfoProvider) GetAllTopics() ([]offsets.TopicInfo, error) {
 	return t.infos, nil
 }
 
 type testPartitionOffsetLoader struct {
-	topicOffsets map[int][]StoredOffset
+	topicOffsets map[int][]offsets.StoredOffset
 }
 
-func (t *testPartitionOffsetLoader) LoadOffsetsForTopic(topicID int) ([]StoredOffset, error) {
+func (t *testPartitionOffsetLoader) LoadOffsetsForTopic(topicID int) ([]offsets.StoredOffset, error) {
 	return t.topicOffsets[topicID], nil
 }
 
@@ -229,4 +321,51 @@ func updateMembership(t *testing.T, clusterVersion int, managers []*Controller, 
 		require.NoError(t, err)
 	}
 	return members
+}
+
+var testTopicProvider = &testTopicInfoProvider{
+	infos: []offsets.TopicInfo{
+		{
+			TopicID:        7,
+			PartitionCount: 4,
+		},
+		{
+			TopicID:        8,
+			PartitionCount: 2,
+		},
+	},
+}
+
+var testOffsetLoader = &testPartitionOffsetLoader{
+
+	topicOffsets: map[int][]offsets.StoredOffset{
+		7: {
+			{
+				PartitionID: 0,
+				Offset:      1234,
+			},
+			{
+				PartitionID: 1,
+				Offset:      3456,
+			},
+			{
+				PartitionID: 2,
+				Offset:      0,
+			},
+			{
+				PartitionID: 3,
+				Offset:      -1,
+			},
+		},
+		8: {
+			{
+				PartitionID: 0,
+				Offset:      5678,
+			},
+			{
+				PartitionID: 1,
+				Offset:      3456,
+			},
+		},
+	},
 }
