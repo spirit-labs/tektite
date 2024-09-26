@@ -1,4 +1,4 @@
-package shard
+package control
 
 import (
 	"encoding/binary"
@@ -7,34 +7,28 @@ import (
 )
 
 type ApplyChangesRequest struct {
-	ShardID        int
 	ClusterVersion int
 	RegBatch       lsm.RegistrationBatch
 }
 
 func (a *ApplyChangesRequest) Serialize(buff []byte) []byte {
-	buff = binary.BigEndian.AppendUint64(buff, uint64(a.ShardID))
 	buff = binary.BigEndian.AppendUint64(buff, uint64(a.ClusterVersion))
 	return a.RegBatch.Serialize(buff)
 }
 
 func (a *ApplyChangesRequest) Deserialize(buff []byte, offset int) int {
-	a.ShardID = int(binary.BigEndian.Uint64(buff[offset:]))
-	offset += 8
 	a.ClusterVersion = int(binary.BigEndian.Uint64(buff[offset:]))
 	offset += 8
 	return a.RegBatch.Deserialize(buff, offset)
 }
 
 type QueryTablesInRangeRequest struct {
-	ShardID        int
 	ClusterVersion int
 	KeyStart       []byte
 	KeyEnd         []byte
 }
 
 func (q *QueryTablesInRangeRequest) Serialize(buff []byte) []byte {
-	buff = binary.BigEndian.AppendUint64(buff, uint64(q.ShardID))
 	buff = binary.BigEndian.AppendUint64(buff, uint64(q.ClusterVersion))
 	buff = binary.BigEndian.AppendUint32(buff, uint32(len(q.KeyStart)))
 	buff = append(buff, q.KeyStart...)
@@ -44,8 +38,6 @@ func (q *QueryTablesInRangeRequest) Serialize(buff []byte) []byte {
 }
 
 func (q *QueryTablesInRangeRequest) Deserialize(buff []byte, offset int) int {
-	q.ShardID = int(binary.BigEndian.Uint64(buff[offset:]))
-	offset += 8
 	q.ClusterVersion = int(binary.BigEndian.Uint64(buff[offset:]))
 	offset += 8
 	lks := int(binary.BigEndian.Uint32(buff[offset:]))
@@ -64,13 +56,13 @@ func (q *QueryTablesInRangeRequest) Deserialize(buff []byte, offset int) int {
 }
 
 type GetOffsetsRequest struct {
-	ShardID        int
+	CacheNum       int
 	ClusterVersion int
 	Infos          []GetOffsetInfo
 }
 
 func (g *GetOffsetsRequest) Serialize(buff []byte) []byte {
-	buff = binary.BigEndian.AppendUint64(buff, uint64(g.ShardID))
+	buff = binary.BigEndian.AppendUint64(buff, uint64(g.CacheNum))
 	buff = binary.BigEndian.AppendUint64(buff, uint64(g.ClusterVersion))
 	buff = binary.BigEndian.AppendUint32(buff, uint32(len(g.Infos)))
 	for _, info := range g.Infos {
@@ -82,7 +74,7 @@ func (g *GetOffsetsRequest) Serialize(buff []byte) []byte {
 }
 
 func (g *GetOffsetsRequest) Deserialize(buff []byte, offset int) int {
-	g.ShardID = int(binary.BigEndian.Uint64(buff[offset:]))
+	g.CacheNum = int(binary.BigEndian.Uint64(buff[offset:]))
 	offset += 8
 	g.ClusterVersion = int(binary.BigEndian.Uint64(buff[offset:]))
 	offset += 8

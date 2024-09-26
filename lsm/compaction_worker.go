@@ -424,7 +424,7 @@ func mergeSSTables(format common.DataFormat, tables [][]tableToMerge, preserveTo
 		// estimate of how much space an entry takes up in the sstable (data and index)
 
 		if size >= maxTableSize || isLast {
-			iter := newSliceIterator(mergeResults[iLast : i+1])
+			iter := common.NewKvSliceIterator(mergeResults[iLast : i+1])
 			ssTable, smallestKey, largestKey, minVersion, maxVersion, err := sst.BuildSSTable(format, size, i+1-iLast,
 				iter)
 			if err != nil {
@@ -495,36 +495,4 @@ func validateRegEntry(entry RegistrationEntry, objStore objstore.Client, bucketN
 		panic(fmt.Sprintf("last key %v (%s) and range end %v (%s) are not equal",
 			lastKey, string(lastKey), entry.KeyEnd, string(entry.KeyEnd)))
 	}
-}
-
-func newSliceIterator(kvs []common.KV) *sliceIterator {
-	return &sliceIterator{kvs: kvs, lkvs: len(kvs)}
-}
-
-type sliceIterator struct {
-	lkvs int
-	kvs  []common.KV
-	pos  int
-}
-
-func (s *sliceIterator) Next() (bool, common.KV, error) {
-	if s.pos >= s.lkvs {
-		s.pos = -1
-	}
-	if s.pos == -1 {
-		return false, common.KV{}, nil
-	}
-	result := s.kvs[s.pos]
-	s.pos++
-	return true, result, nil
-}
-
-func (s *sliceIterator) Current() common.KV {
-	if s.pos <= 0 {
-		return common.KV{}
-	}
-	return s.kvs[s.pos-1]
-}
-
-func (s *sliceIterator) Close() {
 }

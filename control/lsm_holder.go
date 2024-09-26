@@ -1,4 +1,4 @@
-package shard
+package control
 
 import (
 	"github.com/spirit-labs/tektite/cluster"
@@ -11,7 +11,11 @@ import (
 	"sync/atomic"
 )
 
-type LsmShard struct {
+/*
+LsmHolder is a wrapper around the Lsm manager which handles queueing of apply changes requests and persistence to
+object storage
+*/
+type LsmHolder struct {
 	lock                   sync.RWMutex
 	objStore               objstore.Client
 	lsmOpts                lsm.ManagerOpts
@@ -27,18 +31,18 @@ type queuedRegistration struct {
 	completionFunc func(error) error
 }
 
-func NewLsmShard(stateMachineBucketName string, stateMachineKeyPrefix string, dataBucketName string,
-	dataKeyPrefix string, objStoreClient objstore.Client, lsmOpts lsm.ManagerOpts) *LsmShard {
+func NewLsmHolder(stateMachineBucketName string, stateMachineKeyPrefix string, dataBucketName string,
+	dataKeyPrefix string, objStoreClient objstore.Client, lsmOpts lsm.ManagerOpts) *LsmHolder {
 	clusteredData := cluster.NewClusteredData(stateMachineBucketName, stateMachineKeyPrefix, dataBucketName, dataKeyPrefix,
 		objStoreClient, cluster.ClusteredDataOpts{})
-	return &LsmShard{
+	return &LsmHolder{
 		objStore:      objStoreClient,
 		lsmOpts:       lsmOpts,
 		clusteredData: clusteredData,
 	}
 }
 
-func (s *LsmShard) Start() error {
+func (s *LsmHolder) Start() error {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 	if s.started {
@@ -57,7 +61,7 @@ func (s *LsmShard) Start() error {
 	return nil
 }
 
-func (s *LsmShard) Stop() error {
+func (s *LsmHolder) Stop() error {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 	if !s.started {
@@ -66,7 +70,7 @@ func (s *LsmShard) Stop() error {
 	return s.stop()
 }
 
-func (s *LsmShard) stop() error {
+func (s *LsmHolder) stop() error {
 	if err := s.lsmManager.Stop(); err != nil {
 		return err
 	}
@@ -76,7 +80,7 @@ func (s *LsmShard) stop() error {
 
 // ApplyLsmChanges - apply some changes to the LSM structure. Note that this method completes asynchronously as
 // L0 registrations will be queued if there is not enough free space
-func (s *LsmShard) ApplyLsmChanges(regBatch lsm.RegistrationBatch, completionFunc func(error) error) error {
+func (s *LsmHolder) ApplyLsmChanges(regBatch lsm.RegistrationBatch, completionFunc func(error) error) error {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 	if err := s.checkStarted(); err != nil {
@@ -98,7 +102,7 @@ func (s *LsmShard) ApplyLsmChanges(regBatch lsm.RegistrationBatch, completionFun
 	return nil
 }
 
-func (s *LsmShard) afterApplyChanges(completionFunc func(error) error) error {
+func (s *LsmHolder) afterApplyChanges(completionFunc func(error) error) error {
 	// Attempt to store the LSM state
 	ok, err := s.clusteredData.StoreData(s.lsmManager.GetMasterRecordBytes())
 	if err != nil {
@@ -110,13 +114,13 @@ func (s *LsmShard) afterApplyChanges(completionFunc func(error) error) error {
 		if err := s.stop(); err != nil {
 			log.Warnf("failed to stop controller: %v", err)
 		}
-		return completionFunc(common.NewTektiteErrorf(common.Unavailable, "shard failed to write as epoch changed"))
+		return completionFunc(common.NewTektiteErrorf(common.Unavailable, "lsm holder failed to write as epoch changed"))
 	} else {
 		return completionFunc(nil)
 	}
 }
 
-func (s *LsmShard) maybeRetryApplies() {
+func (s *LsmHolder) maybeRetryApplies() {
 	// check atomic outside lock to reduce contention
 	if !s.hasQueuedRegistrations.Load() {
 		return
@@ -126,7 +130,7 @@ func (s *LsmShard) maybeRetryApplies() {
 	}
 }
 
-func (s *LsmShard) maybeRetryApplies0() error {
+func (s *LsmHolder) maybeRetryApplies0() error {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 	pos := 0
@@ -184,7 +188,7 @@ func (s *LsmShard) maybeRetryApplies0() error {
 	return nil
 }
 
-func (s *LsmShard) QueryTablesInRange(keyStart []byte, keyEnd []byte) (lsm.OverlappingTables, error) {
+func (s *LsmHolder) QueryTablesInRange(keyStart []byte, keyEnd []byte) (lsm.OverlappingTables, error) {
 	s.lock.RLock()
 	defer s.lock.RUnlock()
 	if err := s.checkStarted(); err != nil {
@@ -193,9 +197,9 @@ func (s *LsmShard) QueryTablesInRange(keyStart []byte, keyEnd []byte) (lsm.Overl
 	return s.lsmManager.QueryTablesInRange(keyStart, keyEnd)
 }
 
-func (s *LsmShard) checkStarted() error {
+func (s *LsmHolder) checkStarted() error {
 	if !s.started {
-		return common.NewTektiteErrorf(common.Unavailable, "shard is not started")
+		return common.NewTektiteErrorf(common.Unavailable, "lsm holder is not started")
 	}
 	return nil
 }

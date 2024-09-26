@@ -1,4 +1,4 @@
-package shard
+package control
 
 import (
 	"github.com/google/uuid"
@@ -21,35 +21,35 @@ const (
 
 func TestApplyChanges(t *testing.T) {
 	objStore := dev.NewInMemStore(0)
-	shard := NewLsmShard(stateUpdatorBucketName, stateUpdatorKeyprefix, dataBucketName, dataKeyprefix, objStore,
+	holder := NewLsmHolder(stateUpdatorBucketName, stateUpdatorKeyprefix, dataBucketName, dataKeyprefix, objStore,
 		lsm.ManagerOpts{})
-	err := shard.Start()
+	err := holder.Start()
 	require.NoError(t, err)
 
-	testApplyChanges(t, shard, []byte(uuid.New().String()))
+	testApplyChanges(t, holder, []byte(uuid.New().String()))
 }
 
 func TestApplyChangesRestart(t *testing.T) {
 	objStore := dev.NewInMemStore(0)
-	shard := NewLsmShard(stateUpdatorBucketName, stateUpdatorKeyprefix, dataBucketName, dataKeyprefix, objStore,
+	holder := NewLsmHolder(stateUpdatorBucketName, stateUpdatorKeyprefix, dataBucketName, dataKeyprefix, objStore,
 		lsm.ManagerOpts{})
-	err := shard.Start()
+	err := holder.Start()
 	require.NoError(t, err)
 
 	tableID := []byte(uuid.New().String())
-	testApplyChanges(t, shard, tableID)
+	testApplyChanges(t, holder, tableID)
 
-	err = shard.Stop()
+	err = holder.Stop()
 	require.NoError(t, err)
 
-	// recreate shard
-	shard = NewLsmShard(stateUpdatorBucketName, stateUpdatorKeyprefix, dataBucketName, dataKeyprefix, objStore,
+	// recreate holder
+	holder = NewLsmHolder(stateUpdatorBucketName, stateUpdatorKeyprefix, dataBucketName, dataKeyprefix, objStore,
 		lsm.ManagerOpts{})
-	err = shard.Start()
+	err = holder.Start()
 	require.NoError(t, err)
 
 	// Registration should still be there - as metadata was committed to object store after previous ApplyChanges
-	res, err := shard.QueryTablesInRange(nil, nil)
+	res, err := holder.QueryTablesInRange(nil, nil)
 	require.NoError(t, err)
 
 	require.Equal(t, 1, len(res))
@@ -58,12 +58,12 @@ func TestApplyChangesRestart(t *testing.T) {
 	require.Equal(t, tableID, []byte(resTableID))
 }
 
-func testApplyChanges(t *testing.T, shard *LsmShard, tableID []byte) {
+func testApplyChanges(t *testing.T, holder *LsmHolder, tableID []byte) {
 	keyStart := []byte("key000001")
 	keyEnd := []byte("key000010")
 	batch := createBatch(1, tableID, keyStart, keyEnd)
 	ch := make(chan error, 1)
-	err := shard.ApplyLsmChanges(batch, func(err error) error {
+	err := holder.ApplyLsmChanges(batch, func(err error) error {
 		ch <- err
 		return nil
 	})
@@ -71,7 +71,7 @@ func testApplyChanges(t *testing.T, shard *LsmShard, tableID []byte) {
 	err = <-ch
 	require.NoError(t, err)
 
-	res, err := shard.QueryTablesInRange(keyStart, keyEnd)
+	res, err := holder.QueryTablesInRange(keyStart, keyEnd)
 	require.NoError(t, err)
 
 	require.Equal(t, 1, len(res))
@@ -80,15 +80,15 @@ func testApplyChanges(t *testing.T, shard *LsmShard, tableID []byte) {
 	require.Equal(t, tableID, []byte(resTableID))
 }
 
-// TestApplyChangesL0Full tests the queueing behaviour of the shard when L0 is full
+// TestApplyChangesL0Full tests the queueing behaviour of the holder when L0 is full
 func TestApplyChangesL0Full(t *testing.T) {
 	objStore := dev.NewInMemStore(0)
 	opts := lsm.ManagerOpts{
 		L0MaxTablesBeforeBlocking: 10,
 	}
-	shard := NewLsmShard(stateUpdatorBucketName, stateUpdatorKeyprefix, dataBucketName, dataKeyprefix, objStore,
+	holder := NewLsmHolder(stateUpdatorBucketName, stateUpdatorKeyprefix, dataBucketName, dataKeyprefix, objStore,
 		opts)
-	err := shard.Start()
+	err := holder.Start()
 	require.NoError(t, err)
 
 	keyStart := []byte("key000001")
@@ -102,7 +102,7 @@ func TestApplyChangesL0Full(t *testing.T) {
 		tabIDs = append(tabIDs, tableID)
 		batch := createBatch(0, tableID, keyStart, keyEnd)
 		ch := make(chan error, 1)
-		err := shard.ApplyLsmChanges(batch, func(err error) error {
+		err := holder.ApplyLsmChanges(batch, func(err error) error {
 			ch <- err
 			return nil
 		})
@@ -122,7 +122,7 @@ func TestApplyChangesL0Full(t *testing.T) {
 		batch := createBatch(0, tableID, keyStart, keyEnd)
 		ch := make(chan error, 1)
 		chans = append(chans, ch)
-		err = shard.ApplyLsmChanges(batch, func(err error) error {
+		err = holder.ApplyLsmChanges(batch, func(err error) error {
 			cc.Store(true)
 			ch <- err
 			return nil
@@ -152,7 +152,7 @@ func TestApplyChangesL0Full(t *testing.T) {
 		},
 	}}
 	ch := make(chan error, 1)
-	err = shard.ApplyLsmChanges(deregBatch, func(err error) error {
+	err = holder.ApplyLsmChanges(deregBatch, func(err error) error {
 		ch <- err
 		return nil
 	})
@@ -192,7 +192,7 @@ func TestApplyChangesL0Full(t *testing.T) {
 		},
 	}}
 	ch = make(chan error, 1)
-	err = shard.ApplyLsmChanges(deregBatch, func(err error) error {
+	err = holder.ApplyLsmChanges(deregBatch, func(err error) error {
 		ch <- err
 		return nil
 	})

@@ -1,4 +1,4 @@
-package shard
+package control
 
 import (
 	"fmt"
@@ -9,23 +9,21 @@ import (
 
 /*
 OffsetsCache caches next available offset for a topic partition in memory. Before an agent can write topic data to object storage
-it must first obtain partition offsets for the data it's writing. It does this by requesting the shard controller for a
+it must first obtain partition offsets for the data it's writing. It does this by requesting the offset cache for a
 number of offsets for each partition that's being written.
 The actual last stored offset is stored by the agent in the same batch that the topic data resides in. When the
-OffsetCache loads it loads the actual last offset from there.
+cache loads it loads the actual last offset from there.
 */
 type OffsetsCache struct {
 	lock                  sync.RWMutex
 	started               bool
-	shardID               int
 	topicOffsets          map[int][]int64
 	topicInfoProvider     topicInfoProvider
 	partitionOffsetLoader partitionOffsetLoader
 }
 
-func NewOffsetsCache(shardID int, provider topicInfoProvider, loader partitionOffsetLoader) *OffsetsCache {
+func NewOffsetsCache(provider topicInfoProvider, loader partitionOffsetLoader) *OffsetsCache {
 	return &OffsetsCache{
-		shardID:               shardID,
 		topicInfoProvider:     provider,
 		partitionOffsetLoader: loader,
 		topicOffsets:          make(map[int][]int64),
@@ -44,15 +42,14 @@ type TopicInfo struct {
 }
 
 type topicInfoProvider interface {
-	GetTopicsForShard(shardID int) ([]TopicInfo, error)
+	GetAllTopics() ([]TopicInfo, error)
 }
 
 type partitionOffsetLoader interface {
-	LoadOffsetsForShard(shardID int) ([]StoredOffset, error)
+	LoadOffsetsForTopic(topicID int) ([]StoredOffset, error)
 }
 
 type StoredOffset struct {
-	topicID     int
 	partitionID int
 	offset      int64
 }
@@ -63,27 +60,23 @@ func (o *OffsetsCache) Start() error {
 	if o.started {
 		return nil
 	}
-	topicInfos, err := o.topicInfoProvider.GetTopicsForShard(o.shardID)
+	topicInfos, err := o.topicInfoProvider.GetAllTopics()
 	if err != nil {
 		return err
 	}
 	for _, topicInfo := range topicInfos {
-		o.topicOffsets[topicInfo.TopicID] = make([]int64, topicInfo.PartitionCount)
-	}
-
-	offsets, err := o.partitionOffsetLoader.LoadOffsetsForShard(o.shardID)
-	if err != nil {
-		return err
-	}
-	for _, offset := range offsets {
-		offsets, ok := o.topicOffsets[offset.topicID]
-		if !ok {
-			return errors.Errorf("unknown topic id: %d", offset.topicID)
+		offsetsSlice := make([]int64, topicInfo.PartitionCount)
+		o.topicOffsets[topicInfo.TopicID] = offsetsSlice
+		offsets, err := o.partitionOffsetLoader.LoadOffsetsForTopic(topicInfo.TopicID)
+		if err != nil {
+			return err
 		}
-		if offset.partitionID >= len(offsets) {
-			return errors.Errorf("partition offset out of range: %d", offset.partitionID)
+		for _, offset := range offsets {
+			if offset.partitionID >= len(offsetsSlice) {
+				return errors.Errorf("partition offset out of range: %d", offset.partitionID)
+			}
+			offsetsSlice[offset.partitionID] = offset.offset + 1
 		}
-		offsets[offset.partitionID] = offset.offset + 1
 	}
 	o.started = true
 	return nil

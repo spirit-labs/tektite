@@ -1,4 +1,4 @@
-package shard
+package control
 
 import (
 	"github.com/stretchr/testify/require"
@@ -9,7 +9,7 @@ func TestOffsetsCacheNotStarted(t *testing.T) {
 	topicProvider := &testTopicInfoProvider{}
 	partitionLoader := &testPartitionOffsetLoader{}
 
-	oc := NewOffsetsCache(23, topicProvider, partitionLoader)
+	oc := NewOffsetsCache(topicProvider, partitionLoader)
 	_, err := oc.GetOffsets([]GetOffsetInfo{{NumOffsets: 10}})
 	require.Error(t, err)
 	require.Equal(t, "not started", err.Error())
@@ -19,7 +19,7 @@ func TestOffsetsCacheNotStarted(t *testing.T) {
 func TestOffsetsCacheGetSingleAlreadyStoredOffsetNonZero(t *testing.T) {
 	oc := setupAndStartCache(t)
 
-	offsets, err := oc.GetOffsets([]GetOffsetInfo{
+	offs, err := oc.GetOffsets([]GetOffsetInfo{
 		{
 			TopicID:     7,
 			PartitionID: 2,
@@ -27,10 +27,10 @@ func TestOffsetsCacheGetSingleAlreadyStoredOffsetNonZero(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	require.Equal(t, 1, len(offsets))
-	require.Equal(t, 1, int(offsets[0]))
+	require.Equal(t, 1, len(offs))
+	require.Equal(t, 1, int(offs[0]))
 
-	offsets, err = oc.GetOffsets([]GetOffsetInfo{
+	offs, err = oc.GetOffsets([]GetOffsetInfo{
 		{
 			TopicID:     7,
 			PartitionID: 2,
@@ -38,10 +38,10 @@ func TestOffsetsCacheGetSingleAlreadyStoredOffsetNonZero(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	require.Equal(t, 1, len(offsets))
-	require.Equal(t, 1+100, int(offsets[0]))
+	require.Equal(t, 1, len(offs))
+	require.Equal(t, 1+100, int(offs[0]))
 
-	offsets, err = oc.GetOffsets([]GetOffsetInfo{
+	offs, err = oc.GetOffsets([]GetOffsetInfo{
 		{
 			TopicID:     7,
 			PartitionID: 2,
@@ -49,8 +49,8 @@ func TestOffsetsCacheGetSingleAlreadyStoredOffsetNonZero(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	require.Equal(t, 1, len(offsets))
-	require.Equal(t, 1+100+33, int(offsets[0]))
+	require.Equal(t, 1, len(offs))
+	require.Equal(t, 1+100+33, int(offs[0]))
 }
 
 // Get an offset with a previous stored zero value
@@ -253,42 +253,41 @@ var testTopicProvider = &testTopicInfoProvider{
 }
 
 var testOffsetLoader = &testPartitionOffsetLoader{
-	offsets: []StoredOffset{
-		{
-			topicID:     7,
-			partitionID: 0,
-			offset:      1234,
+
+	topicOffsets: map[int][]StoredOffset{
+		7: {
+			{
+				partitionID: 0,
+				offset:      1234,
+			},
+			{
+				partitionID: 1,
+				offset:      3456,
+			},
+			{
+				partitionID: 2,
+				offset:      0,
+			},
+			{
+				partitionID: 3,
+				offset:      -1,
+			},
 		},
-		{
-			topicID:     7,
-			partitionID: 1,
-			offset:      3456,
-		},
-		{
-			topicID:     7,
-			partitionID: 2,
-			offset:      0,
-		},
-		{
-			topicID:     7,
-			partitionID: 3,
-			offset:      -1,
-		},
-		{
-			topicID:     8,
-			partitionID: 0,
-			offset:      5678,
-		},
-		{
-			topicID:     8,
-			partitionID: 1,
-			offset:      3456,
+		8: {
+			{
+				partitionID: 0,
+				offset:      5678,
+			},
+			{
+				partitionID: 1,
+				offset:      3456,
+			},
 		},
 	},
 }
 
 func setupAndStartCache(t *testing.T) *OffsetsCache {
-	oc := NewOffsetsCache(23, testTopicProvider, testOffsetLoader)
+	oc := NewOffsetsCache(testTopicProvider, testOffsetLoader)
 	err := oc.Start()
 	require.NoError(t, err)
 	return oc
