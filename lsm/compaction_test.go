@@ -24,7 +24,7 @@ const maxTableSize = 1300
 
 func TestPollerTimeout(t *testing.T) {
 	pollerTimeout := 250 * time.Millisecond
-	lm, tearDown := setupLevelManagerWithConfigSetter(t, true, true, func(cfg *ManagerOpts) {
+	lm, tearDown := setupLevelManagerWithConfigSetter(t, true, true, func(cfg *Conf) {
 		cfg.CompactionPollerTimeout = pollerTimeout
 	})
 	defer tearDown(t)
@@ -51,7 +51,7 @@ func TestPollerTimeout(t *testing.T) {
 }
 
 func TestPollForJobWhenAlreadyInQueue(t *testing.T) {
-	lm, tearDown := setupLevelManagerWithConfigSetter(t, true, true, func(cfg *ManagerOpts) {
+	lm, tearDown := setupLevelManagerWithConfigSetter(t, true, true, func(cfg *Conf) {
 		cfg.L1CompactionTrigger = 1
 	})
 	defer tearDown(t)
@@ -76,7 +76,7 @@ func TestPollForJobWhenAlreadyInQueue(t *testing.T) {
 }
 
 func TestPollForJobWhenNotAlreadyInQueue(t *testing.T) {
-	lm, tearDown := setupLevelManagerWithConfigSetter(t, true, true, func(cfg *ManagerOpts) {
+	lm, tearDown := setupLevelManagerWithConfigSetter(t, true, true, func(cfg *Conf) {
 		cfg.L1CompactionTrigger = 1
 	})
 	defer tearDown(t)
@@ -114,7 +114,7 @@ func TestPollForJobWhenNotAlreadyInQueue(t *testing.T) {
 }
 
 func TestPollersGetJobsInOrder(t *testing.T) {
-	lm, tearDown := setupLevelManagerWithConfigSetter(t, true, true, func(cfg *ManagerOpts) {
+	lm, tearDown := setupLevelManagerWithConfigSetter(t, true, true, func(cfg *Conf) {
 		cfg.L1CompactionTrigger = 1
 	})
 	defer tearDown(t)
@@ -160,7 +160,7 @@ func TestPollersGetJobsInOrder(t *testing.T) {
 }
 
 func TestPollJobAndCompleteItLevel0To1(t *testing.T) {
-	lm, tearDown := setupLevelManagerWithConfigSetter(t, true, true, func(cfg *ManagerOpts) {
+	lm, tearDown := setupLevelManagerWithConfigSetter(t, true, true, func(cfg *Conf) {
 		cfg.L0CompactionTrigger = 1
 		cfg.L1CompactionTrigger = 10
 	})
@@ -287,7 +287,7 @@ func sendCompactionComplete(t *testing.T, lm *Manager, job *CompactionJob, newTa
 }
 
 func TestPollJobAndCompleteItLevel0To1EmptyL1(t *testing.T) {
-	lm, tearDown := setupLevelManagerWithConfigSetter(t, true, true, func(cfg *ManagerOpts) {
+	lm, tearDown := setupLevelManagerWithConfigSetter(t, true, true, func(cfg *Conf) {
 		cfg.L0CompactionTrigger = 1
 	})
 	defer tearDown(t)
@@ -387,7 +387,7 @@ func TestPollJobAndCompleteItLevel0To1EmptyL1(t *testing.T) {
 }
 
 func TestPollJobAndCompleteItLevel1To2(t *testing.T) {
-	lm, tearDown := setupLevelManagerWithConfigSetter(t, true, true, func(cfg *ManagerOpts) {
+	lm, tearDown := setupLevelManagerWithConfigSetter(t, true, true, func(cfg *Conf) {
 		cfg.L0CompactionTrigger = 2
 		cfg.LevelMultiplier = 2
 	})
@@ -468,7 +468,7 @@ func TestPollJobAndCompleteItLevel1To2(t *testing.T) {
 
 func TestCompactionTimeout(t *testing.T) {
 	compactionTimeout := 100 * time.Millisecond
-	lm, tearDown := setupLevelManagerWithConfigSetter(t, true, true, func(cfg *ManagerOpts) {
+	lm, tearDown := setupLevelManagerWithConfigSetter(t, true, true, func(cfg *Conf) {
 		cfg.L0CompactionTrigger = 1
 		cfg.L1CompactionTrigger = 1
 		cfg.LevelMultiplier = 1
@@ -522,7 +522,7 @@ func TestCompactionTimeout(t *testing.T) {
 }
 
 func TestTablesMovedToLastLevelWhenNoOverlapAndNoDeletes(t *testing.T) {
-	lm, tearDown := setupLevelManagerWithConfigSetter(t, true, true, func(cfg *ManagerOpts) {
+	lm, tearDown := setupLevelManagerWithConfigSetter(t, true, true, func(cfg *Conf) {
 		cfg.L1CompactionTrigger = 1
 	})
 	defer tearDown(t)
@@ -547,7 +547,7 @@ func TestTablesMovedToLastLevelWhenNoOverlapAndNoDeletes(t *testing.T) {
 }
 
 func TestTablesNotMovedToLastLevelWhenNoOverlapAndDeletes(t *testing.T) {
-	lm, tearDown := setupLevelManagerWithConfigSetter(t, true, true, func(cfg *ManagerOpts) {
+	lm, tearDown := setupLevelManagerWithConfigSetter(t, true, true, func(cfg *Conf) {
 		cfg.L1CompactionTrigger = 1
 	})
 	defer tearDown(t)
@@ -572,7 +572,7 @@ func TestTablesNotMovedToLastLevelWhenNoOverlapAndDeletes(t *testing.T) {
 }
 
 func TestTablesMovedToNonLastLevelWhenNoOverlapAndDeletes(t *testing.T) {
-	lm, tearDown := setupLevelManagerWithConfigSetter(t, true, true, func(cfg *ManagerOpts) {
+	lm, tearDown := setupLevelManagerWithConfigSetter(t, true, true, func(cfg *Conf) {
 		cfg.L1CompactionTrigger = 1
 	})
 	defer tearDown(t)
@@ -602,7 +602,7 @@ func TestTablesMovedToNonLastLevelWhenNoOverlapAndDeletes(t *testing.T) {
 }
 
 func TestFileLockingOnNextLevel(t *testing.T) {
-	lm, tearDown := setupLevelManagerWithConfigSetter(t, true, true, func(cfg *ManagerOpts) {
+	lm, tearDown := setupLevelManagerWithConfigSetter(t, true, true, func(cfg *Conf) {
 		cfg.L1CompactionTrigger = 1
 	})
 	defer tearDown(t)
@@ -647,7 +647,7 @@ func TestFileLockingOnNextLevel(t *testing.T) {
 }
 
 func TestFileLocking(t *testing.T) {
-	lm, tearDown := setupLevelManagerWithConfigSetter(t, true, true, func(cfg *ManagerOpts) {
+	lm, tearDown := setupLevelManagerWithConfigSetter(t, true, true, func(cfg *Conf) {
 		cfg.L1CompactionTrigger = 1
 	})
 	defer tearDown(t)
@@ -692,7 +692,7 @@ func TestFileLocking(t *testing.T) {
 func TestDeleteSSTablesAfterCompaction(t *testing.T) {
 	deleteCheckPeriod := 100 * time.Millisecond
 	deleteDelay := 100 * time.Millisecond
-	lm, tearDown := setupLevelManagerWithConfigSetter(t, true, true, func(cfg *ManagerOpts) {
+	lm, tearDown := setupLevelManagerWithConfigSetter(t, true, true, func(cfg *Conf) {
 		cfg.L0CompactionTrigger = 2
 		cfg.LevelMultiplier = 2
 		cfg.SSTableDeleteCheckInterval = deleteCheckPeriod
@@ -700,26 +700,28 @@ func TestDeleteSSTablesAfterCompaction(t *testing.T) {
 	})
 	defer tearDown(t)
 
-	err := lm.objStore.Put(context.Background(), conf.DefaultBucketName, "sst1-1", []byte("foo"))
+	bucketName := lm.cfg.SSTableBucketName
+
+	err := lm.objStore.Put(context.Background(), bucketName, "sst1-1", []byte("foo"))
 	require.NoError(t, err)
-	err = lm.objStore.Put(context.Background(), conf.DefaultBucketName, "sst1-2", []byte("foo"))
+	err = lm.objStore.Put(context.Background(), bucketName, "sst1-2", []byte("foo"))
 	require.NoError(t, err)
-	err = lm.objStore.Put(context.Background(), conf.DefaultBucketName, "sst1-3", []byte("foo"))
+	err = lm.objStore.Put(context.Background(), bucketName, "sst1-3", []byte("foo"))
 	require.NoError(t, err)
-	err = lm.objStore.Put(context.Background(), conf.DefaultBucketName, "sst1-4", []byte("foo"))
+	err = lm.objStore.Put(context.Background(), bucketName, "sst1-4", []byte("foo"))
 	require.NoError(t, err)
-	err = lm.objStore.Put(context.Background(), conf.DefaultBucketName, "sst1-5", []byte("foo"))
+	err = lm.objStore.Put(context.Background(), bucketName, "sst1-5", []byte("foo"))
 	require.NoError(t, err)
 
-	err = lm.objStore.Put(context.Background(), conf.DefaultBucketName, "sst2-1", []byte("foo"))
+	err = lm.objStore.Put(context.Background(), bucketName, "sst2-1", []byte("foo"))
 	require.NoError(t, err)
-	err = lm.objStore.Put(context.Background(), conf.DefaultBucketName, "sst2-2", []byte("foo"))
+	err = lm.objStore.Put(context.Background(), bucketName, "sst2-2", []byte("foo"))
 	require.NoError(t, err)
-	err = lm.objStore.Put(context.Background(), conf.DefaultBucketName, "sst2-3", []byte("foo"))
+	err = lm.objStore.Put(context.Background(), bucketName, "sst2-3", []byte("foo"))
 	require.NoError(t, err)
-	err = lm.objStore.Put(context.Background(), conf.DefaultBucketName, "sst2-4", []byte("foo"))
+	err = lm.objStore.Put(context.Background(), bucketName, "sst2-4", []byte("foo"))
 	require.NoError(t, err)
-	err = lm.objStore.Put(context.Background(), conf.DefaultBucketName, "sst2-5", []byte("foo"))
+	err = lm.objStore.Put(context.Background(), bucketName, "sst2-5", []byte("foo"))
 	require.NoError(t, err)
 
 	sst11 := createTableEntryWithDeleteRatio("sst1-1", 0, 1, 0.1)
@@ -768,67 +770,67 @@ func TestDeleteSSTablesAfterCompaction(t *testing.T) {
 
 	time.Sleep(2*deleteCheckPeriod + 2*deleteDelay)
 
-	v, err := lm.objStore.Get(context.Background(), conf.DefaultBucketName, "sst1-5")
+	v, err := lm.objStore.Get(context.Background(), bucketName, "sst1-5")
 	require.NoError(t, err)
 	require.Nil(t, v)
 
-	v, err = lm.objStore.Get(context.Background(), conf.DefaultBucketName, "sst2-3")
+	v, err = lm.objStore.Get(context.Background(), bucketName, "sst2-3")
 	require.NoError(t, err)
 	require.Nil(t, v)
 
-	v, err = lm.objStore.Get(context.Background(), conf.DefaultBucketName, "sst2-4")
+	v, err = lm.objStore.Get(context.Background(), bucketName, "sst2-4")
 	require.NoError(t, err)
 	require.Nil(t, v)
 
 	// others should still be there
 
-	v, err = lm.objStore.Get(context.Background(), conf.DefaultBucketName, "sst1-1")
+	v, err = lm.objStore.Get(context.Background(), bucketName, "sst1-1")
 	require.NoError(t, err)
 	require.NotNil(t, v)
 
-	v, err = lm.objStore.Get(context.Background(), conf.DefaultBucketName, "sst1-2")
+	v, err = lm.objStore.Get(context.Background(), bucketName, "sst1-2")
 	require.NoError(t, err)
 	require.NotNil(t, v)
 
-	v, err = lm.objStore.Get(context.Background(), conf.DefaultBucketName, "sst1-3")
+	v, err = lm.objStore.Get(context.Background(), bucketName, "sst1-3")
 	require.NoError(t, err)
 	require.NotNil(t, v)
 
-	v, err = lm.objStore.Get(context.Background(), conf.DefaultBucketName, "sst1-4")
+	v, err = lm.objStore.Get(context.Background(), bucketName, "sst1-4")
 	require.NoError(t, err)
 	require.NotNil(t, v)
 
-	v, err = lm.objStore.Get(context.Background(), conf.DefaultBucketName, "sst2-1")
+	v, err = lm.objStore.Get(context.Background(), bucketName, "sst2-1")
 	require.NoError(t, err)
 	require.NotNil(t, v)
 
-	v, err = lm.objStore.Get(context.Background(), conf.DefaultBucketName, "sst2-2")
+	v, err = lm.objStore.Get(context.Background(), bucketName, "sst2-2")
 	require.NoError(t, err)
 	require.NotNil(t, v)
 
-	v, err = lm.objStore.Get(context.Background(), conf.DefaultBucketName, "sst2-5")
+	v, err = lm.objStore.Get(context.Background(), bucketName, "sst2-5")
 	require.NoError(t, err)
 	require.NotNil(t, v)
 }
 
 func TestChooseLevelToCompact0(t *testing.T) {
 	testChooseLevelToCompact(t, 0, func(lm *Manager) {
-		addTablesToLevel(t, lm, 0, 10, 0, 10)
-		addTablesToLevel(t, lm, 1, 8, 0, 10)
-		addTablesToLevel(t, lm, 2, 5, 0, 10)
+		addTablesToLevel(t, lm, 0, 10)
+		addTablesToLevel(t, lm, 1, 8)
+		addTablesToLevel(t, lm, 2, 5)
 	})
 }
 
 func TestChooseLevelToCompact1(t *testing.T) {
 	testChooseLevelToCompact(t, 1, func(lm *Manager) {
-		addTablesToLevel(t, lm, 0, 5, 0, 10)
-		addTablesToLevel(t, lm, 1, 11, 0, 10)
-		addTablesToLevel(t, lm, 2, 4, 0, 10)
+		addTablesToLevel(t, lm, 0, 5)
+		addTablesToLevel(t, lm, 1, 11)
+		addTablesToLevel(t, lm, 2, 4)
 	})
 }
 
 func testChooseLevelToCompact(t *testing.T, level int, adderFunc func(lm *Manager)) {
-	lm, tearDown := setupLevelManagerWithConfigSetter(t, true, true, func(cfg *ManagerOpts) {
+	lm, tearDown := setupLevelManagerWithConfigSetter(t, true, true, func(cfg *Conf) {
 		cfg.L0CompactionTrigger = 1
 		cfg.L1CompactionTrigger = 1
 		cfg.LevelMultiplier = 1
@@ -852,16 +854,16 @@ func TestChooseTableToCompact(t *testing.T) {
 }
 
 func testChooseTableToCompact(t *testing.T, expectedRatio float64, deleteRatios ...float64) {
-	lm, tearDown := setupLevelManagerWithConfigSetter(t, true, true, func(cfg *ManagerOpts) {
+	lm, tearDown := setupLevelManagerWithConfigSetter(t, true, true, func(cfg *Conf) {
 		cfg.L0CompactionTrigger = 1
 		cfg.L1CompactionTrigger = 1
 		cfg.LevelMultiplier = 1
 	})
 	defer tearDown(t)
 
-	addTablesToLevel(t, lm, 0, 3, 0, 10)
-	addTablesToLevel(t, lm, 1, 5, 0, 10, deleteRatios...)
-	addTablesToLevel(t, lm, 2, 4, 0, 10)
+	addTablesToLevel(t, lm, 0, 3)
+	addTablesToLevel(t, lm, 1, 5, deleteRatios...)
+	addTablesToLevel(t, lm, 2, 4)
 
 	err := lm.MaybeScheduleCompaction()
 	require.NoError(t, err)
@@ -872,7 +874,7 @@ func testChooseTableToCompact(t *testing.T, expectedRatio float64, deleteRatios 
 	require.Equal(t, expectedRatio, job.tables[0][0].table.DeleteRatio)
 }
 
-func addTablesToLevel(t *testing.T, lm *Manager, level int, numTables int, rangeStart int, rangePerLevel int, deleteRatios ...float64) {
+func addTablesToLevel(t *testing.T, lm *Manager, level int, numTables int, deleteRatios ...float64) {
 	var entries []TableEntry
 	for i := 0; i < numTables; i++ {
 		var dr float64
@@ -883,8 +885,8 @@ func addTablesToLevel(t *testing.T, lm *Manager, level int, numTables int, range
 		}
 		te := TableEntry{
 			SSTableID:   []byte(fmt.Sprintf("sst-%d-%d", level, i)),
-			RangeStart:  encoding2.EncodeVersion([]byte(fmt.Sprintf("key-%05d", rangeStart)), 0),
-			RangeEnd:    encoding2.EncodeVersion([]byte(fmt.Sprintf("key-%05d", rangeStart+rangePerLevel-1)), 0),
+			RangeStart:  encoding2.EncodeVersion([]byte(fmt.Sprintf("key-%05d", i)), 0),
+			RangeEnd:    encoding2.EncodeVersion([]byte(fmt.Sprintf("key-%05d", i+1)), 0),
 			DeleteRatio: dr,
 		}
 		entries = append(entries, te)
@@ -1676,7 +1678,7 @@ func TestCompactionTriggers(t *testing.T) {
 	l0Trigger := 8
 	l1Trigger := 10
 	levelMult := 10
-	lm, tearDown := setupLevelManagerWithConfigSetter(t, true, true, func(cfg *ManagerOpts) {
+	lm, tearDown := setupLevelManagerWithConfigSetter(t, true, true, func(cfg *Conf) {
 		cfg.L0CompactionTrigger = l0Trigger
 		cfg.L1CompactionTrigger = l1Trigger
 		cfg.LevelMultiplier = levelMult
@@ -1775,7 +1777,7 @@ func trimVersion(key []byte) []byte {
 }
 
 func TestNoPreserveTombstonesWhenTableCompactedToLastLevelVersionsFlushed(t *testing.T) {
-	lm, tearDown := setupLevelManagerWithConfigSetter(t, true, true, func(cfg *ManagerOpts) {
+	lm, tearDown := setupLevelManagerWithConfigSetter(t, true, true, func(cfg *Conf) {
 		cfg.L1CompactionTrigger = 1
 	})
 	defer tearDown(t)
@@ -1800,7 +1802,7 @@ func TestNoPreserveTombstonesWhenTableCompactedToLastLevelVersionsFlushed(t *tes
 }
 
 func TestNoPreserveTombstonesWhenTableCompactedToLastLevelVersionsNotFlushed(t *testing.T) {
-	lm, tearDown := setupLevelManagerWithConfigSetter(t, true, true, func(cfg *ManagerOpts) {
+	lm, tearDown := setupLevelManagerWithConfigSetter(t, true, true, func(cfg *Conf) {
 		cfg.L1CompactionTrigger = 1
 	})
 	defer tearDown(t)
@@ -1822,7 +1824,7 @@ func TestNoPreserveTombstonesWhenTableCompactedToLastLevelVersionsNotFlushed(t *
 }
 
 func TestClosePollersForConnectionID(t *testing.T) {
-	lm, tearDown := setupLevelManagerWithConfigSetter(t, true, true, func(cfg *ManagerOpts) {
+	lm, tearDown := setupLevelManagerWithConfigSetter(t, true, true, func(cfg *Conf) {
 		cfg.L1CompactionTrigger = 1
 		cfg.CompactionJobTimeout = time.Hour
 	})
@@ -1862,7 +1864,7 @@ func TestClosePollersForConnectionID(t *testing.T) {
 }
 
 func TestJobCreatedWithLastFlushedVersion(t *testing.T) {
-	lm, tearDown := setupLevelManagerWithConfigSetter(t, true, true, func(cfg *ManagerOpts) {
+	lm, tearDown := setupLevelManagerWithConfigSetter(t, true, true, func(cfg *Conf) {
 		cfg.L1CompactionTrigger = 1
 		cfg.CompactionJobTimeout = time.Hour
 	})

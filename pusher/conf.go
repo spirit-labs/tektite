@@ -19,7 +19,12 @@ func NewConf() Conf {
 		WriteTimeout:              DefaultWriteTimeout,
 		AvailabilityRetryInterval: DefaultAvailabilityRetryInterval,
 		DataFormat:                DefaultDataFormat,
+		DataBucketName: "tektite-data",
 	}
+}
+
+func (c *Conf) Validate() error {
+	return nil
 }
 
 const (

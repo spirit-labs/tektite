@@ -78,7 +78,7 @@ func (s *SocketServer) Stop() error {
 	s.acceptLoopExitGroup.Wait()
 	// Now close connections
 	s.connections.Range(func(conn, _ interface{}) bool {
-		conn.(*serverConnection2).stop()
+		conn.(*serverConnection).stop()
 		return true
 	})
 	s.started = false
@@ -119,7 +119,7 @@ func (s *SocketServer) acceptLoop() {
 			// Ok - was closed
 			break
 		}
-		c := &serverConnection2{
+		c := &serverConnection{
 			s:        s,
 			conn:     conn,
 			userConn: s.connFactory(conn),
@@ -129,11 +129,11 @@ func (s *SocketServer) acceptLoop() {
 	}
 }
 
-func (s *SocketServer) removeConnection(conn *serverConnection2) {
+func (s *SocketServer) removeConnection(conn *serverConnection) {
 	s.connections.Delete(conn)
 }
 
-type serverConnection2 struct {
+type serverConnection struct {
 	s          *SocketServer
 	conn       net.Conn
 	closeGroup sync.WaitGroup
@@ -142,14 +142,14 @@ type serverConnection2 struct {
 	userConn   ServerConnection
 }
 
-func (c *serverConnection2) start() {
+func (c *serverConnection) start() {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 	c.closeGroup.Add(1)
 	common.Go(c.readLoop)
 }
 
-func (c *serverConnection2) readLoop() {
+func (c *serverConnection) readLoop() {
 	defer c.readPanicHandler()
 	defer c.closeGroup.Done()
 	if err := ReadMessage(c.conn, c.userConn.HandleMessage); err != nil {
@@ -171,14 +171,14 @@ func (c *serverConnection2) readLoop() {
 	c.cleanUp()
 }
 
-func (c *serverConnection2) cleanUp() {
+func (c *serverConnection) cleanUp() {
 	c.s.removeConnection(c)
 	c.lock.Lock()
 	defer c.lock.Unlock()
 	c.closed = true
 }
 
-func (c *serverConnection2) readPanicHandler() {
+func (c *serverConnection) readPanicHandler() {
 	// We use a custom panic handler as we don't want the server to panic and crash if it receives a malformed
 	// request which has insufficient bytes in the buffer which would cause a runtime error: index out of range panic
 	if r := recover(); r != nil {
@@ -250,7 +250,7 @@ func ReadMessage(conn net.Conn, messageHandler func([]byte) error) error {
 	return err
 }
 
-func (c *serverConnection2) stop() {
+func (c *serverConnection) stop() {
 	c.lock.Lock()
 	c.closed = true
 	if err := c.conn.Close(); err != nil {

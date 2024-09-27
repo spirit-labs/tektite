@@ -35,8 +35,9 @@ func (m *Manager) validateLevelEntry(level int, levEntry *levelEntry, validateTa
 		}
 		// L0 segment has overlap
 		if level > 0 {
-			if prevRangeEnd != nil && bytes.Compare(te.RangeEnd, prevRangeEnd) < 0 {
-				return errwrap.Errorf("level %d has overlapping table entries", level)
+			// Make sure in order
+			if prevRangeEnd != nil && bytes.Compare(prevRangeEnd, te.RangeStart) > 0 {
+				return errwrap.Errorf("level %d has unordered entries", level)
 			}
 			prevRangeEnd = te.RangeEnd
 		}
@@ -56,7 +57,7 @@ func (m *Manager) validateLevelEntry(level int, levEntry *levelEntry, validateTa
 }
 
 func (m *Manager) validateTable(te *TableEntry) error {
-	buff, err := objstore.GetWithTimeout(m.objStore, m.opts.SSTableBucketName, string(te.SSTableID), objstore.DefaultCallTimeout)
+	buff, err := objstore.GetWithTimeout(m.objStore, m.cfg.SSTableBucketName, string(te.SSTableID), objstore.DefaultCallTimeout)
 	if err != nil {
 		return err
 	}

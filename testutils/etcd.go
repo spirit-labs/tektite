@@ -1,3 +1,4 @@
+//go:build !release
 package testutils
 
 import (

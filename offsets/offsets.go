@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/pkg/errors"
 	"github.com/spirit-labs/tektite/common"
+	"github.com/spirit-labs/tektite/streammeta"
 	"sync"
 )
 
@@ -29,37 +30,41 @@ prevent this, the cache responds to a change in cluster membership and sets high
 nextWriteOffset - 1, effectively making all offsets obtained, readable and allowing consumers to advance, potentially
 with gaps in the offset sequence. However, it cannot be allowed for registrations to occur for the offsets in the gap
 after this change has occurred otherwise that data would be skipped past by consumers. Therefore we maintain a field
-highestAcceptableWrittenOffset which is updated to be nextWriteOffset at the point of cluster membership change.
+lowestAcceptableWrittenOffset which is updated to be nextWriteOffset at the point of cluster membership change.
 When addWrittenOffsets is called we reject any registration where the offset is less than this value.
 */
 type Cache struct {
 	lock                  sync.RWMutex
 	started               bool
 	topicOffsets          map[int][]partitionOffsets
-	topicInfoProvider     TopicInfoProvider
+	topicInfoProvider     streammeta.TopicInfoProvider
 	partitionOffsetLoader PartitionOffsetLoader
 }
 
 type partitionOffsets struct {
-	lock                           sync.Mutex
-	nextWriteOffset                int64
-	highestReadableOffset          int64
-	highestAcceptableWrittenOffset int64
-	writtenHeap                    writtenOffsetHeap
+	lock                          sync.Mutex
+	nextWriteOffset               int64
+	highestReadableOffset         int64
+	lowestAcceptableWrittenOffset int64
+	writtenHeap                   writtenOffsetHeap
+	loaded                        bool
 }
 
 func (p *partitionOffsets) clusterVersionChanged() {
 	p.lock.Lock()
 	defer p.lock.Unlock()
 	p.highestReadableOffset = p.nextWriteOffset - 1
-	p.highestAcceptableWrittenOffset = p.nextWriteOffset
+	p.lowestAcceptableWrittenOffset = p.nextWriteOffset
 	p.writtenHeap = p.writtenHeap[:0]
 }
 
 func (p *partitionOffsets) updateWrittenOffsets(wo UpdateWrittenOffsetInfo) bool {
 	p.lock.Lock()
 	defer p.lock.Unlock()
-	if wo.OffsetStart < p.highestAcceptableWrittenOffset {
+	if !p.loaded {
+		panic("partitionOffsets has not been loaded")
+	}
+	if wo.OffsetStart < p.lowestAcceptableWrittenOffset {
 		return false
 	}
 	lastOffset := wo.OffsetStart + int64(wo.NumOffsets) - 1
@@ -88,12 +93,31 @@ func (p *partitionOffsets) updateWrittenOffsets(wo UpdateWrittenOffsetInfo) bool
 	return true
 }
 
-func (p *partitionOffsets) getNextOffset(numOffsets int) int64 {
+func (p *partitionOffsets) getNextOffset(numOffsets int) (int64, bool) {
 	p.lock.Lock()
 	defer p.lock.Unlock()
+	if !p.loaded {
+		return 0, false
+	}
 	offset := p.nextWriteOffset
 	p.nextWriteOffset += int64(numOffsets)
-	return offset
+	return offset, true
+}
+
+func (p *partitionOffsets) load(topicID int, partitionID int, loader PartitionOffsetLoader) error {
+	p.lock.Lock()
+	defer p.lock.Unlock()
+	if p.loaded {
+		return nil
+	}
+	off, err := loader.LoadHighestOffsetForPartition(topicID, partitionID)
+	if err != nil {
+		return err
+	}
+	p.nextWriteOffset = off + 1
+	p.highestReadableOffset = off
+	p.loaded = true
+	return nil
 }
 
 func (p *partitionOffsets) getHighestReadableOffset() int64 {
@@ -102,7 +126,7 @@ func (p *partitionOffsets) getHighestReadableOffset() int64 {
 	return p.highestReadableOffset
 }
 
-func NewOffsetsCache(provider TopicInfoProvider, loader PartitionOffsetLoader) *Cache {
+func NewOffsetsCache(provider streammeta.TopicInfoProvider, loader PartitionOffsetLoader) *Cache {
 	return &Cache{
 		topicInfoProvider:     provider,
 		partitionOffsetLoader: loader,
@@ -115,11 +139,6 @@ type GetOffsetTopicInfo struct {
 	NumOffsets  int
 }
 
-type TopicInfo struct {
-	TopicID        int
-	PartitionCount int
-}
-
 type UpdateWrittenOffsetInfo struct {
 	TopicID     int
 	PartitionID int
@@ -127,17 +146,8 @@ type UpdateWrittenOffsetInfo struct {
 	NumOffsets  int
 }
 
-type TopicInfoProvider interface {
-	GetAllTopics() ([]TopicInfo, error)
-}
-
 type PartitionOffsetLoader interface {
-	LoadOffsetsForTopic(topicID int) ([]StoredOffset, error)
-}
-
-type StoredOffset struct {
-	PartitionID int
-	Offset      int64
+	LoadHighestOffsetForPartition(topicID int, partitionID int) (int64, error)
 }
 
 func (o *Cache) Start() error {
@@ -153,18 +163,10 @@ func (o *Cache) Start() error {
 	o.topicOffsets = make(map[int][]partitionOffsets, len(topicInfos))
 	for _, topicInfo := range topicInfos {
 		offsetsSlice := make([]partitionOffsets, topicInfo.PartitionCount)
+		for i := 0; i < topicInfo.PartitionCount; i++ {
+			offsetsSlice[i].nextWriteOffset = 0
+		}
 		o.topicOffsets[topicInfo.TopicID] = offsetsSlice
-		offsets, err := o.partitionOffsetLoader.LoadOffsetsForTopic(topicInfo.TopicID)
-		if err != nil {
-			return err
-		}
-		for _, offset := range offsets {
-			if err := checkPartitionOffsetInRange(offset.PartitionID, len(offsetsSlice)); err != nil {
-				return err
-			}
-			offsetsSlice[offset.PartitionID].nextWriteOffset = offset.Offset + 1
-			offsetsSlice[offset.PartitionID].highestReadableOffset = offset.Offset
-		}
 	}
 	o.started = true
 	return nil
@@ -232,7 +234,17 @@ func (o *Cache) getOffset(info GetOffsetTopicInfo) (int64, error) {
 	if err := checkPartitionOffsetInRange(info.PartitionID, len(offsets)); err != nil {
 		return 0, err
 	}
-	return offsets[info.PartitionID].getNextOffset(info.NumOffsets), nil
+	offs := &offsets[info.PartitionID]
+	for {
+		offset, loaded := offs.getNextOffset(info.NumOffsets)
+		if loaded {
+			return offset, nil
+		}
+		// lazy load the offset.
+		if err := offs.load(info.TopicID, info.PartitionID, o.partitionOffsetLoader); err != nil {
+			return 0, err
+		}
+	}
 }
 
 func checkPartitionOffsetInRange(partitionID int, numPartitions int) error {

@@ -27,7 +27,7 @@ func TestCompactionIncrementingData(t *testing.T) {
 	l0CompactionTrigger := 4
 	l1CompactionTrigger := 4
 	levelMultiplier := 10
-	lm, tearDown := setup(t, func(cfg *ManagerOpts) {
+	lm, tearDown := setup(t, func(cfg *Conf) {
 		cfg.L0CompactionTrigger = l0CompactionTrigger
 		cfg.L1CompactionTrigger = l1CompactionTrigger
 		cfg.L0MaxTablesBeforeBlocking = 2 * l0CompactionTrigger
@@ -94,7 +94,7 @@ func TestCompactionOverwritingData(t *testing.T) {
 	l0CompactionTrigger := 4
 	l1CompactionTrigger := 4
 	levelMultiplier := 10
-	lm, tearDown := setup(t, func(cfg *ManagerOpts) {
+	lm, tearDown := setup(t, func(cfg *Conf) {
 		cfg.L0CompactionTrigger = l0CompactionTrigger
 		cfg.L1CompactionTrigger = l1CompactionTrigger
 		cfg.L0MaxTablesBeforeBlocking = 2 * l0CompactionTrigger
@@ -159,7 +159,7 @@ func TestCompactionOverwritingData(t *testing.T) {
 		buff := table.Serialize()
 
 		sstName := fmt.Sprintf("sst-%06d", i)
-		err = lm.GetObjectStore().Put(context.Background(), conf.DefaultBucketName, sstName, buff)
+		err = lm.GetObjectStore().Put(context.Background(), lm.cfg.SSTableBucketName, sstName, buff)
 		require.NoError(t, err)
 
 		addTable(t, lm, sstName, smallestKey, largestKey)
@@ -218,7 +218,7 @@ func TestCompactionTombstones(t *testing.T) {
 	l0CompactionTrigger := 4
 	l1CompactionTrigger := 4
 	levelMultiplier := 10
-	lm, tearDown := setup(t, func(cfg *ManagerOpts) {
+	lm, tearDown := setup(t, func(cfg *Conf) {
 		cfg.L0CompactionTrigger = l0CompactionTrigger
 		cfg.L1CompactionTrigger = l1CompactionTrigger
 		cfg.L0MaxTablesBeforeBlocking = 2 * l0CompactionTrigger
@@ -328,7 +328,7 @@ func TestRandomUpdateDeleteData(t *testing.T) {
 	l0CompactionTrigger := 4
 	l1CompactionTrigger := 4
 	levelMultiplier := 10
-	lm, tearDown := setup(t, func(cfg *ManagerOpts) {
+	lm, tearDown := setup(t, func(cfg *Conf) {
 		cfg.L0CompactionTrigger = l0CompactionTrigger
 		cfg.L1CompactionTrigger = l1CompactionTrigger
 		cfg.L0MaxTablesBeforeBlocking = 2 * l0CompactionTrigger
@@ -422,7 +422,7 @@ func TestRandomUpdateDeleteData(t *testing.T) {
 		buff := table.Serialize()
 
 		sstName := fmt.Sprintf("sst-%06d", i)
-		err = lm.GetObjectStore().Put(context.Background(), conf.DefaultBucketName, sstName, buff)
+		err = lm.GetObjectStore().Put(context.Background(), lm.cfg.SSTableBucketName, sstName, buff)
 		require.NoError(t, err)
 
 		addTable(t, lm, sstName, smallestKey, largestKey)
@@ -489,7 +489,7 @@ func TestCompactionExpiredPrefix(t *testing.T) {
 	l0CompactionTrigger := 4
 	l1CompactionTrigger := 4
 	levelMultiplier := 10
-	lm, tearDown := setup(t, func(cfg *ManagerOpts) {
+	lm, tearDown := setup(t, func(cfg *Conf) {
 		cfg.L0CompactionTrigger = l0CompactionTrigger
 		cfg.L1CompactionTrigger = l1CompactionTrigger
 		cfg.L0MaxTablesBeforeBlocking = 2 * l0CompactionTrigger
@@ -584,7 +584,7 @@ func TestCompactionDeadVersions(t *testing.T) {
 	l0CompactionTrigger := 2
 	l1CompactionTrigger := 20
 	levelMultiplier := 10
-	lm, tearDown := setup(t, func(cfg *ManagerOpts) {
+	lm, tearDown := setup(t, func(cfg *Conf) {
 		cfg.L0CompactionTrigger = l0CompactionTrigger
 		cfg.L1CompactionTrigger = l1CompactionTrigger
 		cfg.L0MaxTablesBeforeBlocking = 2 * l0CompactionTrigger
@@ -660,7 +660,7 @@ func TestCompactionPrefixDeletions(t *testing.T) {
 	l0CompactionTrigger := 4
 	l1CompactionTrigger := 4
 	levelMultiplier := 10
-	lm, tearDown := setup(t, func(cfg *ManagerOpts) {
+	lm, tearDown := setup(t, func(cfg *Conf) {
 		cfg.L0CompactionTrigger = l0CompactionTrigger
 		cfg.L1CompactionTrigger = l1CompactionTrigger
 		cfg.L0MaxTablesBeforeBlocking = 2 * l0CompactionTrigger
@@ -732,7 +732,7 @@ func TestCompactionPrefixDeletions(t *testing.T) {
 	buff := table.Serialize()
 	tableName := uuid.New().String()
 	log.Debugf("deletion bomb table is %s", tableName)
-	err = lm.GetObjectStore().Put(context.Background(), conf.DefaultBucketName, tableName, buff)
+	err = lm.GetObjectStore().Put(context.Background(), lm.cfg.SSTableBucketName, tableName, buff)
 	require.NoError(t, err)
 	addTable(t, lm, tableName, smallestKey, largestKey)
 
@@ -774,7 +774,7 @@ func TestCompactionPrefixDeletions(t *testing.T) {
 
 }
 
-func setup(t *testing.T, cfgFunc func(cfg *ManagerOpts)) (*Manager, func(t *testing.T)) {
+func setup(t *testing.T, cfgFunc func(cfg *Conf)) (*Manager, func(t *testing.T)) {
 	lm, tearDown := setupLevelManagerWithConfigSetter(t, true, true, cfgFunc)
 
 	cfg := &conf.Config{}
@@ -782,6 +782,7 @@ func setup(t *testing.T, cfgFunc func(cfg *ManagerOpts)) (*Manager, func(t *test
 	cfg.CompactionWorkerCount = 4
 	// we set this small to get about 10 entries per table so we can fill up levels
 	cfg.CompactionMaxSSTableSize = 550
+	cfg.BucketName = lm.cfg.SSTableBucketName
 
 	lmClientFactory := &inMemClientFactory{lm: lm}
 	tableCache, err := tabcache.NewTableCache(lm.GetObjectStore(), cfg)
@@ -814,7 +815,7 @@ func createIterator(t *testing.T, lm *Manager, keyStart []byte, keyEnd []byte) *
 	for _, notids := range otids {
 		var iters []iteration.Iterator
 		for _, info := range notids {
-			buff, err := lm.GetObjectStore().Get(context.Background(), conf.DefaultBucketName, string(info.ID))
+			buff, err := lm.GetObjectStore().Get(context.Background(), lm.cfg.SSTableBucketName, string(info.ID))
 			require.NoError(t, err)
 			require.NotNil(t, buff)
 			sstable := &sst.SSTable{}
@@ -856,7 +857,7 @@ func buildAndRegisterTableWithKeyRangeAndVersion(t *testing.T, name string, rang
 	table, smallestKey, largestKey, _, _, err := sst.BuildSSTable(common.DataFormatV1, 0, 0, si)
 	require.NoError(t, err)
 	buff := table.Serialize()
-	err = cloudStore.Put(context.Background(), conf.DefaultBucketName, name, buff)
+	err = cloudStore.Put(context.Background(), NewConf().SSTableBucketName, name, buff)
 	require.NoError(t, err)
 	return smallestKey, largestKey
 }
@@ -881,7 +882,7 @@ func addTableWithMinMaxVersion(t *testing.T, lm *Manager, tableName string, rang
 			},
 		},
 	}
-	validateRegBatch(regBatch, lm.GetObjectStore(), conf.DefaultBucketName)
+	validateRegBatch(regBatch, lm.GetObjectStore(), lm.cfg.SSTableBucketName)
 	for {
 		ok, err := lm.ApplyChanges(regBatch, false)
 		if err == nil {

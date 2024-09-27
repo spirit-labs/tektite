@@ -1,4 +1,4 @@
-//go:build !main
+//go:build !release
 
 package testutils
 

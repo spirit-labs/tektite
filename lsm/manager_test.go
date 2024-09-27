@@ -3,7 +3,7 @@ package lsm
 import (
 	"fmt"
 	"github.com/google/uuid"
-	encoding2 "github.com/spirit-labs/tektite/asl/encoding"
+	"github.com/spirit-labs/tektite/asl/encoding"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/objstore/dev"
 	"github.com/spirit-labs/tektite/sst"
@@ -338,7 +338,7 @@ func TestAddAndRemove_L0(t *testing.T) {
 }
 
 func TestAddRemove_L0(t *testing.T) {
-	levelManager, tearDown := setupLevelManagerWithConfigSetter(t, false, true, func(cfg *ManagerOpts) {
+	levelManager, tearDown := setupLevelManagerWithConfigSetter(t, false, true, func(cfg *Conf) {
 		cfg.L0MaxTablesBeforeBlocking = 100
 	})
 	defer tearDown(t)
@@ -661,13 +661,13 @@ func getInRange(t *testing.T, levelManager *Manager, ks int, ke int) Overlapping
 
 func setupLevelManager(t *testing.T) (*Manager, func(t *testing.T)) {
 	t.Helper()
-	return setupLevelManagerWithConfigSetter(t, false, true, func(cfg *ManagerOpts) {})
+	return setupLevelManagerWithConfigSetter(t, false, true, func(cfg *Conf) {})
 }
 
 func setupLevelManagerWithConfigSetter(t *testing.T, enableCompaction bool, validate bool,
-	configSetter func(cfg *ManagerOpts)) (*Manager, func(t *testing.T)) {
+	configSetter func(cfg *Conf)) (*Manager, func(t *testing.T)) {
 	t.Helper()
-	cfg := ManagerOpts{}
+	cfg := NewConf()
 	configSetter(&cfg)
 	cloudStore := &dev.InMemStore{}
 	lm := NewManager(cloudStore, func() {}, enableCompaction, validate, cfg)
@@ -685,10 +685,10 @@ func setupLevelManagerWithConfigSetter(t *testing.T, enableCompaction bool, vali
 func createKey(i int) []byte {
 	// First 24 bytes is the [partition_hash, slab_id] - we just add a constant prefix
 	prefix := make([]byte, 0, 24)
-	prefix = append(prefix, []byte("xxxxxxxxxxxxxxxx")...)  // partition hash
-	prefix = encoding2.AppendUint64ToBufferBE(prefix, 1234) // slab id
+	prefix = append(prefix, []byte("xxxxxxxxxxxxxxxx")...) // partition hash
+	prefix = encoding.AppendUint64ToBufferBE(prefix, 1234) // slab id
 	prefix = append(prefix, []byte(fmt.Sprintf("key-%010d", i))...)
-	return encoding2.EncodeVersion(prefix, 0)
+	return encoding.EncodeVersion(prefix, 0)
 }
 
 func removeTables(t *testing.T, levelManager *Manager, level int, tabIDs []QueryTableInfo, pairs ...int) {
@@ -977,17 +977,17 @@ func TestRegisterDeadVersionRanges(t *testing.T) {
 	defer tearDown(t)
 
 	// Add some entries in different levels
-	regEntry01 := regTableInLevel(t, levelManager, 0, 0, 9, 310, 319, 0)
-	regEntry02 := regTableInLevel(t, levelManager, 0, 10, 19, 320, 329, 1)
-	regEntry03 := regTableInLevel(t, levelManager, 0, 20, 29, 330, 339, 2)
+	regEntry01 := regTableInLevel(t, levelManager, 0, 0, 9, 310, 319)
+	regEntry02 := regTableInLevel(t, levelManager, 0, 10, 19, 320, 329)
+	regEntry03 := regTableInLevel(t, levelManager, 0, 20, 29, 330, 339)
 
-	regEntry11 := regTableInLevel(t, levelManager, 1, 0, 9, 210, 219, 0)
-	regEntry12 := regTableInLevel(t, levelManager, 1, 10, 19, 220, 229, 0)
-	regEntry13 := regTableInLevel(t, levelManager, 1, 20, 29, 230, 239, 0)
+	regEntry11 := regTableInLevel(t, levelManager, 1, 0, 9, 210, 219)
+	regEntry12 := regTableInLevel(t, levelManager, 1, 10, 19, 220, 229)
+	regEntry13 := regTableInLevel(t, levelManager, 1, 20, 29, 230, 239)
 
-	regEntry21 := regTableInLevel(t, levelManager, 2, 0, 9, 110, 119, 0)
-	regEntry22 := regTableInLevel(t, levelManager, 2, 10, 19, 120, 129, 0)
-	regEntry23 := regTableInLevel(t, levelManager, 2, 20, 29, 130, 139, 0)
+	regEntry21 := regTableInLevel(t, levelManager, 2, 0, 9, 110, 119)
+	regEntry22 := regTableInLevel(t, levelManager, 2, 10, 19, 120, 129)
+	regEntry23 := regTableInLevel(t, levelManager, 2, 20, 29, 130, 139)
 
 	tables := getInRange(t, levelManager, 0, 30)
 	require.Equal(t, 5, len(tables))
@@ -1131,14 +1131,20 @@ func validateDeadVersions(t *testing.T, lm *Manager, rng VersionRange, expected 
 	require.Equal(t, OverlappingTables(expected), tables)
 }
 
-func regTableInLevel(t *testing.T, lm *Manager, level int, keyStart int, keyEnd int, minVersion int, maxVersion int, processorID int) *RegistrationEntry {
+func regTableInLevel(t *testing.T, lm *Manager, level int, keyStart int, keyEnd int, minVersion int, maxVersion int) *RegistrationEntry {
+	ks := createKey(keyStart)
+	ke := createKey(keyEnd)
+	return regTableInLevelWithStringKey(t, lm, level, string(ks), string(ke), minVersion, maxVersion)
+}
+
+func regTableInLevelWithStringKey(t *testing.T, lm *Manager, level int, keyStart string, keyEnd string, minVersion int, maxVersion int) *RegistrationEntry {
 	tabID, err := uuid.New().MarshalBinary()
 	require.NoError(t, err)
 	regEntry := RegistrationEntry{
 		Level:      level,
 		TableID:    tabID,
-		KeyStart:   createKey(keyStart),
-		KeyEnd:     createKey(keyEnd),
+		KeyStart:   []byte(keyStart),
+		KeyEnd:     []byte(keyEnd),
 		MinVersion: uint64(minVersion),
 		MaxVersion: uint64(maxVersion),
 	}
@@ -1163,5 +1169,172 @@ func verifyTablesInLevel(t *testing.T, lm *Manager, level int, expectedTablePair
 		require.Equal(t, expectedStart, te.RangeStart)
 		require.Equal(t, expectedEnd, te.RangeEnd)
 		pos++
+	}
+}
+
+func TestGetTablesForHighestKeyWithPrefixInOrderedLevel(t *testing.T) {
+	levelManager, tearDown := setupLevelManager(t)
+	defer tearDown(t)
+
+	regTableInLevelWithStringKey(t, levelManager, 1, "part001-000", "part001-100", 0, 0)
+	entry2 := regTableInLevelWithStringKey(t, levelManager, 1, "part001-101", "part002-030", 0, 0)
+	entry3 := regTableInLevelWithStringKey(t, levelManager, 1, "part003-010", "part003-100", 0, 0)
+	entry4 := regTableInLevelWithStringKey(t, levelManager, 1, "part004-000", "part006-075", 0, 0)
+	regTableInLevelWithStringKey(t, levelManager, 1, "part006-076", "part006-080", 0, 0)
+	regTableInLevelWithStringKey(t, levelManager, 1, "part006-081", "part006-099", 0, 0)
+	entry7 := regTableInLevelWithStringKey(t, levelManager, 1, "part006-100", "part006-100", 0, 0)
+	entry8 := regTableInLevelWithStringKey(t, levelManager, 1, "part007-000", "part007-000", 0, 0)
+	entry9 := regTableInLevelWithStringKey(t, levelManager, 1, "part008-000", "part008-100", 0, 0)
+
+	err := levelManager.Validate(false)
+	require.NoError(t, err)
+
+	// Before first entry
+	tableIDs, err := levelManager.GetTablesForHighestKeyWithPrefix([]byte("part000"))
+	require.NoError(t, err)
+	require.Equal(t, 0, len(tableIDs))
+
+	tableIDs, err = levelManager.GetTablesForHighestKeyWithPrefix([]byte("part001"))
+	require.NoError(t, err)
+	require.Equal(t, 1, len(tableIDs))
+	require.Equal(t, entry2.TableID, tableIDs[0])
+
+	tableIDs, err = levelManager.GetTablesForHighestKeyWithPrefix([]byte("part002"))
+	require.NoError(t, err)
+	require.Equal(t, 1, len(tableIDs))
+	require.Equal(t, entry2.TableID, tableIDs[0])
+
+	tableIDs, err = levelManager.GetTablesForHighestKeyWithPrefix([]byte("part003"))
+	require.NoError(t, err)
+	require.Equal(t, 1, len(tableIDs))
+	require.Equal(t, entry3.TableID, tableIDs[0])
+
+	tableIDs, err = levelManager.GetTablesForHighestKeyWithPrefix([]byte("part004"))
+	require.NoError(t, err)
+	require.Equal(t, 1, len(tableIDs))
+	require.Equal(t, entry4.TableID, tableIDs[0])
+
+	tableIDs, err = levelManager.GetTablesForHighestKeyWithPrefix([]byte("part005"))
+	require.NoError(t, err)
+	require.Equal(t, 1, len(tableIDs))
+	require.Equal(t, entry4.TableID, tableIDs[0])
+
+	tableIDs, err = levelManager.GetTablesForHighestKeyWithPrefix([]byte("part006"))
+	require.NoError(t, err)
+	require.Equal(t, 1, len(tableIDs))
+	require.Equal(t, entry7.TableID, tableIDs[0])
+
+	tableIDs, err = levelManager.GetTablesForHighestKeyWithPrefix([]byte("part007"))
+	require.NoError(t, err)
+	require.Equal(t, 1, len(tableIDs))
+	require.Equal(t, entry8.TableID, tableIDs[0])
+
+	tableIDs, err = levelManager.GetTablesForHighestKeyWithPrefix([]byte("part008"))
+	require.NoError(t, err)
+	require.Equal(t, 1, len(tableIDs))
+	require.Equal(t, entry9.TableID, tableIDs[0])
+
+	tableIDs, err = levelManager.GetTablesForHighestKeyWithPrefix([]byte("part009"))
+	require.NoError(t, err)
+	require.Equal(t, 0, len(tableIDs))
+}
+
+func TestGetTablesForHighestKeyWithPrefixInLevel0(t *testing.T) {
+	levelManager, tearDown := setupLevelManager(t)
+	defer tearDown(t)
+
+	entry1 := regTableInLevelWithStringKey(t, levelManager, 0, "part001-000", "part001-100", 0, 0)
+	entry2 := regTableInLevelWithStringKey(t, levelManager, 0, "part001-050", "part002-030", 0, 0)
+	entry3 := regTableInLevelWithStringKey(t, levelManager, 0, "part001-010", "part004-100", 0, 0)
+	entry4 := regTableInLevelWithStringKey(t, levelManager, 0, "part005-000", "part005-000", 0, 0)
+
+	tableIDs, err := levelManager.GetTablesForHighestKeyWithPrefix([]byte("part000"))
+	require.NoError(t, err)
+	require.Equal(t, 0, len(tableIDs))
+
+	tableIDs, err = levelManager.GetTablesForHighestKeyWithPrefix([]byte("part001"))
+	require.NoError(t, err)
+	require.Equal(t, 3, len(tableIDs))
+	require.Equal(t, entry3.TableID, tableIDs[0])
+	require.Equal(t, entry2.TableID, tableIDs[1])
+	require.Equal(t, entry1.TableID, tableIDs[2])
+
+	tableIDs, err = levelManager.GetTablesForHighestKeyWithPrefix([]byte("part002"))
+	require.NoError(t, err)
+	require.Equal(t, 2, len(tableIDs))
+	require.Equal(t, entry3.TableID, tableIDs[0])
+	require.Equal(t, entry2.TableID, tableIDs[1])
+
+	tableIDs, err = levelManager.GetTablesForHighestKeyWithPrefix([]byte("part003"))
+	require.NoError(t, err)
+	require.Equal(t, 1, len(tableIDs))
+	require.Equal(t, entry3.TableID, tableIDs[0])
+
+	tableIDs, err = levelManager.GetTablesForHighestKeyWithPrefix([]byte("part004"))
+	require.NoError(t, err)
+	require.Equal(t, 1, len(tableIDs))
+	require.Equal(t, entry3.TableID, tableIDs[0])
+
+	tableIDs, err = levelManager.GetTablesForHighestKeyWithPrefix([]byte("part005"))
+	require.NoError(t, err)
+	require.Equal(t, 1, len(tableIDs))
+	require.Equal(t, entry4.TableID, tableIDs[0])
+
+	tableIDs, err = levelManager.GetTablesForHighestKeyWithPrefix([]byte("part006"))
+	require.NoError(t, err)
+	require.Equal(t, 0, len(tableIDs))
+}
+
+func TestGetTablesForHighestKeyWithPrefixInOrderedLevelFuzz(t *testing.T) {
+	for i := 0; i < 100; i++ {
+		testGetTablesForHighestKeyWithPrefixInOrderedLevelFuzz(t)
+	}
+}
+
+func testGetTablesForHighestKeyWithPrefixInOrderedLevelFuzz(t *testing.T) {
+	levelManager, tearDown := setupLevelManager(t)
+	defer tearDown(t)
+
+	// We maintain a slice containing an entry for each table registered, the entry is a map containing the last prefixes
+	// in that table
+	latestKeysForPrefixForTables := map[string]map[string]struct{}{}
+	keysPerTable := 100
+	numPartitions := 100
+	keyCount := 0
+	keyStart := ""
+
+	lastPrefixes := map[string]struct{}{}
+	for i := 0; i < numPartitions; i++ {
+		numKeys := 1 + rand.Intn(100)
+		for j := 0; j < numKeys; j++ {
+			key := fmt.Sprintf("part-%04d-%04d", i, j)
+			if keyStart == "" {
+				keyStart = key
+			}
+			if j == numKeys-1 {
+				prefix := key[:9]
+				lastPrefixes[prefix] = struct{}{}
+			}
+			keyCount++
+			if keyCount == keysPerTable || (i == numPartitions-1 && j == numKeys-1) {
+				keyEnd := fmt.Sprintf("part-%04d-%04d", i, j)
+				e := regTableInLevelWithStringKey(t, levelManager, 1, keyStart, keyEnd, 0, 0)
+				keyStart = ""
+				keyCount = 0
+				latestKeysForPrefixForTables[string(e.TableID)] = lastPrefixes
+				lastPrefixes = map[string]struct{}{}
+			}
+		}
+	}
+
+	for i := 0; i < numPartitions; i++ {
+		prefix := []byte(fmt.Sprintf("part-%04d", i))
+		tableIDs, err := levelManager.GetTablesForHighestKeyWithPrefix(prefix)
+		require.NoError(t, err)
+		require.Equal(t, 1, len(tableIDs))
+		lp, ok := latestKeysForPrefixForTables[string(tableIDs[0])]
+		require.True(t, ok)
+		_, ok = lp[string(prefix)]
+		require.True(t, ok)
 	}
 }

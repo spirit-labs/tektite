@@ -569,7 +569,7 @@ func (m *Manager) pollForJob(connectionID int, completionFunc func(job *Compacti
 }
 
 func (m *Manager) schedulePollerTimeout(poller *poller) {
-	timer := common.ScheduleTimer(m.opts.CompactionPollerTimeout, false, func() {
+	timer := common.ScheduleTimer(m.cfg.CompactionPollerTimeout, false, func() {
 		// run on separate GR to avoid deadlock with stopping timer when job dispatched and level manager lock
 		common.Go(func() {
 			m.lock.Lock()
@@ -586,7 +586,7 @@ func (m *Manager) schedulePollerTimeout(poller *poller) {
 }
 
 func (m *Manager) scheduleJobTimeout(holder jobHolder, connectionID int) *time.Timer {
-	return time.AfterFunc(m.opts.CompactionJobTimeout, func() {
+	return time.AfterFunc(m.cfg.CompactionJobTimeout, func() {
 		m.lock.Lock()
 		defer m.lock.Unlock()
 		log.Debugf("compaction job timedout %s with connection id %d", holder.job.id, connectionID)
