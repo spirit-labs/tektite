@@ -15,6 +15,7 @@ import (
 	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/lsm"
 	"github.com/spirit-labs/tektite/objstore"
+	"github.com/spirit-labs/tektite/offsets"
 	"github.com/spirit-labs/tektite/sst"
 	"slices"
 	"sync"
@@ -122,6 +123,8 @@ func (r *TablePusher) scheduleWriteTimer(timeout time.Duration) {
 			return
 		}
 		if err := r.write(); err != nil {
+			// We close the client, so it will be recreated on any retry
+			r.closeClient()
 			if common.IsUnavailableError(err) {
 				// Temporary unavailability of object store or controller - we will schedule the next timer fire to
 				// be longer as typically write timeout is short and we don't want to spam the logs with lots of errors
@@ -136,6 +139,15 @@ func (r *TablePusher) scheduleWriteTimer(timeout time.Duration) {
 		}
 		r.scheduleWriteTimer(r.cfg.WriteTimeout)
 	})
+}
+
+func (r *TablePusher) closeClient() {
+	if r.controllerClient != nil {
+		if err := r.controllerClient.Close(); err != nil {
+			// Ignore
+		}
+		r.controllerClient = nil
+	}
 }
 
 func (r *TablePusher) callCompletions(err error) {
@@ -212,12 +224,14 @@ func (r *TablePusher) HandleProduceRequest(req *kafkaprotocol.ProduceRequest,
 		for {
 			if r.stopping.Load() {
 				// break out of loop
-				return (errors.New("table pusher is stopping"))
+				return errors.New("table pusher is stopping")
 			}
 			err := r.write()
 			if err == nil {
 				return nil
 			}
+			// Close the client - it will be recreated on any retry
+			r.closeClient()
 			if !common.IsUnavailableError(err) {
 				r.handleUnexpectedError(err)
 				return err
@@ -278,7 +292,7 @@ func (r *TablePusher) write() error {
 		return err
 	}
 	// First, we request offsets for the batches
-	var getOffSetInfos []control.GetOffsetInfo
+	var getOffSetInfos []offsets.GetOffsetTopicInfo
 	var partitionBatches [][]bufferedEntry
 	for topicID, partitions := range r.partitionRecords {
 		for partitionID, entries := range partitions {
@@ -288,7 +302,7 @@ func (r *TablePusher) write() error {
 					totRecords += numRecords(batch)
 				}
 			}
-			getOffSetInfos = append(getOffSetInfos, control.GetOffsetInfo{
+			getOffSetInfos = append(getOffSetInfos, offsets.GetOffsetTopicInfo{
 				TopicID:     topicID,
 				PartitionID: partitionID,
 				NumOffsets:  totRecords,
@@ -296,15 +310,22 @@ func (r *TablePusher) write() error {
 			partitionBatches = append(partitionBatches, entries)
 		}
 	}
-	offsets, err := client.GetOffsets(getOffSetInfos)
+	offs, err := client.GetOffsets(getOffSetInfos)
 	if err != nil {
 		return err
 	}
+	updateWrittenOffsetInfos := make([]offsets.UpdateWrittenOffsetInfo, len(offs))
 	// Create KVs for the batches
-	kvs := make([]common.KV, 0, len(offsets))
+	kvs := make([]common.KV, 0, len(offs))
 	for i, getOffsetInfo := range getOffSetInfos {
+		offset := offs[i]
+		updateWrittenOffsetInfos[i] = offsets.UpdateWrittenOffsetInfo{
+			TopicID:     getOffsetInfo.TopicID,
+			PartitionID: getOffsetInfo.PartitionID,
+			OffsetStart: offset,
+			NumOffsets:  getOffsetInfo.NumOffsets,
+		}
 		batches := partitionBatches[i]
-		offset := offsets[i]
 		for _, entry := range batches {
 			for _, record := range entry.records {
 				/*
@@ -357,26 +378,21 @@ func (r *TablePusher) write() error {
 		objStoreAvailabilityTimeout); err != nil {
 		return err
 	}
-
 	// Register table with LSM
-	regBatch := lsm.RegistrationBatch{
-		Registrations: []lsm.RegistrationEntry{
-			{
-				Level:            0,
-				TableID:          []byte(tableID),
-				MinVersion:       minVersion,
-				MaxVersion:       maxVersion,
-				KeyStart:         smallestKey,
-				KeyEnd:           largestKey,
-				DeleteRatio:      table.DeleteRatio(),
-				AddedTime:        uint64(time.Now().UnixMilli()),
-				NumEntries:       uint64(table.NumEntries()),
-				TableSize:        uint64(table.SizeBytes()),
-				NumPrefixDeletes: uint32(table.NumPrefixDeletes()),
-			},
-		},
+	regEntry := lsm.RegistrationEntry{
+		Level:            0,
+		TableID:          []byte(tableID),
+		MinVersion:       minVersion,
+		MaxVersion:       maxVersion,
+		KeyStart:         smallestKey,
+		KeyEnd:           largestKey,
+		DeleteRatio:      table.DeleteRatio(),
+		AddedTime:        uint64(time.Now().UnixMilli()),
+		NumEntries:       uint64(table.NumEntries()),
+		TableSize:        uint64(table.SizeBytes()),
+		NumPrefixDeletes: uint32(table.NumPrefixDeletes()),
 	}
-	if err := client.ApplyLsmChanges(regBatch); err != nil {
+	if err := client.RegisterL0Table(updateWrittenOffsetInfos, regEntry); err != nil {
 		return err
 	}
 	// Send back completions

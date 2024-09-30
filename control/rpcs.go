@@ -4,7 +4,47 @@ import (
 	"encoding/binary"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/lsm"
+	"github.com/spirit-labs/tektite/offsets"
 )
+
+type RegisterL0Request struct {
+	ClusterVersion int
+	OffsetInfos    []offsets.UpdateWrittenOffsetInfo
+	RegEntry       lsm.RegistrationEntry
+}
+
+func (r *RegisterL0Request) Serialize(buff []byte) []byte {
+	buff = binary.BigEndian.AppendUint64(buff, uint64(r.ClusterVersion))
+	buff = binary.BigEndian.AppendUint32(buff, uint32(len(r.OffsetInfos)))
+	for _, offset := range r.OffsetInfos {
+		buff = binary.BigEndian.AppendUint64(buff, uint64(offset.TopicID))
+		buff = binary.BigEndian.AppendUint64(buff, uint64(offset.PartitionID))
+		buff = binary.BigEndian.AppendUint64(buff, uint64(offset.OffsetStart))
+		buff = binary.BigEndian.AppendUint32(buff, uint32(offset.NumOffsets))
+	}
+	return r.RegEntry.Serialize(buff)
+}
+
+func (r *RegisterL0Request) Deserialize(buff []byte, offset int) int {
+	r.ClusterVersion = int(binary.BigEndian.Uint64(buff[offset:]))
+	offset += 8
+	numOffsets := int(binary.BigEndian.Uint32(buff[offset:]))
+	offset += 4
+	r.OffsetInfos = make([]offsets.UpdateWrittenOffsetInfo, numOffsets)
+	for i := 0; i < numOffsets; i++ {
+		var topicOffsets offsets.UpdateWrittenOffsetInfo
+		topicOffsets.TopicID = int(binary.BigEndian.Uint64(buff[offset:]))
+		offset += 8
+		topicOffsets.PartitionID = int(binary.BigEndian.Uint64(buff[offset:]))
+		offset += 8
+		topicOffsets.OffsetStart = int64(binary.BigEndian.Uint64(buff[offset:]))
+		offset += 8
+		topicOffsets.NumOffsets = int(binary.BigEndian.Uint32(buff[offset:]))
+		offset += 4
+		r.OffsetInfos[i] = topicOffsets
+	}
+	return r.RegEntry.Deserialize(buff, offset)
+}
 
 type ApplyChangesRequest struct {
 	ClusterVersion int
@@ -58,7 +98,7 @@ func (q *QueryTablesInRangeRequest) Deserialize(buff []byte, offset int) int {
 type GetOffsetsRequest struct {
 	CacheNum       int
 	ClusterVersion int
-	Infos          []GetOffsetInfo
+	Infos          []offsets.GetOffsetTopicInfo
 }
 
 func (g *GetOffsetsRequest) Serialize(buff []byte) []byte {
@@ -80,7 +120,7 @@ func (g *GetOffsetsRequest) Deserialize(buff []byte, offset int) int {
 	offset += 8
 	lInfos := int(binary.BigEndian.Uint32(buff[offset:]))
 	offset += 4
-	g.Infos = make([]GetOffsetInfo, lInfos)
+	g.Infos = make([]offsets.GetOffsetTopicInfo, lInfos)
 	for i := 0; i < lInfos; i++ {
 		g.Infos[i].TopicID = int(binary.BigEndian.Uint64(buff[offset:]))
 		offset += 8

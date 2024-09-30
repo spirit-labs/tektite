@@ -15,6 +15,7 @@ import (
 	"github.com/spirit-labs/tektite/lsm"
 	"github.com/spirit-labs/tektite/objstore"
 	"github.com/spirit-labs/tektite/objstore/dev"
+	"github.com/spirit-labs/tektite/offsets"
 	"github.com/spirit-labs/tektite/sst"
 	"github.com/spirit-labs/tektite/testutils"
 	"github.com/spirit-labs/tektite/types"
@@ -56,14 +57,7 @@ func TestTablePusherHandleProduceBatchSimple(t *testing.T) {
 		require.NoError(t, err)
 	}()
 
-	msgs := []rawKafkaMessage{
-		{
-			timestamp: time.Now().UnixMilli(),
-			key:       []byte("key1"),
-			value:     []byte("val1"),
-		},
-	}
-	recordBatch := createRecordBatch(msgs, 0)
+	recordBatch := createBatchWithIncrementingKVs(10)
 
 	req := kafkaprotocol.ProduceRequest{
 		TransactionalId: nil,
@@ -106,15 +100,20 @@ func TestTablePusherHandleProduceBatchSimple(t *testing.T) {
 		require.Equal(t, recordBatch, kv.Value)
 	}
 
-	// check that table has been registered with LSM
+	// check that table has been registered with LSM, and correct written offsets provided
 
 	receivedRegs := controllerClient.getRegistrations()
 	require.Equal(t, 1, len(receivedRegs))
-	receivedReg := receivedRegs[0]
-	require.Equal(t, 1, len(receivedReg.Registrations))
 
-	reg := receivedReg.Registrations[0]
+	reg := receivedRegs[0].regEntry
 	require.Equal(t, []byte(objects[0].Key), []byte(reg.TableID))
+
+	infos := receivedRegs[0].updateWrittenOffsetInfos
+	require.Equal(t, 1, len(infos))
+	require.Equal(t, topicID, infos[0].TopicID)
+	require.Equal(t, 12, infos[0].PartitionID)
+	require.Equal(t, 0, int(infos[0].OffsetStart))
+	require.Equal(t, 10, infos[0].NumOffsets)
 }
 
 func TestTablePusherHandleProduceBatchMultipleTopicsAndPartitions(t *testing.T) {
@@ -261,13 +260,39 @@ func TestTablePusherHandleProduceBatchMultipleTopicsAndPartitions(t *testing.T) 
 
 	require.Equal(t, expectedKVs, receivedKVs)
 
-	// check that table has been registered with LSM
 	receivedRegs := controllerClient.getRegistrations()
 	require.Equal(t, 1, len(receivedRegs))
-	receivedReg := receivedRegs[0]
-	require.Equal(t, 1, len(receivedReg.Registrations))
 
-	reg := receivedReg.Registrations[0]
+	infos := receivedRegs[0].updateWrittenOffsetInfos
+	require.Equal(t, 3, len(infos))
+
+	// sort by [topic_id, partition_id]
+	slices.SortFunc(infos, func(a, b offsets.UpdateWrittenOffsetInfo) int {
+		b1 := make([]byte, 16)
+		binary.BigEndian.PutUint64(b1, uint64(a.TopicID))
+		binary.BigEndian.PutUint64(b1[8:], uint64(a.PartitionID))
+		b2 := make([]byte, 16)
+		binary.BigEndian.PutUint64(b2, uint64(b.TopicID))
+		binary.BigEndian.PutUint64(b2[8:], uint64(b.PartitionID))
+		return bytes.Compare(b1, b2)
+	})
+
+	require.Equal(t, topicID1, infos[0].TopicID)
+	require.Equal(t, 7, infos[0].PartitionID)
+	require.Equal(t, 32, int(infos[0].OffsetStart))
+	require.Equal(t, 20, infos[0].NumOffsets)
+
+	require.Equal(t, topicID1, infos[1].TopicID)
+	require.Equal(t, 12, infos[1].PartitionID)
+	require.Equal(t, 1002, int(infos[1].OffsetStart))
+	require.Equal(t, 25, infos[1].NumOffsets)
+
+	require.Equal(t, topicID2, infos[2].TopicID)
+	require.Equal(t, 23, infos[2].PartitionID)
+	require.Equal(t, 564, int(infos[2].OffsetStart))
+	require.Equal(t, 25, infos[2].NumOffsets)
+
+	reg := receivedRegs[0].regEntry
 	require.Equal(t, []byte(objects[0].Key), []byte(reg.TableID))
 }
 
@@ -378,9 +403,7 @@ func TestTablePusherPushWhenBufferIsFull(t *testing.T) {
 	receivedRegs := controllerClient.getRegistrations()
 	require.Equal(t, 1, len(receivedRegs))
 	receivedReg := receivedRegs[0]
-	require.Equal(t, 1, len(receivedReg.Registrations))
-
-	reg := receivedReg.Registrations[0]
+	reg := receivedReg.regEntry
 	require.Equal(t, []byte(objects[0].Key), []byte(reg.TableID))
 }
 
@@ -462,10 +485,7 @@ func TestTablePusherPushWhenTimeoutIsExceeded(t *testing.T) {
 	// check that table has been registered with LSM
 	receivedRegs := controllerClient.getRegistrations()
 	require.Equal(t, 1, len(receivedRegs))
-	receivedReg := receivedRegs[0]
-	require.Equal(t, 1, len(receivedReg.Registrations))
-
-	reg := receivedReg.Registrations[0]
+	reg := receivedRegs[0].regEntry
 	require.Equal(t, []byte(objects[0].Key), []byte(reg.TableID))
 }
 
@@ -660,9 +680,7 @@ func TestTablePusherHandleProduceBatchMixtureErrorsAndSuccesses(t *testing.T) {
 	receivedRegs := controllerClient.getRegistrations()
 	require.Equal(t, 1, len(receivedRegs))
 	receivedReg := receivedRegs[0]
-	require.Equal(t, 1, len(receivedReg.Registrations))
-
-	reg := receivedReg.Registrations[0]
+	reg := receivedReg.regEntry
 	require.Equal(t, []byte(objects[0].Key), []byte(reg.TableID))
 }
 
@@ -926,21 +944,33 @@ func createExpectedKey(topicID int, partitionID int, offset int64) ([]byte, erro
 type testControllerClient struct {
 	lock          sync.Mutex
 	shardID       int
-	registrations []lsm.RegistrationBatch
+	registrations []regL0TableInvocation
 	offsets       map[int]map[int]int64
 }
 
-func (t *testControllerClient) ApplyLsmChanges(regBatch lsm.RegistrationBatch) error {
+type regL0TableInvocation struct {
+	updateWrittenOffsetInfos []offsets.UpdateWrittenOffsetInfo
+	regEntry                 lsm.RegistrationEntry
+}
+
+func (t *testControllerClient) RegisterL0Table(updateWrittenOffsetInfos []offsets.UpdateWrittenOffsetInfo, regEntry lsm.RegistrationEntry) error {
 	t.lock.Lock()
 	defer t.lock.Unlock()
-	t.registrations = append(t.registrations, regBatch)
+	t.registrations = append(t.registrations, regL0TableInvocation{
+		updateWrittenOffsetInfos: updateWrittenOffsetInfos,
+		regEntry:                 regEntry,
+	})
 	return nil
 }
 
-func (t *testControllerClient) getRegistrations() []lsm.RegistrationBatch {
+func (t *testControllerClient) ApplyLsmChanges(regBatch lsm.RegistrationBatch) error {
+	panic("should not be called")
+}
+
+func (t *testControllerClient) getRegistrations() []regL0TableInvocation {
 	t.lock.Lock()
 	defer t.lock.Unlock()
-	copied := make([]lsm.RegistrationBatch, len(t.registrations))
+	copied := make([]regL0TableInvocation, len(t.registrations))
 	copy(copied, t.registrations)
 	return copied
 }
@@ -949,10 +979,10 @@ func (t *testControllerClient) QueryTablesInRange(keyStart []byte, keyEnd []byte
 	panic("should not be called")
 }
 
-func (t *testControllerClient) GetOffsets(infos []control.GetOffsetInfo) ([]int64, error) {
+func (t *testControllerClient) GetOffsets(infos []offsets.GetOffsetTopicInfo) ([]int64, error) {
 	t.lock.Lock()
 	defer t.lock.Unlock()
-	var offsets []int64
+	var offs []int64
 	for _, info := range infos {
 		partitionOffsets, ok := t.offsets[info.TopicID]
 		if !ok {
@@ -965,9 +995,9 @@ func (t *testControllerClient) GetOffsets(infos []control.GetOffsetInfo) ([]int6
 		}
 		newOffset := info.NumOffsets + int(offset)
 		partitionOffsets[info.PartitionID] = int64(newOffset)
-		offsets = append(offsets, offset)
+		offs = append(offs, offset)
 	}
-	return offsets, nil
+	return offs, nil
 }
 
 func (t *testControllerClient) Close() error {

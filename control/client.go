@@ -4,13 +4,16 @@ import (
 	"encoding/binary"
 	"github.com/pkg/errors"
 	"github.com/spirit-labs/tektite/lsm"
+	"github.com/spirit-labs/tektite/offsets"
 	"github.com/spirit-labs/tektite/transport"
 )
 
 type Client interface {
-	GetOffsets(infos []GetOffsetInfo) ([]int64, error)
+	GetOffsets(infos []offsets.GetOffsetTopicInfo) ([]int64, error)
 
 	ApplyLsmChanges(regBatch lsm.RegistrationBatch) error
+
+	RegisterL0Table(writtenOffsetInfos []offsets.UpdateWrittenOffsetInfo, regEntry lsm.RegistrationEntry) error
 
 	QueryTablesInRange(keyStart []byte, keyEnd []byte) (lsm.OverlappingTables, error)
 
@@ -54,6 +57,21 @@ func (c *client) Close() error {
 	return nil
 }
 
+func (c *client) RegisterL0Table(writtenOffsetInfos []offsets.UpdateWrittenOffsetInfo, regEntry lsm.RegistrationEntry) error {
+	conn, err := c.getConnection()
+	if err != nil {
+		return err
+	}
+	req := RegisterL0Request{
+		ClusterVersion: c.clusterVersion,
+		OffsetInfos:    writtenOffsetInfos,
+		RegEntry:       regEntry,
+	}
+	request := req.Serialize(createRequestBuffer())
+	_, err = conn.SendRPC(transport.HandlerIDControllerRegisterL0Table, request)
+	return err
+}
+
 func (c *client) ApplyLsmChanges(regBatch lsm.RegistrationBatch) error {
 	conn, err := c.getConnection()
 	if err != nil {
@@ -86,7 +104,7 @@ func (c *client) QueryTablesInRange(keyStart []byte, keyEnd []byte) (lsm.Overlap
 	return lsm.DeserializeOverlappingTables(respBuff, 0), nil
 }
 
-func (c *client) GetOffsets(infos []GetOffsetInfo) ([]int64, error) {
+func (c *client) GetOffsets(infos []offsets.GetOffsetTopicInfo) ([]int64, error) {
 	conn, err := c.getConnection()
 	if err != nil {
 		return nil, err
