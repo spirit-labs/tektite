@@ -6,6 +6,7 @@ import (
 	"github.com/spirit-labs/tektite/common"
 	log "github.com/spirit-labs/tektite/logger"
 	"sync"
+	"sync/atomic"
 )
 
 // LocalServer is a transport Server implementation that is only used where the client and server are in the same
@@ -39,6 +40,7 @@ func (l *LocalServer) Stop() error {
 }
 
 type LocalConnection struct {
+	id         int
 	transports *LocalTransports
 	address    string
 }
@@ -51,7 +53,7 @@ func (l *LocalConnection) SendRPC(handlerID int, request []byte) ([]byte, error)
 	msgCopy := common.ByteSliceCopy(request)
 	ch := make(chan responseHolder, 1)
 	go func() {
-		if err := handler(msgCopy, nil, func(response []byte, err error) error {
+		if err := handler(l.id, msgCopy, nil, func(response []byte, err error) error {
 			if err != nil {
 				ch <- responseHolder{
 					err: maybeConvertError(err),
@@ -93,12 +95,14 @@ func NewLocalTransports() *LocalTransports {
 }
 
 type LocalTransports struct {
-	lock       sync.RWMutex
-	transports map[string]*LocalServer
+	lock                 sync.RWMutex
+	transports           map[string]*LocalServer
+	connectionIDSequence int64
 }
 
 func (lt *LocalTransports) CreateConnection(address string) (Connection, error) {
 	return &LocalConnection{
+		id:         int(atomic.AddInt64(&lt.connectionIDSequence, 1)),
 		transports: lt,
 		address:    address,
 	}, nil

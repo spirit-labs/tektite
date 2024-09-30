@@ -35,7 +35,7 @@ func TestPollerTimeout(t *testing.T) {
 	for i := 0; i < numPolls; i++ {
 		ch := make(chan error, 1)
 		chans = append(chans, ch)
-		lm.pollForJob(-1, func(job *CompactionJob, err error) {
+		lm.PollForJob(-1, func(job *CompactionJob, err error) {
 			ch <- err
 		})
 	}
@@ -86,7 +86,7 @@ func TestPollForJobWhenNotAlreadyInQueue(t *testing.T) {
 	populateLevel(t, lm, 2, createTableEntry("sst3", 0, 19))
 
 	ch := make(chan pollResult, 1)
-	lm.pollForJob(-1, func(job *CompactionJob, err error) {
+	lm.PollForJob(-1, func(job *CompactionJob, err error) {
 		ch <- pollResult{job, err}
 	})
 	stats := lm.GetCompactionStats()
@@ -131,7 +131,7 @@ func TestPollersGetJobsInOrder(t *testing.T) {
 	var chans []chan pollResult
 	for i := 0; i < numPollers; i++ {
 		ch := make(chan pollResult, 1)
-		lm.pollForJob(-1, func(job *CompactionJob, err error) {
+		lm.PollForJob(-1, func(job *CompactionJob, err error) {
 			ch <- pollResult{job, err}
 		})
 		chans = append(chans, ch)
@@ -501,7 +501,7 @@ func TestCompactionTimeout(t *testing.T) {
 	require.NoError(t, err)
 
 	ch := make(chan pollResult, 1)
-	lm.pollForJob(-1, func(job *CompactionJob, err error) {
+	lm.PollForJob(-1, func(job *CompactionJob, err error) {
 		ch <- pollResult{job, err}
 	})
 	res := <-ch
@@ -512,7 +512,7 @@ func TestCompactionTimeout(t *testing.T) {
 	require.Equal(t, 0, stats.QueuedJobs)
 
 	// Make job timeout
-	time.Sleep(2 * compactionTimeout)
+	time.Sleep(3 * compactionTimeout)
 
 	// should be added back on to queue
 	stats = lm.GetCompactionStats()
@@ -896,7 +896,7 @@ func addTablesToLevel(t *testing.T, lm *Manager, level int, numTables int, delet
 
 func getJob(lm *Manager) (*CompactionJob, error) {
 	ch := make(chan pollResult, 1)
-	lm.pollForJob(-1, func(job *CompactionJob, err error) {
+	lm.PollForJob(-1, func(job *CompactionJob, err error) {
 		ch <- pollResult{job, err}
 	})
 	res := <-ch
@@ -1840,7 +1840,7 @@ func TestClosePollersForConnectionID(t *testing.T) {
 
 	ch := make(chan pollResult, 1)
 	connectionID := 100
-	lm.pollForJob(connectionID, func(job *CompactionJob, err error) {
+	lm.PollForJob(connectionID, func(job *CompactionJob, err error) {
 		ch <- pollResult{job, err}
 	})
 

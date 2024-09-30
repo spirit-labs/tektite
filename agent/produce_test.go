@@ -187,8 +187,6 @@ func TestProduceMultipleBatches(t *testing.T) {
 		},
 	}
 	cfg := NewConf()
-	// TODO - until we enable compaction we set L0MaxTablesBeforeBlocking
-	cfg.ControllerConf.LsmConf.L0MaxTablesBeforeBlocking = 100000
 	cfg.PusherConf.WriteTimeout = 1 * time.Millisecond
 	agent, objStore, tearDown := setupAgent(t, topicInfos, cfg)
 	defer tearDown(t)

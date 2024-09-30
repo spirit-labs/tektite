@@ -540,7 +540,7 @@ func (m *Manager) compactionComplete(jobID string) error {
 	return m.maybeScheduleCompaction()
 }
 
-func (m *Manager) pollForJob(connectionID int, completionFunc func(job *CompactionJob, err error)) {
+func (m *Manager) PollForJob(connectionID int, completionFunc func(job *CompactionJob, err error)) {
 	m.lock.Lock()
 	defer m.lock.Unlock()
 	if len(m.jobQueue) > 0 {
@@ -559,13 +559,13 @@ func (m *Manager) pollForJob(connectionID int, completionFunc func(job *Compacti
 		completionFunc(&jobCopy, nil)
 		return
 	}
-	poller := &poller{
+	p := &poller{
 		addedTime:      arista.NanoTime(),
 		completionFunc: completionFunc,
 		connectionID:   connectionID,
 	}
-	m.schedulePollerTimeout(poller)
-	m.pollers.add(poller)
+	m.schedulePollerTimeout(p)
+	m.pollers.add(p)
 }
 
 func (m *Manager) schedulePollerTimeout(poller *poller) {
@@ -589,7 +589,6 @@ func (m *Manager) scheduleJobTimeout(holder jobHolder, connectionID int) *time.T
 	return time.AfterFunc(m.cfg.CompactionJobTimeout, func() {
 		m.lock.Lock()
 		defer m.lock.Unlock()
-		log.Debugf("compaction job timedout %s with connection id %d", holder.job.id, connectionID)
 		m.cancelInProgressJob(holder)
 	})
 }
@@ -603,11 +602,9 @@ func (m *Manager) cancelInProgressJob(holder jobHolder) {
 	}
 	log.Debugf("compaction job: %s timed out, will be made available to pollers again", holder.job.id)
 	delete(m.inProgress, job.id)
-
 	m.pendingCompactions[job.levelFrom]--
 	m.stats.InProgressJobs--
 	m.stats.TimedOutJobs++
-
 	m.queueOrDespatchJob(job, holder.completionFunc)
 }
 

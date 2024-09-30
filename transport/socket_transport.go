@@ -12,6 +12,7 @@ import (
 	"github.com/spirit-labs/tektite/sockserver"
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -34,6 +35,7 @@ type SocketTransportServer struct {
 	lock         sync.RWMutex
 	handlers     map[int]RequestHandler
 	socketServer *sockserver.SocketServer
+	idSequence   int64
 }
 
 func NewSocketTransportServer(address string, tlsConf conf.TLSConfig) *SocketTransportServer {
@@ -85,10 +87,12 @@ func (s *SocketTransportServer) newConnection(conn net.Conn) sockserver.ServerCo
 	return &SocketTransportServerConn{
 		s:    s,
 		conn: conn,
+		id:   int(atomic.AddInt64(&s.idSequence, 1)),
 	}
 }
 
 type SocketTransportServerConn struct {
+	id   int
 	s    *SocketTransportServer
 	conn net.Conn
 }
@@ -113,7 +117,7 @@ func (c *SocketTransportServerConn) HandleMessage(buff []byte) error {
 		5. the operation specific response bytes
 	*/
 	responseBuff := make([]byte, 15, responseBuffInitialSize)
-	return handler(buff[18:], responseBuff, func(response []byte, err error) error {
+	return handler(c.id, buff[18:], responseBuff, func(response []byte, err error) error {
 		if err != nil {
 			response = encodeErrorResponse(responseBuff, err)
 		}

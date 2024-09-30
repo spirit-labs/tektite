@@ -1,12 +1,12 @@
 /*
 Package transport defines interfaces for the Tektite simple RPC framework - this is used for sending RPCs between
 different Tektite nodes
- */
+*/
 package transport
 
 /*
 Server is the interface implemented by a transport server
- */
+*/
 type Server interface {
 	// RegisterHandler is called to register a RequestHandler with the specified id
 	RegisterHandler(handlerID int, handler RequestHandler) bool
@@ -20,14 +20,14 @@ type Server interface {
 type ResponseWriter func(response []byte, err error) error
 
 // RequestHandler is implemented on the server to handle a request and return a response
-type RequestHandler func(request []byte, responseBuff []byte, responseWriter ResponseWriter) error
+type RequestHandler func(connectionID int, request []byte, responseBuff []byte, responseWriter ResponseWriter) error
 
 // ConnectionFactory returns a Connection that connects to the specified server address
 type ConnectionFactory func(address string) (Connection, error)
 
 /*
 Connection is the interface implemented by a client connection
- */
+*/
 type Connection interface {
 	// SendRPC sends a request to the server handler and returns a response, or an error
 	SendRPC(handlerID int, request []byte) ([]byte, error)

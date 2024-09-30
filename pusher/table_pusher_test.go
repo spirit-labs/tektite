@@ -997,6 +997,22 @@ func (t *testControllerClient) GetOffsets(infos []offsets.GetOffsetTopicInfo) ([
 	return offs, nil
 }
 
+func (t *testControllerClient) PollForJob() (lsm.CompactionJob, error) {
+	panic("should not be called")
+}
+
+func (t *testControllerClient) RegisterSlabRetention(_ int, _ time.Duration) error {
+	panic("should not be called")
+}
+
+func (t *testControllerClient) UnregisterSlabRetention(_ int) error {
+	panic("should not be called")
+}
+
+func (t *testControllerClient) GetSlabRetention(_ int) (time.Duration, error) {
+	panic("should not be called")
+}
+
 func (t *testControllerClient) Close() error {
 	return nil
 }

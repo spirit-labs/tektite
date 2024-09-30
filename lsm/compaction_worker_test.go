@@ -5,14 +5,13 @@ import (
 	"encoding/binary"
 	"fmt"
 	"github.com/google/uuid"
-	"github.com/spirit-labs/tektite/asl/conf"
 	"github.com/spirit-labs/tektite/asl/encoding"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/iteration"
 	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/objstore"
+	"github.com/spirit-labs/tektite/offsets"
 	"github.com/spirit-labs/tektite/sst"
-	"github.com/spirit-labs/tektite/tabcache"
 	"github.com/spirit-labs/tektite/testutils"
 	"github.com/stretchr/testify/require"
 	"math"
@@ -777,20 +776,16 @@ func TestCompactionPrefixDeletions(t *testing.T) {
 func setup(t *testing.T, cfgFunc func(cfg *Conf)) (*Manager, func(t *testing.T)) {
 	lm, tearDown := setupLevelManagerWithConfigSetter(t, true, true, cfgFunc)
 
-	cfg := &conf.Config{}
-	cfg.ApplyDefaults()
-	cfg.CompactionWorkerCount = 4
+	cfg := NewCompactionWorkerServiceConf()
+	cfg.WorkerCount = 4
 	// we set this small to get about 10 entries per table so we can fill up levels
-	cfg.CompactionMaxSSTableSize = 550
-	cfg.BucketName = lm.cfg.SSTableBucketName
-
-	lmClientFactory := &inMemClientFactory{lm: lm}
-	tableCache, err := tabcache.NewTableCache(lm.GetObjectStore(), cfg)
-	require.NoError(t, err)
-	err = tableCache.Start()
-	require.NoError(t, err)
-	cws := NewCompactionWorkerService(cfg, lmClientFactory, tableCache, lm.GetObjectStore(), true)
-	err = cws.Start()
+	cfg.MaxSSTableSize = 550
+	cfg.SSTableBucketName = lm.cfg.SSTableBucketName
+	clientFactory := func() (ControllerClient, error) {
+		return &directControllerClient{mgr: lm}, nil
+	}
+	cws := NewCompactionWorkerService(cfg, lm.GetObjectStore(), clientFactory, true)
+	err := cws.Start()
 	require.NoError(t, err)
 	tearDown2 := func(t *testing.T) {
 		err := cws.Stop()
@@ -798,14 +793,6 @@ func setup(t *testing.T, cfgFunc func(cfg *Conf)) (*Manager, func(t *testing.T))
 		tearDown(t)
 	}
 	return lm, tearDown2
-}
-
-type inMemClientFactory struct {
-	lm *Manager
-}
-
-func (i *inMemClientFactory) CreateLevelManagerClient() Client {
-	return &InMemClient{LevelManager: i.lm}
 }
 
 func createIterator(t *testing.T, lm *Manager, keyStart []byte, keyEnd []byte) *iteration.MergingIterator {
@@ -909,4 +896,46 @@ func getTableEntry(lm *Manager, lte levelTableEntry, le *levelEntry) *TableEntry
 	lm.lock.Lock()
 	defer lm.lock.Unlock()
 	return lte.Get(le)
+}
+
+type directControllerClient struct {
+	mgr *Manager
+}
+
+func (c *directControllerClient) GetOffsets(infos []offsets.GetOffsetTopicInfo) ([]int64, error) {
+	panic("should not be called")
+}
+
+func (c *directControllerClient) ApplyLsmChanges(regBatch RegistrationBatch) error {
+	_, err := c.mgr.ApplyChanges(regBatch, false)
+	return err
+}
+
+func (c *directControllerClient) RegisterL0Table(writtenOffsetInfos []offsets.UpdateWrittenOffsetInfo, regEntry RegistrationEntry) error {
+	panic("should not be called")
+}
+
+func (c *directControllerClient) QueryTablesInRange(keyStart []byte, keyEnd []byte) (OverlappingTables, error) {
+	panic("should not be called")
+}
+
+func (c *directControllerClient) PollForJob() (CompactionJob, error) {
+	type pollRes struct {
+		job CompactionJob
+		err error
+	}
+	ch := make(chan pollRes, 1)
+	c.mgr.PollForJob(-1, func(job *CompactionJob, err error) {
+		if err != nil {
+			ch <- pollRes{CompactionJob{}, err}
+		} else {
+			ch <- pollRes{*job, nil}
+		}
+	})
+	res := <-ch
+	return res.job, res.err
+}
+
+func (c *directControllerClient) Close() error {
+	return nil
 }
