@@ -48,3 +48,16 @@ func (p *PartitionHashes) GetPartitionHash(topicID int, partitionID int) ([]byte
 	}
 	return r, nil
 }
+
+func CreatePartitionHash(topicID int, partitionID int) ([]byte, error) {
+	kb := make([]byte, 16)
+	binary.BigEndian.PutUint64(kb, uint64(topicID))
+	binary.BigEndian.PutUint64(kb[8:], uint64(partitionID))
+	hashFunc := sha256.New()
+	if _, err := hashFunc.Write(kb); err != nil {
+		return nil, err
+	}
+	out := hashFunc.Sum(nil)
+	return out[:16], nil
+}
+

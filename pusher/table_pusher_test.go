@@ -3,7 +3,6 @@ package pusher
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"encoding/binary"
 	"errors"
 	"github.com/spirit-labs/tektite/asl/encoding"
@@ -14,6 +13,7 @@ import (
 	"github.com/spirit-labs/tektite/objstore"
 	"github.com/spirit-labs/tektite/objstore/dev"
 	"github.com/spirit-labs/tektite/offsets"
+	"github.com/spirit-labs/tektite/parthash"
 	"github.com/spirit-labs/tektite/sst"
 	"github.com/spirit-labs/tektite/streammeta"
 	"github.com/spirit-labs/tektite/testutils"
@@ -929,7 +929,7 @@ func getSSTablesFromStore(t *testing.T, databucketName string, objStore objstore
 }
 
 func createExpectedKey(topicID int, partitionID int, offset int64) ([]byte, error) {
-	key, err := createPartitionHash(topicID, partitionID)
+	key, err := parthash.CreatePartitionHash(topicID, partitionID)
 	if err != nil {
 		return nil, err
 	}
@@ -1003,18 +1003,6 @@ func (t *testControllerClient) Close() error {
 
 func strPtr(s string) *string {
 	return &s
-}
-
-func createPartitionHash(topicID int, partitionID int) ([]byte, error) {
-	kb := make([]byte, 16)
-	binary.BigEndian.PutUint64(kb, uint64(topicID))
-	binary.BigEndian.PutUint64(kb[8:], uint64(partitionID))
-	hashFunc := sha256.New()
-	if _, err := hashFunc.Write(kb); err != nil {
-		return nil, err
-	}
-	out := hashFunc.Sum(nil)
-	return out[:16], nil
 }
 
 type failingObjectStoreClient struct {
