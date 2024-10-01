@@ -162,13 +162,15 @@ func (c *compactionWorker) start() {
 }
 
 func (c *compactionWorker) stop() {
-	c.closeControllerClient()
 	c.started.Store(false)
 	c.stopWg.Wait()
 }
 
 func (c *compactionWorker) loop() {
-	defer c.stopWg.Done()
+	defer func() {
+		c.closeControllerClient()
+		c.stopWg.Done()
+	}()
 	for c.started.Load() {
 		cl, err := c.controllerClient()
 		if err != nil {
