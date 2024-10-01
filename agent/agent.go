@@ -7,7 +7,7 @@ import (
 	"github.com/spirit-labs/tektite/lsm"
 	"github.com/spirit-labs/tektite/objstore"
 	"github.com/spirit-labs/tektite/pusher"
-	"github.com/spirit-labs/tektite/streammeta"
+	"github.com/spirit-labs/tektite/topicmeta"
 	"github.com/spirit-labs/tektite/transport"
 	"sync"
 )
@@ -25,8 +25,7 @@ type Agent struct {
 	compactionWorkersService *lsm.CompactionWorkerService
 }
 
-func NewAgent(cfg Conf, objStore objstore.Client,
-	topicProvider streammeta.TopicInfoProvider) (*Agent, error) {
+func NewAgent(cfg Conf, objStore objstore.Client) (*Agent, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
@@ -38,7 +37,8 @@ func NewAgent(cfg Conf, objStore objstore.Client,
 	clusterMembershipFactory := func(address string, listener MembershipListener) ClusterMembership {
 		return cluster.NewMembership(cfg.ClusterMembershipConfig, address, objStore, listener)
 	}
-	return NewAgentWithFactories(cfg, objStore, topicProvider, socketClient.CreateConnection, transportServer, clusterMembershipFactory)
+	return NewAgentWithFactories(cfg, objStore, socketClient.CreateConnection, transportServer,
+		clusterMembershipFactory)
 }
 
 type ClusterMembershipFactory func(address string, listener MembershipListener) ClusterMembership
@@ -50,15 +50,22 @@ type ClusterMembership interface {
 	Stop() error
 }
 
-func NewAgentWithFactories(cfg Conf, objStore objstore.Client,
-	topicProvider streammeta.TopicInfoProvider, connectionFactory transport.ConnectionFactory,
+func NewAgentWithFactories(cfg Conf, objStore objstore.Client, connectionFactory transport.ConnectionFactory,
 	transportServer transport.Server, clusterMembershipFactory ClusterMembershipFactory) (*Agent, error) {
 	agent := &Agent{
 		cfg: cfg,
 	}
-	agent.controller = control.NewController(cfg.ControllerConf, objStore, connectionFactory, transportServer,
-		topicProvider, nil)
-	rb, err := pusher.NewTablePusher(cfg.PusherConf, topicProvider, objStore, agent.controller.Client)
+	agent.controller = control.NewController(cfg.ControllerConf, objStore, connectionFactory, transportServer)
+	topicMetaCache := topicmeta.NewLocalCache(func() (topicmeta.ControllerClient, error) {
+		cl, err := agent.controller.Client()
+		return cl, err
+	})
+	transportServer.RegisterHandler(transport.HandlerIDMetaLocalCacheTopicAdded, topicMetaCache.HandleTopicAdded)
+	transportServer.RegisterHandler(transport.HandlerIDMetaLocalCacheTopicDeleted, topicMetaCache.HandleTopicDeleted)
+	clientFactory := func() (pusher.ControlClient, error) {
+		return agent.controller.Client()
+	}
+	rb, err := pusher.NewTablePusher(cfg.PusherConf, topicMetaCache, objStore, clientFactory)
 	if err != nil {
 		return nil, err
 	}

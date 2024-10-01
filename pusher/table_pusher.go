@@ -8,7 +8,6 @@ import (
 	"github.com/pkg/errors"
 	"github.com/spirit-labs/tektite/asl/encoding"
 	"github.com/spirit-labs/tektite/common"
-	"github.com/spirit-labs/tektite/control"
 	"github.com/spirit-labs/tektite/kafkaprotocol"
 	"github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/lsm"
@@ -16,7 +15,7 @@ import (
 	"github.com/spirit-labs/tektite/offsets"
 	"github.com/spirit-labs/tektite/parthash"
 	"github.com/spirit-labs/tektite/sst"
-	"github.com/spirit-labs/tektite/streammeta"
+	"github.com/spirit-labs/tektite/topicmeta"
 	"go.uber.org/zap/zapcore"
 	"slices"
 	"sync"
@@ -44,12 +43,12 @@ caches them in memory
 type TablePusher struct {
 	lock             sync.Mutex
 	cfg              Conf
-	topicProvider    streammeta.TopicInfoProvider
+	topicProvider    topicInfoProvider
 	objStore         objstore.Client
 	clientFactory    controllerClientFactory
 	started          bool
 	stopping         atomic.Bool
-	controllerClient control.Client
+	controllerClient ControlClient
 	partitionRecords map[int]map[int][]bufferedEntry
 	partitionHashes  *parthash.PartitionHashes
 	writeTimer       *time.Timer
@@ -61,7 +60,17 @@ type bufferedEntry struct {
 	completionFunc func(error)
 }
 
-type controllerClientFactory func() (control.Client, error)
+type topicInfoProvider interface {
+	GetTopicInfo(topicName string) (topicmeta.TopicInfo, error)
+}
+
+type controllerClientFactory func() (ControlClient, error)
+
+type ControlClient interface {
+	GetOffsets(infos []offsets.GetOffsetTopicInfo) ([]int64, error)
+	RegisterL0Table(writtenOffsetInfos []offsets.UpdateWrittenOffsetInfo, regEntry lsm.RegistrationEntry) error
+	Close() error
+}
 
 const (
 	objStoreAvailabilityTimeout = 5 * time.Second
@@ -78,7 +87,7 @@ func init() {
 	}
 }
 
-func NewTablePusher(cfg Conf, topicProvider streammeta.TopicInfoProvider, objStore objstore.Client,
+func NewTablePusher(cfg Conf, topicProvider topicInfoProvider, objStore objstore.Client,
 	clientFactory controllerClientFactory) (*TablePusher, error) {
 	partitionHashes, err := parthash.NewPartitionHashes(partitionHashCacheMaxSize)
 	if err != nil {
@@ -190,7 +199,15 @@ func (r *TablePusher) HandleProduceRequest(req *kafkaprotocol.ProduceRequest,
 		resp.Responses[i].Name = topicData.Name
 		partitionResponses := make([]kafkaprotocol.ProduceResponsePartitionProduceResponse, len(topicData.PartitionData))
 		resp.Responses[i].PartitionResponses = partitionResponses
-		topicInfo, topicExists := r.topicProvider.GetTopicInfo(*topicData.Name)
+		log.Info("getting topic info %s", *topicData.Name)
+		topicInfo, err := r.topicProvider.GetTopicInfo(*topicData.Name)
+		topicExists := true
+		if err != nil {
+			if !common.IsTektiteErrorWithCode(err, common.TopicDoesNotExist) {
+				log.Warnf("failed to get topic info: %v", err)
+			}
+			topicExists = false
+		}
 	partitions:
 		for j, partitionData := range topicData.PartitionData {
 			partitionResponses[j].Index = partitionData.Index
@@ -215,7 +232,7 @@ func (r *TablePusher) HandleProduceRequest(req *kafkaprotocol.ProduceRequest,
 				}
 			}
 			log.Debugf("handling records batch for topic: %s partition: %d", *topicData.Name, partitionID)
-			r.handleRecords(topicInfo.TopicID, partitionID, partitionData.Records, func(err error) {
+			r.handleRecords(topicInfo.ID, partitionID, partitionData.Records, func(err error) {
 				if err != nil {
 					log.Errorf("failed to handle records: %v", err)
 					partitionResponses[j].ErrorCode = kafkaprotocol.ErrorCodeUnknownServerError
@@ -270,7 +287,7 @@ func (r *TablePusher) handleUnexpectedError(err error) {
 	r.stopping.Store(true)
 }
 
-func (r *TablePusher) getClient() (control.Client, error) {
+func (r *TablePusher) getClient() (ControlClient, error) {
 	if r.controllerClient != nil {
 		return r.controllerClient, nil
 	}

@@ -81,6 +81,8 @@ const (
 	VersionManagerShutdown
 	FailureCancelled
 	RegisterDeadVersionWrongClusterVersion
+	TopicAlreadyExists
+	TopicDoesNotExist
 	InvalidConfiguration ErrCode = iota + 3000
 	InternalError        ErrCode = iota + 5000
 )

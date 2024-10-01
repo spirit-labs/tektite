@@ -5,6 +5,7 @@ import (
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/lsm"
 	"github.com/spirit-labs/tektite/offsets"
+	"github.com/spirit-labs/tektite/topicmeta"
 )
 
 type RegisterL0Request struct {
@@ -152,5 +153,81 @@ func (g *GetOffsetsResponse) Deserialize(buff []byte, offset int) int {
 		g.Offsets[i] = int64(binary.BigEndian.Uint64(buff[offset:]))
 		offset += 8
 	}
+	return offset
+}
+
+type GetTopicInfoRequest struct {
+	ClusterVersion int
+	TopicName      string
+}
+
+func (g *GetTopicInfoRequest) Serialize(buff []byte) []byte {
+	buff = binary.BigEndian.AppendUint64(buff, uint64(g.ClusterVersion))
+	buff = binary.BigEndian.AppendUint32(buff, uint32(len(g.TopicName)))
+	buff = append(buff, g.TopicName...)
+	return buff
+}
+
+func (g *GetTopicInfoRequest) Deserialize(buff []byte, offset int) int {
+	g.ClusterVersion = int(binary.BigEndian.Uint64(buff[offset:]))
+	offset += 8
+	ln := int(binary.BigEndian.Uint32(buff[offset:]))
+	offset += 4
+	g.TopicName = string(buff[offset : offset+ln])
+	offset += ln
+	return offset
+}
+
+type GetTopicInfoResponse struct {
+	Sequence int
+	Info     topicmeta.TopicInfo
+}
+
+func (g *GetTopicInfoResponse) Serialize(buff []byte) []byte {
+	buff = binary.BigEndian.AppendUint64(buff, uint64(g.Sequence))
+	return g.Info.Serialize(buff)
+}
+
+func (g *GetTopicInfoResponse) Deserialize(buff []byte, offset int) int {
+	g.Sequence = int(binary.BigEndian.Uint64(buff[offset:]))
+	offset += 8
+	return g.Info.Deserialize(buff, offset)
+}
+
+type CreateTopicRequest struct {
+	ClusterVersion int
+	Info           topicmeta.TopicInfo
+}
+
+func (g *CreateTopicRequest) Serialize(buff []byte) []byte {
+	buff = binary.BigEndian.AppendUint64(buff, uint64(g.ClusterVersion))
+	return g.Info.Serialize(buff)
+}
+
+func (g *CreateTopicRequest) Deserialize(buff []byte, offset int) int {
+	g.ClusterVersion = int(binary.BigEndian.Uint64(buff[offset:]))
+	offset += 8
+	return g.Info.Deserialize(buff, offset)
+}
+
+type DeleteTopicRequest struct {
+	ClusterVersion int
+	TopicName      string
+}
+
+func (g *DeleteTopicRequest) Serialize(buff []byte) []byte {
+	buff = binary.BigEndian.AppendUint64(buff, uint64(g.ClusterVersion))
+	buff = binary.BigEndian.AppendUint32(buff, uint32(len(g.TopicName)))
+	buff = append(buff, g.TopicName...)
+	return buff
+}
+
+func (g *DeleteTopicRequest) Deserialize(buff []byte, offset int) int {
+	g.ClusterVersion = int(binary.BigEndian.Uint64(buff[offset:]))
+	offset += 8
+	ln := int(binary.BigEndian.Uint32(buff[offset:]))
+	offset += 4
+	g.TopicName = string(buff[offset : offset+ln])
+	offset += ln
 	return offset
 }

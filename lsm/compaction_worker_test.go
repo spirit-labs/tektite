@@ -10,7 +10,6 @@ import (
 	"github.com/spirit-labs/tektite/iteration"
 	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/objstore"
-	"github.com/spirit-labs/tektite/offsets"
 	"github.com/spirit-labs/tektite/sst"
 	"github.com/spirit-labs/tektite/testutils"
 	"github.com/stretchr/testify/require"
@@ -573,7 +572,7 @@ func TestCompactionExpiredPrefix(t *testing.T) {
 		tableEntries := levEntry.tableEntries
 		for _, lte := range tableEntries {
 			te := getTableEntry(lm, lte, levEntry)
-			overlap := hasOverlap(prefix1, endRange, te.RangeStart, te.RangeEnd)
+			overlap := HasOverlap(prefix1, endRange, te.RangeStart, te.RangeEnd)
 			require.False(t, overlap)
 		}
 	}
@@ -761,7 +760,7 @@ func TestCompactionPrefixDeletions(t *testing.T) {
 			tableEntries := levEntry.tableEntries
 			for _, lte := range tableEntries {
 				te := getTableEntry(lm, lte, levEntry)
-				if hasOverlap(prefixes[1], endRange, te.RangeStart, te.RangeEnd) {
+				if HasOverlap(prefixes[1], endRange, te.RangeStart, te.RangeEnd) {
 					return false, nil
 				}
 			}
@@ -902,21 +901,9 @@ type directControllerClient struct {
 	mgr *Manager
 }
 
-func (c *directControllerClient) GetOffsets(infos []offsets.GetOffsetTopicInfo) ([]int64, error) {
-	panic("should not be called")
-}
-
 func (c *directControllerClient) ApplyLsmChanges(regBatch RegistrationBatch) error {
 	_, err := c.mgr.ApplyChanges(regBatch, false)
 	return err
-}
-
-func (c *directControllerClient) RegisterL0Table(writtenOffsetInfos []offsets.UpdateWrittenOffsetInfo, regEntry RegistrationEntry) error {
-	panic("should not be called")
-}
-
-func (c *directControllerClient) QueryTablesInRange(keyStart []byte, keyEnd []byte) (OverlappingTables, error) {
-	panic("should not be called")
 }
 
 func (c *directControllerClient) PollForJob() (CompactionJob, error) {

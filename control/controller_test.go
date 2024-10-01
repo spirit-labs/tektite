@@ -1,14 +1,16 @@
 package control
 
 import (
-	"errors"
+	"bytes"
+	"fmt"
 	"github.com/google/uuid"
 	"github.com/spirit-labs/tektite/cluster"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/lsm"
+	"github.com/spirit-labs/tektite/objstore"
 	"github.com/spirit-labs/tektite/objstore/dev"
 	"github.com/spirit-labs/tektite/offsets"
-	"github.com/spirit-labs/tektite/streammeta"
+	"github.com/spirit-labs/tektite/topicmeta"
 	"github.com/spirit-labs/tektite/transport"
 	"github.com/stretchr/testify/require"
 	"testing"
@@ -16,7 +18,7 @@ import (
 )
 
 func TestClientNoMembersOnCreation(t *testing.T) {
-	managers, tearDown := setupManagers(t, 1)
+	managers, tearDown := setupControllers(t, 1)
 	defer tearDown(t)
 
 	// There are no members in the cluster at this point
@@ -28,20 +30,20 @@ func TestClientNoMembersOnCreation(t *testing.T) {
 }
 
 func TestClientWrongClusterVersion(t *testing.T) {
-	managers, tearDown := setupManagers(t, 1)
+	controllers, tearDown := setupControllers(t, 1)
 	defer tearDown(t)
-	updateMembership(t, 1, managers, 0)
+	updateMembership(t, 1, controllers, 0)
 
 	keyStart := []byte("key000001")
 	keyEnd := []byte("key000010")
 	tableID := []byte(uuid.New().String())
 	batch := createBatch(1, tableID, keyStart, keyEnd)
 
-	cl, err := managers[0].Client()
+	cl, err := controllers[0].Client()
 	require.NoError(t, err)
 
 	// Now update membership again so cluster version increases
-	updateMembership(t, 2, managers, 0)
+	updateMembership(t, 2, controllers, 0)
 
 	err = cl.ApplyLsmChanges(batch)
 	require.Error(t, err)
@@ -54,13 +56,13 @@ func TestClientWrongClusterVersion(t *testing.T) {
 	require.Equal(t, "controller - cluster version mismatch", err.Error())
 }
 
-func TestManagerUseClosedClient(t *testing.T) {
-	managers, tearDown := setupManagers(t, 1)
+func TestControllerUseClosedClient(t *testing.T) {
+	controllers, tearDown := setupControllers(t, 1)
 	defer tearDown(t)
 
-	updateMembership(t, 1, managers, 0)
+	updateMembership(t, 1, controllers, 0)
 
-	cl, err := managers[0].Client()
+	cl, err := controllers[0].Client()
 	require.NoError(t, err)
 	// close client before using it
 	err = cl.Close()
@@ -77,7 +79,7 @@ func TestManagerUseClosedClient(t *testing.T) {
 	require.False(t, common.IsUnavailableError(err))
 
 	// create new client
-	cl, err = managers[0].Client()
+	cl, err = controllers[0].Client()
 	require.NoError(t, err)
 	// use it
 	err = cl.ApplyLsmChanges(batch)
@@ -93,13 +95,13 @@ func TestManagerUseClosedClient(t *testing.T) {
 	require.False(t, common.IsUnavailableError(err))
 }
 
-func TestManagerApplyChanges(t *testing.T) {
-	managers, tearDown := setupManagers(t, 1)
+func TestControllerApplyChanges(t *testing.T) {
+	controllers, tearDown := setupControllers(t, 1)
 	defer tearDown(t)
 
-	updateMembership(t, 1, managers, 0)
+	updateMembership(t, 1, controllers, 0)
 
-	cl, err := managers[0].Client()
+	cl, err := controllers[0].Client()
 	require.NoError(t, err)
 	defer func() {
 		err := cl.Close()
@@ -132,14 +134,14 @@ func TestManagerApplyChanges(t *testing.T) {
 	require.Equal(t, tableID, []byte(resTableID))
 }
 
-func TestManagerRegisterL0(t *testing.T) {
-
-	managers, tearDown := setupManagers(t, 1)
+func TestControllerRegisterL0(t *testing.T) {
+	controllers, tearDown := setupControllers(t, 1)
 	defer tearDown(t)
 
-	updateMembership(t, 1, managers, 0)
+	updateMembership(t, 1, controllers, 0)
+	setupTopics(t, controllers[0])
 
-	cl, err := managers[0].Client()
+	cl, err := controllers[0].Client()
 	require.NoError(t, err)
 	defer func() {
 		err := cl.Close()
@@ -149,17 +151,17 @@ func TestManagerRegisterL0(t *testing.T) {
 	// First get some offsets
 	offs, err := cl.GetOffsets([]offsets.GetOffsetTopicInfo{
 		{
-			TopicID:     7,
+			TopicID:     0,
 			PartitionID: 1,
 			NumOffsets:  100,
 		},
 		{
-			TopicID:     7,
+			TopicID:     0,
 			PartitionID: 2,
 			NumOffsets:  100,
 		},
 		{
-			TopicID:     8,
+			TopicID:     1,
 			PartitionID: 1,
 			NumOffsets:  100,
 		},
@@ -183,19 +185,19 @@ func TestManagerRegisterL0(t *testing.T) {
 	}
 	writtenOffs := []offsets.UpdateWrittenOffsetInfo{
 		{
-			TopicID:     7,
+			TopicID:     0,
 			PartitionID: 1,
 			OffsetStart: offs[0],
 			NumOffsets:  100,
 		},
 		{
-			TopicID:     7,
+			TopicID:     0,
 			PartitionID: 2,
 			OffsetStart: offs[1],
 			NumOffsets:  100,
 		},
 		{
-			TopicID:     8,
+			TopicID:     1,
 			PartitionID: 1,
 			OffsetStart: offs[2],
 			NumOffsets:  100,
@@ -217,98 +219,162 @@ func TestManagerRegisterL0(t *testing.T) {
 	res, err = cl.QueryTablesInRange(nil, nil)
 	require.NoError(t, err)
 
-	require.Equal(t, 1, len(res))
-	require.Equal(t, 1, len(res[0]))
-	resTableID = res[0][0].ID
-	require.Equal(t, tableID, []byte(resTableID))
+	// There can be more than one table due to the topics that were created
+	found := false
+	for _, r1 := range res {
+		for _, r2 := range r1 {
+			if bytes.Equal(tableID, r2.ID) {
+				found = true
+			}
+		}
+	}
+	require.True(t, found)
 }
 
-func TestManagerGetOffsets(t *testing.T) {
-	managers, tearDown := setupManagersWithOffsetProviders(t, 1, testTopicProvider, testOffsetLoader)
+func TestControllerCreateGetDeleteTopics(t *testing.T) {
+	objStore := dev.NewInMemStore(0)
+	controllers, tearDown := setupControllersWithObjectStore(t, 1, objStore)
+
+	updateMembership(t, 1, controllers, 0)
+
+	cl, err := controllers[0].Client()
+	require.NoError(t, err)
+
+	numTopics := 100
+	var infos []topicmeta.TopicInfo
+
+	for i := 0; i < numTopics; i++ {
+		topicName := fmt.Sprintf("topic-%03d", i)
+		_, _, err := cl.GetTopicInfo(topicName)
+		require.Error(t, err)
+		require.True(t, common.IsTektiteErrorWithCode(err, common.TopicDoesNotExist))
+		info := topicmeta.TopicInfo{
+			Name:           topicName,
+			ID:             i,
+			PartitionCount: i + 1,
+			RetentionTime:  time.Duration(1000000 + i),
+		}
+		err = cl.CreateTopic(info)
+		require.NoError(t, err)
+		received, _, err := cl.GetTopicInfo(topicName)
+		require.NoError(t, err)
+		require.Equal(t, info, received)
+		infos = append(infos, info)
+	}
+
+	// Now restart
+	err = cl.Close()
+	require.NoError(t, err)
+	tearDown(t)
+	controllers, tearDown = setupControllersWithObjectStore(t, 1, objStore)
+	updateMembership(t, 1, controllers, 0)
+	cl, err = controllers[0].Client()
+	require.NoError(t, err)
+
+	// Topics should still be there
+	for _, info := range infos {
+		received, _, err := cl.GetTopicInfo(info.Name)
+		require.NoError(t, err)
+		require.Equal(t, info, received)
+	}
+
+	// Now delete half of them
+	for i := 0; i < len(infos)/2; i++ {
+		info := infos[i]
+		err = cl.DeleteTopic(info.Name)
+		require.NoError(t, err)
+		_, _, err := cl.GetTopicInfo(info.Name)
+		require.Error(t, err)
+		require.True(t, common.IsTektiteErrorWithCode(err, common.TopicDoesNotExist))
+	}
+
+	// Rest should still be there
+	for i := len(infos) / 2; i < len(infos); i++ {
+		info := infos[i]
+		received, _, err := cl.GetTopicInfo(info.Name)
+		require.NoError(t, err)
+		require.Equal(t, info, received)
+	}
+
+	// Restart again
+	err = cl.Close()
+	require.NoError(t, err)
+	tearDown(t)
+	controllers, tearDown = setupControllersWithObjectStore(t, 1, objStore)
+	updateMembership(t, 1, controllers, 0)
+	cl, err = controllers[0].Client()
+	require.NoError(t, err)
+
+	for i, info := range infos {
+		received, _, err := cl.GetTopicInfo(info.Name)
+		if i < len(infos)/2 {
+			require.Error(t, err)
+			require.True(t, common.IsTektiteErrorWithCode(err, common.TopicDoesNotExist))
+		} else {
+			require.NoError(t, err)
+			require.Equal(t, info, received)
+		}
+	}
+
+	// Delete the rest
+	for i := len(infos) / 2; i < len(infos); i++ {
+		info := infos[i]
+		err = cl.DeleteTopic(info.Name)
+		require.NoError(t, err)
+		_, _, err := cl.GetTopicInfo(info.Name)
+		require.Error(t, err)
+		require.True(t, common.IsTektiteErrorWithCode(err, common.TopicDoesNotExist))
+	}
+
+	// Restart again
+	err = cl.Close()
+	require.NoError(t, err)
+	tearDown(t)
+	controllers, tearDown = setupControllersWithObjectStore(t, 1, objStore)
 	defer tearDown(t)
-
-	updateMembership(t, 1, managers, 0)
-
-	cl, err := managers[0].Client()
+	updateMembership(t, 1, controllers, 0)
+	cl, err = controllers[0].Client()
 	require.NoError(t, err)
 	defer func() {
-		err := cl.Close()
+		err = cl.Close()
 		require.NoError(t, err)
 	}()
 
-	offs, err := cl.GetOffsets([]offsets.GetOffsetTopicInfo{
-		{
-			TopicID:     7,
-			PartitionID: 0,
-			NumOffsets:  100,
-		},
-		{
-			TopicID:     7,
-			PartitionID: 1,
-			NumOffsets:  200,
-		},
-		{
-			TopicID:     8,
-			PartitionID: 0,
-			NumOffsets:  150,
-		},
-	})
-	require.NoError(t, err)
-	require.Equal(t, 3, len(offs))
-
-	require.Equal(t, 1234+1, int(offs[0]))
-	require.Equal(t, 3456+1, int(offs[1]))
-	require.Equal(t, 5678+1, int(offs[2]))
-	require.NoError(t, err)
-}
-
-func setupManagers(t *testing.T, numMembers int) ([]*Controller, func(t *testing.T)) {
-	return setupManagersWithOffsetProviders(t, numMembers, testTopicProvider, testOffsetLoader)
-}
-
-func setupManagersWithOffsetProviders(t *testing.T, numMembers int, topicProvider streammeta.TopicInfoProvider,
-	offsetLoader offsets.PartitionOffsetLoader) ([]*Controller, func(t *testing.T)) {
-	loaderFactory := func() (offsets.PartitionOffsetLoader, error) {
-		return offsetLoader, nil
+	// Should be none
+	for _, info := range infos {
+		_, _, err := cl.GetTopicInfo(info.Name)
+		require.Error(t, err)
+		require.True(t, common.IsTektiteErrorWithCode(err, common.TopicDoesNotExist))
 	}
+}
+
+func setupControllers(t *testing.T, numMembers int) ([]*Controller, func(t *testing.T)) {
+	objStore := dev.NewInMemStore(0)
+	return setupControllersWithObjectStore(t, numMembers, objStore)
+}
+
+func setupControllersWithObjectStore(t *testing.T, numMembers int,
+	objStore objstore.Client) ([]*Controller, func(t *testing.T)) {
 	localTransports := transport.NewLocalTransports()
-	var managers []*Controller
+	var controllers []*Controller
 	for i := 0; i < numMembers; i++ {
 		address := uuid.New().String()
 		transportServer, err := localTransports.NewLocalServer(address)
 		require.NoError(t, err)
-		objStore := dev.NewInMemStore(0)
 		cfg := NewConf()
-		mgr := NewController(cfg, objStore, localTransports.CreateConnection, transportServer, topicProvider, loaderFactory)
-		err = mgr.Start()
+		// Set to a high number as we don't have compaction running and don't want to block L0 adds
+		cfg.LsmConf.L0MaxTablesBeforeBlocking = 10000
+		ctrl := NewController(cfg, objStore, localTransports.CreateConnection, transportServer)
+		err = ctrl.Start()
 		require.NoError(t, err)
-		managers = append(managers, mgr)
+		controllers = append(controllers, ctrl)
 	}
-	return managers, func(t *testing.T) {
-		for _, manager := range managers {
+	return controllers, func(t *testing.T) {
+		for _, manager := range controllers {
 			err := manager.Stop()
 			require.NoError(t, err)
 		}
 	}
-}
-
-type testPartitionOffsetLoader struct {
-	topicOffsets map[int]map[int]int64
-}
-
-func (t *testPartitionOffsetLoader) LoadHighestOffsetForPartition(topicID int, partitionID int) (int64, error) {
-	to, ok := t.topicOffsets[topicID]
-	if !ok {
-		return 0, errors.New("topic not found")
-	}
-	po, ok := to[partitionID]
-	if !ok {
-		return 0, errors.New("partition not found")
-	}
-	return po, nil
-}
-
-func (t *testPartitionOffsetLoader) Stop() {
 }
 
 func updateMembership(t *testing.T, clusterVersion int, managers []*Controller, memberIndexes ...int) []cluster.MembershipEntry {
@@ -331,30 +397,19 @@ func updateMembership(t *testing.T, clusterVersion int, managers []*Controller, 
 	return members
 }
 
-var testTopicProvider = &streammeta.SimpleTopicInfoProvider{
-	Infos: map[string]streammeta.TopicInfo{
-		"topic1": {
-			TopicID:        7,
-			PartitionCount: 4,
-		},
-		"topic2": {
-			TopicID:        8,
-			PartitionCount: 2,
-		},
-	},
-}
-
-var testOffsetLoader = &testPartitionOffsetLoader{
-	topicOffsets: map[int]map[int]int64{
-		7: {
-			0: 1234,
-			1: 3456,
-			2: 0,
-			3: -1,
-		},
-		8: {
-			0: 5678,
-			1: 3456,
-		},
-	},
+func setupTopics(t *testing.T, controller *Controller) {
+	cl, err := controller.Client()
+	require.NoError(t, err)
+	err = cl.CreateTopic(topicmeta.TopicInfo{
+		Name:           "topic1",
+		PartitionCount: 4,
+		RetentionTime:  1232123,
+	})
+	require.NoError(t, err)
+	err = cl.CreateTopic(topicmeta.TopicInfo{
+		Name:           "topic2",
+		PartitionCount: 2,
+		RetentionTime:  34464646,
+	})
+	require.NoError(t, err)
 }

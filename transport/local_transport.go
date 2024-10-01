@@ -65,6 +65,9 @@ func (l *LocalConnection) SendRPC(handlerID int, request []byte) ([]byte, error)
 			}
 			return nil
 		}); err != nil {
+			ch <- responseHolder{
+				err: maybeConvertError(err),
+			}
 			log.Errorf("failed to handle request: %v", err)
 		}
 	}()

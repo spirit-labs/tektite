@@ -10,30 +10,30 @@ import (
 )
 
 type Membership struct {
-	updateInterval    time.Duration
-	evicationDuration time.Duration
-	updateTimer       *time.Timer
+	updateInterval       time.Duration
+	evicationDuration    time.Duration
+	updateTimer          *time.Timer
 	lock                 sync.Mutex
 	started              bool
 	stateUpdator         *StateUpdater
 	address              string
 	leader               bool
-	currentState MembershipState
+	currentState         MembershipState
 	stateChangedCallback func(state MembershipState) error
 }
 
 type MembershipConf struct {
-	BucketName string
-	KeyPrefix string
-	UpdateInterval time.Duration
+	BucketName       string
+	KeyPrefix        string
+	UpdateInterval   time.Duration
 	EvictionDuration time.Duration
 }
 
 func NewMembershipConf() MembershipConf {
 	return MembershipConf{
-		BucketName: "tektite-membership",
-		KeyPrefix: "tektite-membership",
-		UpdateInterval: 5 * time.Second,
+		BucketName:       "tektite-membership",
+		KeyPrefix:        "tektite-membership",
+		UpdateInterval:   5 * time.Second,
 		EvictionDuration: 20 * time.Second,
 	}
 }
@@ -179,7 +179,7 @@ func (m *Membership) GetState() (MembershipState, error) {
 	m.lock.Lock()
 	defer m.lock.Unlock()
 	if !m.started {
-		return MembershipState{}, errors.New("not started")
+		return MembershipState{}, errors.New("membership not started")
 	}
 	buff, err := m.stateUpdator.GetState()
 	if err != nil {

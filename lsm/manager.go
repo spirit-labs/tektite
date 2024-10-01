@@ -321,7 +321,7 @@ func (m *Manager) getTablesForHighestKeyWithPrefix(prefix []byte, level int, lev
 		for i := numTableEntries - 1; i >= 0; i-- {
 			te := levEntry.tableEntries[i].Get(levEntry)
 			// We must add the overlapping entries from newest to oldest
-			if hasOverlap(prefix, nextPrefix, te.RangeStart, te.RangeEnd) {
+			if HasOverlap(prefix, nextPrefix, te.RangeStart, te.RangeEnd) {
 				tables = append(tables, te.SSTableID)
 			}
 		}
@@ -366,7 +366,7 @@ func (m *Manager) getOverlappingTables(keyStart []byte, keyEnd []byte, level int
 		for i := numTableEntries - 1; i >= 0; i-- {
 			te := levEntry.tableEntries[i].Get(levEntry)
 			// We must add the overlapping entries from newest to oldest
-			if hasOverlap(keyStart, keyEnd, te.RangeStart, te.RangeEnd) {
+			if HasOverlap(keyStart, keyEnd, te.RangeStart, te.RangeEnd) {
 				tables = append(tables, te)
 			}
 		}
@@ -384,7 +384,7 @@ func (m *Manager) getOverlappingTables(keyStart []byte, keyEnd []byte, level int
 		}
 		for _, entry := range levEntry.tableEntries[startIndex:] {
 			te := entry.Get(levEntry)
-			if hasOverlap(keyStart, keyEnd, te.RangeStart, te.RangeEnd) {
+			if HasOverlap(keyStart, keyEnd, te.RangeStart, te.RangeEnd) {
 				tables = append(tables, te)
 			} else {
 				break
@@ -683,7 +683,7 @@ func (m *Manager) maybeDeleteTables() {
 	m.scheduleTableDeleteTimer()
 }
 
-func hasOverlap(keyStart []byte, keyEnd []byte, blockKeyStart []byte, blockKeyEnd []byte) bool {
+func HasOverlap(keyStart []byte, keyEnd []byte, blockKeyStart []byte, blockKeyEnd []byte) bool {
 	// Note! keyStart is inclusive, keyEnd is exclusive
 	// LevelManager keyStart and keyEnd are inclusive!
 	dontOverlapRight := bytes.Compare(keyStart, blockKeyEnd) > 0                  // Range starts after end of block
