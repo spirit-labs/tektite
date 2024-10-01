@@ -28,6 +28,7 @@ type Controller struct {
 	loaderFactory     offsetLoaderFactory
 	lsmHolder         *LsmHolder
 	offsetsCache      *offsets.Cache
+	offsetsLoader offsets.PartitionOffsetLoader
 	currentMembership cluster.MembershipState
 }
 
@@ -76,6 +77,9 @@ func (c *Controller) Stop() error {
 			return err
 		}
 	}
+	if c.offsetsLoader != nil {
+		c.offsetsLoader.Stop()
+	}
 	c.lsmHolder = nil
 	c.currentMembership = cluster.MembershipState{}
 	c.started = false
@@ -105,6 +109,7 @@ func (c *Controller) MembershipChanged(newState cluster.MembershipState) error {
 		if err != nil {
 			return err
 		}
+		c.offsetsLoader = loader
 		cache := offsets.NewOffsetsCache(c.topicProvider, loader)
 		if err := cache.Start(); err != nil {
 			return err

@@ -148,6 +148,7 @@ type UpdateWrittenOffsetInfo struct {
 
 type PartitionOffsetLoader interface {
 	LoadHighestOffsetForPartition(topicID int, partitionID int) (int64, error)
+	Stop()
 }
 
 func (o *Cache) Start() error {

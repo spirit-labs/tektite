@@ -5,9 +5,12 @@ import (
 	"encoding/binary"
 	"github.com/pkg/errors"
 	"github.com/spirit-labs/tektite/asl/encoding"
+	"github.com/spirit-labs/tektite/common"
+	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/objstore"
 	"github.com/spirit-labs/tektite/parthash"
 	"github.com/spirit-labs/tektite/sst"
+	"sync/atomic"
 	"time"
 )
 
@@ -16,6 +19,7 @@ type OffsetsLoader struct {
 	partitionHashes *parthash.PartitionHashes
 	objStore        objstore.Client
 	dataBucketName  string
+	stopping atomic.Bool
 }
 
 func NewOffsetsLoader(lsm *LsmHolder, objStore objstore.Client, dataBucketName string) (*OffsetsLoader, error) {
@@ -32,7 +36,14 @@ func NewOffsetsLoader(lsm *LsmHolder, objStore objstore.Client, dataBucketName s
 	}, nil
 }
 
-const objectStoreCallTimeout = 5 * time.Second
+func (o *OffsetsLoader) Stop() {
+	o.stopping.Store(true)
+}
+
+const (
+	objectStoreCallTimeout = 5 * time.Second
+	unavailabilityRetryDelay = 1 * time.Second
+)
 
 func (o *OffsetsLoader) LoadHighestOffsetForPartition(topicID int, partitionID int) (int64, error) {
 	prefix, err := o.partitionHashes.GetPartitionHash(topicID, partitionID)
@@ -44,7 +55,7 @@ func (o *OffsetsLoader) LoadHighestOffsetForPartition(topicID int, partitionID i
 		return 0, err
 	}
 	for _, tableID := range tables {
-		buff, err := objstore.GetWithTimeout(o.objStore, o.dataBucketName, string(tableID), objectStoreCallTimeout)
+		buff, err := o.getWithRetry(tableID)
 		if err != nil {
 			return 0, err
 		}
@@ -77,4 +88,20 @@ func (o *OffsetsLoader) LoadHighestOffsetForPartition(topicID int, partitionID i
 		return offset, nil
 	}
 	return -1, nil
+}
+
+func (o *OffsetsLoader) getWithRetry(tableID sst.SSTableID) ([]byte, error) {
+	for {
+		buff, err := objstore.GetWithTimeout(o.objStore, o.dataBucketName, string(tableID), objectStoreCallTimeout)
+		if err == nil {
+			return buff, nil
+		}
+		if o.stopping.Load() {
+			return nil, errors.New("offsetloader is stopping")
+		}
+		if common.IsUnavailableError(err) {
+			log.Warnf("Unable to load offset from object storage due to unavailability, will retry after delay: %v", err)
+			time.Sleep(unavailabilityRetryDelay)
+		}
+	}
 }

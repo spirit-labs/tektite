@@ -308,6 +308,9 @@ func (t *testPartitionOffsetLoader) LoadHighestOffsetForPartition(topicID int, p
 	return po, nil
 }
 
+func (t *testPartitionOffsetLoader) Stop() {
+}
+
 func updateMembership(t *testing.T, clusterVersion int, managers []*Controller, memberIndexes ...int) []cluster.MembershipEntry {
 	now := time.Now().UnixMilli()
 	var members []cluster.MembershipEntry
