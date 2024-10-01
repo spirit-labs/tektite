@@ -10,48 +10,70 @@ import (
 )
 
 type Membership struct {
-	updateInterval       time.Duration
-	evictionInterval     time.Duration
-	updateTimer          *time.Timer
+	updateInterval    time.Duration
+	evicationDuration time.Duration
+	updateTimer       *time.Timer
 	lock                 sync.Mutex
 	started              bool
 	stateUpdator         *StateUpdater
 	address              string
 	leader               bool
-	becomeLeaderCallback func()
+	currentState MembershipState
+	stateChangedCallback func(state MembershipState) error
 }
 
-func NewMembership(bucket string, keyPrefix string, address string, objStoreClient objstore.Client, updateInterval time.Duration,
-	evictionInterval time.Duration, becomeLeaderCallback func()) *Membership {
-	return &Membership{
-		address:              address,
-		stateUpdator:         NewStateUpdator(bucket, keyPrefix, objStoreClient, StateUpdatorOpts{}),
-		updateInterval:       updateInterval,
-		evictionInterval:     evictionInterval,
-		becomeLeaderCallback: becomeLeaderCallback,
+type MembershipConf struct {
+	BucketName string
+	KeyPrefix string
+	UpdateInterval time.Duration
+	EvictionDuration time.Duration
+}
+
+func NewMembershipConf() MembershipConf {
+	return MembershipConf{
+		BucketName: "tektite-membership",
+		KeyPrefix: "tektite-membership",
+		UpdateInterval: 5 * time.Second,
+		EvictionDuration: 20 * time.Second,
 	}
 }
 
-func (m *Membership) Start() {
+func (m *MembershipConf) Validate() error {
+	return nil
+}
+
+func NewMembership(cfg MembershipConf, address string, objStoreClient objstore.Client, stateChangedCallback func(state MembershipState) error) *Membership {
+	return &Membership{
+		address:              address,
+		stateUpdator:         NewStateUpdator(cfg.BucketName, cfg.KeyPrefix, objStoreClient, StateUpdatorOpts{}),
+		updateInterval:       cfg.UpdateInterval,
+		evicationDuration:    cfg.EvictionDuration,
+		stateChangedCallback: stateChangedCallback,
+	}
+}
+
+func (m *Membership) Start() error {
 	m.lock.Lock()
 	defer m.lock.Unlock()
 	if m.started {
-		return
+		return nil
 	}
 	m.stateUpdator.Start()
 	m.scheduleTimer()
 	m.started = true
+	return nil
 }
 
-func (m *Membership) Stop() {
+func (m *Membership) Stop() error {
 	m.lock.Lock()
 	defer m.lock.Unlock()
 	if !m.started {
-		return
+		return nil
 	}
 	m.started = false
 	m.updateTimer.Stop()
 	m.stateUpdator.Stop()
+	return nil
 }
 
 func (m *Membership) scheduleTimer() {
@@ -80,13 +102,25 @@ func (m *Membership) update() error {
 	if err != nil {
 		return err
 	}
-	if newState.Members[0].Address == m.address {
-		if !m.leader {
-			m.becomeLeaderCallback()
+	if membershipChanged(m.currentState.Members, newState.Members) {
+		if err := m.stateChangedCallback(newState); err != nil {
+			log.Errorf("failed to call membership state changed callback: %v", err)
 		}
-		m.leader = true
 	}
+	m.currentState = newState
 	return nil
+}
+
+func membershipChanged(oldMembers []MembershipEntry, newMembers []MembershipEntry) bool {
+	if len(oldMembers) != len(newMembers) {
+		return true
+	}
+	for i, oldMember := range oldMembers {
+		if oldMember.Address != newMembers[i].Address {
+			return true
+		}
+	}
+	return false
 }
 
 func (m *Membership) updateState(buff []byte) ([]byte, error) {
@@ -107,7 +141,7 @@ func (m *Membership) updateState(buff []byte) ([]byte, error) {
 			member.UpdateTime = now
 			found = true
 		} else {
-			if now-member.UpdateTime >= m.evictionInterval.Milliseconds() {
+			if now-member.UpdateTime >= m.evicationDuration.Milliseconds() {
 				// member evicted
 				changed = true
 				continue

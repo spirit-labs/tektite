@@ -22,7 +22,7 @@ const (
 func TestApplyChanges(t *testing.T) {
 	objStore := dev.NewInMemStore(0)
 	holder := NewLsmHolder(stateUpdatorBucketName, stateUpdatorKeyprefix, dataBucketName, dataKeyprefix, objStore,
-		lsm.ManagerOpts{})
+		lsm.Conf{})
 	err := holder.Start()
 	require.NoError(t, err)
 
@@ -32,7 +32,7 @@ func TestApplyChanges(t *testing.T) {
 func TestApplyChangesRestart(t *testing.T) {
 	objStore := dev.NewInMemStore(0)
 	holder := NewLsmHolder(stateUpdatorBucketName, stateUpdatorKeyprefix, dataBucketName, dataKeyprefix, objStore,
-		lsm.ManagerOpts{})
+		lsm.Conf{})
 	err := holder.Start()
 	require.NoError(t, err)
 
@@ -44,7 +44,7 @@ func TestApplyChangesRestart(t *testing.T) {
 
 	// recreate holder
 	holder = NewLsmHolder(stateUpdatorBucketName, stateUpdatorKeyprefix, dataBucketName, dataKeyprefix, objStore,
-		lsm.ManagerOpts{})
+		lsm.Conf{})
 	err = holder.Start()
 	require.NoError(t, err)
 
@@ -83,7 +83,7 @@ func testApplyChanges(t *testing.T, holder *LsmHolder, tableID []byte) {
 // TestApplyChangesL0Full tests the queueing behaviour of the holder when L0 is full
 func TestApplyChangesL0Full(t *testing.T) {
 	objStore := dev.NewInMemStore(0)
-	opts := lsm.ManagerOpts{
+	opts := lsm.Conf{
 		L0MaxTablesBeforeBlocking: 10,
 	}
 	holder := NewLsmHolder(stateUpdatorBucketName, stateUpdatorKeyprefix, dataBucketName, dataKeyprefix, objStore,

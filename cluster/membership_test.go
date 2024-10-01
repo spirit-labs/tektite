@@ -5,7 +5,7 @@ import (
 	"github.com/spirit-labs/tektite/objstore/dev"
 	"github.com/stretchr/testify/require"
 	"math/rand"
-	"sync/atomic"
+	"sync"
 	"testing"
 	"time"
 )
@@ -16,28 +16,25 @@ func TestJoinSequential(t *testing.T) {
 	var memberships []*Membership
 	defer func() {
 		for _, membership := range memberships {
-			membership.Stop()
+			err := membership.Stop()
+			require.NoError(t, err)
 		}
 	}()
 	numMembers := 10
-	var becomeLeaderCalledCount atomic.Int64
+	var receivedStates []*membershipReceivedStates
 	for i := 0; i < numMembers; i++ {
 		address := fmt.Sprintf("address-%d", i)
-		memberIndex := i
-		membership := NewMembership("bucket1", "prefix1", address, objStore, 100*time.Millisecond, 5*time.Second, func() {
-			if memberIndex != 0 {
-				panic("becomeLeader callback called for wrong member")
-			}
-			becomeLeaderCalledCount.Add(1)
-		})
-		membership.Start()
+		receivedState := &membershipReceivedStates{}
+		receivedStates = append(receivedStates, receivedState)
+		membership := NewMembership(createConfig(), address, objStore, receivedState.membershipChanged)
+		err := membership.Start()
+		require.NoError(t, err)
 		memberships = append(memberships, membership)
 		waitForMembers(t, memberships...)
 		state, err := membership.GetState()
 		require.NoError(t, err)
 		require.Equal(t, i+1, state.ClusterVersion)
 	}
-	require.Equal(t, 1, int(becomeLeaderCalledCount.Load()))
 	for _, membership := range memberships {
 		state, err := membership.GetState()
 		require.NoError(t, err)
@@ -48,6 +45,43 @@ func TestJoinSequential(t *testing.T) {
 			require.Equal(t, membership2.address, state.Members[i].Address)
 		}
 	}
+	for i, receivedState := range receivedStates {
+		memShips := receivedState.getMemberships()
+		require.Equal(t, numMembers-i, len(memShips))
+		for j, membership := range memShips {
+			require.Equal(t, i+j+1, len(membership.Members))
+			for k := i + j; k < len(membership.Members); k++ {
+				require.Equal(t, memberships[k].address, membership.Members[k].Address)
+			}
+		}
+	}
+}
+
+type membershipReceivedStates struct {
+	lock     sync.Mutex
+	received []MembershipState
+}
+
+func (m *membershipReceivedStates) membershipChanged(membership MembershipState) error {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+	m.received = append(m.received, membership)
+	return nil
+}
+
+func (m *membershipReceivedStates) getMemberships() []MembershipState {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+	copied := make([]MembershipState, len(m.received))
+	copy(copied, m.received)
+	return copied
+}
+
+func createConfig() MembershipConf {
+	cfg := NewMembershipConf()
+	cfg.UpdateInterval = 100 * time.Millisecond
+	cfg.EvictionDuration = 5 * time.Second
+	return cfg
 }
 
 func TestJoinParallel(t *testing.T) {
@@ -56,16 +90,19 @@ func TestJoinParallel(t *testing.T) {
 	var memberships []*Membership
 	defer func() {
 		for _, membership := range memberships {
-			membership.Stop()
+			err := membership.Stop()
+			require.NoError(t, err)
 		}
 	}()
 	numMembers := 10
 	for i := 0; i < numMembers; i++ {
 		address := fmt.Sprintf("address-%d", i)
-		memberShip := NewMembership("bucket1", "prefix1", address, objStore, 100*time.Millisecond, 5*time.Second, func() {
+		memberShip := NewMembership(createConfig(), address, objStore, func(state MembershipState) error {
+			return nil
 		})
-		memberShip.Start()
-		// Randomise join time a little
+		err := memberShip.Start()
+		require.NoError(t, err)
+		// Randomize join time a little
 		time.Sleep(time.Duration(rand.Intn(100)) * time.Millisecond)
 		memberships = append(memberships, memberShip)
 	}
@@ -78,30 +115,35 @@ func TestJoinParallel(t *testing.T) {
 	}
 }
 
-func TestNonLeadersEvicted(t *testing.T) {
+func TestEviction(t *testing.T) {
 	t.Parallel()
 	objStore := dev.NewInMemStore(0)
 	var memberships []*Membership
 	defer func() {
 		for _, membership := range memberships {
-			membership.Stop()
+			err := membership.Stop()
+			require.NoError(t, err)
 		}
 	}()
 	numMembers := 5
 	for i := 0; i < numMembers; i++ {
 		address := fmt.Sprintf("address-%d", i)
-		memberShip := NewMembership("bucket1", "prefix1", address, objStore, 100*time.Millisecond, 1*time.Second, func() {
+		cfg := createConfig()
+		cfg.EvictionDuration = 1 * time.Second
+		memberShip := NewMembership(cfg, address, objStore, func(state MembershipState) error {
+			return nil
 		})
-		memberShip.Start()
+		err := memberShip.Start()
+		require.NoError(t, err)
 		memberships = append(memberships, memberShip)
 	}
 	waitForMembers(t, memberships...)
-	leaderAddress := memberships[0].address
 	for i := 0; i < numMembers-1; i++ {
-		// choose a member at random - but not the leader
-		index := 1 + rand.Intn(len(memberships)-1)
+		index := rand.Intn(len(memberships))
+		stoppedAddress := memberships[index].address
 		// stop it
-		memberships[index].Stop()
+		err := memberships[index].Stop()
+		require.NoError(t, err)
 		memberships = append(memberships[:index], memberships[index+1:]...)
 		// wait to be evicted
 		waitForMembers(t, memberships...)
@@ -109,60 +151,14 @@ func TestNonLeadersEvicted(t *testing.T) {
 			state, err := membership.GetState()
 			require.NoError(t, err)
 			require.Equal(t, numMembers+i+1, state.ClusterVersion)
+			for _, member := range state.Members {
+				require.NotEqual(t, stoppedAddress, member.Address)
+			}
 		}
 	}
 	finalState, err := memberships[0].GetState()
 	require.NoError(t, err)
 	require.Equal(t, 1, len(finalState.Members))
-	require.Equal(t, leaderAddress, finalState.Members[0].Address)
-}
-
-func TestLeaderEvicted(t *testing.T) {
-	t.Parallel()
-	objStore := dev.NewInMemStore(0)
-	var memberships []*Membership
-	defer func() {
-		for _, membership := range memberships {
-			membership.Stop()
-		}
-	}()
-	numMembers := 5
-	leaderCallbackCalledCounts := make([]int64, numMembers)
-	for i := 0; i < numMembers; i++ {
-		address := fmt.Sprintf("address-%d", i)
-		memberIndex := i
-		memberShip := NewMembership("bucket1", "prefix1", address, objStore, 100*time.Millisecond, 1*time.Second, func() {
-			newVal := atomic.AddInt64(&leaderCallbackCalledCounts[memberIndex], 1)
-			if newVal != 1 {
-				panic("leader callback called too many times")
-			}
-		})
-		memberShip.Start()
-		memberships = append(memberships, memberShip)
-		waitForMembers(t, memberships...)
-	}
-	waitForMembers(t, memberships...)
-	require.Equal(t, 1, int(atomic.LoadInt64(&leaderCallbackCalledCounts[0])))
-	for i := 1; i < numMembers; i++ {
-		require.Equal(t, 0, int(atomic.LoadInt64(&leaderCallbackCalledCounts[i])))
-	}
-	for i := 0; i < numMembers-1; i++ {
-		expectedNewLeader := memberships[1].address
-		// stop current leader
-		memberships[0].Stop()
-		memberships = memberships[1:]
-		// wait for leader to be evicted
-		waitForMembers(t, memberships...)
-		require.Equal(t, expectedNewLeader, memberships[0].address)
-		for _, membership := range memberships {
-			state, err := membership.GetState()
-			require.NoError(t, err)
-			require.Equal(t, numMembers+i+1, state.ClusterVersion)
-		}
-	}
-	for i := 0; i < numMembers; i++ {
-		require.Equal(t, 1, int(atomic.LoadInt64(&leaderCallbackCalledCounts[i])))
-	}
 }
 
 func waitForMembers(t *testing.T, memberships ...*Membership) {

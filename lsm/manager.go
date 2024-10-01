@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"github.com/spirit-labs/tektite/asl/arista"
-	"github.com/spirit-labs/tektite/asl/conf"
 	"github.com/spirit-labs/tektite/asl/errwrap"
 	"github.com/spirit-labs/tektite/common"
 	log "github.com/spirit-labs/tektite/logger"
@@ -21,7 +20,7 @@ type Manager struct {
 	compactionState
 	lock                      sync.RWMutex
 	started                   bool
-	opts                      ManagerOpts
+	cfg                       Conf
 	format                    common.MetadataFormat
 	objStore                  objstore.Client
 	l0FreeCallback            func()
@@ -31,7 +30,7 @@ type Manager struct {
 	validateOnEachStateChange bool
 }
 
-type ManagerOpts struct {
+type Conf struct {
 	RegistryFormat             common.MetadataFormat
 	SSTableBucketName          string
 	L0CompactionTrigger        int
@@ -44,51 +43,33 @@ type ManagerOpts struct {
 	CompactionJobTimeout       time.Duration
 }
 
-func (c *ManagerOpts) ApplyDefaults() {
-	// TODO remove dependency on conf.Config
-	if c.RegistryFormat == 0 {
-		c.RegistryFormat = conf.DefaultRegistryFormat
-	}
-	if c.SSTableBucketName == "" {
-		c.SSTableBucketName = conf.DefaultBucketName
-	}
-	if c.SSTableDeleteCheckInterval == 0 {
-		c.SSTableBucketName = conf.DefaultBucketName
-	}
-	if c.L0CompactionTrigger == 0 {
-		c.L0CompactionTrigger = conf.DefaultL0CompactionTrigger
-	}
-	if c.L1CompactionTrigger == 0 {
-		c.L1CompactionTrigger = conf.DefaultL1CompactionTrigger
-	}
-	if c.LevelMultiplier == 0 {
-		c.LevelMultiplier = conf.DefaultLevelMultiplier
-	}
-	if c.L0MaxTablesBeforeBlocking == 0 {
-		c.L0MaxTablesBeforeBlocking = conf.DefaultL0MaxTablesBeforeBlocking
-	}
-	if c.SSTableDeleteDelay == 0 {
-		c.SSTableDeleteDelay = conf.DefaultSSTableDeleteDelay
-	}
-	if c.SSTableDeleteCheckInterval == 0 {
-		c.SSTableDeleteCheckInterval = conf.DefaultSSTableDeleteCheckInterval
-	}
-	if c.CompactionPollerTimeout == 0 {
-		c.CompactionPollerTimeout = conf.DefaultCompactionPollerTimeout
-	}
-	if c.CompactionJobTimeout == 0 {
-		c.CompactionJobTimeout = conf.DefaultCompactionJobTimeout
+func NewConf() Conf {
+	return Conf{
+		RegistryFormat:             common.MetadataFormatV1,
+		SSTableBucketName:          "tektite-data",
+		L0CompactionTrigger:        4,
+		L1CompactionTrigger:        4,
+		LevelMultiplier:            10,
+		L0MaxTablesBeforeBlocking:  10,
+		SSTableDeleteDelay:         10 * time.Second,
+		SSTableDeleteCheckInterval: 2 * time.Second,
+		CompactionPollerTimeout:    1 * time.Second,
+		CompactionJobTimeout:       30 * time.Second,
 	}
 }
 
+func (c *Conf) Validate() error {
+	// TODO
+	return nil
+}
+
 func NewManager(objStore objstore.Client, l0FreeCallback func(), enableCompaction bool, validateOnEachStateChange bool,
-	opts ManagerOpts) *Manager {
-	opts.ApplyDefaults()
+	opts Conf) *Manager {
 	lm := &Manager{
 		compactionState:           newCompactionState(),
 		objStore:                  objStore,
 		l0FreeCallback:            l0FreeCallback,
-		opts:                      opts,
+		cfg:                       opts,
 		enableCompaction:          enableCompaction,
 		validateOnEachStateChange: validateOnEachStateChange,
 	}
@@ -105,7 +86,7 @@ func (m *Manager) Start(masterRecordBytes []byte) error {
 		m.masterRecord = &MasterRecord{}
 		m.masterRecord.Deserialize(masterRecordBytes, 0)
 	} else {
-		m.masterRecord = NewMasterRecord(m.opts.RegistryFormat)
+		m.masterRecord = NewMasterRecord(m.cfg.RegistryFormat)
 	}
 	m.scheduleTableDeleteTimer()
 	// Maybe trigger a compaction as levels could be full
@@ -162,6 +143,23 @@ func (m *Manager) QueryTablesInRange(keyStart []byte, keyEnd []byte) (Overlappin
 		}
 	}
 	return overlapping, nil
+}
+
+func (m *Manager) GetTablesForHighestKeyWithPrefix(prefix []byte) ([]sst.SSTableID, error) {
+	m.lock.RLock()
+	defer m.lock.RUnlock()
+	if !m.started {
+		return nil, errors.New("not started")
+	}
+	var tableIDs []sst.SSTableID
+	for level, entry := range m.masterRecord.levelEntries {
+		entries, err := m.getTablesForHighestKeyWithPrefix(prefix, level, entry)
+		if err != nil {
+			return nil, err
+		}
+		tableIDs = append(tableIDs, entries...)
+	}
+	return tableIDs, nil
 }
 
 func (m *Manager) ApplyChanges(regBatch RegistrationBatch, noCompaction bool) (bool, error) {
@@ -313,6 +311,51 @@ func (m *Manager) GetMasterRecordBytes() []byte {
 	return buff
 }
 
+func (m *Manager) getTablesForHighestKeyWithPrefix(prefix []byte, level int, levEntry *levelEntry) ([]sst.SSTableID, error) {
+	// Find all tables that might contain the highest key with the specified prefix
+	nextPrefix := common.IncBigEndianBytes(prefix)
+	numTableEntries := len(levEntry.tableEntries)
+	var tables []sst.SSTableID
+	if level == 0 {
+		// can't use binary search in L0 as not ordered
+		for i := numTableEntries - 1; i >= 0; i-- {
+			te := levEntry.tableEntries[i].Get(levEntry)
+			// We must add the overlapping entries from newest to oldest
+			if hasOverlap(prefix, nextPrefix, te.RangeStart, te.RangeEnd) {
+				tables = append(tables, te.SSTableID)
+			}
+		}
+	} else {
+		// Find the highest table index - where we know any tables with a greater index cannot contain the prefix
+		highestIndex := sort.Search(numTableEntries, func(i int) bool {
+			return bytes.Compare(levEntry.tableEntries[i].Get(levEntry).RangeEnd, nextPrefix) >= 0
+		})
+		if highestIndex == numTableEntries {
+			// It might be in the last one
+			highestIndex = numTableEntries - 1
+		}
+		for highestIndex >= 0 {
+			te := levEntry.tableEntries[highestIndex].Get(levEntry)
+			if bytes.Compare(te.RangeEnd, prefix) < 0 {
+				// No keys with prefix
+				return nil, nil
+			}
+			tablePrefixStart := te.RangeStart[:len(prefix)]
+			if bytes.Compare(tablePrefixStart, prefix) > 0 {
+				// if the first key in the table has a prefix which is greater than the prefix we are looking for
+				// then the largest key cannot be in this table, but it might be in the table to the left, so we continue there
+				highestIndex--
+				continue
+			}
+			//log.Infof("found in table with keystart %v id %v", te.RangeStart, te.SSTableID)
+			// The last key in the table is greater or equal to the next prefix
+			tables = append(tables, te.SSTableID)
+			break
+		}
+	}
+	return tables, nil
+}
+
 func (m *Manager) getOverlappingTables(keyStart []byte, keyEnd []byte, level int,
 	levEntry *levelEntry) ([]*TableEntry, error) {
 	numTableEntries := len(levEntry.tableEntries)
@@ -353,17 +396,17 @@ func (m *Manager) getOverlappingTables(keyStart []byte, keyEnd []byte, level int
 
 func (m *Manager) levelMaxTablesTrigger(level int) int {
 	if level == 0 {
-		return m.opts.L0CompactionTrigger
+		return m.cfg.L0CompactionTrigger
 	}
-	mt := m.opts.L1CompactionTrigger
+	mt := m.cfg.L1CompactionTrigger
 	for i := 1; i < level; i++ {
-		mt *= m.opts.LevelMultiplier
+		mt *= m.cfg.LevelMultiplier
 	}
 	return mt
 }
 
 func (m *Manager) getL0FreeSpace() int {
-	return m.opts.L0MaxTablesBeforeBlocking - m.masterRecord.levelTableCounts[0]
+	return m.cfg.L0MaxTablesBeforeBlocking - m.masterRecord.levelTableCounts[0]
 }
 
 func (m *Manager) applyCompactionChanges(regBatch RegistrationBatch) error {
@@ -609,7 +652,7 @@ func (m *Manager) getLevelStats(level int) *LevelStats {
 }
 
 func (m *Manager) scheduleTableDeleteTimer() {
-	m.tableDeleteTimer = time.AfterFunc(m.opts.SSTableDeleteCheckInterval, func() {
+	m.tableDeleteTimer = time.AfterFunc(m.cfg.SSTableDeleteCheckInterval, func() {
 		m.maybeDeleteTables()
 	})
 }
@@ -624,11 +667,11 @@ func (m *Manager) maybeDeleteTables() {
 	now := arista.NanoTime()
 	for i, entry := range m.tablesToDelete {
 		age := time.Duration(now - entry.addedTime)
-		if age < m.opts.SSTableDeleteDelay {
+		if age < m.cfg.SSTableDeleteDelay {
 			break
 		}
 		log.Debugf("deleted sstable %v", entry.tableID)
-		if err := objstore.DeleteWithTimeout(m.objStore, m.opts.SSTableBucketName, string(entry.tableID), objstore.DefaultCallTimeout); err != nil {
+		if err := objstore.DeleteWithTimeout(m.objStore, m.cfg.SSTableBucketName, string(entry.tableID), objstore.DefaultCallTimeout); err != nil {
 			log.Errorf("failed to delete ss-table from cloud store: %v", err)
 			break
 		}

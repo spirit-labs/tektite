@@ -217,7 +217,7 @@ func (c *connection) readPanicHandler() {
 	// We use a custom panic handler as we don't want the server to panic and crash if it receives a malformed
 	// request which has insufficient bytes in the buffer which would cause a runtime error: index out of range panic
 	if r := recover(); r != nil {
-		log.Errorf("failure in connection readLoop: %v", r)
+		log.Errorf("failure in kafkaserver connection readLoop: %v", r)
 		if err := c.conn.Close(); err != nil {
 			// Ignore
 		}

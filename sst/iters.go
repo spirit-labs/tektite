@@ -73,22 +73,22 @@ type tableGetter interface {
 }
 
 type LazySSTableIterator struct {
-	tableID    SSTableID
-	tableCache tableGetter
-	keyStart   []byte
+	tableID  SSTableID
+	getter   tableGetter
+	keyStart []byte
 	keyEnd     []byte
 	iter       iteration.Iterator
 }
 
 func NewLazySSTableIterator(
-	tableID SSTableID, tableCache tableGetter,
+	tableID SSTableID, tableGetter tableGetter,
 	keyStart []byte, keyEnd []byte,
 ) (iteration.Iterator, error) {
 	it := &LazySSTableIterator{
-		tableID:    tableID,
-		tableCache: tableCache,
-		keyStart:   keyStart,
-		keyEnd:     keyEnd,
+		tableID:  tableID,
+		getter:   tableGetter,
+		keyStart: keyStart,
+		keyEnd:   keyEnd,
 	}
 	return it, nil
 }
@@ -137,7 +137,7 @@ func dumpSST(id SSTableID, sst *SSTable) {
 
 func (l *LazySSTableIterator) getIter() (iteration.Iterator, error) {
 	if l.iter == nil {
-		ssTable, err := l.tableCache.GetSSTable(l.tableID)
+		ssTable, err := l.getter.GetSSTable(l.tableID)
 		if err != nil {
 			return nil, err
 		}

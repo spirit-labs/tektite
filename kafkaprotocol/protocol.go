@@ -59,7 +59,7 @@ const (
 	ErrorCodeTopicAlreadyExists                 = 36
 	ErrorCodeInvalidPartitions                  = 37
 	ErrorCodeInvalidReplicationFactor           = 38
-	ErrorCodeInvalidReoplicaAssignment          = 39
+	ErrorCodeInvalidReplicaAssignment          = 39
 	ErrorCodeInvalidConfig                      = 40
 	ErrorCodeNotController                      = 41
 	ErrorCodeInvalidRequest                     = 42

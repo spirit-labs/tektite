@@ -2,21 +2,22 @@ package pusher
 
 import (
 	"bytes"
-	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
 	"github.com/google/uuid"
-	lru "github.com/hashicorp/golang-lru"
 	"github.com/pkg/errors"
 	"github.com/spirit-labs/tektite/asl/encoding"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/control"
 	"github.com/spirit-labs/tektite/kafkaprotocol"
-	log "github.com/spirit-labs/tektite/logger"
+	"github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/lsm"
 	"github.com/spirit-labs/tektite/objstore"
 	"github.com/spirit-labs/tektite/offsets"
+	"github.com/spirit-labs/tektite/parthash"
 	"github.com/spirit-labs/tektite/sst"
+	"github.com/spirit-labs/tektite/streammeta"
+	"go.uber.org/zap/zapcore"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -43,14 +44,14 @@ caches them in memory
 type TablePusher struct {
 	lock             sync.Mutex
 	cfg              Conf
-	topicProvider    TopicInfoProvider
+	topicProvider    streammeta.TopicInfoProvider
 	objStore         objstore.Client
 	clientFactory    ControllerClientFactory
 	started          bool
 	stopping         atomic.Bool
 	controllerClient control.Client
 	partitionRecords map[int]map[int][]bufferedEntry
-	partitionHashes  *lru.Cache
+	partitionHashes  *parthash.PartitionHashes
 	writeTimer       *time.Timer
 	sizeBytes        int
 }
@@ -62,23 +63,24 @@ type bufferedEntry struct {
 
 type ControllerClientFactory func() (control.Client, error)
 
-type TopicInfoProvider interface {
-	GetTopicInfo(topicName string) (*TopicInfo, bool)
-}
-
-type TopicInfo struct {
-	TopicID        int
-	PartitionCount int
-}
-
 const (
 	objStoreAvailabilityTimeout = 5 * time.Second
 	partitionHashCacheMaxSize   = 100000
 )
 
-func NewTablePusher(cfg Conf, topicProvider TopicInfoProvider, objStore objstore.Client,
+var log *logger.TektiteLogger
+
+func init() {
+	var err error
+	log, err = logger.GetLoggerWithLevel("pusher", zapcore.DebugLevel)
+	if err != nil {
+		panic(err)
+	}
+}
+
+func NewTablePusher(cfg Conf, topicProvider streammeta.TopicInfoProvider, objStore objstore.Client,
 	clientFactory ControllerClientFactory) (*TablePusher, error) {
-	partitionHashes, err := lru.New(partitionHashCacheMaxSize)
+	partitionHashes, err := parthash.NewPartitionHashes(partitionHashCacheMaxSize)
 	if err != nil {
 		return nil, err
 	}
@@ -122,6 +124,7 @@ func (r *TablePusher) scheduleWriteTimer(timeout time.Duration) {
 		if !r.started {
 			return
 		}
+		log.Debug("scheduling write on timer")
 		if err := r.write(); err != nil {
 			// We close the client, so it will be recreated on any retry
 			r.closeClient()
@@ -211,6 +214,7 @@ func (r *TablePusher) HandleProduceRequest(req *kafkaprotocol.ProduceRequest,
 					continue partitions
 				}
 			}
+			log.Debugf("handling records batch for topic: %s partition: %d", *topicData.Name, partitionID)
 			r.handleRecords(topicInfo.TopicID, partitionID, partitionData.Records, func(err error) {
 				if err != nil {
 					log.Errorf("failed to handle records: %v", err)
@@ -278,7 +282,7 @@ func (r *TablePusher) getClient() (control.Client, error) {
 	return client, nil
 }
 
-func numRecords(records []byte) int {
+func NumRecords(records []byte) int {
 	return int(binary.BigEndian.Uint32(records[57:]))
 }
 
@@ -299,9 +303,10 @@ func (r *TablePusher) write() error {
 			totRecords := 0
 			for _, entry := range entries {
 				for _, batch := range entry.records {
-					totRecords += numRecords(batch)
+					totRecords += NumRecords(batch)
 				}
 			}
+			log.Infof("tot records is %d", totRecords)
 			getOffSetInfos = append(getOffSetInfos, offsets.GetOffsetTopicInfo{
 				TopicID:     topicID,
 				PartitionID: partitionID,
@@ -314,6 +319,7 @@ func (r *TablePusher) write() error {
 	if err != nil {
 		return err
 	}
+	log.Infof("obtained offsets: %v", offs)
 	updateWrittenOffsetInfos := make([]offsets.UpdateWrittenOffsetInfo, len(offs))
 	// Create KVs for the batches
 	kvs := make([]common.KV, 0, len(offs))
@@ -344,7 +350,7 @@ func (r *TablePusher) write() error {
 					on which agent they came from. The LSM can then parallelize compaction of non overlapping groups of tables
 					thus allowing LSM compaction to scale with number of agents.
 				*/
-				partitionHash, err := r.getPartitionHash(getOffsetInfo.TopicID, getOffsetInfo.PartitionID)
+				partitionHash, err := r.partitionHashes.GetPartitionHash(getOffsetInfo.TopicID, getOffsetInfo.PartitionID)
 				if err != nil {
 					return err
 				}
@@ -356,7 +362,7 @@ func (r *TablePusher) write() error {
 					Key:   key,
 					Value: record,
 				})
-				offset += int64(numRecords(record))
+				offset += int64(NumRecords(record))
 			}
 		}
 	}
@@ -378,6 +384,7 @@ func (r *TablePusher) write() error {
 		objStoreAvailabilityTimeout); err != nil {
 		return err
 	}
+	log.Debugf("wrote SSTable to object store")
 	// Register table with LSM
 	regEntry := lsm.RegistrationEntry{
 		Level:            0,
@@ -395,31 +402,11 @@ func (r *TablePusher) write() error {
 	if err := client.RegisterL0Table(updateWrittenOffsetInfos, regEntry); err != nil {
 		return err
 	}
+	log.Debugf("registered new table with table ID: %v", tableID)
 	// Send back completions
 	r.callCompletions(nil)
 	// reset
 	r.partitionRecords = make(map[int]map[int][]bufferedEntry)
 	r.sizeBytes = 0
 	return nil
-}
-
-func (r *TablePusher) getPartitionHash(topicID int, partitionID int) ([]byte, error) {
-	// We cache partition hashes in an LRU as crypto hashes like sha-256 are usually quite slow
-	kb := make([]byte, 16)
-	binary.BigEndian.PutUint64(kb, uint64(topicID))
-	binary.BigEndian.PutUint64(kb[8:], uint64(partitionID))
-	key := common.ByteSliceToStringZeroCopy(kb)
-	h, ok := r.partitionHashes.Get(key)
-	if ok {
-		return h.([]byte), nil
-	}
-	hashFunc := sha256.New()
-	if _, err := hashFunc.Write(kb); err != nil {
-		return nil, err
-	}
-	out := hashFunc.Sum(nil)
-	// we take the first 128 bits
-	p := out[:16]
-	r.partitionHashes.Add(key, p)
-	return p, nil
 }

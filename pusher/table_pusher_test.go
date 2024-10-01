@@ -6,21 +6,18 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"errors"
-	"fmt"
 	"github.com/spirit-labs/tektite/asl/encoding"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/control"
-	"github.com/spirit-labs/tektite/kafkaencoding"
 	"github.com/spirit-labs/tektite/kafkaprotocol"
 	"github.com/spirit-labs/tektite/lsm"
 	"github.com/spirit-labs/tektite/objstore"
 	"github.com/spirit-labs/tektite/objstore/dev"
 	"github.com/spirit-labs/tektite/offsets"
 	"github.com/spirit-labs/tektite/sst"
+	"github.com/spirit-labs/tektite/streammeta"
 	"github.com/spirit-labs/tektite/testutils"
-	"github.com/spirit-labs/tektite/types"
 	"github.com/stretchr/testify/require"
-	"hash/crc32"
 	"math"
 	"slices"
 	"sync"
@@ -45,7 +42,7 @@ func TestTablePusherHandleProduceBatchSimple(t *testing.T) {
 	clientFactory := func() (control.Client, error) {
 		return controllerClient, nil
 	}
-	topicProvider := &testTopicInfoProvider{infos: map[string]*TopicInfo{
+	topicProvider := &streammeta.SimpleTopicInfoProvider{Infos: map[string]streammeta.TopicInfo{
 		"topic1": {TopicID: topicID, PartitionCount: 20},
 	}}
 	pusher, err := NewTablePusher(cfg, topicProvider, objStore, clientFactory)
@@ -57,7 +54,7 @@ func TestTablePusherHandleProduceBatchSimple(t *testing.T) {
 		require.NoError(t, err)
 	}()
 
-	recordBatch := createBatchWithIncrementingKVs(10)
+	recordBatch := testutils.CreateKafkaRecordBatchWithIncrementingKVs(0, 10)
 
 	req := kafkaprotocol.ProduceRequest{
 		TransactionalId: nil,
@@ -138,7 +135,7 @@ func TestTablePusherHandleProduceBatchMultipleTopicsAndPartitions(t *testing.T) 
 	clientFactory := func() (control.Client, error) {
 		return controllerClient, nil
 	}
-	topicProvider := &testTopicInfoProvider{infos: map[string]*TopicInfo{
+	topicProvider := &streammeta.SimpleTopicInfoProvider{Infos: map[string]streammeta.TopicInfo{
 		"topic1": {TopicID: topicID1, PartitionCount: 20},
 		"topic2": {TopicID: topicID2, PartitionCount: 30},
 	}}
@@ -152,10 +149,10 @@ func TestTablePusherHandleProduceBatchMultipleTopicsAndPartitions(t *testing.T) 
 		require.NoError(t, err)
 	}()
 
-	recordBatch1 := createBatchWithIncrementingKVs(10)
-	recordBatch2 := createBatchWithIncrementingKVs(15)
-	recordBatch3 := createBatchWithIncrementingKVs(20)
-	recordBatch4 := createBatchWithIncrementingKVs(25)
+	recordBatch1 := testutils.CreateKafkaRecordBatchWithIncrementingKVs(0, 10)
+	recordBatch2 := testutils.CreateKafkaRecordBatchWithIncrementingKVs(0, 15)
+	recordBatch3 := testutils.CreateKafkaRecordBatchWithIncrementingKVs(0, 20)
+	recordBatch4 := testutils.CreateKafkaRecordBatchWithIncrementingKVs(0, 25)
 
 	req := kafkaprotocol.ProduceRequest{
 		TransactionalId: nil,
@@ -297,8 +294,8 @@ func TestTablePusherHandleProduceBatchMultipleTopicsAndPartitions(t *testing.T) 
 }
 
 func TestTablePusherPushWhenBufferIsFull(t *testing.T) {
-	batch1 := createBatchWithIncrementingKVs(100)
-	batch2 := createBatchWithIncrementingKVs(100)
+	batch1 := testutils.CreateKafkaRecordBatchWithIncrementingKVs(0, 100)
+	batch2 := testutils.CreateKafkaRecordBatchWithIncrementingKVs(0, 100)
 
 	// So it won't write after receiving batch1 but will write after batch2
 	bufferMaxSize := len(batch1) + len(batch2) - 10
@@ -316,7 +313,7 @@ func TestTablePusherPushWhenBufferIsFull(t *testing.T) {
 	clientFactory := func() (control.Client, error) {
 		return controllerClient, nil
 	}
-	topicProvider := &testTopicInfoProvider{infos: map[string]*TopicInfo{
+	topicProvider := &streammeta.SimpleTopicInfoProvider{Infos: map[string]streammeta.TopicInfo{
 		"topic1": {TopicID: topicID, PartitionCount: 30},
 	}}
 
@@ -408,7 +405,7 @@ func TestTablePusherPushWhenBufferIsFull(t *testing.T) {
 }
 
 func TestTablePusherPushWhenTimeoutIsExceeded(t *testing.T) {
-	batch := createBatchWithIncrementingKVs(100)
+	batch := testutils.CreateKafkaRecordBatchWithIncrementingKVs(0, 100)
 
 	cfg := NewConf()
 	cfg.DataBucketName = "test-data-bucket"
@@ -423,7 +420,7 @@ func TestTablePusherPushWhenTimeoutIsExceeded(t *testing.T) {
 	clientFactory := func() (control.Client, error) {
 		return controllerClient, nil
 	}
-	topicProvider := &testTopicInfoProvider{infos: map[string]*TopicInfo{
+	topicProvider := &streammeta.SimpleTopicInfoProvider{Infos: map[string]streammeta.TopicInfo{
 		"topic1": {TopicID: topicID, PartitionCount: 20},
 	}}
 
@@ -511,7 +508,7 @@ func TestTablePusherHandleProduceBatchMixtureErrorsAndSuccesses(t *testing.T) {
 	clientFactory := func() (control.Client, error) {
 		return controllerClient, nil
 	}
-	topicProvider := &testTopicInfoProvider{infos: map[string]*TopicInfo{
+	topicProvider := &streammeta.SimpleTopicInfoProvider{Infos: map[string]streammeta.TopicInfo{
 		"topic1": {TopicID: topicID1, PartitionCount: 20},
 		"topic2": {TopicID: topicID2, PartitionCount: 30},
 	}}
@@ -526,15 +523,15 @@ func TestTablePusherHandleProduceBatchMixtureErrorsAndSuccesses(t *testing.T) {
 		require.NoError(t, err)
 	}()
 
-	recordBatch1 := createBatchWithIncrementingKVs(10)
-	recordBatch2 := createBatchWithIncrementingKVs(15)
-	recordBatch3 := createBatchWithIncrementingKVs(20)
-	recordBatch4 := createBatchWithIncrementingKVs(25)
+	recordBatch1 := testutils.CreateKafkaRecordBatchWithIncrementingKVs(0, 10)
+	recordBatch2 := testutils.CreateKafkaRecordBatchWithIncrementingKVs(0, 15)
+	recordBatch3 := testutils.CreateKafkaRecordBatchWithIncrementingKVs(0, 20)
+	recordBatch4 := testutils.CreateKafkaRecordBatchWithIncrementingKVs(0, 25)
 
-	recordBatch5 := createBatchWithIncrementingKVs(10)
-	recordBatch6 := createBatchWithIncrementingKVs(10)
-	recordBatch7 := createBatchWithIncrementingKVs(10)
-	recordBatch8 := createBatchWithIncrementingKVs(10)
+	recordBatch5 := testutils.CreateKafkaRecordBatchWithIncrementingKVs(0, 10)
+	recordBatch6 := testutils.CreateKafkaRecordBatchWithIncrementingKVs(0, 10)
+	recordBatch7 := testutils.CreateKafkaRecordBatchWithIncrementingKVs(0, 10)
+	recordBatch8 := testutils.CreateKafkaRecordBatchWithIncrementingKVs(0, 10)
 
 	req := kafkaprotocol.ProduceRequest{
 		TransactionalId: nil,
@@ -696,7 +693,7 @@ func TestTablePusherUnexpectedError(t *testing.T) {
 	clientFactory := func() (control.Client, error) {
 		return controllerClient, nil
 	}
-	topicProvider := &testTopicInfoProvider{infos: map[string]*TopicInfo{
+	topicProvider := &streammeta.SimpleTopicInfoProvider{Infos: map[string]streammeta.TopicInfo{
 		"topic1": {TopicID: topicID, PartitionCount: 20},
 	}}
 	pusher, err := NewTablePusher(cfg, topicProvider, objStore, clientFactory)
@@ -708,14 +705,14 @@ func TestTablePusherUnexpectedError(t *testing.T) {
 		require.NoError(t, err)
 	}()
 
-	msgs := []rawKafkaMessage{
+	msgs := []testutils.RawKafkaMessage{
 		{
-			timestamp: time.Now().UnixMilli(),
-			key:       []byte("key1"),
-			value:     []byte("val1"),
+			Timestamp: time.Now().UnixMilli(),
+			Key:       []byte("key1"),
+			Value:     []byte("val1"),
 		},
 	}
-	recordBatch := createRecordBatch(msgs, 0)
+	recordBatch := testutils.CreateKafkaRecordBatch(msgs, 0)
 
 	req := kafkaprotocol.ProduceRequest{
 		TransactionalId: nil,
@@ -770,7 +767,7 @@ func TestTablePusherTemporaryUnavailability(t *testing.T) {
 	clientFactory := func() (control.Client, error) {
 		return controllerClient, nil
 	}
-	topicProvider := &testTopicInfoProvider{infos: map[string]*TopicInfo{
+	topicProvider := &streammeta.SimpleTopicInfoProvider{Infos: map[string]streammeta.TopicInfo{
 		"topic1": {TopicID: topicID, PartitionCount: 30},
 	}}
 	pusher, err := NewTablePusher(cfg, topicProvider, objStore, clientFactory)
@@ -785,14 +782,14 @@ func TestTablePusherTemporaryUnavailability(t *testing.T) {
 	start := time.Now()
 
 	// Push a couple of batches - obj store is unavailable
-	msgs := []rawKafkaMessage{
+	msgs := []testutils.RawKafkaMessage{
 		{
-			timestamp: time.Now().UnixMilli(),
-			key:       []byte("key1"),
-			value:     []byte("val1"),
+			Timestamp: time.Now().UnixMilli(),
+			Key:       []byte("key1"),
+			Value:     []byte("val1"),
 		},
 	}
-	recordBatch1 := createRecordBatch(msgs, 0)
+	recordBatch1 := testutils.CreateKafkaRecordBatch(msgs, 0)
 	req1 := kafkaprotocol.ProduceRequest{
 		TransactionalId: nil,
 		Acks:            -1,
@@ -820,7 +817,7 @@ func TestTablePusherTemporaryUnavailability(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	recordBatch2 := createRecordBatch(msgs, 0)
+	recordBatch2 := testutils.CreateKafkaRecordBatch(msgs, 0)
 	req2 := kafkaprotocol.ProduceRequest{
 		TransactionalId: nil,
 		Acks:            -1,
@@ -963,7 +960,7 @@ func (t *testControllerClient) RegisterL0Table(updateWrittenOffsetInfos []offset
 	return nil
 }
 
-func (t *testControllerClient) ApplyLsmChanges(regBatch lsm.RegistrationBatch) error {
+func (t *testControllerClient) ApplyLsmChanges(_ lsm.RegistrationBatch) error {
 	panic("should not be called")
 }
 
@@ -975,7 +972,7 @@ func (t *testControllerClient) getRegistrations() []regL0TableInvocation {
 	return copied
 }
 
-func (t *testControllerClient) QueryTablesInRange(keyStart []byte, keyEnd []byte) (lsm.OverlappingTables, error) {
+func (t *testControllerClient) QueryTablesInRange(_ []byte, _ []byte) (lsm.OverlappingTables, error) {
 	panic("should not be called")
 }
 
@@ -1004,59 +1001,8 @@ func (t *testControllerClient) Close() error {
 	return nil
 }
 
-type testTopicInfoProvider struct {
-	infos map[string]*TopicInfo
-}
-
-func (t *testTopicInfoProvider) GetTopicInfo(topicName string) (*TopicInfo, bool) {
-	info, ok := t.infos[topicName]
-	return info, ok
-}
-
 func strPtr(s string) *string {
 	return &s
-}
-
-func createBatchWithIncrementingKVs(numMessages int) []byte {
-	var msgs []rawKafkaMessage
-	for i := 0; i < numMessages; i++ {
-		msgs = append(msgs, rawKafkaMessage{
-			timestamp: time.Now().UnixMilli(),
-			key:       []byte(fmt.Sprintf("key%d", i)),
-			value:     []byte(fmt.Sprintf("val%d", i)),
-		})
-	}
-	return createRecordBatch(msgs, 0)
-}
-
-func createRecordBatch(messages []rawKafkaMessage, offsetStart int64) []byte {
-	batchBytes := make([]byte, 61)
-	first := true
-	var firstTimestamp types.Timestamp
-	var timestamp types.Timestamp
-	offset := offsetStart
-	for _, msg := range messages {
-		var ok bool
-		timestamp = types.Timestamp{Val: msg.timestamp}
-		if first {
-			firstTimestamp = timestamp
-		}
-		batchBytes, ok = kafkaencoding.AppendToBatch(batchBytes, offset, msg.key, nil, msg.value, timestamp,
-			firstTimestamp, offsetStart, math.MaxInt, first)
-		if !ok {
-			panic("failed to append")
-		}
-		first = false
-	}
-	kafkaencoding.SetBatchHeader(batchBytes, offsetStart, offset, firstTimestamp, timestamp, len(messages), crc32.NewIEEE())
-	return batchBytes
-}
-
-type rawKafkaMessage struct {
-	key       []byte
-	value     []byte
-	headers   []byte
-	timestamp int64
 }
 
 func createPartitionHash(topicID int, partitionID int) ([]byte, error) {
@@ -1074,27 +1020,27 @@ func createPartitionHash(topicID int, partitionID int) ([]byte, error) {
 type failingObjectStoreClient struct {
 }
 
-func (f *failingObjectStoreClient) Get(ctx context.Context, bucket string, key string) ([]byte, error) {
+func (f *failingObjectStoreClient) Get(_ context.Context, _ string, _ string) ([]byte, error) {
 	panic("should not be called")
 }
 
-func (f *failingObjectStoreClient) Put(ctx context.Context, bucket string, key string, value []byte) error {
+func (f *failingObjectStoreClient) Put(_ context.Context, _ string, _ string, _ []byte) error {
 	return errors.New("some random error")
 }
 
-func (f *failingObjectStoreClient) PutIfNotExists(ctx context.Context, bucket string, key string, value []byte) (bool, error) {
+func (f *failingObjectStoreClient) PutIfNotExists(_ context.Context, _ string, _ string, _ []byte) (bool, error) {
 	panic("should not be called")
 }
 
-func (f *failingObjectStoreClient) Delete(ctx context.Context, bucket string, key string) error {
+func (f *failingObjectStoreClient) Delete(_ context.Context, _ string, _ string) error {
 	panic("should not be called")
 }
 
-func (f *failingObjectStoreClient) DeleteAll(ctx context.Context, bucket string, keys []string) error {
+func (f *failingObjectStoreClient) DeleteAll(_ context.Context, _ string, _ []string) error {
 	panic("should not be called")
 }
 
-func (f *failingObjectStoreClient) ListObjectsWithPrefix(ctx context.Context, bucket string, prefix string, maxKeys int) ([]objstore.ObjectInfo, error) {
+func (f *failingObjectStoreClient) ListObjectsWithPrefix(_ context.Context, _ string, _ string, _ int) ([]objstore.ObjectInfo, error) {
 	return nil, nil
 }
 

@@ -2,13 +2,15 @@ package offsets
 
 import (
 	"container/heap"
+	"errors"
+	"github.com/spirit-labs/tektite/streammeta"
 	"github.com/stretchr/testify/require"
 	"math/rand"
 	"testing"
 )
 
 func TestOffsetsCacheNotStarted(t *testing.T) {
-	topicProvider := &testTopicInfoProvider{}
+	topicProvider := &streammeta.SimpleTopicInfoProvider{}
 	partitionLoader := &testPartitionOffsetLoader{}
 
 	oc := NewOffsetsCache(topicProvider, partitionLoader)
@@ -17,7 +19,7 @@ func TestOffsetsCacheNotStarted(t *testing.T) {
 	require.Equal(t, "not started", err.Error())
 }
 
-// Get an offset with a previous stored non zero value
+// Get an offset with a previous stored non-zero value
 func TestOffsetsCacheGetSingleAlreadyStoredOffsetNonZero(t *testing.T) {
 	oc := setupAndStartCache(t)
 
@@ -464,13 +466,13 @@ func TestMembershipChanged(t *testing.T) {
 	require.Equal(t, offs[2]+200-1, highestReadable)
 }
 
-var testTopicProvider = &testTopicInfoProvider{
-	infos: []TopicInfo{
-		{
+var testTopicProvider = &streammeta.SimpleTopicInfoProvider{
+	Infos: map[string]streammeta.TopicInfo{
+		"topic1": {
 			TopicID:        7,
 			PartitionCount: 4,
 		},
-		{
+		"topic2": {
 			TopicID:        8,
 			PartitionCount: 2,
 		},
@@ -478,34 +480,16 @@ var testTopicProvider = &testTopicInfoProvider{
 }
 
 var testOffsetLoader = &testPartitionOffsetLoader{
-	topicOffsets: map[int][]StoredOffset{
+	topicOffsets: map[int]map[int]int64{
 		7: {
-			{
-				PartitionID: 0,
-				Offset:      1234,
-			},
-			{
-				PartitionID: 1,
-				Offset:      3456,
-			},
-			{
-				PartitionID: 2,
-				Offset:      0,
-			},
-			{
-				PartitionID: 3,
-				Offset:      -1,
-			},
+			0: 1234,
+			1: 3456,
+			2: 0,
+			3: -1,
 		},
 		8: {
-			{
-				PartitionID: 0,
-				Offset:      5678,
-			},
-			{
-				PartitionID: 1,
-				Offset:      3456,
-			},
+			0: 5678,
+			1: 3456,
 		},
 	},
 }
@@ -517,20 +501,20 @@ func setupAndStartCache(t *testing.T) *Cache {
 	return oc
 }
 
-type testTopicInfoProvider struct {
-	infos []TopicInfo
-}
-
-func (t *testTopicInfoProvider) GetAllTopics() ([]TopicInfo, error) {
-	return t.infos, nil
-}
-
 type testPartitionOffsetLoader struct {
-	topicOffsets map[int][]StoredOffset
+	topicOffsets map[int]map[int]int64
 }
 
-func (t *testPartitionOffsetLoader) LoadOffsetsForTopic(topicID int) ([]StoredOffset, error) {
-	return t.topicOffsets[topicID], nil
+func (t *testPartitionOffsetLoader) LoadHighestOffsetForPartition(topicID int, partitionID int) (int64, error) {
+	to, ok := t.topicOffsets[topicID]
+	if !ok {
+		return 0, errors.New("topic not found")
+	}
+	po, ok := to[partitionID]
+	if !ok {
+		return 0, errors.New("partition not found")
+	}
+	return po, nil
 }
 
 func TestWrittenOffsetsHeap(t *testing.T) {

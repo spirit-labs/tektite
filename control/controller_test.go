@@ -1,12 +1,14 @@
 package control
 
 import (
+	"errors"
 	"github.com/google/uuid"
 	"github.com/spirit-labs/tektite/cluster"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/lsm"
 	"github.com/spirit-labs/tektite/objstore/dev"
 	"github.com/spirit-labs/tektite/offsets"
+	"github.com/spirit-labs/tektite/streammeta"
 	"github.com/spirit-labs/tektite/transport"
 	"github.com/stretchr/testify/require"
 	"testing"
@@ -22,7 +24,7 @@ func TestClientNoMembersOnCreation(t *testing.T) {
 	require.Error(t, err)
 	// caller should get an unavailable error so it can retry
 	require.True(t, common.IsTektiteErrorWithCode(err, common.Unavailable))
-	require.Equal(t, "manager has not received cluster membership", err.Error())
+	require.Equal(t, "controller has not received cluster membership", err.Error())
 }
 
 func TestClientWrongClusterVersion(t *testing.T) {
@@ -264,8 +266,11 @@ func setupManagers(t *testing.T, numMembers int) ([]*Controller, func(t *testing
 	return setupManagersWithOffsetProviders(t, numMembers, testTopicProvider, testOffsetLoader)
 }
 
-func setupManagersWithOffsetProviders(t *testing.T, numMembers int, topicProvider offsets.TopicInfoProvider,
+func setupManagersWithOffsetProviders(t *testing.T, numMembers int, topicProvider streammeta.TopicInfoProvider,
 	offsetLoader offsets.PartitionOffsetLoader) ([]*Controller, func(t *testing.T)) {
+	loaderFactory := func() (offsets.PartitionOffsetLoader, error) {
+		return offsetLoader, nil
+	}
 	localTransports := transport.NewLocalTransports()
 	var managers []*Controller
 	for i := 0; i < numMembers; i++ {
@@ -273,8 +278,8 @@ func setupManagersWithOffsetProviders(t *testing.T, numMembers int, topicProvide
 		transportServer, err := localTransports.NewLocalServer(address)
 		require.NoError(t, err)
 		objStore := dev.NewInMemStore(0)
-		mgr := NewManager(stateUpdatorBucketName, stateUpdatorKeyprefix, dataBucketName, dataKeyprefix,
-			objStore, localTransports.CreateConnection, transportServer, topicProvider, offsetLoader, lsm.ManagerOpts{})
+		cfg := NewConf()
+		mgr := NewController(cfg, objStore, localTransports.CreateConnection, transportServer, topicProvider, loaderFactory)
 		err = mgr.Start()
 		require.NoError(t, err)
 		managers = append(managers, mgr)
@@ -287,20 +292,20 @@ func setupManagersWithOffsetProviders(t *testing.T, numMembers int, topicProvide
 	}
 }
 
-type testTopicInfoProvider struct {
-	infos []offsets.TopicInfo
-}
-
-func (t *testTopicInfoProvider) GetAllTopics() ([]offsets.TopicInfo, error) {
-	return t.infos, nil
-}
-
 type testPartitionOffsetLoader struct {
-	topicOffsets map[int][]offsets.StoredOffset
+	topicOffsets map[int]map[int]int64
 }
 
-func (t *testPartitionOffsetLoader) LoadOffsetsForTopic(topicID int) ([]offsets.StoredOffset, error) {
-	return t.topicOffsets[topicID], nil
+func (t *testPartitionOffsetLoader) LoadHighestOffsetForPartition(topicID int, partitionID int) (int64, error) {
+	to, ok := t.topicOffsets[topicID]
+	if !ok {
+		return 0, errors.New("topic not found")
+	}
+	po, ok := to[partitionID]
+	if !ok {
+		return 0, errors.New("partition not found")
+	}
+	return po, nil
 }
 
 func updateMembership(t *testing.T, clusterVersion int, managers []*Controller, memberIndexes ...int) []cluster.MembershipEntry {
@@ -323,13 +328,13 @@ func updateMembership(t *testing.T, clusterVersion int, managers []*Controller, 
 	return members
 }
 
-var testTopicProvider = &testTopicInfoProvider{
-	infos: []offsets.TopicInfo{
-		{
+var testTopicProvider = &streammeta.SimpleTopicInfoProvider{
+	Infos: map[string]streammeta.TopicInfo{
+		"topic1": {
 			TopicID:        7,
 			PartitionCount: 4,
 		},
-		{
+		"topic2": {
 			TopicID:        8,
 			PartitionCount: 2,
 		},
@@ -337,35 +342,16 @@ var testTopicProvider = &testTopicInfoProvider{
 }
 
 var testOffsetLoader = &testPartitionOffsetLoader{
-
-	topicOffsets: map[int][]offsets.StoredOffset{
+	topicOffsets: map[int]map[int]int64{
 		7: {
-			{
-				PartitionID: 0,
-				Offset:      1234,
-			},
-			{
-				PartitionID: 1,
-				Offset:      3456,
-			},
-			{
-				PartitionID: 2,
-				Offset:      0,
-			},
-			{
-				PartitionID: 3,
-				Offset:      -1,
-			},
+			0: 1234,
+			1: 3456,
+			2: 0,
+			3: -1,
 		},
 		8: {
-			{
-				PartitionID: 0,
-				Offset:      5678,
-			},
-			{
-				PartitionID: 1,
-				Offset:      3456,
-			},
+			0: 5678,
+			1: 3456,
 		},
 	},
 }

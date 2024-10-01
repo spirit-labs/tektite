@@ -6,6 +6,7 @@ import (
 	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/lsm"
 	"github.com/spirit-labs/tektite/objstore"
+	"github.com/spirit-labs/tektite/sst"
 
 	"sync"
 	"sync/atomic"
@@ -18,7 +19,7 @@ object storage
 type LsmHolder struct {
 	lock                   sync.RWMutex
 	objStore               objstore.Client
-	lsmOpts                lsm.ManagerOpts
+	lsmOpts                lsm.Conf
 	clusteredData          *cluster.ClusteredData
 	lsmManager             *lsm.Manager
 	started                bool
@@ -31,9 +32,9 @@ type queuedRegistration struct {
 	completionFunc func(error) error
 }
 
-func NewLsmHolder(stateMachineBucketName string, stateMachineKeyPrefix string, dataBucketName string,
-	dataKeyPrefix string, objStoreClient objstore.Client, lsmOpts lsm.ManagerOpts) *LsmHolder {
-	clusteredData := cluster.NewClusteredData(stateMachineBucketName, stateMachineKeyPrefix, dataBucketName, dataKeyPrefix,
+func NewLsmHolder(stateUpdaterBucketName string, stateUpdaterKeyPrefix string, dataBucketName string,
+	dataKeyPrefix string, objStoreClient objstore.Client, lsmOpts lsm.Conf) *LsmHolder {
+	clusteredData := cluster.NewClusteredData(stateUpdaterBucketName, stateUpdaterKeyPrefix, dataBucketName, dataKeyPrefix,
 		objStoreClient, cluster.ClusteredDataOpts{})
 	return &LsmHolder{
 		objStore:      objStoreClient,
@@ -100,6 +101,15 @@ func (s *LsmHolder) ApplyLsmChanges(regBatch lsm.RegistrationBatch, completionFu
 		completionFunc: completionFunc,
 	})
 	return nil
+}
+
+func (s *LsmHolder) GetTablesForHighestKeyWithPrefix(prefix []byte) ([]sst.SSTableID, error) {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+	if err := s.checkStarted(); err != nil {
+		return nil, err
+	}
+	return s.lsmManager.GetTablesForHighestKeyWithPrefix(prefix)
 }
 
 func (s *LsmHolder) afterApplyChanges(completionFunc func(error) error) error {
