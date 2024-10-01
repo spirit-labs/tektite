@@ -5,4 +5,5 @@ const (
 	HandlerIDControllerApplyChanges
 	HandlerIDControllerQueryTablesInRange
 	HandlerIDControllerGetOffsets
+	HandlerIDControllerPollForJob
 )

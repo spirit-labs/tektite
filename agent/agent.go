@@ -4,6 +4,7 @@ import (
 	"github.com/spirit-labs/tektite/cluster"
 	"github.com/spirit-labs/tektite/control"
 	"github.com/spirit-labs/tektite/kafkaserver2"
+	"github.com/spirit-labs/tektite/lsm"
 	"github.com/spirit-labs/tektite/objstore"
 	"github.com/spirit-labs/tektite/pusher"
 	"github.com/spirit-labs/tektite/streammeta"
@@ -13,14 +14,15 @@ import (
 
 // Agent is currently just a place-holder
 type Agent struct {
-	lock            sync.Mutex
-	cfg             Conf
-	started         bool
-	transportServer transport.Server
-	kafkaServer     *kafkaserver2.KafkaServer
-	tablePusher     *pusher.TablePusher
-	controller      *control.Controller
-	membership      ClusterMembership
+	lock                     sync.Mutex
+	cfg                      Conf
+	started                  bool
+	transportServer          transport.Server
+	kafkaServer              *kafkaserver2.KafkaServer
+	tablePusher              *pusher.TablePusher
+	controller               *control.Controller
+	membership               ClusterMembership
+	compactionWorkersService *lsm.CompactionWorkerService
 }
 
 func NewAgent(cfg Conf, objStore objstore.Client,
@@ -65,6 +67,11 @@ func NewAgentWithFactories(cfg Conf, objStore objstore.Client,
 		cfg.KafkaListenerConfig.TLSConfig, cfg.KafkaListenerConfig.AuthenticationType, agent.newKafkaHandler)
 	agent.membership = clusterMembershipFactory(transportServer.Address(), agent.controller.MembershipChanged)
 	agent.transportServer = transportServer
+	clFactory := func() (lsm.ControllerClient, error) {
+		return agent.controller.Client()
+	}
+	agent.compactionWorkersService = lsm.NewCompactionWorkerService(lsm.NewCompactionWorkerServiceConf(), objStore,
+		clFactory, true)
 	return agent, nil
 }
 
@@ -86,6 +93,9 @@ func (a *Agent) Start() error {
 	if err := a.kafkaServer.Start(); err != nil {
 		return err
 	}
+	if err := a.compactionWorkersService.Start(); err != nil {
+		return err
+	}
 	a.started = true
 	return nil
 }
@@ -95,6 +105,9 @@ func (a *Agent) Stop() error {
 	defer a.lock.Unlock()
 	if !a.started {
 		return nil
+	}
+	if err := a.compactionWorkersService.Stop(); err != nil {
+		return err
 	}
 	if err := a.transportServer.Stop(); err != nil {
 		return err

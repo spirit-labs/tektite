@@ -17,6 +17,8 @@ type Client interface {
 
 	QueryTablesInRange(keyStart []byte, keyEnd []byte) (lsm.OverlappingTables, error)
 
+	PollForJob() (lsm.CompactionJob, error)
+
 	Close() error
 }
 
@@ -121,6 +123,20 @@ func (c *client) GetOffsets(infos []offsets.GetOffsetTopicInfo) ([]int64, error)
 	var resp GetOffsetsResponse
 	resp.Deserialize(respBuff, 0)
 	return resp.Offsets, nil
+}
+
+func (c *client) PollForJob() (lsm.CompactionJob, error) {
+	conn, err := c.getConnection()
+	if err != nil {
+		return lsm.CompactionJob{}, err
+	}
+	respBuff, err := conn.SendRPC(transport.HandlerIDControllerPollForJob, createRequestBuffer())
+	if err != nil {
+		return lsm.CompactionJob{}, err
+	}
+	var job lsm.CompactionJob
+	job.Deserialize(respBuff, 0)
+	return job, nil
 }
 
 func createRequestBuffer() []byte {

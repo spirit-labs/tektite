@@ -5,6 +5,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/spirit-labs/tektite/cluster"
 	"github.com/spirit-labs/tektite/common"
+	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/lsm"
 	"github.com/spirit-labs/tektite/objstore"
 	"github.com/spirit-labs/tektite/offsets"
@@ -28,7 +29,7 @@ type Controller struct {
 	loaderFactory     offsetLoaderFactory
 	lsmHolder         *LsmHolder
 	offsetsCache      *offsets.Cache
-	offsetsLoader offsets.PartitionOffsetLoader
+	offsetsLoader     offsets.PartitionOffsetLoader
 	currentMembership cluster.MembershipState
 }
 
@@ -62,6 +63,7 @@ func (c *Controller) Start() error {
 	c.transportServer.RegisterHandler(transport.HandlerIDControllerApplyChanges, c.handleApplyChanges)
 	c.transportServer.RegisterHandler(transport.HandlerIDControllerQueryTablesInRange, c.handleQueryTablesInRange)
 	c.transportServer.RegisterHandler(transport.HandlerIDControllerGetOffsets, c.handleGetOffsets)
+	c.transportServer.RegisterHandler(transport.HandlerIDControllerPollForJob, c.handlePollForJob)
 	c.started = true
 	return nil
 }
@@ -146,7 +148,7 @@ func (c *Controller) Client() (Client, error) {
 	}, nil
 }
 
-func (c *Controller) handleRegisterL0Request(request []byte, responseBuff []byte, responseWriter transport.ResponseWriter) error {
+func (c *Controller) handleRegisterL0Request(_ int, request []byte, responseBuff []byte, responseWriter transport.ResponseWriter) error {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 	if err := checkRPCVersion(request); err != nil {
@@ -173,7 +175,7 @@ func (c *Controller) handleRegisterL0Request(request []byte, responseBuff []byte
 	})
 }
 
-func (c *Controller) handleApplyChanges(request []byte, responseBuff []byte, responseWriter transport.ResponseWriter) error {
+func (c *Controller) handleApplyChanges(_ int, request []byte, responseBuff []byte, responseWriter transport.ResponseWriter) error {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 	if err := checkRPCVersion(request); err != nil {
@@ -194,7 +196,7 @@ func (c *Controller) handleApplyChanges(request []byte, responseBuff []byte, res
 	})
 }
 
-func (c *Controller) handleQueryTablesInRange(request []byte, responseBuff []byte, responseWriter transport.ResponseWriter) error {
+func (c *Controller) handleQueryTablesInRange(_ int, request []byte, responseBuff []byte, responseWriter transport.ResponseWriter) error {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
 	if err := checkRPCVersion(request); err != nil {
@@ -213,7 +215,7 @@ func (c *Controller) handleQueryTablesInRange(request []byte, responseBuff []byt
 	return responseWriter(responseBuff, nil)
 }
 
-func (c *Controller) handleGetOffsets(request []byte, responseBuff []byte, responseWriter transport.ResponseWriter) error {
+func (c *Controller) handleGetOffsets(_ int, request []byte, responseBuff []byte, responseWriter transport.ResponseWriter) error {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
 	if err := checkRPCVersion(request); err != nil {
@@ -231,6 +233,28 @@ func (c *Controller) handleGetOffsets(request []byte, responseBuff []byte, respo
 	resp := GetOffsetsResponse{Offsets: offs}
 	responseBuff = resp.Serialize(responseBuff)
 	return responseWriter(responseBuff, nil)
+}
+
+func (c *Controller) handlePollForJob(connectionID int, request []byte, responseBuff []byte, responseWriter transport.ResponseWriter) error {
+	c.lock.RLock()
+	defer c.lock.RUnlock()
+	if err := checkRPCVersion(request); err != nil {
+		return responseWriter(nil, err)
+	}
+	c.lsmHolder.lsmManager.PollForJob(connectionID, func(job *lsm.CompactionJob, err error) {
+		if err != nil {
+			if err := responseWriter(nil, err); err != nil {
+				log.Errorf("failed to write error response %v", err)
+			}
+			return
+		}
+		buff := job.Serialize(nil)
+		responseBuff = append(responseBuff, buff...)
+		if err := responseWriter(responseBuff, nil); err != nil {
+			log.Errorf("failed to write response %v", err)
+		}
+	})
+	return nil
 }
 
 func checkRPCVersion(request []byte) error {

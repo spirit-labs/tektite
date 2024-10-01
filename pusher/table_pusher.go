@@ -46,7 +46,7 @@ type TablePusher struct {
 	cfg              Conf
 	topicProvider    streammeta.TopicInfoProvider
 	objStore         objstore.Client
-	clientFactory    ControllerClientFactory
+	clientFactory    controllerClientFactory
 	started          bool
 	stopping         atomic.Bool
 	controllerClient control.Client
@@ -61,7 +61,7 @@ type bufferedEntry struct {
 	completionFunc func(error)
 }
 
-type ControllerClientFactory func() (control.Client, error)
+type controllerClientFactory func() (control.Client, error)
 
 const (
 	objStoreAvailabilityTimeout = 5 * time.Second
@@ -79,7 +79,7 @@ func init() {
 }
 
 func NewTablePusher(cfg Conf, topicProvider streammeta.TopicInfoProvider, objStore objstore.Client,
-	clientFactory ControllerClientFactory) (*TablePusher, error) {
+	clientFactory controllerClientFactory) (*TablePusher, error) {
 	partitionHashes, err := parthash.NewPartitionHashes(partitionHashCacheMaxSize)
 	if err != nil {
 		return nil, err

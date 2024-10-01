@@ -4,40 +4,61 @@ import (
 	"bytes"
 	"fmt"
 	"github.com/google/uuid"
-	"github.com/spirit-labs/tektite/asl/conf"
+	"github.com/pkg/errors"
 	"github.com/spirit-labs/tektite/asl/errwrap"
 	"github.com/spirit-labs/tektite/common"
-	iteration2 "github.com/spirit-labs/tektite/iteration"
+	"github.com/spirit-labs/tektite/iteration"
 	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/objstore"
 	"github.com/spirit-labs/tektite/sst"
-	"github.com/spirit-labs/tektite/tabcache"
 	"sync"
 	"sync/atomic"
 	"time"
 )
 
-func NewCompactionWorkerService(cfg *conf.Config, levelMgrClientFactory ClientFactory, tableCache *tabcache.Cache,
-	objStoreClient objstore.Client, retentions bool) *CompactionWorkerService {
+func NewCompactionWorkerService(cfg CompactionWorkerServiceConf, objStoreClient objstore.Client,
+	clientFactory ControllerClientFactory, retentions bool) *CompactionWorkerService {
 	return &CompactionWorkerService{
-		cfg:                   cfg,
-		levelMgrClientFactory: levelMgrClientFactory,
-		tableCache:            tableCache,
-		objStoreClient:        objStoreClient,
-		retentions:            retentions,
+		cfg:            cfg,
+		objStoreClient: objStoreClient,
+		clientFactory:  clientFactory,
+		retentions:     retentions,
 	}
 }
 
 type CompactionWorkerService struct {
-	cfg                   *conf.Config
-	levelMgrClientFactory ClientFactory
-	tableCache            *tabcache.Cache
-	objStoreClient        objstore.Client
-	workers               []*compactionWorker
-	started               bool
-	lock                  sync.Mutex
-	gotPrefixRetentions   bool
-	retentions            bool
+	cfg                 CompactionWorkerServiceConf
+	objStoreClient      objstore.Client
+	clientFactory       ControllerClientFactory
+	workers             []*compactionWorker
+	started             bool
+	lock                sync.Mutex
+	gotPrefixRetentions bool
+	retentions          bool
+}
+
+type CompactionWorkerServiceConf struct {
+	MaxSSTableSize        int
+	WorkerCount           int
+	SSTableBucketName     string
+	SSTablePushRetryDelay time.Duration
+}
+
+func NewCompactionWorkerServiceConf() CompactionWorkerServiceConf {
+	return CompactionWorkerServiceConf{
+		WorkerCount:           4,
+		SSTableBucketName:     "tektite-data",
+		SSTablePushRetryDelay: 1 * time.Second,
+		MaxSSTableSize:        16 * 1024 * 1024,
+	}
+}
+
+type ControllerClientFactory func() (ControllerClient, error)
+
+type ControllerClient interface {
+	ApplyLsmChanges(regBatch RegistrationBatch) error
+	PollForJob() (CompactionJob, error)
+	Close() error
 }
 
 const workerRetryInterval = 100 * time.Millisecond
@@ -48,10 +69,9 @@ func (c *CompactionWorkerService) Start() error {
 	if c.started {
 		return nil
 	}
-	for i := 0; i < c.cfg.CompactionWorkerCount; i++ {
+	for i := 0; i < c.cfg.WorkerCount; i++ {
 		worker := &compactionWorker{
 			cws:            c,
-			client:         c.levelMgrClientFactory.CreateLevelManagerClient(),
 			slabRetentions: map[int]time.Duration{},
 		}
 		c.workers = append(c.workers, worker)
@@ -89,8 +109,29 @@ type compactionWorker struct {
 	cws            *CompactionWorkerService
 	started        atomic.Bool
 	stopWg         sync.WaitGroup
-	client         Client
 	slabRetentions map[int]time.Duration
+	controlClient  ControllerClient
+}
+
+func (c *compactionWorker) controllerClient() (ControllerClient, error) {
+	if c.controlClient != nil {
+		return c.controlClient, nil
+	}
+	cl, err := c.cws.clientFactory()
+	if err != nil {
+		return nil, err
+	}
+	c.controlClient = cl
+	return cl, nil
+}
+
+func (c *compactionWorker) closeControllerClient() {
+	if c.controlClient != nil {
+		if err := c.controlClient.Close(); err != nil {
+			log.Errorf("failed to close control client: %v", err)
+		}
+		c.controlClient = nil
+	}
 }
 
 func (c *compactionWorker) GetSlabRetention(slabID int) (time.Duration, error) {
@@ -99,12 +140,19 @@ func (c *compactionWorker) GetSlabRetention(slabID int) (time.Duration, error) {
 	if ok {
 		return ret, nil
 	}
-	ret, err := c.client.GetSlabRetention(slabID)
-	if err != nil {
-		return 0, err
-	}
-	c.slabRetentions[slabID] = ret
-	return ret, nil
+	// TODO - slab retentions will come from the metaservice, exposed over the controller
+	//cl, err := c.controllerClient()
+	//if err != nil {
+	//	return 0, err
+	//}
+	//ret, err = cl.GetSlabRetention(slabID)
+	//if err != nil {
+	//	c.closeControllerClient()
+	//	return 0, err
+	//}
+	//c.slabRetentions[slabID] = ret
+	//return ret, nil
+	return 0, nil
 }
 
 func (c *compactionWorker) start() {
@@ -114,21 +162,31 @@ func (c *compactionWorker) start() {
 }
 
 func (c *compactionWorker) stop() {
-	if err := c.client.Stop(); err != nil {
-		log.Warnf("failed to stop levelMgr client: %v", err)
-	}
 	c.started.Store(false)
 	c.stopWg.Wait()
 }
 
 func (c *compactionWorker) loop() {
-	defer c.stopWg.Done()
+	defer func() {
+		c.closeControllerClient()
+		c.stopWg.Done()
+	}()
 	for c.started.Load() {
-		job, err := c.client.PollForJob()
+		cl, err := c.controllerClient()
 		if err != nil {
+			if common.IsUnavailableError(err) {
+				time.Sleep(workerRetryInterval)
+				continue
+			}
+			log.Errorf("failed to create controller client %v", err)
+			return
+		}
+		job, err := cl.PollForJob()
+		if err != nil {
+			c.closeControllerClient()
 			var tErr common.TektiteError
 			if errwrap.As(err, &tErr) {
-				if tErr.Code == common.Unavailable || tErr.Code == common.LevelManagerNotLeaderNode {
+				if tErr.Code == common.Unavailable {
 					// transient unavailability
 					time.Sleep(workerRetryInterval)
 					continue
@@ -142,7 +200,7 @@ func (c *compactionWorker) loop() {
 			continue
 		}
 		for c.started.Load() {
-			registrations, deRegistrations, err := c.processJob(job)
+			registrations, deRegistrations, err := c.processJob(&job)
 			if err == nil {
 				regBatch := RegistrationBatch{
 					Compaction:      true,
@@ -150,15 +208,16 @@ func (c *compactionWorker) loop() {
 					Registrations:   registrations,
 					DeRegistrations: deRegistrations,
 				}
-				_, err := c.client.ApplyChanges(regBatch)
+				err := cl.ApplyLsmChanges(regBatch)
 				if err == nil {
 					// success
 					break
 				}
 			}
+			c.closeControllerClient()
 			var tErr common.TektiteError
 			if errwrap.As(err, &tErr) {
-				if tErr.Code == common.Unavailable || tErr.Code == common.LevelManagerNotLeaderNode {
+				if tErr.Code == common.Unavailable {
 					// transient unavailability - retry after delay
 					log.Debugf("transient error in compaction. will retry: %v", err)
 					time.Sleep(workerRetryInterval)
@@ -189,7 +248,7 @@ func (c *compactionWorker) processJob(job *CompactionJob) ([]RegistrationEntry, 
 	for i, overlapping := range job.tables {
 		tables := make([]tableToMerge, len(overlapping))
 		for j, t := range overlapping {
-			ssTable, err := c.cws.tableCache.GetSSTable(t.table.SSTableID)
+			ssTable, err := c.getSSTable(t.table.SSTableID)
 			if err != nil {
 				return nil, nil, err
 			}
@@ -215,7 +274,7 @@ func (c *compactionWorker) processJob(job *CompactionJob) ([]RegistrationEntry, 
 		retProvider = c
 	}
 	infos, err := mergeSSTables(common.DataFormatV1, tablesToMerge, job.preserveTombstones,
-		c.cws.cfg.CompactionMaxSSTableSize, job.lastFlushedVersion, job.id, retProvider, job.serverTime)
+		c.cws.cfg.MaxSSTableSize, job.lastFlushedVersion, job.id, retProvider, job.serverTime)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -230,13 +289,8 @@ func (c *compactionWorker) processJob(job *CompactionJob) ([]RegistrationEntry, 
 		for {
 			tableBytes := info.sst.Serialize()
 			// Add to object store
-			err := objstore.PutWithTimeout(c.cws.objStoreClient, c.cws.cfg.BucketName, string(id), tableBytes, objstore.DefaultCallTimeout)
+			err := objstore.PutWithTimeout(c.cws.objStoreClient, c.cws.cfg.SSTableBucketName, string(id), tableBytes, objstore.DefaultCallTimeout)
 			if err == nil {
-				// Add to the local cache
-				err = c.cws.tableCache.AddSSTableWithMaxAge(id, info.sst)
-				if err != nil {
-					panic(err) // never happens
-				}
 				break
 			}
 			if !common.IsUnavailableError(err) {
@@ -267,6 +321,20 @@ func (c *compactionWorker) processJob(job *CompactionJob) ([]RegistrationEntry, 
 	dur := time.Now().Sub(start)
 	log.Debugf("compaction job %s took %d ms to process on worker %p", job.id, dur.Milliseconds(), c)
 	return registrations, deRegistrations, nil
+}
+
+func (c *compactionWorker) getSSTable(tableID sst.SSTableID) (*sst.SSTable, error) {
+	buff, err := objstore.GetWithTimeout(c.cws.objStoreClient, c.cws.cfg.SSTableBucketName, string(tableID),
+		objstore.DefaultCallTimeout)
+	if err != nil {
+		return nil, err
+	}
+	if len(buff) == 0 {
+		return nil, errors.Errorf("cannot find sstable %s", tableID)
+	}
+	var table sst.SSTable
+	table.Deserialize(buff, 0)
+	return &table, nil
 }
 
 func changesToApply(newTables []TableEntry, job *CompactionJob) ([]RegistrationEntry, []RegistrationEntry) {
@@ -352,9 +420,9 @@ func mergeSSTables(format common.DataFormat, tables [][]tableToMerge, preserveTo
 	lastFlushedVersion int64, jobID string, retentionProvider RetentionProvider, serverTime uint64) ([]ssTableInfo, error) {
 
 	totEntries := 0
-	chainIters := make([]iteration2.Iterator, len(tables))
+	chainIters := make([]iteration.Iterator, len(tables))
 	for i, overlapping := range tables {
-		sourceIters := make([]iteration2.Iterator, len(overlapping))
+		sourceIters := make([]iteration.Iterator, len(overlapping))
 		for j, table := range overlapping {
 			sstIter, err := table.sst.NewIterator(nil, nil)
 			log.Debugf("mergingSSTables with dead version range %v", table.deadVersionRanges)
@@ -371,7 +439,7 @@ func mergeSSTables(format common.DataFormat, tables [][]tableToMerge, preserveTo
 			}
 			totEntries += table.sst.NumEntries()
 		}
-		chainIter := iteration2.NewChainingIterator(sourceIters)
+		chainIter := iteration.NewChainingIterator(sourceIters)
 		chainIters[i] = chainIter
 	}
 
@@ -384,7 +452,7 @@ func mergeSSTables(format common.DataFormat, tables [][]tableToMerge, preserveTo
 		// This ensures we don't lose any keys that we need after rolling back to lastFlushedVersion on failure
 		minNonCompactableVersion = uint64(lastFlushedVersion)
 	}
-	mi, err := iteration2.NewCompactionMergingIterator(chainIters, preserveTombstones, minNonCompactableVersion)
+	mi, err := iteration.NewCompactionMergingIterator(chainIters, preserveTombstones, minNonCompactableVersion)
 	if err != nil {
 		return nil, err
 	}

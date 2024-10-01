@@ -4,6 +4,7 @@ import (
 	"github.com/spirit-labs/tektite/asl/conf"
 	"github.com/spirit-labs/tektite/cluster"
 	"github.com/spirit-labs/tektite/control"
+	"github.com/spirit-labs/tektite/lsm"
 	"github.com/spirit-labs/tektite/pusher"
 )
 
@@ -13,6 +14,7 @@ type Conf struct {
 	ClusterMembershipConfig cluster.MembershipConf
 	PusherConf              pusher.Conf
 	ControllerConf          control.Conf
+	CompactionWorkersConf   lsm.CompactionWorkerServiceConf
 }
 
 func NewConf() Conf {
@@ -20,6 +22,7 @@ func NewConf() Conf {
 		ClusterMembershipConfig: cluster.NewMembershipConf(),
 		PusherConf:              pusher.NewConf(),
 		ControllerConf:          control.NewConf(),
+		CompactionWorkersConf:   lsm.NewCompactionWorkerServiceConf(),
 	}
 }
 

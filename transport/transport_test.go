@@ -1,6 +1,7 @@
 package transport
 
 import (
+	"encoding/binary"
 	"fmt"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/stretchr/testify/require"
@@ -29,6 +30,7 @@ var testCases = []testCase{
 	{caseName: "testErrorResponseTektiteError", f: testErrorResponseTektiteError},
 	{caseName: "testErrorResponseUnexpectedError", f: testErrorResponseUnexpectedError},
 	{caseName: "testInterleavedRPCs", f: testInterleavedRPCs},
+	{caseName: "testConnectionIDs", f: testConnectionIDs},
 }
 
 func testRPC(t *testing.T, serverFactory ServerFactory, connFactory ConnectionFactory) {
@@ -50,7 +52,7 @@ func testRPC(t *testing.T, serverFactory ServerFactory, connFactory ConnectionFa
 		nodeNum := i
 		for j := 0; j < numHandlerIDs; j++ {
 			handlerID := j
-			server.RegisterHandler(handlerID, func(request []byte, responseBuff []byte, responseWriter ResponseWriter) error {
+			server.RegisterHandler(handlerID, func(_ int, request []byte, responseBuff []byte, responseWriter ResponseWriter) error {
 				resp := fmt.Sprintf("node-%d-handler-id-%d-response-%s", nodeNum, handlerID, string(request))
 				responseBuff = append(responseBuff, []byte(resp)...)
 				return responseWriter(responseBuff, nil)
@@ -104,7 +106,7 @@ func testErrorResponseWithError(t *testing.T, serverFactory ServerFactory, connF
 		require.NoError(t, err)
 	}()
 	handlerID := 23
-	server.RegisterHandler(handlerID, func(request []byte, responseBuff []byte, responseWriter ResponseWriter) error {
+	server.RegisterHandler(handlerID, func(_ int, request []byte, responseBuff []byte, responseWriter ResponseWriter) error {
 		return responseWriter(nil, respErr)
 	})
 	conn, err := connFactory(server.Address())
@@ -126,7 +128,7 @@ func testInterleavedRPCs(t *testing.T, serverFactory ServerFactory, connFactory 
 		require.NoError(t, err)
 	}()
 	handlerID := 23
-	server.RegisterHandler(handlerID, func(request []byte, responseBuff []byte, responseWriter ResponseWriter) error {
+	server.RegisterHandler(handlerID, func(_ int, request []byte, responseBuff []byte, responseWriter ResponseWriter) error {
 		// Send back response async
 		// Need to copy request as handler responds async
 		requestCopy := common.ByteSliceCopy(request)
@@ -165,5 +167,35 @@ func testInterleavedRPCs(t *testing.T, serverFactory ServerFactory, connFactory 
 		require.NoError(t, res.err)
 		expectedResult := fmt.Sprintf("request-%d-response", i)
 		require.Equal(t, expectedResult, string(res.resp))
+	}
+}
+
+func testConnectionIDs(t *testing.T, serverFactory ServerFactory, connFactory ConnectionFactory) {
+	server := serverFactory(t)
+	defer func() {
+		err := server.Stop()
+		require.NoError(t, err)
+	}()
+	handlerID := 23
+	server.RegisterHandler(handlerID, func(connectionID int, request []byte, responseBuff []byte, responseWriter ResponseWriter) error {
+		responseBuff = binary.BigEndian.AppendUint64(responseBuff, uint64(connectionID))
+		return responseWriter(responseBuff, nil)
+	})
+	numConns := 10
+	prevConnID := -1
+	for i := 0; i < numConns; i++ {
+		conn, err := connFactory(server.Address())
+		require.NoError(t, err)
+		defer func() {
+			err := conn.Close()
+			require.NoError(t, err)
+		}()
+		resp, err := conn.SendRPC(handlerID, []byte("foo"))
+		require.NoError(t, err)
+		connID := int(binary.BigEndian.Uint64(resp))
+		if prevConnID != -1 {
+			require.Equal(t, connID, prevConnID+1)
+		}
+		prevConnID = connID
 	}
 }
