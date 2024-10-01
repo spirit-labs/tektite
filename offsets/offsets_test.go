@@ -517,6 +517,9 @@ func (t *testPartitionOffsetLoader) LoadHighestOffsetForPartition(topicID int, p
 	return po, nil
 }
 
+func (t *testPartitionOffsetLoader) Stop() {
+}
+
 func TestWrittenOffsetsHeap(t *testing.T) {
 	// Create a bunch of written offsets
 	numWrittenOffsets := 100
