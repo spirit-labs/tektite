@@ -7,11 +7,11 @@ import (
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/control"
 	"github.com/spirit-labs/tektite/iteration"
+	"github.com/spirit-labs/tektite/kafkaencoding"
 	"github.com/spirit-labs/tektite/kafkaprotocol"
 	"github.com/spirit-labs/tektite/objstore"
 	"github.com/spirit-labs/tektite/objstore/dev"
 	"github.com/spirit-labs/tektite/parthash"
-	"github.com/spirit-labs/tektite/pusher"
 	"github.com/spirit-labs/tektite/sst"
 	"github.com/spirit-labs/tektite/testutils"
 	"github.com/spirit-labs/tektite/topicmeta"
@@ -51,7 +51,7 @@ func TestProduceSimple(t *testing.T) {
 		TimeoutMs:       1234,
 		TopicData: []kafkaprotocol.ProduceRequestTopicProduceData{
 			{
-				Name: strPtr(topicName),
+				Name: common.StrPtr(topicName),
 				PartitionData: []kafkaprotocol.ProduceRequestPartitionProduceData{
 					{
 						Index: int32(partitionID),
@@ -125,7 +125,7 @@ func TestProduceMultipleTopicsAndPartitions(t *testing.T) {
 			})
 		}
 		topicData = append(topicData, kafkaprotocol.ProduceRequestTopicProduceData{
-			Name:          strPtr(fmt.Sprintf("topic-%02d", i)),
+			Name:          common.StrPtr(fmt.Sprintf("topic-%02d", i)),
 			PartitionData: partitionData,
 		})
 	}
@@ -223,7 +223,7 @@ func TestProduceMultipleBatches(t *testing.T) {
 			TimeoutMs:       1234,
 			TopicData: []kafkaprotocol.ProduceRequestTopicProduceData{
 				{
-					Name: strPtr(topicName),
+					Name: common.StrPtr(topicName),
 					PartitionData: []kafkaprotocol.ProduceRequestPartitionProduceData{
 						{
 							Index: int32(partitionID),
@@ -284,7 +284,7 @@ func TestProduceSimpleWithReload(t *testing.T) {
 		TimeoutMs:       1234,
 		TopicData: []kafkaprotocol.ProduceRequestTopicProduceData{
 			{
-				Name: strPtr(topicName),
+				Name: common.StrPtr(topicName),
 				PartitionData: []kafkaprotocol.ProduceRequestPartitionProduceData{
 					{
 						Index: int32(partitionID),
@@ -331,7 +331,7 @@ func TestProduceSimpleWithReload(t *testing.T) {
 		TimeoutMs:       1234,
 		TopicData: []kafkaprotocol.ProduceRequestTopicProduceData{
 			{
-				Name: strPtr(topicName),
+				Name: common.StrPtr(topicName),
 				PartitionData: []kafkaprotocol.ProduceRequestPartitionProduceData{
 					{
 						Index: int32(partitionID),
@@ -452,13 +452,13 @@ func verifyBatchesWritten(t *testing.T, topicID int, partitionID int, offsetStar
 	for _, nonOverLapIDs := range ids {
 		if len(nonOverLapIDs) == 1 {
 			info := nonOverLapIDs[0]
-			iter, err := sst.NewLazySSTableIterator(info.ID, tg, keyStart, keyEnd)
+			iter, err := sst.NewLazySSTableIterator(info.ID, tg.GetSSTable, keyStart, keyEnd)
 			require.NoError(t, err)
 			iters = append(iters, iter)
 		} else {
 			itersInChain := make([]iteration.Iterator, len(nonOverLapIDs))
 			for j, nonOverlapID := range nonOverLapIDs {
-				iter, err := sst.NewLazySSTableIterator(nonOverlapID.ID, tg, keyStart, keyEnd)
+				iter, err := sst.NewLazySSTableIterator(nonOverlapID.ID, tg.GetSSTable, keyStart, keyEnd)
 				require.NoError(t, err)
 				itersInChain[j] = iter
 			}
@@ -478,7 +478,7 @@ func verifyBatchesWritten(t *testing.T, topicID int, partitionID int, offsetStar
 		require.Equal(t, kv.Key, expectedKey)
 		recordBatch := kv.Value
 		require.Equal(t, expectedBatch, recordBatch)
-		numRecords := pusher.NumRecords(recordBatch)
+		numRecords := kafkaencoding.NumRecords(recordBatch)
 		expectedOffset += numRecords
 	}
 	ok, _, err := mi.Next()

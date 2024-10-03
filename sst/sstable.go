@@ -3,6 +3,8 @@ package sst
 import (
 	"bytes"
 	"encoding/binary"
+	"fmt"
+	"github.com/google/uuid"
 	"github.com/spirit-labs/tektite/asl/encoding"
 	"github.com/spirit-labs/tektite/asl/errwrap"
 	"github.com/spirit-labs/tektite/common"
@@ -251,4 +253,8 @@ func (s *SSTable) findOffset(key []byte) int {
 	valueStart := recordStart + maxKeyLength
 	off, _ := encoding.ReadUint32FromBufferLE(s.data, valueStart)
 	return int(off)
+}
+
+func CreateSSTableId() string {
+	return fmt.Sprintf("sst-%s", uuid.New().String())
 }

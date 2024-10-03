@@ -3,16 +3,17 @@ package agent
 import (
 	"github.com/spirit-labs/tektite/cluster"
 	"github.com/spirit-labs/tektite/control"
+	"github.com/spirit-labs/tektite/fetcher"
 	"github.com/spirit-labs/tektite/kafkaserver2"
 	"github.com/spirit-labs/tektite/lsm"
 	"github.com/spirit-labs/tektite/objstore"
+	"github.com/spirit-labs/tektite/parthash"
 	"github.com/spirit-labs/tektite/pusher"
 	"github.com/spirit-labs/tektite/topicmeta"
 	"github.com/spirit-labs/tektite/transport"
 	"sync"
 )
 
-// Agent is currently just a place-holder
 type Agent struct {
 	lock                     sync.Mutex
 	cfg                      Conf
@@ -20,9 +21,11 @@ type Agent struct {
 	transportServer          transport.Server
 	kafkaServer              *kafkaserver2.KafkaServer
 	tablePusher              *pusher.TablePusher
+	batchFetcher             *fetcher.BatchFetcher
 	controller               *control.Controller
 	membership               ClusterMembership
 	compactionWorkersService *lsm.CompactionWorkerService
+	partitionHashes          *parthash.PartitionHashes
 }
 
 func NewAgent(cfg Conf, objStore objstore.Client) (*Agent, error) {
@@ -40,6 +43,8 @@ func NewAgent(cfg Conf, objStore objstore.Client) (*Agent, error) {
 	return NewAgentWithFactories(cfg, objStore, socketClient.CreateConnection, transportServer,
 		clusterMembershipFactory)
 }
+
+const partitionHashCacheMaxSize = 100000
 
 type ClusterMembershipFactory func(address string, listener MembershipListener) ClusterMembership
 
@@ -65,11 +70,24 @@ func NewAgentWithFactories(cfg Conf, objStore objstore.Client, connectionFactory
 	clientFactory := func() (pusher.ControlClient, error) {
 		return agent.controller.Client()
 	}
-	rb, err := pusher.NewTablePusher(cfg.PusherConf, topicMetaCache, objStore, clientFactory)
+	partitionHashes, err := parthash.NewPartitionHashes(partitionHashCacheMaxSize)
+	if err != nil {
+		return nil, err
+	}
+	agent.partitionHashes = partitionHashes
+	rb, err := pusher.NewTablePusher(cfg.PusherConf, topicMetaCache, objStore, clientFactory, partitionHashes)
 	if err != nil {
 		return nil, err
 	}
 	agent.tablePusher = rb
+	fetcherClFactory := func() (fetcher.ControlClient, error) {
+		return agent.controller.Client()
+	}
+	bf, err := fetcher.NewBatchFetcher(objStore, topicMetaCache, partitionHashes, fetcherClFactory, nil, cfg.FetcherConf)
+	if err != nil {
+		return nil, err
+	}
+	agent.batchFetcher = bf
 	agent.kafkaServer = kafkaserver2.NewKafkaServer(cfg.KafkaListenerConfig.Address,
 		cfg.KafkaListenerConfig.TLSConfig, cfg.KafkaListenerConfig.AuthenticationType, agent.newKafkaHandler)
 	agent.membership = clusterMembershipFactory(transportServer.Address(), agent.controller.MembershipChanged)
@@ -97,6 +115,9 @@ func (a *Agent) Start() error {
 	if err := a.tablePusher.Start(); err != nil {
 		return err
 	}
+	if err := a.batchFetcher.Start(); err != nil {
+		return err
+	}
 	if err := a.kafkaServer.Start(); err != nil {
 		return err
 	}
@@ -120,6 +141,9 @@ func (a *Agent) Stop() error {
 		return err
 	}
 	if err := a.kafkaServer.Stop(); err != nil {
+		return err
+	}
+	if err := a.batchFetcher.Stop(); err != nil {
 		return err
 	}
 	if err := a.tablePusher.Stop(); err != nil {

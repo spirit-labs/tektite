@@ -4,6 +4,7 @@ import (
 	"github.com/spirit-labs/tektite/asl/conf"
 	"github.com/spirit-labs/tektite/cluster"
 	"github.com/spirit-labs/tektite/control"
+	"github.com/spirit-labs/tektite/fetcher"
 	"github.com/spirit-labs/tektite/lsm"
 	"github.com/spirit-labs/tektite/pusher"
 )
@@ -15,6 +16,7 @@ type Conf struct {
 	PusherConf              pusher.Conf
 	ControllerConf          control.Conf
 	CompactionWorkersConf   lsm.CompactionWorkerServiceConf
+	FetcherConf             fetcher.Conf
 }
 
 func NewConf() Conf {
@@ -23,6 +25,7 @@ func NewConf() Conf {
 		PusherConf:              pusher.NewConf(),
 		ControllerConf:          control.NewConf(),
 		CompactionWorkersConf:   lsm.NewCompactionWorkerServiceConf(),
+		FetcherConf:             fetcher.NewConf(),
 	}
 }
 
@@ -40,6 +43,9 @@ func (c *Conf) Validate() error {
 		return err
 	}
 	if err := c.ControllerConf.Validate(); err != nil {
+		return err
+	}
+	if err := c.FetcherConf.Validate(); err != nil {
 		return err
 	}
 	return nil
