@@ -4,6 +4,7 @@ import (
 	"github.com/spirit-labs/tektite/lsm"
 	"github.com/spirit-labs/tektite/offsets"
 	"github.com/spirit-labs/tektite/sst"
+	"github.com/spirit-labs/tektite/topicmeta"
 	"github.com/stretchr/testify/require"
 	"testing"
 	"time"
@@ -14,31 +15,31 @@ func TestSerializeDeserializeRegisterL0Request(t *testing.T) {
 		ClusterVersion: 4555,
 		OffsetInfos: []offsets.UpdateWrittenOffsetInfo{
 			{
-				TopicID: 1234,
+				TopicID:     1234,
 				PartitionID: 12,
 				OffsetStart: 1001,
 				NumOffsets:  213,
 			},
 			{
-				TopicID: 1234,
+				TopicID:     1234,
 				PartitionID: 0,
 				OffsetStart: 23,
 				NumOffsets:  456,
 			},
 			{
-				TopicID: 1234,
+				TopicID:     1234,
 				PartitionID: 45,
 				OffsetStart: 3453,
 				NumOffsets:  32334,
 			},
 			{
-				TopicID: 234234,
+				TopicID:     234234,
 				PartitionID: 45,
 				OffsetStart: 23423,
 				NumOffsets:  234,
 			},
 			{
-				TopicID: 123,
+				TopicID:     123,
 				PartitionID: 34534,
 				OffsetStart: 433,
 				NumOffsets:  444,
@@ -172,5 +173,71 @@ func TestSerializeDeserializeGetOffsetsResponse(t *testing.T) {
 	var resp2 GetOffsetsResponse
 	off := resp2.Deserialize(buff, 3)
 	require.Equal(t, resp, resp2)
+	require.Equal(t, off, len(buff))
+}
+
+func TestSerializeDeserializeGetTopicInfoRequest(t *testing.T) {
+	req := GetTopicInfoRequest{
+		ClusterVersion: 123,
+		TopicName:      "some-topic",
+	}
+	var buff []byte
+	buff = append(buff, 1, 2, 3)
+	buff = req.Serialize(buff)
+	var req2 GetTopicInfoRequest
+	off := req2.Deserialize(buff, 3)
+	require.Equal(t, req, req2)
+	require.Equal(t, off, len(buff))
+}
+
+func TestSerializeDeserializeGetTopicInfoResponse(t *testing.T) {
+	req := GetTopicInfoResponse{
+		Sequence: 123,
+		Info: topicmeta.TopicInfo{
+			ID:             1233,
+			Name:           "some-topic",
+			PartitionCount: 123123123,
+			RetentionTime:  23445346,
+		},
+	}
+	var buff []byte
+	buff = append(buff, 1, 2, 3)
+	buff = req.Serialize(buff)
+	var req2 GetTopicInfoResponse
+	off := req2.Deserialize(buff, 3)
+	require.Equal(t, req, req2)
+	require.Equal(t, off, len(buff))
+}
+
+func TestSerializeDeserializeCreateTopicRequest(t *testing.T) {
+	req := CreateTopicRequest{
+		ClusterVersion: 123,
+		Info: topicmeta.TopicInfo{
+			ID:             23423,
+			Name:           "some-topic",
+			PartitionCount: 123123,
+			RetentionTime:  1212312123,
+		},
+	}
+	var buff []byte
+	buff = append(buff, 1, 2, 3)
+	buff = req.Serialize(buff)
+	var req2 CreateTopicRequest
+	off := req2.Deserialize(buff, 3)
+	require.Equal(t, req, req2)
+	require.Equal(t, off, len(buff))
+}
+
+func TestSerializeDeserializeDeleteTopicRequest(t *testing.T) {
+	req := DeleteTopicRequest{
+		ClusterVersion: 123,
+		TopicName:      "some-topic",
+	}
+	var buff []byte
+	buff = append(buff, 1, 2, 3)
+	buff = req.Serialize(buff)
+	var req2 DeleteTopicRequest
+	off := req2.Deserialize(buff, 3)
+	require.Equal(t, req, req2)
 	require.Equal(t, off, len(buff))
 }

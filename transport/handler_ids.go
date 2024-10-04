@@ -6,4 +6,9 @@ const (
 	HandlerIDControllerQueryTablesInRange
 	HandlerIDControllerGetOffsets
 	HandlerIDControllerPollForJob
+	HandlerIDControllerGetTopicInfo
+	HandlerIDControllerCreateTopic
+	HandlerIDControllerDeleteTopic
+	HandlerIDMetaLocalCacheTopicAdded
+	HandlerIDMetaLocalCacheTopicDeleted
 )

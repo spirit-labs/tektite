@@ -13,8 +13,8 @@ import (
 	"github.com/spirit-labs/tektite/parthash"
 	"github.com/spirit-labs/tektite/pusher"
 	"github.com/spirit-labs/tektite/sst"
-	"github.com/spirit-labs/tektite/streammeta"
 	"github.com/spirit-labs/tektite/testutils"
+	"github.com/spirit-labs/tektite/topicmeta"
 	"github.com/spirit-labs/tektite/transport"
 	"github.com/stretchr/testify/require"
 	"math"
@@ -28,11 +28,15 @@ func init() {
 
 func TestProduceSimple(t *testing.T) {
 	topicName := "test-topic-1"
-	topicID := 1234
+	topicID := 1
 	partitionID := 12
-	topicInfos := map[string]streammeta.TopicInfo{
-		topicName: {
-			TopicID:        topicID,
+	topicInfos := []topicmeta.TopicInfo{
+		{
+			Name:           "footopic",
+			PartitionCount: 23,
+		},
+		{
+			Name:           topicName,
 			PartitionCount: 100,
 		},
 	}
@@ -93,16 +97,15 @@ func TestProduceSimple(t *testing.T) {
 }
 
 func TestProduceMultipleTopicsAndPartitions(t *testing.T) {
-
 	numTopics := 10
 	numPartitionsPerTopic := 10
 
-	topicInfos := map[string]streammeta.TopicInfo{}
+	var topicInfos []topicmeta.TopicInfo
 	for i := 0; i < numTopics; i++ {
-		topicInfos[fmt.Sprintf("topic-%02d", i)] = streammeta.TopicInfo{
-			TopicID:        1000 + i,
+		topicInfos = append(topicInfos, topicmeta.TopicInfo{
+			Name:           fmt.Sprintf("topic-%02d", i),
 			PartitionCount: numPartitionsPerTopic,
-		}
+		})
 	}
 
 	cfg := NewConf()
@@ -170,7 +173,7 @@ func TestProduceMultipleTopicsAndPartitions(t *testing.T) {
 		for j := 0; j < numPartitionsPerTopic; j++ {
 			batch := batches[pos]
 			pos++
-			verifyBatchesWritten(t, i+1000, j, 0, [][]byte{batch}, controllerCl,
+			verifyBatchesWritten(t, i, j, 0, [][]byte{batch}, controllerCl,
 				agent.Conf().PusherConf.DataBucketName, objStore)
 		}
 	}
@@ -178,11 +181,15 @@ func TestProduceMultipleTopicsAndPartitions(t *testing.T) {
 
 func TestProduceMultipleBatches(t *testing.T) {
 	topicName := "test-topic-1"
-	topicID := 1234
+	topicID := 1
 	partitionID := 12
-	topicInfos := map[string]streammeta.TopicInfo{
-		topicName: {
-			TopicID:        topicID,
+	topicInfos := []topicmeta.TopicInfo{
+		{
+			Name:           "footopic",
+			PartitionCount: 23,
+		},
+		{
+			Name:           topicName,
 			PartitionCount: 100,
 		},
 	}
@@ -253,11 +260,16 @@ func TestProduceMultipleBatches(t *testing.T) {
 
 func TestProduceSimpleWithReload(t *testing.T) {
 	topicName := "test-topic-1"
-	topicID := 1234
+	topicID := 1
 	partitionID := 12
-	topicInfos := map[string]streammeta.TopicInfo{
-		topicName: {
-			TopicID:        topicID,
+	topicInfos := []topicmeta.TopicInfo{
+		{
+			Name:           "footopic",
+			PartitionCount: 23,
+		},
+		{
+			Name:           topicName,
+			ID:             topicID,
 			PartitionCount: 100,
 		},
 	}
@@ -309,7 +321,7 @@ func TestProduceSimpleWithReload(t *testing.T) {
 
 	// Restart agent, and send another batch
 
-	agent, tearDown = setupAgentWithObjStore(t, topicInfos, cfg, objStore)
+	agent, tearDown = setupAgentWithObjStore(t, nil, cfg, objStore)
 	defer tearDown(t)
 
 	batch2 := testutils.CreateKafkaRecordBatchWithIncrementingKVs(100, 100)
@@ -360,23 +372,20 @@ func TestProduceSimpleWithReload(t *testing.T) {
 		agent.Conf().PusherConf.DataBucketName, objStore)
 }
 
-func setupAgentWithObjStore(t *testing.T, topicInfos map[string]streammeta.TopicInfo, cfg Conf,
-	objStore objstore.Client) (*Agent, func(t *testing.T)) {
+func setupAgentWithObjStore(t *testing.T, topicInfos []topicmeta.TopicInfo, cfg Conf, objStore objstore.Client) (*Agent, func(t *testing.T)) {
 	kafkaAddress, err := common.AddressWithPort("localhost")
 	require.NoError(t, err)
 	cfg.KafkaListenerConfig.Address = kafkaAddress
-	topicProvider := &testTopicProvider{
-		topicInfos: topicInfos,
-	}
 	localTransports := transport.NewLocalTransports()
 	transportServer, err := localTransports.NewLocalServer("test-address")
 	require.NoError(t, err)
 	inMemMemberships := NewInMemClusterMemberships()
 	inMemMemberships.Start()
-	agent, err := NewAgentWithFactories(cfg, objStore, topicProvider, localTransports.CreateConnection, transportServer, inMemMemberships.NewMembership)
+	agent, err := NewAgentWithFactories(cfg, objStore, localTransports.CreateConnection, transportServer, inMemMemberships.NewMembership)
 	require.NoError(t, err)
 	err = agent.Start()
 	require.NoError(t, err)
+	setupTopics(t, agent, topicInfos)
 	tearDown := func(t *testing.T) {
 		err := agent.Stop()
 		require.NoError(t, err)
@@ -385,10 +394,41 @@ func setupAgentWithObjStore(t *testing.T, topicInfos map[string]streammeta.Topic
 	return agent, tearDown
 }
 
-func setupAgent(t *testing.T, topicInfos map[string]streammeta.TopicInfo, cfg Conf) (*Agent, *dev.InMemStore, func(t *testing.T)) {
+func setupAgent(t *testing.T, topicInfos []topicmeta.TopicInfo, cfg Conf) (*Agent, *dev.InMemStore, func(t *testing.T)) {
 	objStore := dev.NewInMemStore(0)
 	agent, tearDown := setupAgentWithObjStore(t, topicInfos, cfg, objStore)
 	return agent, objStore, tearDown
+}
+
+func setupTopics(t *testing.T, agent *Agent, infos []topicmeta.TopicInfo) {
+	controller := agent.controller
+	var cl control.Client
+outer:
+	for _, info := range infos {
+		for {
+			var err error
+			if cl == nil {
+				cl, err = controller.Client()
+			}
+			if err == nil {
+				err = cl.CreateTopic(info)
+				if err == nil {
+					continue outer
+				}
+			}
+			if !common.IsUnavailableError(err) {
+				require.NoError(t, err)
+				return
+			}
+			// retry
+			if cl != nil {
+				err = cl.Close()
+				require.NoError(t, err)
+				cl = nil
+			}
+			time.Sleep(1 * time.Millisecond)
+		}
+	}
 }
 
 func verifyBatchesWritten(t *testing.T, topicID int, partitionID int, offsetStart int, batches [][]byte,
@@ -459,21 +499,4 @@ func (n *tableGetter) GetSSTable(tableID sst.SSTableID) (*sst.SSTable, error) {
 	var table sst.SSTable
 	table.Deserialize(buff, 0)
 	return &table, nil
-}
-
-type testTopicProvider struct {
-	topicInfos map[string]streammeta.TopicInfo
-}
-
-func (t *testTopicProvider) GetTopicInfo(topicName string) (streammeta.TopicInfo, bool) {
-	info, ok := t.topicInfos[topicName]
-	return info, ok
-}
-
-func (t *testTopicProvider) GetAllTopics() ([]streammeta.TopicInfo, error) {
-	var allTopics []streammeta.TopicInfo
-	for _, info := range t.topicInfos {
-		allTopics = append(allTopics, info)
-	}
-	return allTopics, nil
 }

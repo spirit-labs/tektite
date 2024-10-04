@@ -1,22 +1,30 @@
 package offsets
 
 import (
+	"bytes"
 	"container/heap"
-	"errors"
-	"github.com/spirit-labs/tektite/streammeta"
+	"context"
+	"fmt"
+	"github.com/google/uuid"
+	"github.com/spirit-labs/tektite/asl/encoding"
+	"github.com/spirit-labs/tektite/common"
+	"github.com/spirit-labs/tektite/objstore"
+	"github.com/spirit-labs/tektite/objstore/dev"
+	"github.com/spirit-labs/tektite/parthash"
+	"github.com/spirit-labs/tektite/sst"
+	"github.com/spirit-labs/tektite/testutils"
+	"github.com/spirit-labs/tektite/topicmeta"
 	"github.com/stretchr/testify/require"
 	"math/rand"
+	"sort"
 	"testing"
 )
 
 func TestOffsetsCacheNotStarted(t *testing.T) {
-	topicProvider := &streammeta.SimpleTopicInfoProvider{}
-	partitionLoader := &testPartitionOffsetLoader{}
-
-	oc := NewOffsetsCache(topicProvider, partitionLoader)
+	oc := setupCache(t)
 	_, err := oc.GetOffsets([]GetOffsetTopicInfo{{NumOffsets: 10}})
 	require.Error(t, err)
-	require.Equal(t, "not started", err.Error())
+	require.Equal(t, "offsets cache not started", err.Error())
 }
 
 // Get an offset with a previous stored non-zero value
@@ -466,58 +474,93 @@ func TestMembershipChanged(t *testing.T) {
 	require.Equal(t, offs[2]+200-1, highestReadable)
 }
 
-var testTopicProvider = &streammeta.SimpleTopicInfoProvider{
-	Infos: map[string]streammeta.TopicInfo{
-		"topic1": {
-			TopicID:        7,
+type testTopicMetaProvider struct {
+	infos map[int]topicmeta.TopicInfo
+}
+
+func (t *testTopicMetaProvider) GetTopicInfoByID(topicID int) (topicmeta.TopicInfo, error) {
+	info, ok := t.infos[topicID]
+	if !ok {
+		return topicmeta.TopicInfo{}, common.NewTektiteErrorf(common.TopicDoesNotExist, "unknown topic id: %d", topicID)
+	}
+	return info, nil
+}
+
+var testTopicProvider = &testTopicMetaProvider{
+	infos: map[int]topicmeta.TopicInfo{
+		7: {
+			Name:           "topic1",
+			ID:             7,
 			PartitionCount: 4,
 		},
-		"topic2": {
-			TopicID:        8,
+		8: {
+			Name:           "topic2",
+			ID:             8,
 			PartitionCount: 2,
 		},
 	},
 }
 
-var testOffsetLoader = &testPartitionOffsetLoader{
-	topicOffsets: map[int]map[int]int64{
-		7: {
-			0: 1234,
-			1: 3456,
-			2: 0,
-			3: -1,
-		},
-		8: {
-			0: 5678,
-			1: 3456,
-		},
-	},
+type testLsmHolder struct {
+	tableID sst.SSTableID
 }
 
-func setupAndStartCache(t *testing.T) *Cache {
-	oc := NewOffsetsCache(testTopicProvider, testOffsetLoader)
-	err := oc.Start()
+func (t *testLsmHolder) GetTablesForHighestKeyWithPrefix(prefix []byte) ([]sst.SSTableID, error) {
+	return []sst.SSTableID{t.tableID}, nil
+}
+
+func createDataEntry(t *testing.T, topicID int, partitionID int, offset int) common.KV {
+	partHashes, err := parthash.NewPartitionHashes(0)
+	require.NoError(t, err)
+	prefix, err := partHashes.GetPartitionHash(topicID, partitionID)
+	require.NoError(t, err)
+	key := encoding.KeyEncodeInt(prefix, int64(offset))
+	key = encoding.EncodeVersion(key, 0)
+	recordBatch := testutils.CreateKafkaRecordBatchWithIncrementingKVs(offset, 1)
+	return common.KV{
+		Key:   key,
+		Value: recordBatch,
+	}
+}
+
+func setupInitialOffsets(t *testing.T, objStore objstore.Client, dataBucketName string) sst.SSTableID {
+	var kvs []common.KV
+	kvs = append(kvs, createDataEntry(t, 7, 0, 1234))
+	kvs = append(kvs, createDataEntry(t, 7, 1, 3456))
+	kvs = append(kvs, createDataEntry(t, 7, 2, 0))
+	kvs = append(kvs, createDataEntry(t, 8, 0, 5678))
+	kvs = append(kvs, createDataEntry(t, 8, 1, 3456))
+	sort.SliceStable(kvs, func(i, j int) bool {
+		return bytes.Compare(kvs[i].Key, kvs[j].Key) < 0
+	})
+	iter := common.NewKvSliceIterator(kvs)
+	table, _, _, _, _, err := sst.BuildSSTable(common.DataFormatV1,
+		0, 0, iter)
+	require.NoError(t, err)
+	tableID := fmt.Sprintf("sst-%s", uuid.New().String())
+	// Push sstable to object store
+	tableData := table.Serialize()
+	err = objStore.Put(context.Background(), dataBucketName, tableID, tableData)
+	require.NoError(t, err)
+	return []byte(tableID)
+}
+
+func setupCache(t *testing.T) *Cache {
+	objStore := dev.NewInMemStore(0)
+	bucketName := "test-bucket"
+	tableID := setupInitialOffsets(t, objStore, bucketName)
+	oc, err := NewOffsetsCache(testTopicProvider, &testLsmHolder{
+		tableID: tableID,
+	}, objStore, bucketName)
 	require.NoError(t, err)
 	return oc
 }
 
-type testPartitionOffsetLoader struct {
-	topicOffsets map[int]map[int]int64
-}
-
-func (t *testPartitionOffsetLoader) LoadHighestOffsetForPartition(topicID int, partitionID int) (int64, error) {
-	to, ok := t.topicOffsets[topicID]
-	if !ok {
-		return 0, errors.New("topic not found")
-	}
-	po, ok := to[partitionID]
-	if !ok {
-		return 0, errors.New("partition not found")
-	}
-	return po, nil
-}
-
-func (t *testPartitionOffsetLoader) Stop() {
+func setupAndStartCache(t *testing.T) *Cache {
+	oc := setupCache(t)
+	err := oc.Start()
+	require.NoError(t, err)
+	return oc
 }
 
 func TestWrittenOffsetsHeap(t *testing.T) {

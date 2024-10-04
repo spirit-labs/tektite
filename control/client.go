@@ -5,6 +5,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/spirit-labs/tektite/lsm"
 	"github.com/spirit-labs/tektite/offsets"
+	"github.com/spirit-labs/tektite/topicmeta"
 	"github.com/spirit-labs/tektite/transport"
 )
 
@@ -18,6 +19,12 @@ type Client interface {
 	QueryTablesInRange(keyStart []byte, keyEnd []byte) (lsm.OverlappingTables, error)
 
 	PollForJob() (lsm.CompactionJob, error)
+
+	GetTopicInfo(topicName string) (topicmeta.TopicInfo, int, error)
+
+	CreateTopic(topicInfo topicmeta.TopicInfo) error
+
+	DeleteTopic(topicName string) error
 
 	Close() error
 }
@@ -137,6 +144,53 @@ func (c *client) PollForJob() (lsm.CompactionJob, error) {
 	var job lsm.CompactionJob
 	job.Deserialize(respBuff, 0)
 	return job, nil
+}
+
+func (c *client) GetTopicInfo(topicName string) (topicmeta.TopicInfo, int, error) {
+	conn, err := c.getConnection()
+	if err != nil {
+		return topicmeta.TopicInfo{}, 0, err
+	}
+	req := GetTopicInfoRequest{
+		ClusterVersion: c.clusterVersion,
+		TopicName:      topicName,
+	}
+	buff := req.Serialize(createRequestBuffer())
+	respBuff, err := conn.SendRPC(transport.HandlerIDControllerGetTopicInfo, buff)
+	if err != nil {
+		return topicmeta.TopicInfo{}, 0, err
+	}
+	var resp GetTopicInfoResponse
+	resp.Deserialize(respBuff, 0)
+	return resp.Info, resp.Sequence, nil
+}
+
+func (c *client) CreateTopic(topicInfo topicmeta.TopicInfo) error {
+	conn, err := c.getConnection()
+	if err != nil {
+		return err
+	}
+	req := CreateTopicRequest{
+		ClusterVersion: c.clusterVersion,
+		Info:           topicInfo,
+	}
+	buff := req.Serialize(createRequestBuffer())
+	_, err = conn.SendRPC(transport.HandlerIDControllerCreateTopic, buff)
+	return err
+}
+
+func (c *client) DeleteTopic(topicName string) error {
+	conn, err := c.getConnection()
+	if err != nil {
+		return err
+	}
+	req := DeleteTopicRequest{
+		ClusterVersion: c.clusterVersion,
+		TopicName:      topicName,
+	}
+	buff := req.Serialize(createRequestBuffer())
+	_, err = conn.SendRPC(transport.HandlerIDControllerDeleteTopic, buff)
+	return err
 }
 
 func createRequestBuffer() []byte {

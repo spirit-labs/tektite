@@ -9,7 +9,7 @@ import (
 	"github.com/spirit-labs/tektite/lsm"
 	"github.com/spirit-labs/tektite/objstore"
 	"github.com/spirit-labs/tektite/offsets"
-	"github.com/spirit-labs/tektite/streammeta"
+	"github.com/spirit-labs/tektite/topicmeta"
 	"github.com/spirit-labs/tektite/transport"
 	"sync"
 )
@@ -25,30 +25,20 @@ type Controller struct {
 	objStoreClient    objstore.Client
 	connectionFactory transport.ConnectionFactory
 	transportServer   transport.Server
-	topicProvider     streammeta.TopicInfoProvider
-	loaderFactory     offsetLoaderFactory
 	lsmHolder         *LsmHolder
 	offsetsCache      *offsets.Cache
-	offsetsLoader     offsets.PartitionOffsetLoader
+	topicMetaManager  *topicmeta.Manager
 	currentMembership cluster.MembershipState
 }
 
-type offsetLoaderFactory func() (offsets.PartitionOffsetLoader, error)
-
 func NewController(cfg Conf, objStoreClient objstore.Client, connectionFactory transport.ConnectionFactory,
-	transportServer transport.Server, topicProvider streammeta.TopicInfoProvider, loaderFactory offsetLoaderFactory) *Controller {
+	transportServer transport.Server) *Controller {
 	control := &Controller{
 		cfg:               cfg,
 		objStoreClient:    objStoreClient,
 		connectionFactory: connectionFactory,
 		transportServer:   transportServer,
-		topicProvider:     topicProvider,
-		loaderFactory:     loaderFactory,
 	}
-	if loaderFactory == nil {
-		loaderFactory = control.createOffsetsLoader
-	}
-	control.loaderFactory = loaderFactory
 	return control
 }
 
@@ -64,6 +54,9 @@ func (c *Controller) Start() error {
 	c.transportServer.RegisterHandler(transport.HandlerIDControllerQueryTablesInRange, c.handleQueryTablesInRange)
 	c.transportServer.RegisterHandler(transport.HandlerIDControllerGetOffsets, c.handleGetOffsets)
 	c.transportServer.RegisterHandler(transport.HandlerIDControllerPollForJob, c.handlePollForJob)
+	c.transportServer.RegisterHandler(transport.HandlerIDControllerGetTopicInfo, c.handleGetTopicInfo)
+	c.transportServer.RegisterHandler(transport.HandlerIDControllerCreateTopic, c.handleCreateTopic)
+	c.transportServer.RegisterHandler(transport.HandlerIDControllerDeleteTopic, c.handleDeleteTopic)
 	c.started = true
 	return nil
 }
@@ -79,17 +72,15 @@ func (c *Controller) Stop() error {
 			return err
 		}
 	}
-	if c.offsetsLoader != nil {
-		c.offsetsLoader.Stop()
+	if c.topicMetaManager != nil {
+		if err := c.topicMetaManager.Stop(); err != nil {
+			return err
+		}
 	}
 	c.lsmHolder = nil
 	c.currentMembership = cluster.MembershipState{}
 	c.started = false
 	return nil
-}
-
-func (c *Controller) createOffsetsLoader() (offsets.PartitionOffsetLoader, error) {
-	return NewOffsetsLoader(c.lsmHolder, c.objStoreClient, c.cfg.SSTableBucketName)
 }
 
 // MembershipChanged is called when membership of the cluster changes. If we are first entry in the state then we will
@@ -98,7 +89,7 @@ func (c *Controller) MembershipChanged(newState cluster.MembershipState) error {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 	if !c.started {
-		return errors.New("manager not started")
+		return errors.New("controller not started")
 	}
 	if len(newState.Members) > 0 && newState.Members[0].Address == c.transportServer.Address() {
 		lsmHolder := NewLsmHolder(c.cfg.ControllerStateUpdaterBucketName, c.cfg.ControllerStateUpdaterKeyPrefix,
@@ -107,12 +98,19 @@ func (c *Controller) MembershipChanged(newState cluster.MembershipState) error {
 			return err
 		}
 		c.lsmHolder = lsmHolder
-		loader, err := c.loaderFactory()
+		topicMetaManager, err := topicmeta.NewManager(lsmHolder, c.objStoreClient, c.cfg.SSTableBucketName, c.cfg.DataFormat,
+			c.connectionFactory)
 		if err != nil {
 			return err
 		}
-		c.offsetsLoader = loader
-		cache := offsets.NewOffsetsCache(c.topicProvider, loader)
+		if err := topicMetaManager.Start(); err != nil {
+			return err
+		}
+		c.topicMetaManager = topicMetaManager
+		cache, err := offsets.NewOffsetsCache(topicMetaManager, lsmHolder, c.objStoreClient, c.cfg.SSTableBucketName)
+		if err != nil {
+			return err
+		}
 		if err := cache.Start(); err != nil {
 			return err
 		}
@@ -123,11 +121,21 @@ func (c *Controller) MembershipChanged(newState cluster.MembershipState) error {
 				return err
 			}
 			c.lsmHolder = nil
+			c.offsetsCache.Stop()
 			c.offsetsCache = nil
+			if err := c.topicMetaManager.Stop(); err != nil {
+				return err
+			}
+			c.topicMetaManager = nil
 		}
 	}
 	c.currentMembership = newState
-	c.offsetsCache.MembershipChanged()
+	if c.offsetsCache != nil {
+		c.offsetsCache.MembershipChanged()
+	}
+	if c.topicMetaManager != nil {
+		c.topicMetaManager.MembershipChanged(newState)
+	}
 	return nil
 }
 
@@ -255,6 +263,64 @@ func (c *Controller) handlePollForJob(connectionID int, request []byte, response
 		}
 	})
 	return nil
+}
+
+func (c *Controller) handleGetTopicInfo(_ int, request []byte, responseBuff []byte, responseWriter transport.ResponseWriter) error {
+	c.lock.RLock()
+	defer c.lock.RUnlock()
+	if err := checkRPCVersion(request); err != nil {
+		return responseWriter(nil, err)
+	}
+	var req GetTopicInfoRequest
+	req.Deserialize(request, 2)
+	if err := c.checkClusterVersion(req.ClusterVersion); err != nil {
+		return responseWriter(nil, err)
+	}
+	info, seq, err := c.topicMetaManager.GetTopicInfo(req.TopicName)
+	if err != nil {
+		return responseWriter(nil, err)
+	}
+	var resp GetTopicInfoResponse
+	resp.Sequence = seq
+	resp.Info = info
+	responseBuff = resp.Serialize(responseBuff)
+	return responseWriter(responseBuff, nil)
+}
+
+func (c *Controller) handleCreateTopic(_ int, request []byte, responseBuff []byte, responseWriter transport.ResponseWriter) error {
+	c.lock.RLock()
+	defer c.lock.RUnlock()
+	if err := checkRPCVersion(request); err != nil {
+		return responseWriter(nil, err)
+	}
+	var req CreateTopicRequest
+	req.Deserialize(request, 2)
+	if err := c.checkClusterVersion(req.ClusterVersion); err != nil {
+		return responseWriter(nil, err)
+	}
+	err := c.topicMetaManager.CreateTopic(req.Info)
+	if err != nil {
+		return responseWriter(nil, err)
+	}
+	return responseWriter(responseBuff, nil)
+}
+
+func (c *Controller) handleDeleteTopic(_ int, request []byte, responseBuff []byte, responseWriter transport.ResponseWriter) error {
+	c.lock.RLock()
+	defer c.lock.RUnlock()
+	if err := checkRPCVersion(request); err != nil {
+		return responseWriter(nil, err)
+	}
+	var req DeleteTopicRequest
+	req.Deserialize(request, 2)
+	if err := c.checkClusterVersion(req.ClusterVersion); err != nil {
+		return responseWriter(nil, err)
+	}
+	err := c.topicMetaManager.DeleteTopic(req.TopicName)
+	if err != nil {
+		return responseWriter(nil, err)
+	}
+	return responseWriter(responseBuff, nil)
 }
 
 func checkRPCVersion(request []byte) error {

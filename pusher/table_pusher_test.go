@@ -7,7 +7,6 @@ import (
 	"errors"
 	"github.com/spirit-labs/tektite/asl/encoding"
 	"github.com/spirit-labs/tektite/common"
-	"github.com/spirit-labs/tektite/control"
 	"github.com/spirit-labs/tektite/kafkaprotocol"
 	"github.com/spirit-labs/tektite/lsm"
 	"github.com/spirit-labs/tektite/objstore"
@@ -15,8 +14,8 @@ import (
 	"github.com/spirit-labs/tektite/offsets"
 	"github.com/spirit-labs/tektite/parthash"
 	"github.com/spirit-labs/tektite/sst"
-	"github.com/spirit-labs/tektite/streammeta"
 	"github.com/spirit-labs/tektite/testutils"
+	"github.com/spirit-labs/tektite/topicmeta"
 	"github.com/stretchr/testify/require"
 	"math"
 	"slices"
@@ -30,6 +29,18 @@ func init() {
 	common.EnableTestPorts()
 }
 
+type simpleTopicInfoProvider struct {
+	infos map[string]topicmeta.TopicInfo
+}
+
+func (s *simpleTopicInfoProvider) GetTopicInfo(topicName string) (topicmeta.TopicInfo, error) {
+	info, ok := s.infos[topicName]
+	if !ok {
+		return topicmeta.TopicInfo{}, common.NewTektiteErrorf(common.TopicDoesNotExist, "unknown topic: %s", topicName)
+	}
+	return info, nil
+}
+
 func TestTablePusherHandleProduceBatchSimple(t *testing.T) {
 	cfg := NewConf()
 	cfg.DataBucketName = "test-data-bucket"
@@ -39,11 +50,11 @@ func TestTablePusherHandleProduceBatchSimple(t *testing.T) {
 	controllerClient := &testControllerClient{
 		offsets: map[int]map[int]int64{},
 	}
-	clientFactory := func() (control.Client, error) {
+	clientFactory := func() (ControlClient, error) {
 		return controllerClient, nil
 	}
-	topicProvider := &streammeta.SimpleTopicInfoProvider{Infos: map[string]streammeta.TopicInfo{
-		"topic1": {TopicID: topicID, PartitionCount: 20},
+	topicProvider := &simpleTopicInfoProvider{infos: map[string]topicmeta.TopicInfo{
+		"topic1": {ID: topicID, PartitionCount: 20},
 	}}
 	pusher, err := NewTablePusher(cfg, topicProvider, objStore, clientFactory)
 	require.NoError(t, err)
@@ -132,12 +143,12 @@ func TestTablePusherHandleProduceBatchMultipleTopicsAndPartitions(t *testing.T) 
 			},
 		},
 	}
-	clientFactory := func() (control.Client, error) {
+	clientFactory := func() (ControlClient, error) {
 		return controllerClient, nil
 	}
-	topicProvider := &streammeta.SimpleTopicInfoProvider{Infos: map[string]streammeta.TopicInfo{
-		"topic1": {TopicID: topicID1, PartitionCount: 20},
-		"topic2": {TopicID: topicID2, PartitionCount: 30},
+	topicProvider := &simpleTopicInfoProvider{infos: map[string]topicmeta.TopicInfo{
+		"topic1": {ID: topicID1, PartitionCount: 20},
+		"topic2": {ID: topicID2, PartitionCount: 30},
 	}}
 	pusher, err := NewTablePusher(cfg, topicProvider, objStore, clientFactory)
 	require.NoError(t, err)
@@ -310,11 +321,11 @@ func TestTablePusherPushWhenBufferIsFull(t *testing.T) {
 	controllerClient := &testControllerClient{
 		offsets: map[int]map[int]int64{},
 	}
-	clientFactory := func() (control.Client, error) {
+	clientFactory := func() (ControlClient, error) {
 		return controllerClient, nil
 	}
-	topicProvider := &streammeta.SimpleTopicInfoProvider{Infos: map[string]streammeta.TopicInfo{
-		"topic1": {TopicID: topicID, PartitionCount: 30},
+	topicProvider := &simpleTopicInfoProvider{infos: map[string]topicmeta.TopicInfo{
+		"topic1": {ID: topicID, PartitionCount: 30},
 	}}
 
 	pusher, err := NewTablePusher(cfg, topicProvider, objStore, clientFactory)
@@ -417,11 +428,11 @@ func TestTablePusherPushWhenTimeoutIsExceeded(t *testing.T) {
 	controllerClient := &testControllerClient{
 		offsets: map[int]map[int]int64{},
 	}
-	clientFactory := func() (control.Client, error) {
+	clientFactory := func() (ControlClient, error) {
 		return controllerClient, nil
 	}
-	topicProvider := &streammeta.SimpleTopicInfoProvider{Infos: map[string]streammeta.TopicInfo{
-		"topic1": {TopicID: topicID, PartitionCount: 20},
+	topicProvider := &simpleTopicInfoProvider{infos: map[string]topicmeta.TopicInfo{
+		"topic1": {ID: topicID, PartitionCount: 20},
 	}}
 
 	pusher, err := NewTablePusher(cfg, topicProvider, objStore, clientFactory)
@@ -505,12 +516,12 @@ func TestTablePusherHandleProduceBatchMixtureErrorsAndSuccesses(t *testing.T) {
 			},
 		},
 	}
-	clientFactory := func() (control.Client, error) {
+	clientFactory := func() (ControlClient, error) {
 		return controllerClient, nil
 	}
-	topicProvider := &streammeta.SimpleTopicInfoProvider{Infos: map[string]streammeta.TopicInfo{
-		"topic1": {TopicID: topicID1, PartitionCount: 20},
-		"topic2": {TopicID: topicID2, PartitionCount: 30},
+	topicProvider := &simpleTopicInfoProvider{infos: map[string]topicmeta.TopicInfo{
+		"topic1": {ID: topicID1, PartitionCount: 20},
+		"topic2": {ID: topicID2, PartitionCount: 30},
 	}}
 
 	pusher, err := NewTablePusher(cfg, topicProvider, objStore, clientFactory)
@@ -690,11 +701,11 @@ func TestTablePusherUnexpectedError(t *testing.T) {
 	controllerClient := &testControllerClient{
 		offsets: map[int]map[int]int64{},
 	}
-	clientFactory := func() (control.Client, error) {
+	clientFactory := func() (ControlClient, error) {
 		return controllerClient, nil
 	}
-	topicProvider := &streammeta.SimpleTopicInfoProvider{Infos: map[string]streammeta.TopicInfo{
-		"topic1": {TopicID: topicID, PartitionCount: 20},
+	topicProvider := &simpleTopicInfoProvider{infos: map[string]topicmeta.TopicInfo{
+		"topic1": {ID: topicID, PartitionCount: 20},
 	}}
 	pusher, err := NewTablePusher(cfg, topicProvider, objStore, clientFactory)
 	require.NoError(t, err)
@@ -764,11 +775,11 @@ func TestTablePusherTemporaryUnavailability(t *testing.T) {
 	controllerClient := &testControllerClient{
 		offsets: map[int]map[int]int64{},
 	}
-	clientFactory := func() (control.Client, error) {
+	clientFactory := func() (ControlClient, error) {
 		return controllerClient, nil
 	}
-	topicProvider := &streammeta.SimpleTopicInfoProvider{Infos: map[string]streammeta.TopicInfo{
-		"topic1": {TopicID: topicID, PartitionCount: 30},
+	topicProvider := &simpleTopicInfoProvider{infos: map[string]topicmeta.TopicInfo{
+		"topic1": {ID: topicID, PartitionCount: 30},
 	}}
 	pusher, err := NewTablePusher(cfg, topicProvider, objStore, clientFactory)
 	require.NoError(t, err)
@@ -960,20 +971,12 @@ func (t *testControllerClient) RegisterL0Table(updateWrittenOffsetInfos []offset
 	return nil
 }
 
-func (t *testControllerClient) ApplyLsmChanges(_ lsm.RegistrationBatch) error {
-	panic("should not be called")
-}
-
 func (t *testControllerClient) getRegistrations() []regL0TableInvocation {
 	t.lock.Lock()
 	defer t.lock.Unlock()
 	copied := make([]regL0TableInvocation, len(t.registrations))
 	copy(copied, t.registrations)
 	return copied
-}
-
-func (t *testControllerClient) QueryTablesInRange(_ []byte, _ []byte) (lsm.OverlappingTables, error) {
-	panic("should not be called")
 }
 
 func (t *testControllerClient) GetOffsets(infos []offsets.GetOffsetTopicInfo) ([]int64, error) {
@@ -995,22 +998,6 @@ func (t *testControllerClient) GetOffsets(infos []offsets.GetOffsetTopicInfo) ([
 		offs = append(offs, offset)
 	}
 	return offs, nil
-}
-
-func (t *testControllerClient) PollForJob() (lsm.CompactionJob, error) {
-	panic("should not be called")
-}
-
-func (t *testControllerClient) RegisterSlabRetention(_ int, _ time.Duration) error {
-	panic("should not be called")
-}
-
-func (t *testControllerClient) UnregisterSlabRetention(_ int) error {
-	panic("should not be called")
-}
-
-func (t *testControllerClient) GetSlabRetention(_ int) (time.Duration, error) {
-	panic("should not be called")
 }
 
 func (t *testControllerClient) Close() error {

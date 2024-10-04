@@ -1,6 +1,7 @@
 package control
 
 import (
+	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/lsm"
 )
 
@@ -10,6 +11,7 @@ type Conf struct {
 	ControllerMetaDataBucketName     string
 	ControllerMetaDataKeyPrefix      string
 	SSTableBucketName                string
+	DataFormat common.DataFormat
 	LsmConf                          lsm.Conf
 }
 
@@ -20,6 +22,7 @@ func NewConf() Conf {
 		ControllerMetaDataBucketName:     "controller-meta-data",
 		ControllerMetaDataKeyPrefix:      "controller-meta-data",
 		SSTableBucketName:                "tektite-data",
+		DataFormat: common.DataFormatV1,
 		LsmConf:                          lsm.NewConf(),
 	}
 }
