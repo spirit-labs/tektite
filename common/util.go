@@ -5,3 +5,7 @@ func ByteSliceCopy(byteSlice []byte) []byte {
 	copy(copied, byteSlice)
 	return copied
 }
+
+func StrPtr(s string) *string {
+	return &s
+}

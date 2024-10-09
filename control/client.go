@@ -7,6 +7,7 @@ import (
 	"github.com/spirit-labs/tektite/offsets"
 	"github.com/spirit-labs/tektite/topicmeta"
 	"github.com/spirit-labs/tektite/transport"
+	"sync"
 )
 
 type Client interface {
@@ -17,6 +18,8 @@ type Client interface {
 	RegisterL0Table(writtenOffsetInfos []offsets.UpdateWrittenOffsetInfo, regEntry lsm.RegistrationEntry) error
 
 	QueryTablesInRange(keyStart []byte, keyEnd []byte) (lsm.OverlappingTables, error)
+
+	FetchTablesForPrefix(topicID int, partitionID int, prefix []byte, offsetStart int64) (lsm.OverlappingTables, int64, error)
 
 	PollForJob() (lsm.CompactionJob, error)
 
@@ -29,10 +32,10 @@ type Client interface {
 	Close() error
 }
 
-// client - note this is not goroutine safe!
 // on error, the caller must close the connection
 type client struct {
 	m              *Controller
+	lock           sync.RWMutex
 	clusterVersion int
 	address        string
 	conn           transport.Connection
@@ -41,30 +44,6 @@ type client struct {
 }
 
 var _ Client = &client{}
-
-func (c *client) getConnection() (transport.Connection, error) {
-	if c.closed {
-		return nil, errors.New("client has been closed")
-	}
-	if c.conn != nil {
-		return c.conn, nil
-	}
-	conn, err := c.connFactory(c.address)
-	if err != nil {
-		return nil, err
-	}
-	c.conn = conn
-	return conn, nil
-}
-
-func (c *client) Close() error {
-	c.address = ""
-	c.closed = true
-	if c.conn != nil {
-		return c.conn.Close()
-	}
-	return nil
-}
 
 func (c *client) RegisterL0Table(writtenOffsetInfos []offsets.UpdateWrittenOffsetInfo, regEntry lsm.RegistrationEntry) error {
 	conn, err := c.getConnection()
@@ -111,6 +90,11 @@ func (c *client) QueryTablesInRange(keyStart []byte, keyEnd []byte) (lsm.Overlap
 		return nil, err
 	}
 	return lsm.DeserializeOverlappingTables(respBuff, 0), nil
+}
+
+func (c *client) FetchTablesForPrefix(topicID int, partitionID int, prefix []byte, offsetStart int64) (lsm.OverlappingTables, int64, error) {
+	// TODO
+	return nil, 0, nil
 }
 
 func (c *client) GetOffsets(infos []offsets.GetOffsetTopicInfo) ([]int64, error) {
@@ -191,6 +175,54 @@ func (c *client) DeleteTopic(topicName string) error {
 	buff := req.Serialize(createRequestBuffer())
 	_, err = conn.SendRPC(transport.HandlerIDControllerDeleteTopic, buff)
 	return err
+}
+
+func (c *client) Close() error {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+	c.address = ""
+	c.closed = true
+	if c.conn != nil {
+		return c.conn.Close()
+	}
+	return nil
+}
+
+func (c *client) getConnection() (transport.Connection, error) {
+	conn, err := c.getCachedConnection()
+	if err != nil {
+		return nil, err
+	}
+	if conn != nil {
+		return conn, nil
+	}
+	if err := c.createConnection(); err != nil {
+		return nil, err
+	}
+	return c.conn, nil
+}
+
+func (c *client) getCachedConnection() (transport.Connection, error) {
+	c.lock.RLock()
+	defer c.lock.RUnlock()
+	if c.closed {
+		return nil, errors.New("client has been closed")
+	}
+	return c.conn, nil
+}
+
+func (c *client) createConnection() error {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+	if c.conn != nil {
+		return nil
+	}
+	conn, err := c.connFactory(c.address)
+	if err != nil {
+		return err
+	}
+	c.conn = conn
+	return nil
 }
 
 func createRequestBuffer() []byte {

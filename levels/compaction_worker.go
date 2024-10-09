@@ -3,7 +3,6 @@ package levels
 import (
 	"bytes"
 	"fmt"
-	"github.com/google/uuid"
 	"github.com/spirit-labs/tektite/asl/conf"
 	"github.com/spirit-labs/tektite/asl/errwrap"
 	"github.com/spirit-labs/tektite/common"
@@ -225,7 +224,7 @@ func (c *compactionWorker) processJob(job *CompactionJob) ([]RegistrationEntry, 
 	// Now push the tables to the cloud store
 	var ids []sst.SSTableID
 	for _, info := range infos {
-		id := []byte(fmt.Sprintf("sst-%s", uuid.New().String()))
+		id := []byte(sst.CreateSSTableId())
 		log.Debugf("compaction job %s created sstable %v", job.id, id)
 		ids = append(ids, id)
 		for {

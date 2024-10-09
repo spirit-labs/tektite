@@ -2,12 +2,11 @@ package pusher
 
 import (
 	"bytes"
-	"encoding/binary"
 	"fmt"
-	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	"github.com/spirit-labs/tektite/asl/encoding"
 	"github.com/spirit-labs/tektite/common"
+	"github.com/spirit-labs/tektite/kafkaencoding"
 	"github.com/spirit-labs/tektite/kafkaprotocol"
 	"github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/lsm"
@@ -74,7 +73,6 @@ type ControlClient interface {
 
 const (
 	objStoreAvailabilityTimeout = 5 * time.Second
-	partitionHashCacheMaxSize   = 100000
 )
 
 var log *logger.TektiteLogger
@@ -88,11 +86,7 @@ func init() {
 }
 
 func NewTablePusher(cfg Conf, topicProvider topicInfoProvider, objStore objstore.Client,
-	clientFactory controllerClientFactory) (*TablePusher, error) {
-	partitionHashes, err := parthash.NewPartitionHashes(partitionHashCacheMaxSize)
-	if err != nil {
-		return nil, err
-	}
+	clientFactory controllerClientFactory, partitionHashes *parthash.PartitionHashes) (*TablePusher, error) {
 	return &TablePusher{
 		cfg:              cfg,
 		topicProvider:    topicProvider,
@@ -299,10 +293,6 @@ func (r *TablePusher) getClient() (ControlClient, error) {
 	return client, nil
 }
 
-func NumRecords(records []byte) int {
-	return int(binary.BigEndian.Uint32(records[57:]))
-}
-
 func (r *TablePusher) write() error {
 	if len(r.partitionRecords) == 0 {
 		// Nothing to do
@@ -320,7 +310,7 @@ func (r *TablePusher) write() error {
 			totRecords := 0
 			for _, entry := range entries {
 				for _, batch := range entry.records {
-					totRecords += NumRecords(batch)
+					totRecords += kafkaencoding.NumRecords(batch)
 				}
 			}
 			log.Infof("tot records is %d", totRecords)
@@ -379,7 +369,7 @@ func (r *TablePusher) write() error {
 					Key:   key,
 					Value: record,
 				})
-				offset += int64(NumRecords(record))
+				offset += int64(kafkaencoding.NumRecords(record))
 			}
 		}
 	}
@@ -394,7 +384,7 @@ func (r *TablePusher) write() error {
 	if err != nil {
 		return err
 	}
-	tableID := fmt.Sprintf("sst-%s", uuid.New().String())
+	tableID := sst.CreateSSTableId()
 	// Push sstable to object store
 	tableData := table.Serialize()
 	if err := objstore.PutWithTimeout(r.objStore, r.cfg.DataBucketName, tableID, tableData,

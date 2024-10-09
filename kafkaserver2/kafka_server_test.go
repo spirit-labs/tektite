@@ -26,7 +26,7 @@ func TestProduce(t *testing.T) {
 		RequestApiKey:     kafkaprotocol.APIKeyProduce,
 		RequestApiVersion: 3,
 		CorrelationId:     23,
-		ClientId:          strPtr("some-client-id"),
+		ClientId:          common.StrPtr("some-client-id"),
 	}
 	req := kafkaprotocol.ProduceRequest{
 		TransactionalId: nil,
@@ -34,7 +34,7 @@ func TestProduce(t *testing.T) {
 		TimeoutMs:       1234,
 		TopicData: []kafkaprotocol.ProduceRequestTopicProduceData{
 			{
-				Name: strPtr("topic1"),
+				Name: common.StrPtr("topic1"),
 				PartitionData: []kafkaprotocol.ProduceRequestPartitionProduceData{
 					{
 						Index: 12,
@@ -49,7 +49,7 @@ func TestProduce(t *testing.T) {
 	resp := kafkaprotocol.ProduceResponse{
 		Responses: []kafkaprotocol.ProduceResponseTopicProduceResponse{
 			{
-				Name: strPtr("topic1"),
+				Name: common.StrPtr("topic1"),
 				PartitionResponses: []kafkaprotocol.ProduceResponsePartitionProduceResponse{
 					{
 						Index:      12,
@@ -93,10 +93,6 @@ func TestProduce(t *testing.T) {
 
 	require.Equal(t, &requestHeader, receivedHdr)
 	require.Equal(t, &req, receivedReq)
-}
-
-func strPtr(s string) *string {
-	return &s
 }
 
 type testConnHandlers struct {

@@ -27,8 +27,7 @@ func (k *kafkaHandler) ProduceRequestErrorResponse(errorCode int16, errorMsg str
 }
 
 func (k *kafkaHandler) HandleFetchRequest(hdr *kafkaprotocol.RequestHeader, req *kafkaprotocol.FetchRequest, completionFunc func(resp *kafkaprotocol.FetchResponse) error) error {
-	//TODO implement me
-	panic("implement me")
+	return k.agent.batchFetcher.HandleFetchRequest(req, completionFunc)
 }
 
 func (k *kafkaHandler) FetchRequestErrorResponse(errorCode int16, errorMsg string, req *kafkaprotocol.FetchRequest) *kafkaprotocol.FetchResponse {

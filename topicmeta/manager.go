@@ -2,19 +2,16 @@ package topicmeta
 
 import (
 	"encoding/binary"
-	"fmt"
-	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	"github.com/spirit-labs/tektite/asl/encoding"
 	"github.com/spirit-labs/tektite/cluster"
 	"github.com/spirit-labs/tektite/common"
-	"github.com/spirit-labs/tektite/iteration"
 	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/lsm"
 	"github.com/spirit-labs/tektite/objstore"
+	"github.com/spirit-labs/tektite/queryutils"
 	"github.com/spirit-labs/tektite/sst"
 	"github.com/spirit-labs/tektite/transport"
-	"math"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -185,38 +182,16 @@ func (m *Manager) loadAllTopicsFromStorageWithRetry() ([]TopicInfo, error) {
 func (m *Manager) loadAllTopicsFromStorage() ([]TopicInfo, error) {
 	prefix := createPrefix()
 	keyEnd := common.IncBigEndianBytes(prefix)
-	ids, err := m.lsm.QueryTablesInRange(prefix, keyEnd)
-	if err != nil {
-		return nil, err
-	}
 	tg := &tableGetter{
 		bucketName: m.dataBucketName,
 		objStore:   m.objStore,
 	}
-	var iters []iteration.Iterator
-	for _, nonOverLapIDs := range ids {
-		if len(nonOverLapIDs) == 1 {
-			info := nonOverLapIDs[0]
-			iter, err := sst.NewLazySSTableIterator(info.ID, tg, prefix, keyEnd)
-			if err != nil {
-				return nil, err
-			}
-			iters = append(iters, iter)
-		} else {
-			itersInChain := make([]iteration.Iterator, len(nonOverLapIDs))
-			for j, nonOverlapID := range nonOverLapIDs {
-				iter, err := sst.NewLazySSTableIterator(nonOverlapID.ID, tg, prefix, keyEnd)
-				if err != nil {
-					return nil, err
-				}
-				itersInChain[j] = iter
-			}
-			iters = append(iters, iteration.NewChainingIterator(itersInChain))
-		}
-	}
-	mi, err := iteration.NewMergingIterator(iters, false, math.MaxUint64)
+	mi, err := queryutils.CreateIteratorForKeyRange(prefix, keyEnd, m.lsm, tg.GetSSTable)
 	if err != nil {
 		return nil, err
+	}
+	if mi == nil {
+		return nil, nil
 	}
 	defer mi.Close()
 	var allTopics []TopicInfo
@@ -261,13 +236,13 @@ func (m *Manager) WriteTopicDeletion(topicID int) error {
 
 func (m *Manager) writeKV(kv common.KV) error {
 	iter := common.NewKvSliceIterator([]common.KV{kv})
-	// Build sstable
+	// Build ssTable
 	table, smallestKey, largestKey, minVersion, maxVersion, err := sst.BuildSSTable(m.dataFormat, 0, 0, iter)
 	if err != nil {
 		return err
 	}
-	tableID := fmt.Sprintf("sst-%s", uuid.New().String())
-	// Push sstable to object store
+	tableID := string(sst.CreateSSTableId())
+	// Push ssTable to object store
 	tableData := table.Serialize()
 	if err := m.putWithRetry(tableID, tableData); err != nil {
 		return err

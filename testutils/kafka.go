@@ -39,8 +39,8 @@ func CreateKafkaRecordBatchWithIncrementingKVs(offsetStart int, numMessages int)
 	for i := offsetStart; i < offsetStart+numMessages; i++ {
 		msgs = append(msgs, RawKafkaMessage{
 			Timestamp: time.Now().UnixMilli(),
-			Key:       []byte(fmt.Sprintf("key%d", i)),
-			Value:     []byte(fmt.Sprintf("val%d", i)),
+			Key:       []byte(fmt.Sprintf("key%09d", i)),
+			Value:     []byte(fmt.Sprintf("val%09d", i)),
 		})
 	}
 	return CreateKafkaRecordBatch(msgs, int64(offsetStart))
