@@ -21,6 +21,7 @@ func TestLocalCache(t *testing.T) {
 	for id, table := range entriesMap {
 		bid := []byte(id)
 		localCache.Put(bid, table)
+		localCache.cache.Wait()
 		tab, ok := localCache.Get(bid)
 		require.True(t, ok)
 		require.Equal(t, table, tab)

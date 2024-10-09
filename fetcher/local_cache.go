@@ -34,9 +34,7 @@ func NewLocalSSTCache(maxTablesEstimate int, maxSizeBytes int) (*LocalSSTCache, 
 
 func (m *LocalSSTCache) Put(key sst.SSTableID, value *sst.SSTable) bool {
 	sKey := common.ByteSliceToStringZeroCopy(key)
-	ok := m.cache.Set(sKey, value, int64(value.SizeBytes()))
-	m.cache.Wait()
-	return ok
+	return m.cache.Set(sKey, value, int64(value.SizeBytes()))
 }
 
 func (m *LocalSSTCache) Get(key sst.SSTableID) (*sst.SSTable, bool) {

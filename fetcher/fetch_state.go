@@ -82,11 +82,24 @@ func (f *FetchState) readAsync() {
 }
 
 func (f *FetchState) read() error {
+	ok, err := f.read0()
+	if err != nil {
+		return err
+	}
+	if ok {
+		// We register our partition states to receive notifications when new data arrives
+		// Needs to be done outside lock to prevent deadlock with incoming notification updating iterator
+		return f.bf.recentTables.registerPartitionStates(f.partitionStates)
+	}
+	return nil
+}
+
+func (f *FetchState) read0() (bool, error) {
 	f.lock.Lock()
 	defer f.lock.Unlock()
 	if f.completionFunc == nil {
 		// Response already sent
-		return nil
+		return false, nil
 	}
 	wouldExceedRequestMax := false
 outer:
@@ -96,7 +109,7 @@ outer:
 			var wouldExceedPartitionMax bool
 			wouldExceedRequestMax, wouldExceedPartitionMax, err = partitionFetchState.read()
 			if err != nil {
-				return err
+				return false, err
 			}
 			if wouldExceedRequestMax {
 				break outer
@@ -113,32 +126,31 @@ outer:
 		// We either exceeded request max size or exceeded partition max size on all partitions, so the request is
 		// complete
 		if err := f.sendResponse(); err != nil {
-			return err
+			return false, err
 		}
-		return nil
+		return false, nil
 	}
 	if f.bytesFetched >= int(f.req.MinBytes) {
 		// We fetched enough data
 		if err := f.sendResponse(); err != nil {
-			return err
+			return false, err
 		}
-		return nil
+		return false, nil
 	}
 	// We didn't fetch enough data
 	if f.req.MaxWaitMs == 0 {
 		// Give up now and return no data
 		f.clearFetchedRecords()
 		if err := f.sendResponse(); err != nil {
-			return err
+			return false, err
 		}
-		return nil
+		return false, nil
 	}
 	if f.timeoutTimer == nil {
 		// Set a timeout if we haven't already set one - as we need to wait
 		time.AfterFunc(time.Duration(f.req.MaxWaitMs)*time.Millisecond, f.timeout)
 	}
-	// We register our partition states to receive notifications when new data arrives
-	return f.bf.recentTables.registerPartitionStates(f.partitionStates)
+	return true, nil
 }
 
 func (f *FetchState) clearFetchedRecords() {
@@ -202,10 +214,8 @@ func (p *PartitionFetchState) read() (wouldExceedRequestMax bool, wouldExceedPar
 			if err != nil {
 				return false, false, err
 			}
-			log.Infof("serving from cache")
 			p.iter = iter
 		} else {
-			log.Infof("serving from controller")
 			// The fetchOffset is too old or there are no cached tables so we need to go to the controller
 			// to get table ids
 			if err := p.createIteratorFromControllerQuery(fetchOffset); err != nil {

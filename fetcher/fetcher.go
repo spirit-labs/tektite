@@ -75,8 +75,8 @@ const (
 	DefaultMaxControllerConnections    = 10
 	DefaultMaxCachedTablesPerPartition = 100
 	DefaultNumReadExecutors            = 8
-	DefaultLocalCacheNumEntries        = 20
-	DefaultLocalCacheMaxBytes          = 256 * 1024 * 1024 // 256MiB
+	DefaultLocalCacheNumEntries        = 10
+	DefaultLocalCacheMaxBytes          = 128 * 1024 * 1024 // 128MiB
 	readExecChannelSize                = 10
 )
 
