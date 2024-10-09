@@ -167,12 +167,12 @@ func (p *PartitionRecentTables) unregisterPartitionStates(partitionStates map[in
 	for topicID, partitionFetchStates := range partitionStates {
 		partitionMap, ok := p.topicMap[topicID]
 		if !ok {
-			panic("topic not registered")
+			continue
 		}
 		for partitionID, partitionFetchState := range partitionFetchStates {
 			partitionTables, ok := partitionMap[partitionID]
 			if !ok {
-				panic("partition not registered")
+				continue
 			}
 			partitionTables.removeListener(partitionFetchState)
 		}

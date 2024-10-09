@@ -12,6 +12,28 @@ import (
 	"sync/atomic"
 )
 
+/*
+BatchFetcher handles Kafka FetchRequests and implements the read path in Tektite. There is one of these on every Agent.
+When a request arrives, for each partition in the request, BatchFetcher must determine which SSTables contain the data
+of interest for offset >= fetchOffset. First it looks in 'recent tables' - this is a per partition cache of SSTable ids
+and lastReadableOffset for each partition that is maintained. If it has enough information from there it uses those ids,
+which would typically be the case for reads of very recently produced data. If not, which would typically be the case
+for historic consumers, a query is sent to the controller to request ids for the key range of interest.
+Once ids have been obtained and lastReadableOffset is known, an iterator can be created using LazySSTableIterators - which
+lazily pull SSTables as they are iterated over. The iterator is iterated over to obtain the recordset(s) and the partition
+response is prepared and returned to the caller.
+When iterating, SSTables are first looked for in a small local cache of SSTables. We maintain this because it's common
+that recent data could be fetched for multiple partitions, and that data could live in the same table. Caching the table
+locally saves multiple possibly remote calls to other agents to retrieve the table from the fetch cache.
+If not found locally the table is requested from the fetch cache. This is a distributed cache, spread across all agents
+in the same AZ. The distributed cache will get the table from object store if it doesn't have it.
+Recent consumers - i.e. ones that don't lag very far behind the latest offset in a partition are the most common. We
+wish to avoid going to the controller to request table ids every time a recent fetch request arrives. We therefore
+cache the most recently registered SSTable ids locally in PartitionRecentTables. When a fetch request arrives it can
+then inspect the ids there and has no need to go to the controller. Whenever a new table is registered with the
+controller and lastReadableOffset is updated it sends a notification to all agents that might be interested. This updates
+the cache of ids in PartitionRecentTables.
+*/
 type BatchFetcher struct {
 	objStore        objstore.Client
 	topicProvider   topicInfoProvider

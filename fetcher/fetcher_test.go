@@ -347,6 +347,112 @@ func TestFetcherMultipleTopicsMultiplePartitionsFetchAll(t *testing.T) {
 	verifyPartitionRecordsInResponse(t, resp, topicNameC, 45, batchesC3)
 }
 
+func TestFetcherMultipleTopicsMultiplePartitionsFetchAllMixtureSuccessAndFailure(t *testing.T) {
+	fetcher, topicProvider, controlClient, objStore := setupFetcher(t)
+	defer stopFetcher(t, fetcher)
+
+	topicIdA := 1001
+	topicNameA := "topic-a"
+	batchesA1, _ := setupBatchesForPartition(t, topicIdA, topicNameA, 23, 1000, 10999, 10999, 10, 2, topicProvider, controlClient, objStore)
+	setupBatchesForPartition(t, topicIdA, topicNameA, 24, 3000, 12999, 12999, 10, 2, topicProvider, controlClient, objStore)
+	batchesA3, _ := setupBatchesForPartition(t, topicIdA, topicNameA, 25, 7000, 16999, 16999, 10, 2, topicProvider, controlClient, objStore)
+
+	topicIdB := 1002
+	topicNameB := "topic-b"
+	setupBatchesForPartition(t, topicIdB, topicNameB, 33, 1000, 10999, 10999, 10, 2, topicProvider, controlClient, objStore)
+	setupBatchesForPartition(t, topicIdB, topicNameB, 34, 3000, 12999, 12999, 10, 2, topicProvider, controlClient, objStore)
+	setupBatchesForPartition(t, topicIdB, topicNameB, 35, 7000, 16999, 16999, 10, 2, topicProvider, controlClient, objStore)
+
+	topicIdC := 1003
+	topicNameC := "topic-c"
+	setupBatchesForPartition(t, topicIdC, topicNameC, 43, 1000, 10999, 10999, 10, 2, topicProvider, controlClient, objStore)
+	batchesC2, _ := setupBatchesForPartition(t, topicIdC, topicNameC, 44, 3000, 12999, 12999, 10, 2, topicProvider, controlClient, objStore)
+	setupBatchesForPartition(t, topicIdC, topicNameC, 45, 7000, 16999, 16999, 10, 2, topicProvider, controlClient, objStore)
+
+	unknownTopic := "nosuchtopic"
+
+	req := kafkaprotocol.FetchRequest{
+		MaxWaitMs: 0,
+		MinBytes:  0,
+		MaxBytes:  defaultMaxBytes,
+		Topics: []kafkaprotocol.FetchRequestFetchTopic{
+			{
+				Topic: common.StrPtr(topicNameA),
+				Partitions: []kafkaprotocol.FetchRequestFetchPartition{
+					{
+						Partition:         23,
+						FetchOffset:       1000,
+						PartitionMaxBytes: defaultMaxBytes,
+					},
+					{
+						Partition:         888,
+						FetchOffset:       3000,
+						PartitionMaxBytes: defaultMaxBytes,
+					},
+					{
+						Partition:         25,
+						FetchOffset:       7000,
+						PartitionMaxBytes: defaultMaxBytes,
+					},
+				},
+			},
+			{
+				Topic: common.StrPtr(unknownTopic),
+				Partitions: []kafkaprotocol.FetchRequestFetchPartition{
+					{
+						Partition:         33,
+						FetchOffset:       1000,
+						PartitionMaxBytes: defaultMaxBytes,
+					},
+					{
+						Partition:         34,
+						FetchOffset:       3000,
+						PartitionMaxBytes: defaultMaxBytes,
+					},
+					{
+						Partition:         35,
+						FetchOffset:       7000,
+						PartitionMaxBytes: defaultMaxBytes,
+					},
+				},
+			},
+			{
+				Topic: common.StrPtr(topicNameC),
+				Partitions: []kafkaprotocol.FetchRequestFetchPartition{
+					{
+						Partition:         777,
+						FetchOffset:       1000,
+						PartitionMaxBytes: defaultMaxBytes,
+					},
+					{
+						Partition:         44,
+						FetchOffset:       3000,
+						PartitionMaxBytes: defaultMaxBytes,
+					},
+					{
+						Partition:         666,
+						FetchOffset:       7000,
+						PartitionMaxBytes: defaultMaxBytes,
+					},
+				},
+			},
+		},
+	}
+	resp := sendFetch(t, &req, fetcher)
+
+	verifyPartitionRecordsInResponse(t, resp, topicNameA, 23, batchesA1)
+	verifyPartitionErrorInResponse(t, resp, topicNameA, 888, kafkaprotocol.ErrorCodeUnknownTopicOrPartition)
+	verifyPartitionRecordsInResponse(t, resp, topicNameA, 25, batchesA3)
+
+	verifyPartitionErrorInResponse(t, resp, unknownTopic, 33, kafkaprotocol.ErrorCodeUnknownTopicOrPartition)
+	verifyPartitionErrorInResponse(t, resp, unknownTopic, 34, kafkaprotocol.ErrorCodeUnknownTopicOrPartition)
+	verifyPartitionErrorInResponse(t, resp, unknownTopic, 35, kafkaprotocol.ErrorCodeUnknownTopicOrPartition)
+
+	verifyPartitionErrorInResponse(t, resp, topicNameC, 777, kafkaprotocol.ErrorCodeUnknownTopicOrPartition)
+	verifyPartitionRecordsInResponse(t, resp, topicNameC, 44, batchesC2)
+	verifyPartitionErrorInResponse(t, resp, topicNameC, 666, kafkaprotocol.ErrorCodeUnknownTopicOrPartition)
+}
+
 func TestFetcherMultipleTopicsMultiplePartitionsFetchPartial(t *testing.T) {
 	fetcher, topicProvider, controlClient, objStore := setupFetcher(t)
 	defer stopFetcher(t, fetcher)
@@ -1263,6 +1369,68 @@ func TestFetcherHistoricConsumer(t *testing.T) {
 	}
 }
 
+func TestFetcherErrorUnknownTopic(t *testing.T) {
+	fetcher, _, _, _ := setupFetcher(t)
+	defer stopFetcher(t, fetcher)
+
+	req := kafkaprotocol.FetchRequest{
+		MinBytes: 0,
+		MaxBytes: int32(defaultMaxBytes),
+		Topics: []kafkaprotocol.FetchRequestFetchTopic{
+			{
+				Topic: common.StrPtr("nosuchtopic"),
+				Partitions: []kafkaprotocol.FetchRequestFetchPartition{
+					{
+						Partition:         int32(defaultPartitionID),
+						FetchOffset:       0,
+						PartitionMaxBytes: int32(defaultMaxBytes),
+					},
+				},
+			},
+		},
+	}
+	resp := sendFetch(t, &req, fetcher)
+	require.Equal(t, 1, len(resp.Responses))
+	topicResp := resp.Responses[0]
+	require.Equal(t, 1, len(topicResp.Partitions))
+	partResp := topicResp.Partitions[0]
+	require.Equal(t, kafkaprotocol.ErrorCodeUnknownTopicOrPartition, int(partResp.ErrorCode))
+}
+
+func TestFetcherErrorUnknownPartition(t *testing.T) {
+	testFetcherErrorUnknownPartition(t, 777)
+	testFetcherErrorUnknownPartition(t, -1)
+}
+
+func testFetcherErrorUnknownPartition(t *testing.T, partitionID int) {
+	fetcher, topicProvider, controlClient, objStore := setupFetcher(t)
+	defer stopFetcher(t, fetcher)
+	setupDataDefault(t, 100, 10000, 10000, 1, 1, topicProvider, controlClient, objStore)
+
+	req := kafkaprotocol.FetchRequest{
+		MinBytes: 0,
+		MaxBytes: int32(defaultMaxBytes),
+		Topics: []kafkaprotocol.FetchRequestFetchTopic{
+			{
+				Topic: common.StrPtr(defaultTopicName),
+				Partitions: []kafkaprotocol.FetchRequestFetchPartition{
+					{
+						Partition:         int32(partitionID), // invalid partition
+						FetchOffset:       0,
+						PartitionMaxBytes: int32(defaultMaxBytes),
+					},
+				},
+			},
+		},
+	}
+	resp := sendFetch(t, &req, fetcher)
+	require.Equal(t, 1, len(resp.Responses))
+	topicResp := resp.Responses[0]
+	require.Equal(t, 1, len(topicResp.Partitions))
+	partResp := topicResp.Partitions[0]
+	require.Equal(t, kafkaprotocol.ErrorCodeUnknownTopicOrPartition, int(partResp.ErrorCode))
+}
+
 func setupFetcher(t *testing.T) (*BatchFetcher, *testTopicProvider, *testControlClient, objstore.Client) {
 	objStore := dev.NewInMemStore(0)
 	infoProvider := &testTopicProvider{infos: map[string]topicmeta.TopicInfo{}}
@@ -1449,6 +1617,23 @@ func verifyPartitionRecordsInResponse(t *testing.T, resp *kafkaprotocol.FetchRes
 	require.True(t, ok)
 	require.Equal(t, kafkaprotocol.ErrorCodeNone, int(partResp.ErrorCode))
 	require.Equal(t, len(batches), len(partResp.Records))
+}
+
+func verifyPartitionErrorInResponse(t *testing.T, resp *kafkaprotocol.FetchResponse, topicName string, partitionID int, errCode int) {
+	var tResp *kafkaprotocol.FetchResponseFetchableTopicResponse
+	for _, topicResp := range resp.Responses {
+		if *topicResp.Topic == topicName {
+			tResp = &topicResp
+		}
+	}
+	require.NotNil(t, tResp)
+	partResps := map[int]*kafkaprotocol.FetchResponsePartitionData{}
+	for _, partResp := range tResp.Partitions {
+		partResps[int(partResp.PartitionIndex)] = &partResp
+	}
+	partResp, ok := partResps[partitionID]
+	require.True(t, ok)
+	require.Equal(t, errCode, int(partResp.ErrorCode))
 }
 
 func newtestControlClient() *testControlClient {
