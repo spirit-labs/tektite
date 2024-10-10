@@ -40,32 +40,36 @@ type BatchFetcher struct {
 	partitionHashes *parthash.PartitionHashes
 	controlFactory  controllerClientFactory
 	tableGetter     sst.TableGetter
+	address         string
 	recentTables    PartitionRecentTables
 	controlClients  *clientCache
 	dataBucketName  string
 	readExecs       []readExecutor
 	localCache      *LocalSSTCache
 	execAssignPos   int64
+	resetSequence   int64
 }
 
 func NewBatchFetcher(objStore objstore.Client, topicProvider topicInfoProvider, partitionHashes *parthash.PartitionHashes,
-	controlFactory controllerClientFactory, tableGetter sst.TableGetter, cfg Conf) (*BatchFetcher, error) {
+	controlFactory controllerClientFactory, tableGetter sst.TableGetter, address string, cfg Conf) (*BatchFetcher, error) {
 	localCache, err := NewLocalSSTCache(cfg.LocalCacheNumEntries, cfg.LocalCacheMaxBytes)
 	if err != nil {
 		return nil, err
 	}
-	return &BatchFetcher{
+	bf := &BatchFetcher{
 		objStore:        objStore,
 		topicProvider:   topicProvider,
 		partitionHashes: partitionHashes,
 		controlFactory:  controlFactory,
 		tableGetter:     tableGetter,
-		recentTables:    CreatePartitionRecentTables(cfg.MaxCachedTablesPerPartition),
+		address:         address,
 		controlClients:  newClientCache(cfg.MaxControllerConnections, controlFactory),
 		readExecs:       make([]readExecutor, cfg.NumReadExecutors),
 		localCache:      localCache,
 		dataBucketName:  cfg.DataBucketName,
-	}, nil
+	}
+	bf.recentTables = CreatePartitionRecentTables(cfg.MaxCachedTablesPerPartition, bf)
+	return bf, nil
 }
 
 type Conf struct {
@@ -109,7 +113,8 @@ type topicInfoProvider interface {
 type controllerClientFactory func() (ControlClient, error)
 
 type ControlClient interface {
-	FetchTablesForPrefix(topicID int, partitionID int, prefix []byte, offsetStart int64) (lsm.OverlappingTables, int64, error)
+	RegisterTableListener(topicID int, partitionID int, address string, resetSequence int64) (int64, error)
+	QueryTablesInRange(keyStart []byte, keyEnd []byte) (lsm.OverlappingTables, error)
 	Close() error
 }
 
@@ -125,6 +130,7 @@ func (b *BatchFetcher) Stop() error {
 	for i := 0; i < len(b.readExecs); i++ {
 		b.readExecs[i].stop()
 	}
+	b.controlClients.close()
 	return nil
 }
 
@@ -134,14 +140,8 @@ func (b *BatchFetcher) HandleFetchRequest(req *kafkaprotocol.FetchRequest,
 	readExec := &b.readExecs[pos%int64(len(b.readExecs))]
 	// No need to shuffle partitions as golang map has non-deterministic iteration order - this ensures we don't have
 	// the same partition getting all the data and others starving
-	fetchState := FetchState{
-		bf:              b,
-		req:             req,
-		partitionStates: map[int]map[int]*PartitionFetchState{},
-		completionFunc:  completionFunc,
-		readExec:        readExec,
-	}
-	if err := fetchState.init(); err != nil {
+	fetchState, err := newFetchState(b, req, readExec, completionFunc)
+	if err != nil {
 		return err
 	}
 	if len(fetchState.partitionStates) == 0 {

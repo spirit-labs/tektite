@@ -3,13 +3,16 @@ package fetcher
 import (
 	"bytes"
 	"context"
+	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	"github.com/spirit-labs/tektite/asl/encoding"
 	"github.com/spirit-labs/tektite/common"
+	"github.com/spirit-labs/tektite/control"
 	"github.com/spirit-labs/tektite/kafkaprotocol"
 	"github.com/spirit-labs/tektite/lsm"
 	"github.com/spirit-labs/tektite/objstore"
 	"github.com/spirit-labs/tektite/objstore/dev"
+	"github.com/spirit-labs/tektite/offsets"
 	"github.com/spirit-labs/tektite/parthash"
 	"github.com/spirit-labs/tektite/sst"
 	"github.com/spirit-labs/tektite/testutils"
@@ -17,21 +20,12 @@ import (
 	"github.com/stretchr/testify/require"
 	"math"
 	"sort"
+	"sync"
 	"sync/atomic"
 	"time"
 
 	"testing"
 )
-
-/*
-Tests
-
-* Fuzz test, choose minBytes and request max bytes and partition max bytes randomly. Create data in random batch sizes. Make sure
-all data is consumed. Try this initially with 1 topic and partition, then do a version with multiple topics and partitions.
-
-* Test mixture of errors and successes
-* Test the async nature of read - hammer it multiple GRs?
-*/
 
 const (
 	databucketName       = "test-bucket"
@@ -163,9 +157,9 @@ func TestFetcherSingleTopicMultiplePartitionsFetchAll(t *testing.T) {
 	fetcher, topicProvider, controlClient, objStore := setupFetcher(t)
 	defer stopFetcher(t, fetcher)
 
-	batches1, _ := setupBatchesForPartition(t, defaultTopicID, defaultTopicName, 23, 1000, 9999, 9999, 10, 2, topicProvider, controlClient, objStore)
-	batches2, _ := setupBatchesForPartition(t, defaultTopicID, defaultTopicName, 24, 3000, 12999, 12999, 10, 2, topicProvider, controlClient, objStore)
-	batches3, _ := setupBatchesForPartition(t, defaultTopicID, defaultTopicName, 25, 7000, 29999, 29999, 10, 2, topicProvider, controlClient, objStore)
+	batches1, _ := setupForPartition(t, defaultTopicID, defaultTopicName, 23, 1000, 9999, 9999, 10, 2, topicProvider, controlClient, objStore)
+	batches2, _ := setupForPartition(t, defaultTopicID, defaultTopicName, 24, 3000, 12999, 12999, 10, 2, topicProvider, controlClient, objStore)
+	batches3, _ := setupForPartition(t, defaultTopicID, defaultTopicName, 25, 7000, 29999, 29999, 10, 2, topicProvider, controlClient, objStore)
 
 	req := kafkaprotocol.FetchRequest{
 		MaxWaitMs: 0,
@@ -205,9 +199,9 @@ func TestFetcherSingleTopicMultiplePartitionsFetchPartial(t *testing.T) {
 	fetcher, topicProvider, controlClient, objStore := setupFetcher(t)
 	defer stopFetcher(t, fetcher)
 
-	batches1, _ := setupBatchesForPartition(t, defaultTopicID, defaultTopicName, 23, 1000, 10999, 10999, 10, 2, topicProvider, controlClient, objStore)
-	setupBatchesForPartition(t, defaultTopicID, defaultTopicName, 24, 3000, 12999, 12999, 10, 2, topicProvider, controlClient, objStore)
-	batches3, _ := setupBatchesForPartition(t, defaultTopicID, defaultTopicName, 25, 7000, 16999, 16999, 10, 2, topicProvider, controlClient, objStore)
+	batches1, _ := setupForPartition(t, defaultTopicID, defaultTopicName, 23, 1000, 10999, 10999, 10, 2, topicProvider, controlClient, objStore)
+	setupForPartition(t, defaultTopicID, defaultTopicName, 24, 3000, 12999, 12999, 10, 2, topicProvider, controlClient, objStore)
+	batches3, _ := setupForPartition(t, defaultTopicID, defaultTopicName, 25, 7000, 16999, 16999, 10, 2, topicProvider, controlClient, objStore)
 
 	req := kafkaprotocol.FetchRequest{
 		MaxWaitMs: 0,
@@ -249,21 +243,21 @@ func TestFetcherMultipleTopicsMultiplePartitionsFetchAll(t *testing.T) {
 
 	topicIdA := 1001
 	topicNameA := "topic-a"
-	batchesA1, _ := setupBatchesForPartition(t, topicIdA, topicNameA, 23, 1000, 10999, 10999, 10, 2, topicProvider, controlClient, objStore)
-	batchesA2, _ := setupBatchesForPartition(t, topicIdA, topicNameA, 24, 3000, 12999, 12999, 10, 2, topicProvider, controlClient, objStore)
-	batchesA3, _ := setupBatchesForPartition(t, topicIdA, topicNameA, 25, 7000, 16999, 16999, 10, 2, topicProvider, controlClient, objStore)
+	batchesA1, _ := setupForPartition(t, topicIdA, topicNameA, 23, 1000, 10999, 10999, 10, 2, topicProvider, controlClient, objStore)
+	batchesA2, _ := setupForPartition(t, topicIdA, topicNameA, 24, 3000, 12999, 12999, 10, 2, topicProvider, controlClient, objStore)
+	batchesA3, _ := setupForPartition(t, topicIdA, topicNameA, 25, 7000, 16999, 16999, 10, 2, topicProvider, controlClient, objStore)
 
 	topicIdB := 1002
 	topicNameB := "topic-b"
-	batchesB1, _ := setupBatchesForPartition(t, topicIdB, topicNameB, 33, 1000, 10999, 10999, 10, 2, topicProvider, controlClient, objStore)
-	batchesB2, _ := setupBatchesForPartition(t, topicIdB, topicNameB, 34, 3000, 12999, 12999, 10, 2, topicProvider, controlClient, objStore)
-	batchesB3, _ := setupBatchesForPartition(t, topicIdB, topicNameB, 35, 7000, 16999, 16999, 10, 2, topicProvider, controlClient, objStore)
+	batchesB1, _ := setupForPartition(t, topicIdB, topicNameB, 33, 1000, 10999, 10999, 10, 2, topicProvider, controlClient, objStore)
+	batchesB2, _ := setupForPartition(t, topicIdB, topicNameB, 34, 3000, 12999, 12999, 10, 2, topicProvider, controlClient, objStore)
+	batchesB3, _ := setupForPartition(t, topicIdB, topicNameB, 35, 7000, 16999, 16999, 10, 2, topicProvider, controlClient, objStore)
 
 	topicIdC := 1003
 	topicNameC := "topic-c"
-	batchesC1, _ := setupBatchesForPartition(t, topicIdC, topicNameC, 43, 1000, 10999, 10999, 10, 2, topicProvider, controlClient, objStore)
-	batchesC2, _ := setupBatchesForPartition(t, topicIdC, topicNameC, 44, 3000, 12999, 12999, 10, 2, topicProvider, controlClient, objStore)
-	batchesC3, _ := setupBatchesForPartition(t, topicIdC, topicNameC, 45, 7000, 16999, 16999, 10, 2, topicProvider, controlClient, objStore)
+	batchesC1, _ := setupForPartition(t, topicIdC, topicNameC, 43, 1000, 10999, 10999, 10, 2, topicProvider, controlClient, objStore)
+	batchesC2, _ := setupForPartition(t, topicIdC, topicNameC, 44, 3000, 12999, 12999, 10, 2, topicProvider, controlClient, objStore)
+	batchesC3, _ := setupForPartition(t, topicIdC, topicNameC, 45, 7000, 16999, 16999, 10, 2, topicProvider, controlClient, objStore)
 
 	req := kafkaprotocol.FetchRequest{
 		MaxWaitMs: 0,
@@ -353,21 +347,21 @@ func TestFetcherMultipleTopicsMultiplePartitionsFetchAllMixtureSuccessAndFailure
 
 	topicIdA := 1001
 	topicNameA := "topic-a"
-	batchesA1, _ := setupBatchesForPartition(t, topicIdA, topicNameA, 23, 1000, 10999, 10999, 10, 2, topicProvider, controlClient, objStore)
-	setupBatchesForPartition(t, topicIdA, topicNameA, 24, 3000, 12999, 12999, 10, 2, topicProvider, controlClient, objStore)
-	batchesA3, _ := setupBatchesForPartition(t, topicIdA, topicNameA, 25, 7000, 16999, 16999, 10, 2, topicProvider, controlClient, objStore)
+	batchesA1, _ := setupForPartition(t, topicIdA, topicNameA, 23, 1000, 10999, 10999, 10, 2, topicProvider, controlClient, objStore)
+	setupForPartition(t, topicIdA, topicNameA, 24, 3000, 12999, 12999, 10, 2, topicProvider, controlClient, objStore)
+	batchesA3, _ := setupForPartition(t, topicIdA, topicNameA, 25, 7000, 16999, 16999, 10, 2, topicProvider, controlClient, objStore)
 
 	topicIdB := 1002
 	topicNameB := "topic-b"
-	setupBatchesForPartition(t, topicIdB, topicNameB, 33, 1000, 10999, 10999, 10, 2, topicProvider, controlClient, objStore)
-	setupBatchesForPartition(t, topicIdB, topicNameB, 34, 3000, 12999, 12999, 10, 2, topicProvider, controlClient, objStore)
-	setupBatchesForPartition(t, topicIdB, topicNameB, 35, 7000, 16999, 16999, 10, 2, topicProvider, controlClient, objStore)
+	setupForPartition(t, topicIdB, topicNameB, 33, 1000, 10999, 10999, 10, 2, topicProvider, controlClient, objStore)
+	setupForPartition(t, topicIdB, topicNameB, 34, 3000, 12999, 12999, 10, 2, topicProvider, controlClient, objStore)
+	setupForPartition(t, topicIdB, topicNameB, 35, 7000, 16999, 16999, 10, 2, topicProvider, controlClient, objStore)
 
 	topicIdC := 1003
 	topicNameC := "topic-c"
-	setupBatchesForPartition(t, topicIdC, topicNameC, 43, 1000, 10999, 10999, 10, 2, topicProvider, controlClient, objStore)
-	batchesC2, _ := setupBatchesForPartition(t, topicIdC, topicNameC, 44, 3000, 12999, 12999, 10, 2, topicProvider, controlClient, objStore)
-	setupBatchesForPartition(t, topicIdC, topicNameC, 45, 7000, 16999, 16999, 10, 2, topicProvider, controlClient, objStore)
+	setupForPartition(t, topicIdC, topicNameC, 43, 1000, 10999, 10999, 10, 2, topicProvider, controlClient, objStore)
+	batchesC2, _ := setupForPartition(t, topicIdC, topicNameC, 44, 3000, 12999, 12999, 10, 2, topicProvider, controlClient, objStore)
+	setupForPartition(t, topicIdC, topicNameC, 45, 7000, 16999, 16999, 10, 2, topicProvider, controlClient, objStore)
 
 	unknownTopic := "nosuchtopic"
 
@@ -459,21 +453,21 @@ func TestFetcherMultipleTopicsMultiplePartitionsFetchPartial(t *testing.T) {
 
 	topicIdA := 1001
 	topicNameA := "topic-a"
-	batchesA1, _ := setupBatchesForPartition(t, topicIdA, topicNameA, 23, 1000, 10999, 10999, 10, 2, topicProvider, controlClient, objStore)
-	setupBatchesForPartition(t, topicIdA, topicNameA, 24, 3000, 12999, 12999, 10, 2, topicProvider, controlClient, objStore)
-	batchesA3, _ := setupBatchesForPartition(t, topicIdA, topicNameA, 25, 7000, 16999, 16999, 10, 2, topicProvider, controlClient, objStore)
+	batchesA1, _ := setupForPartition(t, topicIdA, topicNameA, 23, 1000, 10999, 10999, 10, 2, topicProvider, controlClient, objStore)
+	setupForPartition(t, topicIdA, topicNameA, 24, 3000, 12999, 12999, 10, 2, topicProvider, controlClient, objStore)
+	batchesA3, _ := setupForPartition(t, topicIdA, topicNameA, 25, 7000, 16999, 16999, 10, 2, topicProvider, controlClient, objStore)
 
 	topicIdB := 1002
 	topicNameB := "topic-b"
-	batchesB1, _ := setupBatchesForPartition(t, topicIdB, topicNameB, 33, 1000, 10999, 10999, 10, 2, topicProvider, controlClient, objStore)
-	batchesB2, _ := setupBatchesForPartition(t, topicIdB, topicNameB, 34, 3000, 12999, 12999, 10, 2, topicProvider, controlClient, objStore)
-	batchesB3, _ := setupBatchesForPartition(t, topicIdB, topicNameB, 35, 7000, 16999, 16999, 10, 2, topicProvider, controlClient, objStore)
+	batchesB1, _ := setupForPartition(t, topicIdB, topicNameB, 33, 1000, 10999, 10999, 10, 2, topicProvider, controlClient, objStore)
+	batchesB2, _ := setupForPartition(t, topicIdB, topicNameB, 34, 3000, 12999, 12999, 10, 2, topicProvider, controlClient, objStore)
+	batchesB3, _ := setupForPartition(t, topicIdB, topicNameB, 35, 7000, 16999, 16999, 10, 2, topicProvider, controlClient, objStore)
 
 	topicIdC := 1003
 	topicNameC := "topic-c"
-	batchesC1, _ := setupBatchesForPartition(t, topicIdC, topicNameC, 43, 1000, 10999, 10999, 10, 2, topicProvider, controlClient, objStore)
-	batchesC2, _ := setupBatchesForPartition(t, topicIdC, topicNameC, 44, 3000, 12999, 12999, 10, 2, topicProvider, controlClient, objStore)
-	batchesC3, _ := setupBatchesForPartition(t, topicIdC, topicNameC, 45, 7000, 16999, 16999, 10, 2, topicProvider, controlClient, objStore)
+	batchesC1, _ := setupForPartition(t, topicIdC, topicNameC, 43, 1000, 10999, 10999, 10, 2, topicProvider, controlClient, objStore)
+	batchesC2, _ := setupForPartition(t, topicIdC, topicNameC, 44, 3000, 12999, 12999, 10, 2, topicProvider, controlClient, objStore)
+	batchesC3, _ := setupForPartition(t, topicIdC, topicNameC, 45, 7000, 16999, 16999, 10, 2, topicProvider, controlClient, objStore)
 
 	req := kafkaprotocol.FetchRequest{
 		MaxWaitMs: 0,
@@ -601,9 +595,9 @@ func TestFetcherSingleTopicMultiplePartitionsNoWaitPartitionMax(t *testing.T) {
 	fetcher, topicProvider, controlClient, objStore := setupFetcher(t)
 	defer stopFetcher(t, fetcher)
 
-	batches1, _ := setupBatchesForPartition(t, defaultTopicID, defaultTopicName, 23, 1000, 10999, 10999, 10, 2, topicProvider, controlClient, objStore)
-	batches2, _ := setupBatchesForPartition(t, defaultTopicID, defaultTopicName, 24, 3000, 12999, 12999, 10, 2, topicProvider, controlClient, objStore)
-	batches3, _ := setupBatchesForPartition(t, defaultTopicID, defaultTopicName, 25, 7000, 16999, 16999, 10, 2, topicProvider, controlClient, objStore)
+	batches1, _ := setupForPartition(t, defaultTopicID, defaultTopicName, 23, 1000, 10999, 10999, 10, 2, topicProvider, controlClient, objStore)
+	batches2, _ := setupForPartition(t, defaultTopicID, defaultTopicName, 24, 3000, 12999, 12999, 10, 2, topicProvider, controlClient, objStore)
+	batches3, _ := setupForPartition(t, defaultTopicID, defaultTopicName, 25, 7000, 16999, 16999, 10, 2, topicProvider, controlClient, objStore)
 
 	req := kafkaprotocol.FetchRequest{
 		MaxWaitMs: 0,
@@ -653,9 +647,9 @@ func TestFetcherSingleTopicMultiplePartitionsNoWaitRequestMaxSizeExceeded(t *tes
 	fetcher, topicProvider, controlClient, objStore := setupFetcher(t)
 	defer stopFetcher(t, fetcher)
 
-	batches1, _ := setupBatchesForPartition(t, defaultTopicID, defaultTopicName, 23, 1000, 10999, 10999, 10, 2, topicProvider, controlClient, objStore)
-	setupBatchesForPartition(t, defaultTopicID, defaultTopicName, 24, 3000, 12999, 12999, 10, 2, topicProvider, controlClient, objStore)
-	setupBatchesForPartition(t, defaultTopicID, defaultTopicName, 25, 7000, 16999, 16999, 10, 2, topicProvider, controlClient, objStore)
+	batches1, _ := setupForPartition(t, defaultTopicID, defaultTopicName, 23, 1000, 10999, 10999, 10, 2, topicProvider, controlClient, objStore)
+	setupForPartition(t, defaultTopicID, defaultTopicName, 24, 3000, 12999, 12999, 10, 2, topicProvider, controlClient, objStore)
+	setupForPartition(t, defaultTopicID, defaultTopicName, 25, 7000, 16999, 16999, 10, 2, topicProvider, controlClient, objStore)
 
 	maxBytes := len(batches1[0]) * 5
 
@@ -745,9 +739,9 @@ func TestFetcherSinglePartitionMinBytesNotReachedMultiplePartitions(t *testing.T
 	fetcher, topicProvider, controlClient, objStore := setupFetcher(t)
 	defer stopFetcher(t, fetcher)
 
-	batches1, _ := setupBatchesForPartition(t, defaultTopicID, defaultTopicName, 23, 1000, 10999, 10999, 10, 2, topicProvider, controlClient, objStore)
-	batches2, _ := setupBatchesForPartition(t, defaultTopicID, defaultTopicName, 24, 3000, 12999, 12999, 10, 2, topicProvider, controlClient, objStore)
-	batches3, _ := setupBatchesForPartition(t, defaultTopicID, defaultTopicName, 25, 7000, 16999, 16999, 10, 2, topicProvider, controlClient, objStore)
+	batches1, _ := setupForPartition(t, defaultTopicID, defaultTopicName, 23, 1000, 10999, 10999, 10, 2, topicProvider, controlClient, objStore)
+	batches2, _ := setupForPartition(t, defaultTopicID, defaultTopicName, 24, 3000, 12999, 12999, 10, 2, topicProvider, controlClient, objStore)
+	batches3, _ := setupForPartition(t, defaultTopicID, defaultTopicName, 25, 7000, 16999, 16999, 10, 2, topicProvider, controlClient, objStore)
 
 	totSize := 0
 	for _, batch := range batches1 {
@@ -800,9 +794,9 @@ func TestFetcherSinglePartitionMinBytesReachedExactlyMultiplePartitions(t *testi
 	fetcher, topicProvider, controlClient, objStore := setupFetcher(t)
 	defer stopFetcher(t, fetcher)
 
-	batches1, _ := setupBatchesForPartition(t, defaultTopicID, defaultTopicName, 23, 1000, 10999, 10999, 10, 2, topicProvider, controlClient, objStore)
-	batches2, _ := setupBatchesForPartition(t, defaultTopicID, defaultTopicName, 24, 3000, 12999, 12999, 10, 2, topicProvider, controlClient, objStore)
-	batches3, _ := setupBatchesForPartition(t, defaultTopicID, defaultTopicName, 25, 7000, 16999, 16999, 10, 2, topicProvider, controlClient, objStore)
+	batches1, _ := setupForPartition(t, defaultTopicID, defaultTopicName, 23, 1000, 10999, 10999, 10, 2, topicProvider, controlClient, objStore)
+	batches2, _ := setupForPartition(t, defaultTopicID, defaultTopicName, 24, 3000, 12999, 12999, 10, 2, topicProvider, controlClient, objStore)
+	batches3, _ := setupForPartition(t, defaultTopicID, defaultTopicName, 25, 7000, 16999, 16999, 10, 2, topicProvider, controlClient, objStore)
 
 	totSize := 0
 	for _, batch := range batches1 {
@@ -859,27 +853,27 @@ func TestFetcherMinBytesNotReachedMultipleTopicsMultiplePartitions(t *testing.T)
 
 	topicIdA := 1001
 	topicNameA := "topic-a"
-	batchesA1, _ := setupBatchesForPartition(t, topicIdA, topicNameA, 23, 1000, 10999, 10999, 10, 2, topicProvider, controlClient, objStore)
-	batchesA2, _ := setupBatchesForPartition(t, topicIdA, topicNameA, 24, 3000, 12999, 12999, 10, 2, topicProvider, controlClient, objStore)
-	batchesA3, _ := setupBatchesForPartition(t, topicIdA, topicNameA, 25, 7000, 16999, 16999, 10, 2, topicProvider, controlClient, objStore)
+	batchesA1, _ := setupForPartition(t, topicIdA, topicNameA, 23, 1000, 10999, 10999, 10, 2, topicProvider, controlClient, objStore)
+	batchesA2, _ := setupForPartition(t, topicIdA, topicNameA, 24, 3000, 12999, 12999, 10, 2, topicProvider, controlClient, objStore)
+	batchesA3, _ := setupForPartition(t, topicIdA, topicNameA, 25, 7000, 16999, 16999, 10, 2, topicProvider, controlClient, objStore)
 	allBatches = append(allBatches, batchesA1...)
 	allBatches = append(allBatches, batchesA2...)
 	allBatches = append(allBatches, batchesA3...)
 
 	topicIdB := 1002
 	topicNameB := "topic-b"
-	batchesB1, _ := setupBatchesForPartition(t, topicIdB, topicNameB, 33, 1000, 10999, 10999, 10, 2, topicProvider, controlClient, objStore)
-	batchesB2, _ := setupBatchesForPartition(t, topicIdB, topicNameB, 34, 3000, 12999, 12999, 10, 2, topicProvider, controlClient, objStore)
-	batchesB3, _ := setupBatchesForPartition(t, topicIdB, topicNameB, 35, 7000, 16999, 16999, 10, 2, topicProvider, controlClient, objStore)
+	batchesB1, _ := setupForPartition(t, topicIdB, topicNameB, 33, 1000, 10999, 10999, 10, 2, topicProvider, controlClient, objStore)
+	batchesB2, _ := setupForPartition(t, topicIdB, topicNameB, 34, 3000, 12999, 12999, 10, 2, topicProvider, controlClient, objStore)
+	batchesB3, _ := setupForPartition(t, topicIdB, topicNameB, 35, 7000, 16999, 16999, 10, 2, topicProvider, controlClient, objStore)
 	allBatches = append(allBatches, batchesB1...)
 	allBatches = append(allBatches, batchesB2...)
 	allBatches = append(allBatches, batchesB3...)
 
 	topicIdC := 1003
 	topicNameC := "topic-c"
-	batchesC1, _ := setupBatchesForPartition(t, topicIdC, topicNameC, 43, 1000, 10999, 10999, 10, 2, topicProvider, controlClient, objStore)
-	batchesC2, _ := setupBatchesForPartition(t, topicIdC, topicNameC, 44, 3000, 12999, 12999, 10, 2, topicProvider, controlClient, objStore)
-	batchesC3, _ := setupBatchesForPartition(t, topicIdC, topicNameC, 45, 7000, 16999, 16999, 10, 2, topicProvider, controlClient, objStore)
+	batchesC1, _ := setupForPartition(t, topicIdC, topicNameC, 43, 1000, 10999, 10999, 10, 2, topicProvider, controlClient, objStore)
+	batchesC2, _ := setupForPartition(t, topicIdC, topicNameC, 44, 3000, 12999, 12999, 10, 2, topicProvider, controlClient, objStore)
+	batchesC3, _ := setupForPartition(t, topicIdC, topicNameC, 45, 7000, 16999, 16999, 10, 2, topicProvider, controlClient, objStore)
 	allBatches = append(allBatches, batchesC1...)
 	allBatches = append(allBatches, batchesC2...)
 	allBatches = append(allBatches, batchesC3...)
@@ -979,27 +973,27 @@ func TestFetcherMinBytesExactlyReachedMultipleTopicsMultiplePartitions(t *testin
 
 	topicIdA := 1001
 	topicNameA := "topic-a"
-	batchesA1, _ := setupBatchesForPartition(t, topicIdA, topicNameA, 23, 1000, 10999, 10999, 10, 2, topicProvider, controlClient, objStore)
-	batchesA2, _ := setupBatchesForPartition(t, topicIdA, topicNameA, 24, 3000, 12999, 12999, 10, 2, topicProvider, controlClient, objStore)
-	batchesA3, _ := setupBatchesForPartition(t, topicIdA, topicNameA, 25, 7000, 16999, 16999, 10, 2, topicProvider, controlClient, objStore)
+	batchesA1, _ := setupForPartition(t, topicIdA, topicNameA, 23, 1000, 10999, 10999, 10, 2, topicProvider, controlClient, objStore)
+	batchesA2, _ := setupForPartition(t, topicIdA, topicNameA, 24, 3000, 12999, 12999, 10, 2, topicProvider, controlClient, objStore)
+	batchesA3, _ := setupForPartition(t, topicIdA, topicNameA, 25, 7000, 16999, 16999, 10, 2, topicProvider, controlClient, objStore)
 	allBatches = append(allBatches, batchesA1...)
 	allBatches = append(allBatches, batchesA2...)
 	allBatches = append(allBatches, batchesA3...)
 
 	topicIdB := 1002
 	topicNameB := "topic-b"
-	batchesB1, _ := setupBatchesForPartition(t, topicIdB, topicNameB, 33, 1000, 10999, 10999, 10, 2, topicProvider, controlClient, objStore)
-	batchesB2, _ := setupBatchesForPartition(t, topicIdB, topicNameB, 34, 3000, 12999, 12999, 10, 2, topicProvider, controlClient, objStore)
-	batchesB3, _ := setupBatchesForPartition(t, topicIdB, topicNameB, 35, 7000, 16999, 16999, 10, 2, topicProvider, controlClient, objStore)
+	batchesB1, _ := setupForPartition(t, topicIdB, topicNameB, 33, 1000, 10999, 10999, 10, 2, topicProvider, controlClient, objStore)
+	batchesB2, _ := setupForPartition(t, topicIdB, topicNameB, 34, 3000, 12999, 12999, 10, 2, topicProvider, controlClient, objStore)
+	batchesB3, _ := setupForPartition(t, topicIdB, topicNameB, 35, 7000, 16999, 16999, 10, 2, topicProvider, controlClient, objStore)
 	allBatches = append(allBatches, batchesB1...)
 	allBatches = append(allBatches, batchesB2...)
 	allBatches = append(allBatches, batchesB3...)
 
 	topicIdC := 1003
 	topicNameC := "topic-c"
-	batchesC1, _ := setupBatchesForPartition(t, topicIdC, topicNameC, 43, 1000, 10999, 10999, 10, 2, topicProvider, controlClient, objStore)
-	batchesC2, _ := setupBatchesForPartition(t, topicIdC, topicNameC, 44, 3000, 12999, 12999, 10, 2, topicProvider, controlClient, objStore)
-	batchesC3, _ := setupBatchesForPartition(t, topicIdC, topicNameC, 45, 7000, 16999, 16999, 10, 2, topicProvider, controlClient, objStore)
+	batchesC1, _ := setupForPartition(t, topicIdC, topicNameC, 43, 1000, 10999, 10999, 10, 2, topicProvider, controlClient, objStore)
+	batchesC2, _ := setupForPartition(t, topicIdC, topicNameC, 44, 3000, 12999, 12999, 10, 2, topicProvider, controlClient, objStore)
+	batchesC3, _ := setupForPartition(t, topicIdC, topicNameC, 45, 7000, 16999, 16999, 10, 2, topicProvider, controlClient, objStore)
 	allBatches = append(allBatches, batchesC1...)
 	allBatches = append(allBatches, batchesC2...)
 	allBatches = append(allBatches, batchesC3...)
@@ -1111,36 +1105,65 @@ func TestFetcherSinglePartitionMinBytesNotReachedTimeout(t *testing.T) {
 func TestFetcherMultipleRequestsFetchFromCacheAfterFirstRequest(t *testing.T) {
 	fetcher, topicProvider, controlClient, objStore := setupFetcher(t)
 	defer stopFetcher(t, fetcher)
-	batches, tabIDs := setupDataDefault(t, 0, 9999, 9999, 10, 10, topicProvider, controlClient, objStore)
+
+	topicProvider.infos[defaultTopicName] = topicmeta.TopicInfo{
+		ID:             defaultTopicID,
+		Name:           defaultTopicName,
+		PartitionCount: defaultNumPartitions,
+	}
+	controlClient.setLastReadableOffset(defaultTopicID, defaultPartitionID, -1)
+
+	// initialise partition tables
+	resp := sendFetchDefault(t, 0, 0, 0, defaultMaxBytes, defaultMaxBytes, fetcher)
+
+	verifyDefaultResponse(t, resp, nil)
+
+	batches, tabIDs, queryRes := setupBatchesForPartition(t, defaultTopicID, defaultPartitionID, 0, 9999, 10, 10, objStore)
+	controlClient.queryRes = queryRes
+	controlClient.setLastReadableOffset(defaultTopicID, defaultPartitionID, 9999)
+
 	totBatchSizes := 0
 	for _, batch := range batches {
 		totBatchSizes += len(batch)
 	}
 
-	resp := sendFetchDefault(t, 0, 0, 0, len(batches[0]), defaultMaxBytes, fetcher)
-
-	verifyDefaultResponse(t, resp, batches[0:1])
-
-	// send notification - should result in entry added to recent tables
+	var seq int64
+	// send notifications - should result in entries added
 	// we add the first two tables
-	err := fetcher.recentTables.handleTableRegisteredNotification(TableRegisteredNotification{
-		ID: tabIDs[0],
-		PartitionReadableOffsets: map[int]map[int]int64{
-			defaultTopicID: {
-				defaultPartitionID: 999,
+	err := fetcher.recentTables.handleTableRegisteredNotification(control.TableRegisteredNotification{
+		ID:       tabIDs[0],
+		Sequence: seq,
+		Infos: []offsets.LastReadableOffsetUpdatedTopicInfo{
+			{
+				TopicID: defaultTopicID,
+				PartitionInfos: []offsets.LastReadableOffsetUpdatedPartitionInfo{
+					{
+						PartitionID:        defaultPartitionID,
+						LastReadableOffset: 999,
+					},
+				},
 			},
 		},
 	})
 	require.NoError(t, err)
-	err = fetcher.recentTables.handleTableRegisteredNotification(TableRegisteredNotification{
-		ID: tabIDs[1],
-		PartitionReadableOffsets: map[int]map[int]int64{
-			defaultTopicID: {
-				defaultPartitionID: 1999,
+	seq++
+	err = fetcher.recentTables.handleTableRegisteredNotification(control.TableRegisteredNotification{
+		ID:       tabIDs[1],
+		Sequence: seq,
+		Infos: []offsets.LastReadableOffsetUpdatedTopicInfo{
+			{
+				TopicID: defaultTopicID,
+				PartitionInfos: []offsets.LastReadableOffsetUpdatedPartitionInfo{
+					{
+						PartitionID:        defaultPartitionID,
+						LastReadableOffset: 1999,
+					},
+				},
 			},
 		},
 	})
 	require.NoError(t, err)
+	seq++
 
 	// reset ids from testControllerClient so won't fetch from controller
 	controlClient.queryRes = nil
@@ -1153,17 +1176,25 @@ func TestFetcherMultipleRequestsFetchFromCacheAfterFirstRequest(t *testing.T) {
 	tabsToAdd := tabIDs[2:]
 	lros := []int64{2999, 3999, 4999, 5999, 6999, 7999, 8999, 9999}
 	for i, tabID := range tabsToAdd {
-		err = fetcher.recentTables.handleTableRegisteredNotification(TableRegisteredNotification{
-			ID: tabID,
-			PartitionReadableOffsets: map[int]map[int]int64{
-				defaultTopicID: {
-					defaultPartitionID: lros[i],
+		err = fetcher.recentTables.handleTableRegisteredNotification(control.TableRegisteredNotification{
+			ID:       tabID,
+			Sequence: seq,
+			Infos: []offsets.LastReadableOffsetUpdatedTopicInfo{
+				{
+					TopicID: defaultTopicID,
+					PartitionInfos: []offsets.LastReadableOffsetUpdatedPartitionInfo{
+						{
+							PartitionID:        defaultPartitionID,
+							LastReadableOffset: lros[i],
+						},
+					},
 				},
 			},
 		})
 		require.NoError(t, err)
+		seq++
 	}
-	// And get then one by one in different requests
+	// And get them one by one in different requests
 	offset := 2000
 	for i := 2; i < len(batches); i++ {
 		resp = sendFetchDefault(t, offset, 0, 0, len(batches[i]), defaultMaxBytes, fetcher)
@@ -1218,11 +1249,17 @@ func TestFetcherRequestNotEnoughBytesAndNotificationAddsSufficientData(t *testin
 
 	// send notification - should result in entry added to recent tables
 	// we add the first two tables
-	err = fetcher.recentTables.handleTableRegisteredNotification(TableRegisteredNotification{
+	err = fetcher.recentTables.handleTableRegisteredNotification(control.TableRegisteredNotification{
 		ID: tabIDs2[0],
-		PartitionReadableOffsets: map[int]map[int]int64{
-			defaultTopicID: {
-				defaultPartitionID: 1999,
+		Infos: []offsets.LastReadableOffsetUpdatedTopicInfo{
+			{
+				TopicID: defaultTopicID,
+				PartitionInfos: []offsets.LastReadableOffsetUpdatedPartitionInfo{
+					{
+						PartitionID:        defaultPartitionID,
+						LastReadableOffset: 1999,
+					},
+				},
 			},
 		},
 	})
@@ -1279,44 +1316,70 @@ func TestFetcherRequestNotEnoughBytesAndNotificationsDontAddSufficientData(t *te
 	// reset ids on controller client so no remote query can be served
 	controlClient.queryRes = nil
 
+	var seq int64
+
 	// send notification - with second batch - not enough data so shouldn't complete yet
-	err = fetcher.recentTables.handleTableRegisteredNotification(TableRegisteredNotification{
-		ID: tabIds2[0],
-		PartitionReadableOffsets: map[int]map[int]int64{
-			defaultTopicID: {
-				defaultPartitionID: 1999,
+	err = fetcher.recentTables.handleTableRegisteredNotification(control.TableRegisteredNotification{
+		Sequence: seq,
+		ID:       tabIds2[0],
+		Infos: []offsets.LastReadableOffsetUpdatedTopicInfo{
+			{
+				TopicID: defaultTopicID,
+				PartitionInfos: []offsets.LastReadableOffsetUpdatedPartitionInfo{
+					{
+						PartitionID:        defaultPartitionID,
+						LastReadableOffset: 1999,
+					},
+				},
 			},
 		},
 	})
 	require.NoError(t, err)
+	seq++
 
 	// Should wait, not complete yet
 	require.False(t, completionCalled.Load())
 
 	// send notification - with third batch - not enough data so shouldn't complete yet
-	err = fetcher.recentTables.handleTableRegisteredNotification(TableRegisteredNotification{
-		ID: tabIds3[0],
-		PartitionReadableOffsets: map[int]map[int]int64{
-			defaultTopicID: {
-				defaultPartitionID: 2999,
+	err = fetcher.recentTables.handleTableRegisteredNotification(control.TableRegisteredNotification{
+		Sequence: seq,
+		ID:       tabIds3[0],
+		Infos: []offsets.LastReadableOffsetUpdatedTopicInfo{
+			{
+				TopicID: defaultTopicID,
+				PartitionInfos: []offsets.LastReadableOffsetUpdatedPartitionInfo{
+					{
+						PartitionID:        defaultPartitionID,
+						LastReadableOffset: 2999,
+					},
+				},
 			},
 		},
 	})
 	require.NoError(t, err)
+	seq++
 
 	// Should wait, not complete yet
 	require.False(t, completionCalled.Load())
 
 	// send notification - with fourth batch - should now complete
-	err = fetcher.recentTables.handleTableRegisteredNotification(TableRegisteredNotification{
-		ID: tabIds4[0],
-		PartitionReadableOffsets: map[int]map[int]int64{
-			defaultTopicID: {
-				defaultPartitionID: 3999,
+	err = fetcher.recentTables.handleTableRegisteredNotification(control.TableRegisteredNotification{
+		Sequence: seq,
+		ID:       tabIds4[0],
+		Infos: []offsets.LastReadableOffsetUpdatedTopicInfo{
+			{
+				TopicID: defaultTopicID,
+				PartitionInfos: []offsets.LastReadableOffsetUpdatedPartitionInfo{
+					{
+						PartitionID:        defaultPartitionID,
+						LastReadableOffset: 3999,
+					},
+				},
 			},
 		},
 	})
 	require.NoError(t, err)
+	seq++
 
 	// Now response should complete, and all batches should be received
 	resp := <-resCh
@@ -1329,28 +1392,46 @@ func TestFetcherHistoricConsumer(t *testing.T) {
 	fetcher, topicProvider, controlClient, objStore := setupFetcher(t)
 	defer stopFetcher(t, fetcher)
 	// Setup a bunch of batches
-	batches, tabIDs := setupDataDefault(t, 0, 9999, 9999, 10, 10, topicProvider, controlClient, objStore)
-	totBatchSizes := 0
-	for _, batch := range batches {
-		totBatchSizes += len(batch)
-	}
+	batches, tabIDs := setupDataDefault(t, 0, 7999, 7999, 8, 8, topicProvider, controlClient, objStore)
+
+	// Send a fetch past the last offset to initialise the partition tables
+	sendFetchDefault(t, 8000, 0, 0, defaultMaxBytes, defaultMaxBytes, fetcher)
+
+	// Add two more tables
+	batches2, tabIDs2, _ := setupBatchesForPartition(t, defaultTopicID, defaultPartitionID, 8000, 9999, 2, 2, objStore)
+	batches = append(batches, batches2...)
+	tabIDs = append(tabIDs, tabIDs2...)
 
 	// Add just the last two to the cache - this simulates the case where we have older batches in storage but only
 	// newer ones cached
-	err := fetcher.recentTables.handleTableRegisteredNotification(TableRegisteredNotification{
-		ID: tabIDs[8],
-		PartitionReadableOffsets: map[int]map[int]int64{
-			defaultTopicID: {
-				defaultPartitionID: 8999,
+	err := fetcher.recentTables.handleTableRegisteredNotification(control.TableRegisteredNotification{
+		Sequence: 0,
+		ID:       tabIDs[8],
+		Infos: []offsets.LastReadableOffsetUpdatedTopicInfo{
+			{
+				TopicID: defaultTopicID,
+				PartitionInfos: []offsets.LastReadableOffsetUpdatedPartitionInfo{
+					{
+						PartitionID:        defaultPartitionID,
+						LastReadableOffset: 8999,
+					},
+				},
 			},
 		},
 	})
 	require.NoError(t, err)
-	err = fetcher.recentTables.handleTableRegisteredNotification(TableRegisteredNotification{
-		ID: tabIDs[9],
-		PartitionReadableOffsets: map[int]map[int]int64{
-			defaultTopicID: {
-				defaultPartitionID: 9999,
+	err = fetcher.recentTables.handleTableRegisteredNotification(control.TableRegisteredNotification{
+		Sequence: 1,
+		ID:       tabIDs[9],
+		Infos: []offsets.LastReadableOffsetUpdatedTopicInfo{
+			{
+				TopicID: defaultTopicID,
+				PartitionInfos: []offsets.LastReadableOffsetUpdatedPartitionInfo{
+					{
+						PartitionID:        defaultPartitionID,
+						LastReadableOffset: 9999,
+					},
+				},
 			},
 		},
 	})
@@ -1360,13 +1441,258 @@ func TestFetcherHistoricConsumer(t *testing.T) {
 	offset := 0
 	for i := 0; i < 10; i++ {
 		if i == 9 {
-			// last one must be served from cache sao we set ids to nil to prevent any request to controller succeeding
+			// last one must be served from cache so we set ids to nil to prevent any request to controller succeeding
 			controlClient.queryRes = nil
 		}
 		resp := sendFetchDefault(t, offset, 0, 0, len(batches[i]), defaultMaxBytes, fetcher)
 		verifyDefaultResponse(t, resp, batches[i:i+1])
 		offset += 1000
 	}
+}
+
+func TestFetcherExceedMaxCachedTables(t *testing.T) {
+	fetcher, topicProvider, controlClient, objStore := setupFetcher(t)
+	defer stopFetcher(t, fetcher)
+
+	// no data yet
+	topicProvider.infos[defaultTopicName] = topicmeta.TopicInfo{
+		ID:             defaultTopicID,
+		Name:           defaultTopicName,
+		PartitionCount: defaultNumPartitions,
+	}
+	controlClient.setLastReadableOffset(defaultTopicID, defaultPartitionID, -1)
+
+	// Send a fetch past the last offset to initialise the partition tables
+	sendFetchDefault(t, 0, 0, 0, defaultMaxBytes, defaultMaxBytes, fetcher)
+
+	// Setup a bunch of batches
+	numBatches := DefaultMaxCachedTablesPerPartition * 2
+	lastOff := numBatches*1000 - 1
+	batches, tabIDs := setupDataDefault(t, 0, lastOff, lastOff, numBatches, numBatches, topicProvider, controlClient, objStore)
+
+	// send notifications
+	var seq int64
+	for i := 0; i < numBatches; i++ {
+		err := fetcher.recentTables.handleTableRegisteredNotification(control.TableRegisteredNotification{
+			Sequence: seq,
+			ID:       tabIDs[i],
+			Infos: []offsets.LastReadableOffsetUpdatedTopicInfo{
+				{
+					TopicID: defaultTopicID,
+					PartitionInfos: []offsets.LastReadableOffsetUpdatedPartitionInfo{
+						{
+							PartitionID:        defaultPartitionID,
+							LastReadableOffset: int64((i+1)*1000 - 1),
+						},
+					},
+				},
+			},
+		})
+		require.NoError(t, err)
+		seq++
+	}
+
+	// Should cause max cached entries to be exceeded and only half the table ids will be cached
+
+	offset := 0
+	for i := 0; i < numBatches; i++ {
+		if i >= numBatches/2 {
+			// second half will be served from cache so we set ids to nil to prevent any request to controller succeeding
+			controlClient.queryRes = nil
+		}
+		resp := sendFetchDefault(t, offset, 0, 0, len(batches[i]), defaultMaxBytes, fetcher)
+		verifyDefaultResponse(t, resp, batches[i:i+1])
+		offset += 1000
+	}
+}
+
+func TestFetcherResetSequence(t *testing.T) {
+	fetcher, topicProvider, controlClient, objStore := setupFetcher(t)
+	defer stopFetcher(t, fetcher)
+
+	// no data yet
+	topicProvider.infos[defaultTopicName] = topicmeta.TopicInfo{
+		ID:             defaultTopicID,
+		Name:           defaultTopicName,
+		PartitionCount: defaultNumPartitions,
+	}
+	controlClient.setLastReadableOffset(defaultTopicID, defaultPartitionID, -1)
+
+	// Send a fetch past the last offset to initialise the partition tables
+	sendFetchDefault(t, 0, 0, 0, defaultMaxBytes, defaultMaxBytes, fetcher)
+
+	// Setup a bunch of batches
+	numBatches := 10
+	lastOff := numBatches*1000 - 1
+	batches, tabIDs := setupDataDefault(t, 0, lastOff, lastOff, numBatches, numBatches, topicProvider, controlClient, objStore)
+
+	// send initial notifications
+	var seq int64
+	for i := 0; i < numBatches/2; i++ {
+		err := fetcher.recentTables.handleTableRegisteredNotification(control.TableRegisteredNotification{
+			Sequence: seq,
+			ID:       tabIDs[i],
+			Infos: []offsets.LastReadableOffsetUpdatedTopicInfo{
+				{
+					TopicID: defaultTopicID,
+					PartitionInfos: []offsets.LastReadableOffsetUpdatedPartitionInfo{
+						{
+							PartitionID:        defaultPartitionID,
+							LastReadableOffset: int64((i+1)*1000 - 1),
+						},
+					},
+				},
+			},
+		})
+		require.NoError(t, err)
+		seq++
+	}
+
+	// fetch data - so far so good
+	offset := 0
+	for i := 0; i < numBatches/2; i++ {
+		resp := sendFetchDefault(t, offset, 0, 0, len(batches[i]), defaultMaxBytes, fetcher)
+		verifyDefaultResponse(t, resp, batches[i:i+1])
+		offset += 1000
+	}
+	require.Equal(t, numBatches/2-1, int(atomic.LoadInt64(&fetcher.recentTables.lastReceivedSequence)))
+	require.Equal(t, 0, int(atomic.LoadInt64(&fetcher.resetSequence)))
+	address, resetSequence := controlClient.getAddressAndResetSequence()
+	require.Equal(t, fetcher.address, address)
+	require.Equal(t, 0, int(resetSequence))
+
+	// now send notification out of sequence - should cause partition states to be invalidated
+	seq++
+	i := numBatches / 2
+	err := fetcher.recentTables.handleTableRegisteredNotification(control.TableRegisteredNotification{
+		Sequence: seq,
+		ID:       tabIDs[i],
+		Infos: []offsets.LastReadableOffsetUpdatedTopicInfo{
+			{
+				TopicID: defaultTopicID,
+				PartitionInfos: []offsets.LastReadableOffsetUpdatedPartitionInfo{
+					{
+						PartitionID:        defaultPartitionID,
+						LastReadableOffset: int64((i+1)*1000 - 1),
+					},
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	partitionMap := fetcher.recentTables.getPartitionMap(defaultTopicID)
+	partitionTables := fetcher.recentTables.getPartitionTables(partitionMap, defaultPartitionID)
+	require.False(t, partitionTables.isInitialised())
+
+	require.Equal(t, -1, int(atomic.LoadInt64(&fetcher.recentTables.lastReceivedSequence)))
+	require.Equal(t, 1, int(atomic.LoadInt64(&fetcher.resetSequence)))
+
+	// Send another fetch - this should cause controller to be called again
+	resp := sendFetchDefault(t, offset, 0, 0, len(batches[i]), defaultMaxBytes, fetcher)
+	verifyDefaultResponse(t, resp, batches[i:i+1])
+
+	address, resetSequence = controlClient.getAddressAndResetSequence()
+	require.Equal(t, fetcher.address, address)
+	require.Equal(t, 1, int(resetSequence))
+
+	// The controller should now reset it's sequence to zero, so we should be able to receive further notifications
+	seq = 0
+
+	for i := numBatches / 2; i < numBatches; i++ {
+		err := fetcher.recentTables.handleTableRegisteredNotification(control.TableRegisteredNotification{
+			Sequence: seq,
+			ID:       tabIDs[i],
+			Infos: []offsets.LastReadableOffsetUpdatedTopicInfo{
+				{
+					TopicID: defaultTopicID,
+					PartitionInfos: []offsets.LastReadableOffsetUpdatedPartitionInfo{
+						{
+							PartitionID:        defaultPartitionID,
+							LastReadableOffset: int64((i+1)*1000 - 1),
+						},
+					},
+				},
+			},
+		})
+		require.NoError(t, err)
+		seq++
+	}
+
+	for i := numBatches / 2; i < numBatches; i++ {
+		resp := sendFetchDefault(t, offset, 0, 0, len(batches[i]), defaultMaxBytes, fetcher)
+		verifyDefaultResponse(t, resp, batches[i:i+1])
+		offset += 1000
+	}
+}
+
+func TestFetcherControllerUnavailabilitySinglePartition(t *testing.T) {
+	fetcher, topicProvider, controlClient, objStore := setupFetcher(t)
+	defer stopFetcher(t, fetcher)
+
+	batches, _ := setupDataDefault(t, 0, 9999, 9999, 1, 1, topicProvider, controlClient, objStore)
+
+	controlClient.setUnavailable()
+
+	resp := sendFetchDefault(t, 0, 0, len(batches[0]), defaultMaxBytes, defaultMaxBytes, fetcher)
+	require.Equal(t, 1, len(resp.Responses))
+	topicResp := resp.Responses[0]
+	require.Equal(t, 1, len(topicResp.Partitions))
+	partResp := topicResp.Partitions[0]
+	require.Equal(t, kafkaprotocol.ErrorCodeLeaderNotAvailable, int(partResp.ErrorCode))
+}
+
+func TestFetcherControllerUnavailabilityMultiplePartitions(t *testing.T) {
+	fetcher, topicProvider, controlClient, objStore := setupFetcher(t)
+	defer stopFetcher(t, fetcher)
+
+	setupDataDefault(t, 0, 9999, 9999, 1, 1, topicProvider, controlClient, objStore)
+
+	controlClient.setUnavailable()
+
+	req := kafkaprotocol.FetchRequest{
+		MinBytes: 0,
+		MaxBytes: int32(defaultMaxBytes),
+		Topics: []kafkaprotocol.FetchRequestFetchTopic{
+			{
+				Topic: common.StrPtr(defaultTopicName),
+				Partitions: []kafkaprotocol.FetchRequestFetchPartition{
+					{
+						Partition:         int32(0),
+						FetchOffset:       0,
+						PartitionMaxBytes: int32(defaultMaxBytes),
+					},
+					{
+						Partition:         int32(1),
+						FetchOffset:       0,
+						PartitionMaxBytes: int32(defaultMaxBytes),
+					},
+				},
+			},
+		},
+	}
+	resp := sendFetch(t, &req, fetcher)
+	require.Equal(t, 1, len(resp.Responses))
+	topicResp := resp.Responses[0]
+	require.Equal(t, 2, len(topicResp.Partitions))
+	require.Equal(t, kafkaprotocol.ErrorCodeLeaderNotAvailable, int(topicResp.Partitions[0].ErrorCode))
+	require.Equal(t, kafkaprotocol.ErrorCodeLeaderNotAvailable, int(topicResp.Partitions[1].ErrorCode))
+}
+
+func TestFetcherControllerUnexpectedErrorSinglePartition(t *testing.T) {
+	fetcher, topicProvider, controlClient, objStore := setupFetcher(t)
+	defer stopFetcher(t, fetcher)
+
+	batches, _ := setupDataDefault(t, 0, 9999, 9999, 1, 1, topicProvider, controlClient, objStore)
+
+	controlClient.setFailWithUnexpectedErr()
+
+	resp := sendFetchDefault(t, 0, 0, len(batches[0]), defaultMaxBytes, defaultMaxBytes, fetcher)
+	require.Equal(t, 1, len(resp.Responses))
+	topicResp := resp.Responses[0]
+	require.Equal(t, 1, len(topicResp.Partitions))
+	partResp := topicResp.Partitions[0]
+	require.Equal(t, kafkaprotocol.ErrorCodeUnknownServerError, int(partResp.ErrorCode))
 }
 
 func TestFetcherErrorUnknownTopic(t *testing.T) {
@@ -1440,13 +1766,14 @@ func setupFetcher(t *testing.T) (*BatchFetcher, *testTopicProvider, *testControl
 		bucketName: databucketName,
 		objStore:   objStore,
 	}
-	controlClient := newtestControlClient()
+	controlClient := newTestControlClient()
 	controlFactory := func() (ControlClient, error) {
 		return controlClient, nil
 	}
 	cfg := NewConf()
 	cfg.DataBucketName = databucketName
-	fetcher, err := NewBatchFetcher(objStore, infoProvider, partHashes, controlFactory, getter.getSSTable, cfg)
+	fetcher, err := NewBatchFetcher(objStore, infoProvider, partHashes, controlFactory, getter.getSSTable,
+		uuid.New().String(), cfg)
 	require.NoError(t, err)
 	err = fetcher.Start()
 	require.NoError(t, err)
@@ -1494,16 +1821,24 @@ type partitionBatchInfo struct {
 
 func setupDataDefault(t *testing.T, firstOffset int, lastOffset int, lastReadableOffset int, numBatches int,
 	numTables int, topicProvider *testTopicProvider, controlClient *testControlClient, objStore objstore.Client) ([][]byte, []sst.SSTableID) {
-	return setupBatchesForPartition(t, defaultTopicID, defaultTopicName, defaultPartitionID, firstOffset, lastOffset, lastReadableOffset, numBatches, numTables, topicProvider, controlClient, objStore)
+	return setupForPartition(t, defaultTopicID, defaultTopicName, defaultPartitionID, firstOffset, lastOffset, lastReadableOffset, numBatches, numTables, topicProvider, controlClient, objStore)
 }
 
-func setupBatchesForPartition(t *testing.T, topicID int, topicName string, partitionID int, firstOffset int, lastOffset int, lastReadableOffset int, numBatches int,
+func setupForPartition(t *testing.T, topicID int, topicName string, partitionID int, firstOffset int, lastOffset int, lastReadableOffset int, numBatches int,
 	numTables int, topicProvider *testTopicProvider, controlClient *testControlClient, objStore objstore.Client) ([][]byte, []sst.SSTableID) {
 	topicProvider.infos[topicName] = topicmeta.TopicInfo{
 		ID:             topicID,
 		Name:           topicName,
 		PartitionCount: defaultNumPartitions,
 	}
+	totBatches, tabIDs, queryRes := setupBatchesForPartition(t, topicID, partitionID, firstOffset, lastOffset, numBatches, numTables, objStore)
+	controlClient.queryRes = append(controlClient.queryRes, queryRes...)
+	controlClient.setLastReadableOffset(topicID, partitionID, int64(lastReadableOffset))
+	return totBatches, tabIDs
+}
+
+func setupBatchesForPartition(t *testing.T, topicID int, partitionID int, firstOffset int, lastOffset int, numBatches int,
+	numTables int, objStore objstore.Client) ([][]byte, []sst.SSTableID, lsm.OverlappingTables) {
 	numRecords := lastOffset - firstOffset + 1
 	numRecordsPerBatch := numRecords / numBatches
 	offset := firstOffset
@@ -1531,7 +1866,6 @@ func setupBatchesForPartition(t *testing.T, topicID int, topicName string, parti
 	for i, batchInfo := range batchInfos {
 		tableInfos = append(tableInfos, batchInfo)
 		if (i+1)%numBatchesPerTable == 0 {
-
 			tableID, batches := setupTable(t, tableInfos, objStore, databucketName)
 			tabIDs = append(tabIDs, tableID)
 			ids = append(ids, lsm.NonOverlappingTables{{ID: tableID}})
@@ -1540,9 +1874,7 @@ func setupBatchesForPartition(t *testing.T, topicID int, topicName string, parti
 		}
 	}
 	require.Equal(t, numBatches, len(totBatches))
-	controlClient.queryRes = append(controlClient.queryRes, ids...)
-	controlClient.setLastReadableOffset(topicID, partitionID, int64(lastReadableOffset))
-	return totBatches, tabIDs
+	return totBatches, tabIDs, ids
 }
 
 func sendFetchDefault(t *testing.T, fetchOffset int, maxWait time.Duration, minBytes int, maxBytes int, partitionMaxBytes int, fetcher *BatchFetcher) *kafkaprotocol.FetchResponse {
@@ -1636,27 +1968,73 @@ func verifyPartitionErrorInResponse(t *testing.T, resp *kafkaprotocol.FetchRespo
 	require.Equal(t, errCode, int(partResp.ErrorCode))
 }
 
-func newtestControlClient() *testControlClient {
+func newTestControlClient() *testControlClient {
 	return &testControlClient{
 		lastReadableOffsets: map[int]map[int]int64{},
 	}
 }
 
 type testControlClient struct {
+	lock                sync.Mutex
 	queryRes            lsm.OverlappingTables
 	lastReadableOffsets map[int]map[int]int64
+	unavailable         bool
+	unexpectedErr       bool
+	address             string
+	resetSequence       int64
 }
 
-func (t *testControlClient) FetchTablesForPrefix(topicID int, partitionID int, prefix []byte, offsetStart int64) (lsm.OverlappingTables, int64, error) {
+func (t *testControlClient) setUnavailable() {
+	t.lock.Lock()
+	defer t.lock.Unlock()
+	t.unavailable = true
+}
+
+func (t *testControlClient) setFailWithUnexpectedErr() {
+	t.lock.Lock()
+	defer t.lock.Unlock()
+	t.unexpectedErr = true
+}
+
+func (t *testControlClient) RegisterTableListener(topicID int, partitionID int, address string,
+	resetSequence int64) (int64, error) {
+	t.lock.Lock()
+	defer t.lock.Unlock()
+	if t.unavailable {
+		return 0, common.NewTektiteErrorf(common.Unavailable, "controller is unavailable")
+	}
+	if t.unexpectedErr {
+		return 0, errors.New("unexpected error")
+	}
 	partMap, ok := t.lastReadableOffsets[topicID]
 	if !ok {
-		return nil, 0, errors.Errorf("unknown topic: %d", topicID)
+		return 0, errors.Errorf("unknown topic: %d", topicID)
 	}
 	off, ok := partMap[partitionID]
 	if !ok {
-		return nil, 0, errors.Errorf("unknown partition: %d", partitionID)
+		return 0, errors.Errorf("unknown partition: %d", partitionID)
 	}
-	return t.queryRes, off, nil
+	t.address = address
+	t.resetSequence = resetSequence
+	return off, nil
+}
+
+func (t *testControlClient) QueryTablesInRange(keyStart []byte, keyEnd []byte) (lsm.OverlappingTables, error) {
+	t.lock.Lock()
+	defer t.lock.Unlock()
+	if t.unavailable {
+		return nil, common.NewTektiteErrorf(common.Unavailable, "controller is unavailable")
+	}
+	if t.unexpectedErr {
+		return nil, errors.New("unexpected error")
+	}
+	return t.queryRes, nil
+}
+
+func (t *testControlClient) getAddressAndResetSequence() (string, int64) {
+	t.lock.Lock()
+	defer t.lock.Unlock()
+	return t.address, t.resetSequence
 }
 
 func (t *testControlClient) setLastReadableOffset(topicID int, partitionID int, offset int64) {

@@ -43,36 +43,69 @@ type LocalConnection struct {
 	id         int
 	transports *LocalTransports
 	address    string
+	msgChan    chan msgDelivery
+	stopWG     sync.WaitGroup
 }
 
-func (l *LocalConnection) SendRPC(handlerID int, request []byte) ([]byte, error) {
-	handler, err := l.transports.getRequestHandler(handlerID, l.address)
-	if err != nil {
-		return nil, err
-	}
-	msgCopy := common.ByteSliceCopy(request)
-	ch := make(chan responseHolder, 1)
-	go func() {
-		if err := handler(l.id, msgCopy, nil, func(response []byte, err error) error {
+type msgDelivery struct {
+	handler     RequestHandler
+	respChannel chan responseHolder
+	msg         []byte
+}
+
+func (l *LocalConnection) start() {
+	l.stopWG.Add(1)
+	go l.deliverLoop()
+}
+
+func (l *LocalConnection) deliverLoop() {
+	defer l.stopWG.Done()
+	for del := range l.msgChan {
+		if err := del.handler(&ConnectionContext{ConnectionID: l.id}, del.msg, nil, func(response []byte, err error) error {
 			if err != nil {
-				ch <- responseHolder{
+				del.respChannel <- responseHolder{
 					err: maybeConvertError(err),
 				}
 			} else {
-				ch <- responseHolder{
+				del.respChannel <- responseHolder{
 					response: response,
 				}
 			}
 			return nil
 		}); err != nil {
-			ch <- responseHolder{
+			del.respChannel <- responseHolder{
 				err: maybeConvertError(err),
 			}
 			log.Errorf("failed to handle request: %v", err)
 		}
-	}()
+	}
+}
+
+func (l *LocalConnection) SendRPC(handlerID int, request []byte) ([]byte, error) {
+	ch := make(chan responseHolder, 1)
+	if err := l.sendMessage(handlerID, request, ch); err != nil {
+		return nil, err
+	}
 	respHolder := <-ch
 	return respHolder.response, respHolder.err
+}
+
+func (l *LocalConnection) SendOneway(handlerID int, message []byte) error {
+	return l.sendMessage(handlerID, message, nil)
+}
+
+func (l *LocalConnection) sendMessage(handlerID int, message []byte, respChannel chan responseHolder) error {
+	handler, err := l.transports.getRequestHandler(handlerID, l.address)
+	if err != nil {
+		return err
+	}
+	msgCopy := common.ByteSliceCopy(message)
+	l.msgChan <- msgDelivery{
+		handler:     handler,
+		msg:         msgCopy,
+		respChannel: respChannel,
+	}
+	return nil
 }
 
 func maybeConvertError(err error) error {
@@ -88,6 +121,8 @@ func maybeConvertError(err error) error {
 }
 
 func (l *LocalConnection) Close() error {
+	close(l.msgChan)
+	l.stopWG.Wait()
 	return nil
 }
 
@@ -104,11 +139,14 @@ type LocalTransports struct {
 }
 
 func (lt *LocalTransports) CreateConnection(address string) (Connection, error) {
-	return &LocalConnection{
+	lc := &LocalConnection{
 		id:         int(atomic.AddInt64(&lt.connectionIDSequence, 1)),
 		transports: lt,
 		address:    address,
-	}, nil
+		msgChan:    make(chan msgDelivery, 10),
+	}
+	lc.start()
+	return lc, nil
 }
 
 func (lt *LocalTransports) NewLocalServer(address string) (*LocalServer, error) {

@@ -128,7 +128,7 @@ func TestNotifications(t *testing.T) {
 	}
 	buff := notif.Serialize(nil)
 	for _, localCache := range localCaches {
-		err = localCache.HandleTopicAdded(0, buff, nil, func(response []byte, err error) error {
+		err = localCache.HandleTopicAdded(nil, buff, nil, func(response []byte, err error) error {
 			return nil
 		})
 		require.NoError(t, err)

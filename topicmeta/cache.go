@@ -89,7 +89,7 @@ func (l *LocalCache) getTopicInfoFromController(topicName string) (TopicInfo, er
 	return info, nil
 }
 
-func (l *LocalCache) HandleTopicAdded(_ int, buff []byte, responseBuff []byte,
+func (l *LocalCache) HandleTopicAdded(_ *transport.ConnectionContext, buff []byte, responseBuff []byte,
 	responseWriter transport.ResponseWriter) error {
 	l.lock.Lock()
 	defer l.lock.Unlock()
@@ -105,7 +105,7 @@ func (l *LocalCache) HandleTopicAdded(_ int, buff []byte, responseBuff []byte,
 	return responseWriter(responseBuff, nil)
 }
 
-func (l *LocalCache) HandleTopicDeleted(_ int, buff []byte, responseBuff []byte,
+func (l *LocalCache) HandleTopicDeleted(_ *transport.ConnectionContext, buff []byte, responseBuff []byte,
 	responseWriter transport.ResponseWriter) error {
 	l.lock.Lock()
 	defer l.lock.Unlock()

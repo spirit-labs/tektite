@@ -3,6 +3,7 @@ package control
 import (
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/lsm"
+	"time"
 )
 
 type Conf struct {
@@ -12,6 +13,7 @@ type Conf struct {
 	ControllerMetaDataKeyPrefix      string
 	SSTableBucketName                string
 	DataFormat common.DataFormat
+	TableNotificationInterval time.Duration
 	LsmConf                          lsm.Conf
 }
 
@@ -23,6 +25,7 @@ func NewConf() Conf {
 		ControllerMetaDataKeyPrefix:      "controller-meta-data",
 		SSTableBucketName:                "tektite-data",
 		DataFormat: common.DataFormatV1,
+		TableNotificationInterval: 5 * time.Second,
 		LsmConf:                          lsm.NewConf(),
 	}
 }

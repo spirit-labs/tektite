@@ -33,7 +33,7 @@ func (ot OverlappingTables) Serialize(bytes []byte) []byte {
 	return bytes
 }
 
-func DeserializeOverlappingTables(bytes []byte, offset int) OverlappingTables {
+func DeserializeOverlappingTables(bytes []byte, offset int) (OverlappingTables, int) {
 	nn, offset := encoding.ReadUint32FromBufferLE(bytes, offset)
 	otids := make([]NonOverlappingTables, nn)
 	for i := 0; i < int(nn); i++ {
@@ -55,7 +55,7 @@ func DeserializeOverlappingTables(bytes []byte, offset int) OverlappingTables {
 			tableInfos[j].DeadVersions = deadVersions
 		}
 	}
-	return otids
+	return otids, offset
 }
 
 type RegistrationEntry struct {

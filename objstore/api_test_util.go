@@ -3,7 +3,6 @@ package objstore
 import (
 	"context"
 	"fmt"
-	log "github.com/spirit-labs/tektite/logger"
 	"github.com/stretchr/testify/require"
 	"math/rand"
 	"testing"
@@ -220,7 +219,6 @@ func testListAllObjects(t *testing.T, client Client) {
 		for j, info := range infos {
 			expectedKey := fmt.Sprintf("%s-%.10d", prefix, j)
 			require.Equal(t, expectedKey, info.Key)
-			log.Infof("lm:%d", info.LastModified.Nanosecond())
 			require.GreaterOrEqual(t, info.LastModified.UnixMilli(), nowMs)
 			require.LessOrEqual(t, info.LastModified.UnixMilli(), afterMs)
 		}

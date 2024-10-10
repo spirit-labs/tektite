@@ -67,7 +67,7 @@ type controllerClientFactory func() (ControlClient, error)
 
 type ControlClient interface {
 	GetOffsets(infos []offsets.GetOffsetTopicInfo) ([]int64, error)
-	RegisterL0Table(writtenOffsetInfos []offsets.UpdateWrittenOffsetInfo, regEntry lsm.RegistrationEntry) error
+	RegisterL0Table(writtenOffsetInfos []offsets.UpdateWrittenOffsetTopicInfo, regEntry lsm.RegistrationEntry) error
 	Close() error
 }
 
@@ -193,7 +193,6 @@ func (r *TablePusher) HandleProduceRequest(req *kafkaprotocol.ProduceRequest,
 		resp.Responses[i].Name = topicData.Name
 		partitionResponses := make([]kafkaprotocol.ProduceResponsePartitionProduceResponse, len(topicData.PartitionData))
 		resp.Responses[i].PartitionResponses = partitionResponses
-		log.Info("getting topic info %s", *topicData.Name)
 		topicInfo, err := r.topicProvider.GetTopicInfo(*topicData.Name)
 		topicExists := true
 		if err != nil {
@@ -306,6 +305,9 @@ func (r *TablePusher) write() error {
 	var getOffSetInfos []offsets.GetOffsetTopicInfo
 	var partitionBatches [][]bufferedEntry
 	for topicID, partitions := range r.partitionRecords {
+		var offsetInfo offsets.GetOffsetTopicInfo
+		offsetInfo.TopicID = topicID
+		offsetInfo.PartitionInfos = make([]offsets.GetOffsetPartitionInfo, 0, len(partitions))
 		for partitionID, entries := range partitions {
 			totRecords := 0
 			for _, entry := range entries {
@@ -313,79 +315,84 @@ func (r *TablePusher) write() error {
 					totRecords += kafkaencoding.NumRecords(batch)
 				}
 			}
-			log.Infof("tot records is %d", totRecords)
-			getOffSetInfos = append(getOffSetInfos, offsets.GetOffsetTopicInfo{
-				TopicID:     topicID,
+			offsetInfo.PartitionInfos = append(offsetInfo.PartitionInfos, offsets.GetOffsetPartitionInfo{
 				PartitionID: partitionID,
 				NumOffsets:  totRecords,
 			})
 			partitionBatches = append(partitionBatches, entries)
 		}
+		getOffSetInfos = append(getOffSetInfos, offsetInfo)
 	}
 	offs, err := client.GetOffsets(getOffSetInfos)
 	if err != nil {
 		return err
 	}
-	log.Infof("obtained offsets: %v", offs)
-	updateWrittenOffsetInfos := make([]offsets.UpdateWrittenOffsetInfo, len(offs))
+	updateWrittenOffsetInfos := make([]offsets.UpdateWrittenOffsetTopicInfo, 0, len(offs))
 	// Create KVs for the batches
 	kvs := make([]common.KV, 0, len(offs))
-	for i, getOffsetInfo := range getOffSetInfos {
-		offset := offs[i]
-		updateWrittenOffsetInfos[i] = offsets.UpdateWrittenOffsetInfo{
-			TopicID:     getOffsetInfo.TopicID,
-			PartitionID: getOffsetInfo.PartitionID,
-			OffsetStart: offset,
-			NumOffsets:  getOffsetInfo.NumOffsets,
-		}
-		batches := partitionBatches[i]
-		for _, entry := range batches {
-			for _, record := range entry.records {
-				/*
-					For each batch there will be one entry in the database.
-					The key is: [partition_hash, offset, version]
-					The value is: the record batch bytes
+	index := 0
+	for _, getOffsetInfo := range getOffSetInfos {
+		var writtenInfo offsets.UpdateWrittenOffsetTopicInfo
+		writtenInfo.TopicID = getOffsetInfo.TopicID
+		writtenInfo.PartitionInfos = make([]offsets.UpdateWrittenOffsetPartitionInfo, 0, len(getOffsetInfo.PartitionInfos))
+		for _, partInfo := range getOffsetInfo.PartitionInfos {
+			offset := offs[index]
+			writtenInfo.PartitionInfos = append(writtenInfo.PartitionInfos, offsets.UpdateWrittenOffsetPartitionInfo{
+				PartitionID: partInfo.PartitionID,
+				OffsetStart: offset,
+				NumOffsets:  partInfo.NumOffsets,
+			})
+			batches := partitionBatches[index]
+			for _, entry := range batches {
+				for _, record := range entry.records {
+					/*
+						For each batch there will be one entry in the database.
+						The key is: [partition_hash, offset, version]
+						The value is: the record batch bytes
 
-					The partition hash is created by sha256 hashing the [topic_id, partition_id] and taking the first 16 bytes.
-					This creates an effectively unique key as the probability of collision is extraordinarily remote
-					(secure random UUIDs are created the same way)
-					We use the partition hash instead of the [topic_id, partition_id] as the key prefix for the data in the LSM
-					as partition hashes will be evenly distributed across all possible values. This enables us to direct produce
-					traffic to specific agents in an AZ such that a specific agent handles produces for partitions that whose
-					partition hashes lie in a certain range. Each agent gets a non-overlapping range.
-					This means that when SSTables are registered in L0 of the LSM they will have non overlapping key ranges depending
-					on which agent they came from. The LSM can then parallelize compaction of non overlapping groups of tables
-					thus allowing LSM compaction to scale with number of agents.
-				*/
-				partitionHash, err := r.partitionHashes.GetPartitionHash(getOffsetInfo.TopicID, getOffsetInfo.PartitionID)
-				if err != nil {
-					return err
+						The partition hash is created by sha256 hashing the [topic_id, partition_id] and taking the first 16 bytes.
+						This creates an effectively unique key as the probability of collision is extraordinarily remote
+						(secure random UUIDs are created the same way)
+						We use the partition hash instead of the [topic_id, partition_id] as the key prefix for the data in the LSM
+						as partition hashes will be evenly distributed across all possible values. This enables us to direct produce
+						traffic to specific agents in an AZ such that a specific agent handles produces for partitions that whose
+						partition hashes lie in a certain range. Each agent gets a non-overlapping range.
+						This means that when SSTables are registered in L0 of the LSM they will have non overlapping key ranges depending
+						on which agent they came from. The LSM can then parallelize compaction of non overlapping groups of tables
+						thus allowing LSM compaction to scale with number of agents.
+					*/
+					partitionHash, err := r.partitionHashes.GetPartitionHash(getOffsetInfo.TopicID, partInfo.PartitionID)
+					if err != nil {
+						return err
+					}
+					key := make([]byte, 0, 32)
+					key = append(key, partitionHash...)
+					key = encoding.KeyEncodeInt(key, offset)
+					key = encoding.EncodeVersion(key, 0)
+					kvs = append(kvs, common.KV{
+						Key:   key,
+						Value: record,
+					})
+					offset += int64(kafkaencoding.NumRecords(record))
 				}
-				key := make([]byte, 0, 32)
-				key = append(key, partitionHash...)
-				key = encoding.KeyEncodeInt(key, offset)
-				key = encoding.EncodeVersion(key, 0)
-				kvs = append(kvs, common.KV{
-					Key:   key,
-					Value: record,
-				})
-				offset += int64(kafkaencoding.NumRecords(record))
 			}
+			index++
 		}
+		updateWrittenOffsetInfos = append(updateWrittenOffsetInfos, writtenInfo)
 	}
-	// Sort by key - sstables are always in key order
+	// Sort by key - ssTables are always in key order
 	slices.SortFunc(kvs, func(a, b common.KV) int {
 		return bytes.Compare(a.Key, b.Key)
 	})
 	iter := common.NewKvSliceIterator(kvs)
-	// Build sstable
+	// Build ssTable
 	table, smallestKey, largestKey, minVersion, maxVersion, err := sst.BuildSSTable(r.cfg.DataFormat,
 		int(1.1*float64(r.sizeBytes)), len(kvs), iter)
 	if err != nil {
 		return err
 	}
 	tableID := sst.CreateSSTableId()
-	// Push sstable to object store
+	// Push ssTable to object store
 	tableData := table.Serialize()
 	if err := objstore.PutWithTimeout(r.objStore, r.cfg.DataBucketName, tableID, tableData,
 		objStoreAvailabilityTimeout); err != nil {

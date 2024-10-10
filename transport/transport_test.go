@@ -4,7 +4,9 @@ import (
 	"encoding/binary"
 	"fmt"
 	"github.com/spirit-labs/tektite/common"
+	"github.com/spirit-labs/tektite/testutils"
 	"github.com/stretchr/testify/require"
+	"sync"
 	"testing"
 )
 
@@ -27,6 +29,7 @@ type testCase struct {
 
 var testCases = []testCase{
 	{caseName: "testRPC", f: testRPC},
+	{caseName: "testOneway", f: testOneway},
 	{caseName: "testErrorResponseTektiteError", f: testErrorResponseTektiteError},
 	{caseName: "testErrorResponseUnexpectedError", f: testErrorResponseUnexpectedError},
 	{caseName: "testInterleavedRPCs", f: testInterleavedRPCs},
@@ -52,7 +55,7 @@ func testRPC(t *testing.T, serverFactory ServerFactory, connFactory ConnectionFa
 		nodeNum := i
 		for j := 0; j < numHandlerIDs; j++ {
 			handlerID := j
-			server.RegisterHandler(handlerID, func(_ int, request []byte, responseBuff []byte, responseWriter ResponseWriter) error {
+			server.RegisterHandler(handlerID, func(_ *ConnectionContext, request []byte, responseBuff []byte, responseWriter ResponseWriter) error {
 				resp := fmt.Sprintf("node-%d-handler-id-%d-response-%s", nodeNum, handlerID, string(request))
 				responseBuff = append(responseBuff, []byte(resp)...)
 				return responseWriter(responseBuff, nil)
@@ -73,6 +76,83 @@ func testRPC(t *testing.T, serverFactory ServerFactory, connFactory ConnectionFa
 			}
 		}
 		err = conn.Close()
+		require.NoError(t, err)
+	}
+}
+
+func testOneway(t *testing.T, serverFactory ServerFactory, connFactory ConnectionFactory) {
+	numNodes := 5
+	// Create servers
+	var servers []Server
+	for i := 0; i < numNodes; i++ {
+		servers = append(servers, serverFactory(t))
+	}
+	defer func() {
+		for _, server := range servers {
+			err := server.Stop()
+			require.NoError(t, err)
+		}
+	}()
+
+	var receiverReqs sync.Map
+
+	// Register handlers
+	numHandlerIDs := 10
+	for i, server := range servers {
+		for j := 0; j < numHandlerIDs; j++ {
+			handlerID := j
+			server.RegisterHandler(handlerID, func(_ *ConnectionContext, request []byte, responseBuff []byte, responseWriter ResponseWriter) error {
+				receivedMsg := fmt.Sprintf("node-%d-%s", i, string(request))
+				_, exists := receiverReqs.Load(receivedMsg)
+				if exists {
+					panic("duplicate receiver message")
+				}
+				receiverReqs.Store(receivedMsg, struct{}{})
+				return nil
+			})
+		}
+	}
+	numRequestsPerHandler := 10
+	var conns []Connection
+	var expectedReceived sync.Map
+	for i, destServer := range servers {
+		conn, err := connFactory(destServer.Address())
+		require.NoError(t, err)
+		conns = append(conns, conn)
+		for j := 0; j < numRequestsPerHandler; j++ {
+			for l := 0; l < numHandlerIDs; l++ {
+				request := fmt.Sprintf("request-%d-handler-id-%d", j, l)
+				err := conn.SendOneway(l, []byte(request))
+				require.NoError(t, err)
+				receivedMsg := fmt.Sprintf("node-%d-%s", i, request)
+				expectedReceived.Store(receivedMsg, struct{}{})
+			}
+		}
+	}
+	expectedCount := len(servers) * numRequestsPerHandler * numHandlerIDs
+	testutils.WaitUntil(t, func() (bool, error) {
+		count := 0
+		receiverReqs.Range(func(key, value interface{}) bool {
+			count++
+			return true
+		})
+		if count != expectedCount {
+			return false, nil
+		}
+		failed := false
+		expectedReceived.Range(func(key, value interface{}) bool {
+			msg := key.(string)
+			_, exists := receiverReqs.Load(msg)
+			if !exists {
+				failed = true
+				return false
+			}
+			return true
+		})
+		return !failed, nil
+	})
+	for _, conn := range conns {
+		err := conn.Close()
 		require.NoError(t, err)
 	}
 }
@@ -106,7 +186,7 @@ func testErrorResponseWithError(t *testing.T, serverFactory ServerFactory, connF
 		require.NoError(t, err)
 	}()
 	handlerID := 23
-	server.RegisterHandler(handlerID, func(_ int, request []byte, responseBuff []byte, responseWriter ResponseWriter) error {
+	server.RegisterHandler(handlerID, func(_ *ConnectionContext, request []byte, responseBuff []byte, responseWriter ResponseWriter) error {
 		return responseWriter(nil, respErr)
 	})
 	conn, err := connFactory(server.Address())
@@ -128,7 +208,7 @@ func testInterleavedRPCs(t *testing.T, serverFactory ServerFactory, connFactory 
 		require.NoError(t, err)
 	}()
 	handlerID := 23
-	server.RegisterHandler(handlerID, func(_ int, request []byte, responseBuff []byte, responseWriter ResponseWriter) error {
+	server.RegisterHandler(handlerID, func(_ *ConnectionContext, request []byte, responseBuff []byte, responseWriter ResponseWriter) error {
 		// Send back response async
 		// Need to copy request as handler responds async
 		requestCopy := common.ByteSliceCopy(request)
@@ -177,8 +257,8 @@ func testConnectionIDs(t *testing.T, serverFactory ServerFactory, connFactory Co
 		require.NoError(t, err)
 	}()
 	handlerID := 23
-	server.RegisterHandler(handlerID, func(connectionID int, request []byte, responseBuff []byte, responseWriter ResponseWriter) error {
-		responseBuff = binary.BigEndian.AppendUint64(responseBuff, uint64(connectionID))
+	server.RegisterHandler(handlerID, func(ctx *ConnectionContext, request []byte, responseBuff []byte, responseWriter ResponseWriter) error {
+		responseBuff = binary.BigEndian.AppendUint64(responseBuff, uint64(ctx.ConnectionID))
 		return responseWriter(responseBuff, nil)
 	})
 	numConns := 10

@@ -21,8 +21,8 @@ type SocketTransportVersion uint16
 const (
 	SocketTransportV1       SocketTransportVersion = 1
 	responseBuffInitialSize                        = 4 * 1024
-	dialTimeout                                    = 5 * time.Second
-	writeTimeout
+	dialTimeout         = 5 * time.Second
+	defaultWriteTimeout = 5 * time.Second
 )
 
 var _ Server = (*SocketTransportServer)(nil)
@@ -117,7 +117,7 @@ func (c *SocketTransportServerConn) HandleMessage(buff []byte) error {
 		5. the operation specific response bytes
 	*/
 	responseBuff := make([]byte, 15, responseBuffInitialSize)
-	return handler(c.id, buff[18:], responseBuff, func(response []byte, err error) error {
+	return handler(&ConnectionContext{ConnectionID:  c.id}, buff[18:], responseBuff, func(response []byte, err error) error {
 		if err != nil {
 			response = encodeErrorResponse(responseBuff, err)
 		}
@@ -153,6 +153,7 @@ type SocketTransportConnection struct {
 	conn                  net.Conn
 	closeWaitGroup        sync.WaitGroup
 	responseChannels      map[int64]chan responseHolder
+	writeTimeout          time.Duration
 }
 
 func (s *SocketTransportConnection) start() {
@@ -222,31 +223,37 @@ func (s *SocketTransportConnection) responseHandler(buff []byte) error {
 }
 
 func (s *SocketTransportConnection) SendRPC(handlerID int, request []byte) ([]byte, error) {
-	ch, err := s.sendRequest(handlerID, request)
-	if err != nil {
-		// If we get an error writing the request we consider the connection broken, so we close it
-		// The user can then retry creating a new connection and sending the RPC again, potentially after a delay.
-		if err := s.Close(); err != nil {
-			// Ignore
-		}
+	buff, ch := s.createRequestAndRegisterResponseHandler(handlerID, request)
+	if err := s.writeMessage(buff); err != nil {
 		return nil, err
 	}
 	holder := <-ch
 	return holder.response, holder.err
 }
 
-func (s *SocketTransportConnection) sendRequest(handlerID int, request []byte) (chan responseHolder, error) {
-	buff, ch := s.createRequest(handlerID, request)
+func (s *SocketTransportConnection) SendOneway(handlerID int, request []byte) error {
+	buff := s.formatRequest(handlerID, request)
+	if err := s.writeMessage(buff); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *SocketTransportConnection) writeMessage(buff []byte) error {
 	// Set a write deadline so the write doesn't block for a long time in case the other side of the TCP connection
 	// disappears
-	if err := s.conn.SetWriteDeadline(time.Now().Add(writeTimeout)); err != nil {
-		return nil, err
+	if err := s.conn.SetWriteDeadline(time.Now().Add(s.writeTimeout)); err != nil {
+		return err
 	}
 	_, err := s.conn.Write(buff)
 	if err != nil {
-		return nil, convertNetworkError(err)
+		return convertNetworkError(err)
 	}
-	return ch, nil
+	return nil
+}
+
+func (s *SocketTransportConnection) SetWriteTimeout(timeout time.Duration) {
+	s.writeTimeout = timeout
 }
 
 func convertNetworkError(err error) error {
@@ -254,9 +261,18 @@ func convertNetworkError(err error) error {
 	return common.NewTektiteErrorf(common.Unavailable, "transport error when sending rpc: %v", err)
 }
 
-func (s *SocketTransportConnection) createRequest(handlerID int, request []byte) ([]byte, chan responseHolder) {
+func (s *SocketTransportConnection) createRequestAndRegisterResponseHandler(handlerID int,
+	request []byte) ([]byte, chan responseHolder) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
+	buff := s.formatRequest(handlerID, request)
+	ch := make(chan responseHolder, 1)
+	s.responseChannels[s.correlationIDSequence] = ch
+	s.correlationIDSequence++
+	return buff, ch
+}
+
+func (s *SocketTransportConnection) formatRequest(handlerID int, request []byte) []byte {
 	/*
 			The request wire format is as follows:
 			1. message length - int, 4 bytes, big endian
@@ -272,10 +288,7 @@ func (s *SocketTransportConnection) createRequest(handlerID int, request []byte)
 	binary.BigEndian.PutUint64(buff[6:], uint64(s.correlationIDSequence))
 	binary.BigEndian.PutUint64(buff[14:], uint64(handlerID))
 	copy(buff[22:], request)
-	ch := make(chan responseHolder, 1)
-	s.responseChannels[s.correlationIDSequence] = ch
-	s.correlationIDSequence++
-	return buff, ch
+	return buff
 }
 
 type responseHolder struct {
@@ -336,6 +349,7 @@ func (s *SocketClient) CreateConnection(address string) (Connection, error) {
 	sc := &SocketTransportConnection{
 		conn:             netConn,
 		responseChannels: map[int64]chan responseHolder{},
+		writeTimeout:     defaultWriteTimeout,
 	}
 	sc.start()
 	return sc, nil

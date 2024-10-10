@@ -159,7 +159,7 @@ func (m *Membership) updateState(buff []byte) ([]byte, error) {
 	}
 	memberShipState.Members = newMembers
 	if changed {
-		// NewmMember joined or member(s) where evicted, so we change the epoch
+		// NewmMember joined or member(s) where evicted, so we change the cluster version
 		memberShipState.ClusterVersion++
 	}
 	return json.Marshal(&memberShipState)

@@ -11,6 +11,7 @@ import (
 	"github.com/spirit-labs/tektite/sst"
 	"math"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -25,16 +26,26 @@ type FetchState struct {
 	readExec        *readExecutor
 	bytesFetched    int
 	first           bool
+	waiting         bool
 }
 
-func (f *FetchState) init() error {
-	f.resp.Responses = make([]kafkaprotocol.FetchResponseFetchableTopicResponse, len(f.req.Topics))
-	for i, topicData := range f.req.Topics {
-		f.resp.Responses[i].Topic = topicData.Topic
+func newFetchState(batchFetcher *BatchFetcher, req *kafkaprotocol.FetchRequest, readExec *readExecutor,
+	completionFunc func(response *kafkaprotocol.FetchResponse) error) (*FetchState, error) {
+	fetchState := &FetchState{
+		bf:              batchFetcher,
+		req:             req,
+		partitionStates: map[int]map[int]*PartitionFetchState{},
+		completionFunc:  completionFunc,
+		readExec:        readExec,
+	}
+	fetchState.resp.Responses = make([]kafkaprotocol.FetchResponseFetchableTopicResponse, len(fetchState.req.Topics))
+	recentTables := &fetchState.bf.recentTables
+	for i, topicData := range fetchState.req.Topics {
+		fetchState.resp.Responses[i].Topic = topicData.Topic
 		partitionResponses := make([]kafkaprotocol.FetchResponsePartitionData, len(topicData.Partitions))
-		f.resp.Responses[i].Partitions = partitionResponses
+		fetchState.resp.Responses[i].Partitions = partitionResponses
 		topicName := *topicData.Topic
-		topicInfo, err := f.bf.topicProvider.GetTopicInfo(topicName)
+		topicInfo, err := fetchState.bf.topicProvider.GetTopicInfo(topicName)
 		topicExists := true
 		if err != nil {
 			if !common.IsTektiteErrorWithCode(err, common.TopicDoesNotExist) {
@@ -45,8 +56,9 @@ func (f *FetchState) init() error {
 		topicPartitionFetchStates := map[int]*PartitionFetchState{}
 		if topicExists {
 			topicPartitionFetchStates = map[int]*PartitionFetchState{}
-			f.partitionStates[topicInfo.ID] = topicPartitionFetchStates
+			fetchState.partitionStates[topicInfo.ID] = topicPartitionFetchStates
 		}
+		partitionMap := recentTables.getPartitionMap(topicInfo.ID)
 		for j, partitionData := range topicData.Partitions {
 			partitionResponses[j].PartitionIndex = partitionData.Partition
 			partitionID := int(partitionData.Partition)
@@ -55,15 +67,15 @@ func (f *FetchState) init() error {
 			} else if partitionID < 0 || partitionID >= topicInfo.PartitionCount {
 				partitionResponses[j].ErrorCode = int16(kafkaprotocol.ErrorCodeUnknownTopicOrPartition)
 			} else {
-				partHash, err := f.bf.partitionHashes.GetPartitionHash(topicInfo.ID, partitionID)
+				partHash, err := fetchState.bf.partitionHashes.GetPartitionHash(topicInfo.ID, partitionID)
 				if err != nil {
-					return err
+					return nil, err
 				}
 				topicPartitionFetchStates[partitionID] = &PartitionFetchState{
-					fs:                 f,
+					fs:                 fetchState,
 					partitionFetchReq:  &partitionData,
 					partitionFetchResp: &partitionResponses[j],
-					partitionTables:    f.bf.recentTables.getPartitionTables(topicInfo.ID, partitionID),
+					partitionTables:    recentTables.getPartitionTables(partitionMap, partitionID),
 					topicID:            topicInfo.ID,
 					partitionID:        partitionID,
 					partitionHash:      partHash,
@@ -72,7 +84,7 @@ func (f *FetchState) init() error {
 			}
 		}
 	}
-	return nil
+	return fetchState, nil
 }
 
 // We read async on notifications to avoid blocking the transport thread that provides the notification and so we can
@@ -82,11 +94,11 @@ func (f *FetchState) readAsync() {
 }
 
 func (f *FetchState) read() error {
-	ok, err := f.read0()
+	waiting, err := f.read0()
 	if err != nil {
 		return err
 	}
-	if ok {
+	if waiting {
 		// We register our partition states to receive notifications when new data arrives
 		// Needs to be done outside lock to prevent deadlock with incoming notification updating iterator
 		return f.bf.recentTables.registerPartitionStates(f.partitionStates)
@@ -94,7 +106,7 @@ func (f *FetchState) read() error {
 	return nil
 }
 
-func (f *FetchState) read0() (bool, error) {
+func (f *FetchState) read0() (waiting bool, err error) {
 	f.lock.Lock()
 	defer f.lock.Unlock()
 	if f.completionFunc == nil {
@@ -109,12 +121,17 @@ outer:
 			var wouldExceedPartitionMax bool
 			wouldExceedRequestMax, wouldExceedPartitionMax, err = partitionFetchState.read()
 			if err != nil {
-				return false, err
+				log.Warnf("failed to fetch on partition %v", err)
+				if common.IsUnavailableError(err) {
+					partitionFetchState.partitionFetchResp.ErrorCode = kafkaprotocol.ErrorCodeLeaderNotAvailable
+				} else {
+					partitionFetchState.partitionFetchResp.ErrorCode = kafkaprotocol.ErrorCodeUnknownServerError
+				}
 			}
 			if wouldExceedRequestMax {
 				break outer
 			}
-			if wouldExceedPartitionMax {
+			if err != nil || wouldExceedPartitionMax {
 				delete(partitionFetchStates, partitionID)
 				if len(partitionFetchStates) == 0 {
 					delete(f.partitionStates, topicID)
@@ -123,8 +140,8 @@ outer:
 		}
 	}
 	if wouldExceedRequestMax || len(f.partitionStates) == 0 {
-		// We either exceeded request max size or exceeded partition max size on all partitions, so the request is
-		// complete
+		// We either exceeded request max size or exceeded partition max size on all partitions, or errored on all
+		// partitions so the request is complete
 		if err := f.sendResponse(); err != nil {
 			return false, err
 		}
@@ -150,6 +167,7 @@ outer:
 		// Set a timeout if we haven't already set one - as we need to wait
 		time.AfterFunc(time.Duration(f.req.MaxWaitMs)*time.Millisecond, f.timeout)
 	}
+	f.waiting = true
 	return true, nil
 }
 
@@ -174,7 +192,14 @@ func (f *FetchState) sendResponse() error {
 		f.timeoutTimer.Stop()
 	}
 	f.completionFunc = nil
-	f.bf.recentTables.unregisterPartitionStates(f.partitionStates)
+	if f.waiting {
+		// unregister any waiting partition states
+		for _, partitionMap := range f.partitionStates {
+			for _, partitionState := range partitionMap {
+				partitionState.partitionTables.removeListener(partitionState)
+			}
+		}
+	}
 	return nil
 }
 
@@ -204,23 +229,59 @@ type PartitionFetchState struct {
 
 func (p *PartitionFetchState) read() (wouldExceedRequestMax bool, wouldExceedPartitionMax bool, err error) {
 	if p.iter == nil {
+		// read on a new request
 		fetchOffset := p.partitionFetchReq.FetchOffset
-		// See if we can create an iterator from locally cached tables - this would be the case where we are fetching
-		// form a very recent offset, and avoids going to the controller to get the table ids
-		tabIds, lastReadableOffset := p.partitionTables.getCacheTables(fetchOffset)
-		if len(tabIds) > 0 {
-			// Yes we have locally cached tables
-			iter, err := p.createIteratorFromTabIDs(tabIds, p.partitionFetchReq.FetchOffset, lastReadableOffset)
-			if err != nil {
-				return false, false, err
+		var iter iteration.Iterator
+		for {
+			tabIds, lastReadableOffset, initialised, isInCachedRange := p.partitionTables.maybeGetRecentTableIDs(fetchOffset)
+			if !initialised {
+				// initialise it - call initialise passing in function for Fetch to prevent race, as executed under
+				// partition tables lock
+				cl, err := p.fs.bf.getClient()
+				lastReadable, alreadyInitialised, err := p.partitionTables.initialise(func() (int64, error) {
+					return cl.RegisterTableListener(p.topicID, p.partitionID, p.fs.bf.address, atomic.LoadInt64(&p.fs.bf.resetSequence))
+				})
+				if err != nil {
+					return false, false, err
+				}
+				if alreadyInitialised {
+					// There is a race to initialise it and another request got there first, we try again
+					continue
+				}
+				keyStart, keyEnd := p.createKeyStartAndEnd(fetchOffset, lastReadable)
+				queryRes, err := cl.QueryTablesInRange(keyStart, keyEnd)
+				if err != nil {
+					return false, false, err
+				}
+				iter, err = p.createIteratorForKeyRange(queryRes, keyStart, keyEnd)
+				if err != nil {
+					return false, false, err
+				}
+			} else {
+				if isInCachedRange {
+					iter, err = p.createIteratorFromTabIDs(tabIds, fetchOffset, lastReadableOffset)
+					if err != nil {
+						return false, false, err
+					}
+				} else {
+					// Query fetch is before start of cached data
+					cl, err := p.fs.bf.getClient()
+					if err != nil {
+						return false, false, err
+					}
+					keyStart, keyEnd := p.createKeyStartAndEnd(fetchOffset, lastReadableOffset)
+					ids, err := cl.QueryTablesInRange(keyStart, keyEnd)
+					if err != nil {
+						return false, false, err
+					}
+					iter, err = p.createIteratorForKeyRange(ids, keyStart, keyEnd)
+					if err != nil {
+						return false, false, err
+					}
+				}
 			}
 			p.iter = iter
-		} else {
-			// The fetchOffset is too old or there are no cached tables so we need to go to the controller
-			// to get table ids
-			if err := p.createIteratorFromControllerQuery(fetchOffset); err != nil {
-				return false, false, err
-			}
+			break
 		}
 	}
 	var batches [][]byte
@@ -257,31 +318,19 @@ func (p *PartitionFetchState) read() (wouldExceedRequestMax bool, wouldExceedPar
 	return
 }
 
-func (p *PartitionFetchState) createIteratorFromControllerQuery(offset int64) error {
-	cl, err := p.fs.bf.getClient()
-	if err != nil {
-		return err
-	}
-	ids, lastReadableOffset, err := cl.FetchTablesForPrefix(p.topicID, p.partitionID, p.partitionHash, offset)
-	if err != nil {
-		return err
-	}
+func (p *PartitionFetchState) createKeyStartAndEnd(fetchOffset int64, lro int64) ([]byte, []byte) {
 	keyStart := make([]byte, 0, 24)
 	keyStart = append(keyStart, p.partitionHash...)
-	keyStart = encoding.KeyEncodeInt(keyStart, offset)
+	keyStart = encoding.KeyEncodeInt(keyStart, fetchOffset)
 	keyEnd := make([]byte, 0, 24)
 	keyEnd = append(keyEnd, p.partitionHash...)
-	keyEnd = encoding.KeyEncodeInt(keyEnd, lastReadableOffset+1)
-	if err := p.createIteratorForKeyRange(ids, keyStart, keyEnd); err != nil {
-		return err
-	}
-	return nil
+	keyEnd = encoding.KeyEncodeInt(keyEnd, lro+1)
+	return keyStart, keyEnd
 }
 
-func (p *PartitionFetchState) createIteratorForKeyRange(ids lsm.OverlappingTables, keyStart []byte, keyEnd []byte) error {
+func (p *PartitionFetchState) createIteratorForKeyRange(ids lsm.OverlappingTables, keyStart []byte, keyEnd []byte) (iteration.Iterator, error) {
 	if len(ids) == 0 {
-		p.iter = &iteration.EmptyIterator{}
-		return nil
+		return &iteration.EmptyIterator{}, nil
 	}
 	tableGetter := p.fs.bf.getTableFromCache
 	var iters []iteration.Iterator
@@ -290,7 +339,7 @@ func (p *PartitionFetchState) createIteratorForKeyRange(ids lsm.OverlappingTable
 			info := nonOverLapIDs[0]
 			iter, err := sst.NewLazySSTableIterator(info.ID, tableGetter, keyStart, keyEnd)
 			if err != nil {
-				return err
+				return nil, err
 			}
 			iters = append(iters, iter)
 		} else {
@@ -298,7 +347,7 @@ func (p *PartitionFetchState) createIteratorForKeyRange(ids lsm.OverlappingTable
 			for j, nonOverlapID := range nonOverLapIDs {
 				iter, err := sst.NewLazySSTableIterator(nonOverlapID.ID, tableGetter, keyStart, keyEnd)
 				if err != nil {
-					return err
+					return nil, err
 				}
 				itersInChain[j] = iter
 			}
@@ -310,16 +359,18 @@ func (p *PartitionFetchState) createIteratorForKeyRange(ids lsm.OverlappingTable
 		var err error
 		iter, err = iteration.NewMergingIterator(iters, false, math.MaxUint64)
 		if err != nil {
-			return err
+			return nil, err
 		}
 	} else {
 		iter = iters[0]
 	}
-	p.iter = iter
-	return nil
+	return iter, nil
 }
 
 func (p *PartitionFetchState) createIteratorFromTabIDs(tableIDs []*sst.SSTableID, fromOffset int64, lastReadableOffset int64) (iteration.Iterator, error) {
+	if len(tableIDs) == 0 {
+		return &iteration.EmptyIterator{}, nil
+	}
 	keyStart := make([]byte, 0, 24)
 	keyStart = append(keyStart, p.partitionHash...)
 	keyStart = encoding.KeyEncodeInt(keyStart, fromOffset)
@@ -327,7 +378,7 @@ func (p *PartitionFetchState) createIteratorFromTabIDs(tableIDs []*sst.SSTableID
 	keyEnd = append(keyEnd, p.partitionHash...)
 	keyEnd = encoding.KeyEncodeInt(keyEnd, lastReadableOffset+1)
 	var iter iteration.Iterator
-	if len(tableIDs) > 0 {
+	if len(tableIDs) > 1 {
 		iters := make([]iteration.Iterator, len(tableIDs))
 		for i, tid := range tableIDs {
 			sstIter, err := sst.NewLazySSTableIterator(*tid, p.fs.bf.getTableFromCache, keyStart, keyEnd)
