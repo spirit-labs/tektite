@@ -3,12 +3,13 @@ package sst
 import (
 	"bytes"
 	"encoding/binary"
+	"math"
+	"time"
+
 	"github.com/spirit-labs/tektite/asl/encoding"
 	"github.com/spirit-labs/tektite/asl/errwrap"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/iteration"
-	"math"
-	"time"
 )
 
 type SSTableID []byte
@@ -43,6 +44,9 @@ type SSTable struct {
 	//  │maxKeyLength bytes                         │ 4 bytes  │
 	//  ╰───────────────────────────────────────────┴──────────╯
 	data []byte
+	// Varint encoded metadata length
+	metadataBinary []byte
+	metadataSize   int
 }
 
 // metadata contains
@@ -51,7 +55,8 @@ type SSTable struct {
 // ├────────────┼───────────┼───────────┼──────────────────┼────────────┼─────────────┤
 // │4 bytes     │ 4 bytes   │ 4 bytes   │ 4 bytes          │ 4 bytes    │ 8 bytes     │
 // ╰────────────┴───────────┴───────────┴──────────────────┴────────────┴─────────────╯
-const metadataSize = 28
+// - size mentioned are max sizes. variable integer encoding can produce different size results
+const maxMetadataSize = 28
 
 func BuildSSTable(format common.DataFormat, buffSizeEstimate int, entriesEstimate int,
 	iter iteration.Iterator) (ssTable *SSTable, smallestKey []byte, largestKey []byte, minVersion uint64,
@@ -142,15 +147,17 @@ func BuildSSTable(format common.DataFormat, buffSizeEstimate int, entriesEstimat
 
 	// Now fill in metadata offset
 	metadataOffset := len(buff)
+
 	if metadataOffset > math.MaxUint32 {
 		return nil, nil, nil, 0, 0, errwrap.New("SSTable too big")
 	}
+
 	buff[1] = byte(metadataOffset)
 	buff[2] = byte(metadataOffset >> 8)
 	buff[3] = byte(metadataOffset >> 16)
 	buff[4] = byte(metadataOffset >> 24)
 
-	return &SSTable{
+	selfTable := &SSTable{
 		format:           format,
 		maxKeyLength:     uint32(maxKeyLength),
 		numEntries:       uint32(numEntries),
@@ -159,18 +166,30 @@ func BuildSSTable(format common.DataFormat, buffSizeEstimate int, entriesEstimat
 		indexOffset:      uint32(indexOffset),
 		creationTime:     uint64(time.Now().UTC().UnixMilli()),
 		data:             buff,
-	}, smallestKey, largestKey, minVersion, maxVersion, nil
+	}
+
+	selfTable.metadataBinary = selfTable.serializedMetdata()
+	selfTable.metadataSize = len(selfTable.metadataBinary)
+
+	return selfTable, smallestKey, largestKey, minVersion, maxVersion, nil
+}
+
+func (s *SSTable) serializedMetdata() []byte {
+	buff := make([]byte, 0, maxMetadataSize)
+	buff = encoding.AppendUint32ToBufferLEAsVarInt(buff, s.maxKeyLength)
+	buff = encoding.AppendUint32ToBufferLEAsVarInt(buff, s.numEntries)
+	buff = encoding.AppendUint32ToBufferLEAsVarInt(buff, s.numDeletes)
+	buff = encoding.AppendUint32ToBufferLEAsVarInt(buff, s.numPrefixDeletes)
+	buff = encoding.AppendUint32ToBufferLEAsVarInt(buff, s.indexOffset)
+	buff = encoding.AppendUint64ToBufferLE(buff, s.creationTime)
+
+	return buff
 }
 
 func (s *SSTable) Serialize() []byte {
 	// To avoid copying the data buffer, we put all the meta-data at the end
-	buff := encoding.AppendUint32ToBufferLE(s.data, s.maxKeyLength)
-	buff = encoding.AppendUint32ToBufferLE(buff, s.numEntries)
-	buff = encoding.AppendUint32ToBufferLE(buff, s.numDeletes)
-	buff = encoding.AppendUint32ToBufferLE(buff, s.numPrefixDeletes)
-	buff = encoding.AppendUint32ToBufferLE(buff, s.indexOffset)
-	buff = encoding.AppendUint64ToBufferLE(buff, s.creationTime)
-	return buff
+
+	return append(s.data, s.metadataBinary...)
 }
 
 func (s *SSTable) Deserialize(buff []byte, offset int) int {
@@ -179,18 +198,28 @@ func (s *SSTable) Deserialize(buff []byte, offset int) int {
 	var metadataOffset uint32
 	metadataOffset, _ = encoding.ReadUint32FromBufferLE(buff, offset)
 	offset = int(metadataOffset)
-	s.maxKeyLength, offset = encoding.ReadUint32FromBufferLE(buff, offset)
-	s.numEntries, offset = encoding.ReadUint32FromBufferLE(buff, offset)
-	s.numDeletes, offset = encoding.ReadUint32FromBufferLE(buff, offset)
-	s.numPrefixDeletes, offset = encoding.ReadUint32FromBufferLE(buff, offset)
-	s.indexOffset, offset = encoding.ReadUint32FromBufferLE(buff, offset)
+
+	metadataStartOffset := offset
+
+	s.maxKeyLength, offset = encoding.ReadUint32FromBufferLEVarInt(buff, offset)
+	s.numEntries, offset = encoding.ReadUint32FromBufferLEVarInt(buff, offset)
+	s.numDeletes, offset = encoding.ReadUint32FromBufferLEVarInt(buff, offset)
+	s.numPrefixDeletes, offset = encoding.ReadUint32FromBufferLEVarInt(buff, offset)
+	s.indexOffset, offset = encoding.ReadUint32FromBufferLEVarInt(buff, offset)
 	s.creationTime, offset = encoding.ReadUint64FromBufferLE(buff, offset)
+
+	metadataSize := offset - metadataStartOffset
+
+	s.metadataBinary = buff[len(buff)-metadataSize:]
 	s.data = buff[:len(buff)-metadataSize]
+
+	s.metadataSize = metadataSize
+
 	return offset
 }
 
 func (s *SSTable) SizeBytes() int {
-	return len(s.data) + metadataSize
+	return len(s.data) + s.metadataSize
 }
 
 func (s *SSTable) NumEntries() int {

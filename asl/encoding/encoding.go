@@ -1,12 +1,15 @@
 package encoding
 
 import (
+	"bytes"
 	"encoding/binary"
+	"io"
+	"math"
+	"unsafe"
+
 	"github.com/apache/arrow/go/v11/arrow/decimal128"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/types"
-	"math"
-	"unsafe"
 )
 
 var littleEndian = binary.LittleEndian
@@ -43,6 +46,16 @@ func AppendStringToBufferLE(buffer []byte, value string) []byte {
 
 func AppendUint32ToBufferLE(buffer []byte, v uint32) []byte {
 	return binary.LittleEndian.AppendUint32(buffer, v)
+}
+
+func AppendUint32ToBufferLEAsVarInt(buffer []byte, v uint32) []byte {
+	buf := make([]byte, 5)
+	// for MaxUint32
+	// or bigger value then 0x0FFF we will have spill over
+
+	n := binary.PutUvarint(buf, uint64(v))
+
+	return append(buffer, buf[0:n]...)
 }
 
 func AppendBytesToBufferLE(buffer []byte, value []byte) []byte {
@@ -82,11 +95,20 @@ func ReadUint64FromBufferLE(buffer []byte, offset int) (uint64, int) {
 }
 
 func ReadUint32FromBufferLE(buffer []byte, offset int) (uint32, int) {
+
 	if IsLittleEndian {
 		// nolint: gosec
 		return *(*uint32)(unsafe.Pointer(&buffer[offset])), offset + 4
 	}
 	return littleEndian.Uint32(buffer[offset:]), offset + 4
+}
+
+func ReadUint32FromBufferLEVarInt(buffer []byte, offset int) (uint32, int) {
+	reader := bytes.NewReader(buffer)
+	reader.Seek(int64(offset), io.SeekCurrent)
+	value, _ := binary.ReadUvarint(reader)
+	currentByte, _ := reader.Seek(0, io.SeekCurrent)
+	return uint32(value), int(currentByte)
 }
 
 func ReadFloat64FromBufferLE(buffer []byte, offset int) (val float64, off int) {
