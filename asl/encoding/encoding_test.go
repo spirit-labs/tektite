@@ -1,9 +1,10 @@
 package encoding
 
 import (
-	"github.com/stretchr/testify/require"
 	"math"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestIsLittleEndian(t *testing.T) {
@@ -67,4 +68,28 @@ func setEndianness(t *testing.T, endianness bool) {
 		IsLittleEndian = prev
 	})
 	IsLittleEndian = endianness
+}
+
+func TestAppendUint32ToBufferLEAsVarInt(t *testing.T) {
+	buffer := []byte{0x01, 0x02}
+	buffer = AppendUint32ToBufferLEAsVarInt(buffer, 3)
+	require.Len(t, buffer, 3)
+
+	buffer = AppendUint32ToBufferLEAsVarInt(buffer, 257)
+	require.Len(t, buffer, 5)
+
+	require.True(t, buffer[4]&0x80 == 0x00)
+	require.True(t, buffer[3]&0x80 == 0x80)
+}
+
+func TestReadUint32FromBufferLEVarInt(t *testing.T) {
+	buffer := []byte{}
+	buffer = AppendUint32ToBufferLEAsVarInt(buffer, 3)
+	buffer = AppendUint32ToBufferLEAsVarInt(buffer, 257)
+	value1, off := ReadUint32FromBufferLEVarInt(buffer, 0)
+	require.Equal(t, value1, uint32(3))
+	value2, off := ReadUint32FromBufferLEVarInt(buffer, off)
+	require.Equal(t, value2, uint32(257))
+	require.Equal(t, off, 3) // end of stream
+
 }
