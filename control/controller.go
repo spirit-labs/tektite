@@ -31,16 +31,18 @@ type Controller struct {
 	topicMetaManager  *topicmeta.Manager
 	currentMembership cluster.MembershipState
 	tableListeners    *tableListeners
+	membershipID      string
 }
 
 func NewController(cfg Conf, objStoreClient objstore.Client, connectionFactory transport.ConnectionFactory,
-	transportServer transport.Server) *Controller {
+	transportServer transport.Server, membershipID string) *Controller {
 	control := &Controller{
 		cfg:               cfg,
 		objStoreClient:    objStoreClient,
 		connectionFactory: connectionFactory,
 		transportServer:   transportServer,
 		tableListeners:    newTableListeners(cfg.TableNotificationInterval, connectionFactory),
+		membershipID:      membershipID,
 	}
 	return control
 }
@@ -97,8 +99,8 @@ func (c *Controller) MembershipChanged(newState cluster.MembershipState) error {
 	if !c.started {
 		return errors.New("controller not started")
 	}
-	if len(newState.Members) > 0 && newState.Members[0].Address == c.transportServer.Address() {
-		// This controller is activating as leader
+	// This controller is activating as leader
+	if len(newState.Members) > 0 && newState.Members[0].ID == c.membershipID {
 		lsmHolder := NewLsmHolder(c.cfg.ControllerStateUpdaterBucketName, c.cfg.ControllerStateUpdaterKeyPrefix,
 			c.cfg.ControllerMetaDataBucketName, c.cfg.ControllerMetaDataKeyPrefix, c.objStoreClient, c.cfg.LsmConf)
 		if err := lsmHolder.Start(); err != nil {
@@ -159,11 +161,13 @@ func (c *Controller) Client() (Client, error) {
 	if len(c.currentMembership.Members) == 0 {
 		return nil, common.NewTektiteErrorf(common.Unavailable, "no members in cluster")
 	}
+	var leaderMembershipData common.MembershipData
+	leaderMembershipData.Deserialize(c.currentMembership.Members[0].Data, 0)
 	return &client{
-		m:             c,
-		address:       c.currentMembership.Members[0].Address,
+		m:              c,
+		address:        leaderMembershipData.ListenAddress,
 		leaderVersion: c.currentMembership.LeaderVersion,
-		connFactory:   c.connectionFactory,
+		connFactory:    c.connectionFactory,
 	}, nil
 }
 
@@ -254,7 +258,18 @@ func (c *Controller) handleRegisterTableListener(_ *transport.ConnectionContext,
 	if err != nil {
 		return responseWriter(nil, err)
 	}
-	c.tableListeners.maybeRegisterListenerForPartition(req.Address, req.TopicID, req.PartitionID, req.ResetSequence)
+	var memberAddress string
+	for _, member := range c.currentMembership.Members {
+		if member.ID == req.MemberID {
+			var data common.MembershipData
+			data.Deserialize(member.Data, 0)
+			memberAddress = data.ListenAddress
+		}
+	}
+	if memberAddress == "" {
+		return common.NewTektiteErrorf(common.Unavailable, "unable to register table listener - unknown cluster member %s", req.MemberID)
+	}
+	c.tableListeners.maybeRegisterListenerForPartition(req.MemberID, memberAddress, req.TopicID, req.PartitionID, req.ResetSequence)
 	resp := RegisterTableListenerResponse{
 		LastReadableOffset: lro,
 	}

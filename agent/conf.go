@@ -4,6 +4,7 @@ import (
 	"github.com/spirit-labs/tektite/asl/conf"
 	"github.com/spirit-labs/tektite/cluster"
 	"github.com/spirit-labs/tektite/control"
+	"github.com/spirit-labs/tektite/fetchcache"
 	"github.com/spirit-labs/tektite/fetcher"
 	"github.com/spirit-labs/tektite/lsm"
 	"github.com/spirit-labs/tektite/pusher"
@@ -17,6 +18,7 @@ type Conf struct {
 	ControllerConf          control.Conf
 	CompactionWorkersConf   lsm.CompactionWorkerServiceConf
 	FetcherConf             fetcher.Conf
+	FetchCacheConf fetchcache.Conf
 }
 
 func NewConf() Conf {
@@ -26,6 +28,7 @@ func NewConf() Conf {
 		ControllerConf:          control.NewConf(),
 		CompactionWorkersConf:   lsm.NewCompactionWorkerServiceConf(),
 		FetcherConf:             fetcher.NewConf(),
+		FetchCacheConf:          fetchcache.NewConf(),
 	}
 }
 

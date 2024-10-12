@@ -149,7 +149,7 @@ func (m *ClusteredData) StoreData(data []byte) (bool, error) {
 	currEpoch := buffToEpoch(buff)
 	if currEpoch != m.epoch {
 		// Epoch has changed - fail the store
-		log.Warn("%s controller failed to store metadata as epoch has changed to %d (expected epoch %d)", m.logPrefix, currEpoch, m.epoch)
+		log.Warnf("%s controller failed to store metadata as epoch has changed to %d (expected epoch %d)", m.logPrefix, currEpoch, m.epoch)
 		return false, nil
 	}
 	return true, nil

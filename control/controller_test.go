@@ -399,7 +399,8 @@ func setupControllersWithObjectStoreAndConfigSetter(t *testing.T, numMembers int
 		if configSetter != nil {
 			configSetter(&cfg)
 		}
-		ctrl := NewController(cfg, objStore, localTransports.CreateConnection, transportServer)
+		membershipID := fmt.Sprintf("id-%d", i)
+		ctrl := NewController(cfg, objStore, localTransports.CreateConnection, transportServer, membershipID)
 		err = ctrl.Start()
 		require.NoError(t, err)
 		controllers = append(controllers, ctrl)
@@ -436,8 +437,10 @@ func createMembership(clusterVersion int, leaderVersion int, controllers []*Cont
 	now := time.Now().UnixMilli()
 	var members []cluster.MembershipEntry
 	for _, memberIndex := range memberIndexes {
+		membershipData := common.MembershipData{ListenAddress: controllers[memberIndex].transportServer.Address()}
 		members = append(members, cluster.MembershipEntry{
-			Address:    controllers[memberIndex].transportServer.Address(),
+			ID:         fmt.Sprintf("id-%d", memberIndex),
+			Data:       membershipData.Serialize(nil),
 			UpdateTime: now,
 		})
 	}

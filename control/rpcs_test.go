@@ -1,6 +1,7 @@
 package control
 
 import (
+	"github.com/google/uuid"
 	"github.com/spirit-labs/tektite/lsm"
 	"github.com/spirit-labs/tektite/offsets"
 	"github.com/spirit-labs/tektite/sst"
@@ -117,7 +118,7 @@ func TestSerializeDeserializeRegisterTableListenerRequest(t *testing.T) {
 		LeaderVersion: 567456,
 		TopicID:       123123,
 		PartitionID:   34546,
-		Address:       "some address",
+		MemberID:      uuid.New().String(),
 		ResetSequence: 123456,
 	}
 	var buff []byte

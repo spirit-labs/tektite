@@ -362,8 +362,9 @@ func (m *Manager) SendTopicNotification(handlerID int, topicInfo TopicInfo) {
 		}
 		bytes := notif.Serialize(nil)
 		for i := 0; i < len(m.membership.Members); i++ {
-			if err := m.sendNotificationToAddress(handlerID,
-				m.membership.Members[i].Address, bytes); err != nil {
+			var memberData common.MembershipData
+			memberData.Deserialize(m.membership.Members[i].Data, 0)
+			if err := m.sendNotificationToAddress(handlerID, memberData.ListenAddress, bytes); err != nil {
 				// best effort - continue
 				log.Warnf("Unable to send topic added notification: %v", err)
 			}

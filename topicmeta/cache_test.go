@@ -28,16 +28,19 @@ func TestNotifications(t *testing.T) {
 
 	numLocalCaches := 3
 	var localCaches []*LocalCache
-	var addresses []string
 	var memberEntries []cluster.MembershipEntry
 	var localCacheTransports []*transport.LocalServer
 	for i := 0; i < numLocalCaches; i++ {
 		localCache := NewLocalCache(controlClientFactory)
 		localCaches = append(localCaches, localCache)
+		memberID := uuid.New().String()
 		address := uuid.New().String()
-		addresses = append(addresses, address)
+		memberData := common.MembershipData{
+			ListenAddress: address,
+		}
 		memberEntries = append(memberEntries, cluster.MembershipEntry{
-			Address: address,
+			ID:   memberID,
+			Data: memberData.Serialize(nil),
 		})
 		localServer, err := transports.NewLocalServer(address)
 		require.NoError(t, err)

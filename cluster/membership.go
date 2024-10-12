@@ -16,7 +16,8 @@ type Membership struct {
 	lock                 sync.Mutex
 	started              bool
 	stateUpdator         *StateUpdater
-	address              string
+	id                   string
+	data                 []byte
 	leader               bool
 	currentState         MembershipState
 	stateChangedCallback func(state MembershipState) error
@@ -42,9 +43,10 @@ func (m *MembershipConf) Validate() error {
 	return nil
 }
 
-func NewMembership(cfg MembershipConf, address string, objStoreClient objstore.Client, stateChangedCallback func(state MembershipState) error) *Membership {
+func NewMembership(cfg MembershipConf, id string, data []byte, objStoreClient objstore.Client, stateChangedCallback func(state MembershipState) error) *Membership {
 	return &Membership{
-		address:              address,
+		id:                   id,
+		data:                 data,
 		stateUpdator:         NewStateUpdator(cfg.BucketName, cfg.KeyPrefix, objStoreClient, StateUpdatorOpts{}),
 		updateInterval:       cfg.UpdateInterval,
 		evicationDuration:    cfg.EvictionDuration,
@@ -116,7 +118,7 @@ func membershipChanged(oldMembers []MembershipEntry, newMembers []MembershipEntr
 		return true
 	}
 	for i, oldMember := range oldMembers {
-		if oldMember.Address != newMembers[i].Address {
+		if oldMember.ID != newMembers[i].ID {
 			return true
 		}
 	}
@@ -137,7 +139,7 @@ func (m *Membership) updateState(buff []byte) ([]byte, error) {
 	changed := false
 	leaderChanged := false
 	for i, member := range memberShipState.Members {
-		if member.Address == m.address {
+		if member.ID == m.id {
 			// When we update we preserve position in the slice
 			member.UpdateTime = now
 			found = true
@@ -157,7 +159,8 @@ func (m *Membership) updateState(buff []byte) ([]byte, error) {
 	if !found {
 		// Add the new member on the end
 		newMembers = append(newMembers, MembershipEntry{
-			Address:    m.address,
+			ID:         m.id,
+			Data:       m.data,
 			UpdateTime: now,
 		})
 		changed = true
@@ -189,7 +192,8 @@ type MembershipState struct {
 }
 
 type MembershipEntry struct {
-	Address    string // Address of the member
+	ID         string // Unique ID of the member
+	Data       []byte // Arbitrary data added by the member
 	UpdateTime int64  // Time the member last updated itself, in Unix millis
 }
 

@@ -47,19 +47,21 @@ func (i *InMemClusterMemberships) deliverUpdatesLoop() {
 	}
 }
 
-func (i *InMemClusterMemberships) NewMembership(address string, listener MembershipListener) ClusterMembership {
+func (i *InMemClusterMemberships) NewMembership(id string, data []byte, listener MembershipListener) ClusterMembership {
 	return &InMemMembership{
 		memberships: i,
-		address:     address,
+		id:          id,
+		data:        data,
 		listener:    listener,
 	}
 }
 
-func (i *InMemClusterMemberships) addMember(address string, listener MembershipListener) {
+func (i *InMemClusterMemberships) addMember(id string, data []byte, listener MembershipListener) {
 	i.lock.Lock()
 	defer i.lock.Unlock()
 	i.currentMembership.Members = append(i.currentMembership.Members, cluster.MembershipEntry{
-		Address:    address,
+		ID:         id,
+		Data:       data,
 		UpdateTime: time.Now().UnixMilli(),
 	})
 	i.listeners = append(i.listeners, listener)
@@ -70,13 +72,13 @@ func (i *InMemClusterMemberships) addMember(address string, listener MembershipL
 	i.sendUpdate()
 }
 
-func (i *InMemClusterMemberships) removeMember(address string) {
+func (i *InMemClusterMemberships) removeMember(id string) {
 	i.lock.Lock()
 	defer i.lock.Unlock()
 	var newMembers []cluster.MembershipEntry
 	var newListeners []MembershipListener
 	for j, member := range i.currentMembership.Members {
-		if member.Address != address {
+		if member.ID != id {
 			newMembers = append(newMembers, member)
 			newListeners = append(newListeners, i.listeners[j])
 		} else if j == 0 {
@@ -100,16 +102,17 @@ func (i *InMemClusterMemberships) sendUpdate() {
 
 type InMemMembership struct {
 	memberships *InMemClusterMemberships
-	address     string
+	id          string
+	data        []byte
 	listener    MembershipListener
 }
 
 func (i *InMemMembership) Start() error {
-	i.memberships.addMember(i.address, i.listener)
+	i.memberships.addMember(i.id, i.data, i.listener)
 	return nil
 }
 
 func (i *InMemMembership) Stop() error {
-	i.memberships.removeMember(i.address)
+	i.memberships.removeMember(i.id)
 	return nil
 }

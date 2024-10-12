@@ -2,6 +2,8 @@ package control
 
 import (
 	"github.com/google/uuid"
+	"github.com/spirit-labs/tektite/cluster"
+	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/lsm"
 	"github.com/spirit-labs/tektite/objstore/dev"
 	"github.com/spirit-labs/tektite/offsets"
@@ -20,7 +22,7 @@ func TestSinglePartitionTableNotification(t *testing.T) {
 	defer tearDown(t)
 
 	// register for notifications
-	_, err := cl.RegisterTableListener(0, 3, receiver.address, 0)
+	_, err := cl.RegisterTableListener(0, 3, receiver.memberID, 0)
 	require.NoError(t, err)
 
 	// trigger a notification
@@ -55,7 +57,7 @@ func testMultiplePartitionTableNotification(t *testing.T, topicID int, partition
 	defer tearDown(t)
 
 	// register for notifications
-	_, err := cl.RegisterTableListener(topicID, partitionID, receiver.address, 0)
+	_, err := cl.RegisterTableListener(topicID, partitionID, receiver.memberID, 0)
 	require.NoError(t, err)
 
 	// trigger a notification
@@ -99,7 +101,7 @@ func TestRegisterTableListenerReturnsLRO(t *testing.T) {
 	cl, receiver, tearDown := setupAndRegisterReceiver(t)
 	defer tearDown(t)
 
-	lro, err := cl.RegisterTableListener(0, 1, receiver.address, 0)
+	lro, err := cl.RegisterTableListener(0, 1, receiver.memberID, 0)
 	require.NoError(t, err)
 	require.Equal(t, -1, int(lro))
 
@@ -123,7 +125,7 @@ func TestRegisterTableListenerReturnsLRO(t *testing.T) {
 	notif := receiver.getNotifications()[0]
 	verifyTableRegisteredNotification(t, 0, tableID, writtenOffs, notif)
 
-	lro, err = cl.RegisterTableListener(0, 1, receiver.address, 0)
+	lro, err = cl.RegisterTableListener(0, 1, receiver.memberID, 0)
 	require.NoError(t, err)
 	require.Equal(t, 124, int(lro))
 }
@@ -135,16 +137,16 @@ func TestMultipleRegistrations(t *testing.T) {
 
 	// register for more than one partition
 
-	_, err := cl.RegisterTableListener(0, 3, receiver.address, 0)
+	_, err := cl.RegisterTableListener(0, 3, receiver.memberID, 0)
 	require.NoError(t, err)
 
-	_, err = cl.RegisterTableListener(0, 2, receiver.address, 0)
+	_, err = cl.RegisterTableListener(0, 2, receiver.memberID, 0)
 	require.NoError(t, err)
 
-	_, err = cl.RegisterTableListener(1, 1, receiver.address, 0)
+	_, err = cl.RegisterTableListener(1, 1, receiver.memberID, 0)
 	require.NoError(t, err)
 
-	_, err = cl.RegisterTableListener(1, 0, receiver.address, 0)
+	_, err = cl.RegisterTableListener(1, 0, receiver.memberID, 0)
 	require.NoError(t, err)
 
 	// trigger a notification
@@ -189,38 +191,12 @@ func TestMultipleRegistrations(t *testing.T) {
 }
 
 func TestMultipleReceivers(t *testing.T) {
-
 	numReceivers := 10
-
-	objStore := dev.NewInMemStore(0)
-	controllers, localTransports, tearDown := setupControllersWithObjectStore(t, 1, objStore)
+	cl, receivers, tearDown := setupAndRegisterReceivers(t, numReceivers)
 	defer tearDown(t)
-	controller := controllers[0]
-
-	var receivers []*notificationReceiver
-	for i := 0; i < numReceivers; i++ {
-		address := uuid.New().String()
-		receiverServer, err := localTransports.NewLocalServer(address)
-		require.NoError(t, err)
-		receiver := &notificationReceiver{
-			address: address,
-		}
-		receiverServer.RegisterHandler(transport.HandlerIDFetcherTableRegisteredNotification, receiver.receivedNotification)
-		receivers = append(receivers, receiver)
-	}
-
-	updateMembership(t, 1, 1, controllers, 0)
-	setupTopics(t, controller)
-
-	cl, err := controller.Client()
-	require.NoError(t, err)
-	defer func() {
-		err := cl.Close()
-		require.NoError(t, err)
-	}()
 
 	for _, receiver := range receivers {
-		_, err = cl.RegisterTableListener(0, 3, receiver.address, 0)
+		_, err := cl.RegisterTableListener(0, 3, receiver.memberID, 0)
 		require.NoError(t, err)
 	}
 
@@ -272,7 +248,7 @@ func TestNotRegisteredForPartition(t *testing.T) {
 	defer tearDown(t)
 
 	// register for different partition
-	_, err := cl.RegisterTableListener(0, 1, receiver.address, 0)
+	_, err := cl.RegisterTableListener(0, 1, receiver.memberID, 0)
 	require.NoError(t, err)
 
 	// trigger a notification
@@ -316,7 +292,7 @@ func TestMultipleNotifications(t *testing.T) {
 	defer tearDown(t)
 
 	// register for notifications
-	_, err := cl.RegisterTableListener(0, 3, receiver.address, 0)
+	_, err := cl.RegisterTableListener(0, 3, receiver.memberID, 0)
 	require.NoError(t, err)
 
 	numNotifs := 10
@@ -359,32 +335,12 @@ func TestMultipleNotifications(t *testing.T) {
 }
 
 func TestNotificationLeaderVersion(t *testing.T) {
-
-	objStore := dev.NewInMemStore(0)
-	controllers, localTransports, tearDown := setupControllersWithObjectStore(t, 1, objStore)
-	controller := controllers[0]
+	cl, receivers, tearDown := setupAndRegisterReceiversWithLeaderVersion(t, 1, 23)
+	receiver := receivers[0]
 	defer tearDown(t)
 
-	address := uuid.New().String()
-	receiverServer, err := localTransports.NewLocalServer(address)
-	require.NoError(t, err)
-	receiver := &notificationReceiver{
-		address: address,
-	}
-	receiverServer.RegisterHandler(transport.HandlerIDFetcherTableRegisteredNotification, receiver.receivedNotification)
-
-	updateMembership(t, 1, 23, controllers, 0)
-	setupTopics(t, controller)
-
-	cl, err := controller.Client()
-	require.NoError(t, err)
-	defer func() {
-		err := cl.Close()
-		require.NoError(t, err)
-	}()
-
 	// register for notifications
-	_, err = cl.RegisterTableListener(0, 3, receiver.address, 0)
+	_, err := cl.RegisterTableListener(0, 3, receiver.memberID, 0)
 	require.NoError(t, err)
 
 	offsetInfos := []offsets.GetOffsetTopicInfo{
@@ -411,35 +367,10 @@ func TestNotificationLeaderVersion(t *testing.T) {
 func TestInvalidateListeners(t *testing.T) {
 	numReceivers := 3
 
-	objStore := dev.NewInMemStore(0)
-	controllers, localTransports, tearDown := setupControllersWithObjectStore(t, 1, objStore)
+	cl, receivers, tearDown := setupAndRegisterReceivers(t, numReceivers)
 	defer tearDown(t)
-	controller := controllers[0]
-
-	var receivers []*notificationReceiver
-	for i := 0; i < numReceivers; i++ {
-		address := uuid.New().String()
-		receiverServer, err := localTransports.NewLocalServer(address)
-		require.NoError(t, err)
-		receiver := &notificationReceiver{
-			address: address,
-		}
-		receiverServer.RegisterHandler(transport.HandlerIDFetcherTableRegisteredNotification, receiver.receivedNotification)
-		receivers = append(receivers, receiver)
-	}
-
-	updateMembership(t, 1, 1, controllers, 0)
-	setupTopics(t, controller)
-
-	cl, err := controller.Client()
-	require.NoError(t, err)
-	defer func() {
-		err := cl.Close()
-		require.NoError(t, err)
-	}()
-
 	for _, receiver := range receivers {
-		_, err = cl.RegisterTableListener(0, 3, receiver.address, 0)
+		_, err := cl.RegisterTableListener(0, 3, receiver.memberID, 0)
 		require.NoError(t, err)
 	}
 
@@ -484,7 +415,7 @@ func TestInvalidateListeners(t *testing.T) {
 	}
 
 	// Invalidate the first one by sending next resetSequence
-	_, err = cl.RegisterTableListener(0, 3, receivers[0].address, 1)
+	_, err := cl.RegisterTableListener(0, 3, receivers[0].memberID, 1)
 	require.NoError(t, err)
 
 	// Send another notification
@@ -542,9 +473,9 @@ func TestListenersRemovedOnMembershipChange(t *testing.T) {
 
 	var receivers []*notificationReceiver
 	for i := 0; i < numReceivers; i++ {
-		address := controllers[i].transportServer.Address()
+		memberID := controllers[i].membershipID
 		receiver := &notificationReceiver{
-			address: address,
+			memberID: memberID,
 		}
 		controllers[i].transportServer.RegisterHandler(transport.HandlerIDFetcherTableRegisteredNotification, receiver.receivedNotification)
 		receivers = append(receivers, receiver)
@@ -559,7 +490,7 @@ func TestListenersRemovedOnMembershipChange(t *testing.T) {
 	require.NoError(t, err)
 
 	for _, receiver := range receivers {
-		_, err = cl.RegisterTableListener(0, 3, receiver.address, 0)
+		_, err = cl.RegisterTableListener(0, 3, receiver.memberID, 0)
 		require.NoError(t, err)
 	}
 
@@ -587,7 +518,7 @@ func TestListenersRemovedOnMembershipChange(t *testing.T) {
 
 	// Make sure all receivers are registered
 	for _, receiver := range receivers {
-		require.True(t, controller.tableListeners.hasListenerForAddress(receiver.address))
+		require.True(t, controller.tableListeners.hasListenerForMemberID(receiver.memberID))
 	}
 
 	// Now remove member 1 from cluster
@@ -601,9 +532,9 @@ func TestListenersRemovedOnMembershipChange(t *testing.T) {
 	cl, err = controller.Client()
 	require.NoError(t, err)
 
-	require.True(t, controller.tableListeners.hasListenerForAddress(receivers[0].address))
-	require.False(t, controller.tableListeners.hasListenerForAddress(receivers[1].address))
-	require.True(t, controller.tableListeners.hasListenerForAddress(receivers[2].address))
+	require.True(t, controller.tableListeners.hasListenerForMemberID(receivers[0].memberID))
+	require.False(t, controller.tableListeners.hasListenerForMemberID(receivers[1].memberID))
+	require.True(t, controller.tableListeners.hasListenerForMemberID(receivers[2].memberID))
 
 	// Now remove one more
 
@@ -620,36 +551,21 @@ func TestListenersRemovedOnMembershipChange(t *testing.T) {
 		require.NoError(t, err)
 	}()
 
-	require.True(t, controller.tableListeners.hasListenerForAddress(receivers[0].address))
-	require.False(t, controller.tableListeners.hasListenerForAddress(receivers[1].address))
-	require.False(t, controller.tableListeners.hasListenerForAddress(receivers[2].address))
+	require.True(t, controller.tableListeners.hasListenerForMemberID(receivers[0].memberID))
+	require.False(t, controller.tableListeners.hasListenerForMemberID(receivers[1].memberID))
+	require.False(t, controller.tableListeners.hasListenerForMemberID(receivers[2].memberID))
 }
 
 func TestPeriodicNotification(t *testing.T) {
-
 	interval := 1 * time.Millisecond
-	objStore := dev.NewInMemStore(0)
-	controllers, localTransports, tearDown := setupControllersWithObjectStoreAndConfigSetter(t, 1, objStore, func(conf *Conf) {
+	cl, receivers, tearDown := setupAndRegisterReceiversWithLeaderVersionAndConfigSetter(t, 1, 1, func(conf *Conf) {
 		conf.TableNotificationInterval = interval
 	})
 	defer tearDown(t)
+	receiver := receivers[0]
 
-	address := uuid.New().String()
-	receiverServer, err := localTransports.NewLocalServer(address)
-	require.NoError(t, err)
-	receiver := &notificationReceiver{
-		address: address,
-	}
-	receiverServer.RegisterHandler(transport.HandlerIDFetcherTableRegisteredNotification, receiver.receivedNotification)
-
-	controller := controllers[0]
-	updateMembership(t, 1, 1, controllers, 0)
-	setupTopics(t, controller)
-
-	cl, err := controllers[0].Client()
-	require.NoError(t, err)
 	// register for notifications
-	_, err = cl.RegisterTableListener(0, 3, receiver.address, 0)
+	_, err := cl.RegisterTableListener(0, 3, receiver.memberID, 0)
 	require.NoError(t, err)
 
 	testutils.WaitUntil(t, func() (bool, error) {
@@ -669,7 +585,7 @@ func TestNotificationWithMultipleTables(t *testing.T) {
 	defer tearDown(t)
 
 	// register for notifications
-	_, err := cl.RegisterTableListener(0, 3, receiver.address, 0)
+	_, err := cl.RegisterTableListener(0, 3, receiver.memberID, 0)
 	require.NoError(t, err)
 
 	offsetInfos := []offsets.GetOffsetTopicInfo{
@@ -710,25 +626,53 @@ func TestNotificationWithMultipleTables(t *testing.T) {
 }
 
 func setupAndRegisterReceiver(t *testing.T) (Client, *notificationReceiver, func(t *testing.T)) {
+	cl, receivers, tearDown := setupAndRegisterReceivers(t, 1)
+	return cl, receivers[0], tearDown
+}
+
+func setupAndRegisterReceivers(t *testing.T, numReceivers int) (Client, []*notificationReceiver, func(t *testing.T)) {
+	return setupAndRegisterReceiversWithLeaderVersion(t, numReceivers, 1)
+}
+
+func setupAndRegisterReceiversWithLeaderVersion(t *testing.T, numReceivers int, leaderVersion int) (Client, []*notificationReceiver, func(t *testing.T)) {
+	return setupAndRegisterReceiversWithLeaderVersionAndConfigSetter(t, numReceivers, leaderVersion, func(conf *Conf) {})
+}
+
+func setupAndRegisterReceiversWithLeaderVersionAndConfigSetter(t *testing.T, numReceivers int, leaderVersion int,
+	configSetter func(conf *Conf)) (Client, []*notificationReceiver, func(t *testing.T)) {
 	objStore := dev.NewInMemStore(0)
-	controllers, localTransports, tearDown := setupControllersWithObjectStore(t, 1, objStore)
+	controllers, localTransports, tearDown := setupControllersWithObjectStoreAndConfigSetter(t, 1, objStore, configSetter)
 	controller := controllers[0]
 
-	address := uuid.New().String()
-	receiverServer, err := localTransports.NewLocalServer(address)
-	require.NoError(t, err)
-	receiver := &notificationReceiver{
-		address: address,
-	}
-	receiverServer.RegisterHandler(transport.HandlerIDFetcherTableRegisteredNotification, receiver.receivedNotification)
+	membership := createMembership(1, leaderVersion, controllers, 0)
 
-	updateMembership(t, 1, 1, controllers, 0)
+	var receivers []*notificationReceiver
+	for i := 0; i < numReceivers; i++ {
+		memberID := uuid.New().String()
+		receiverAddress := uuid.New().String()
+		receiverServer, err := localTransports.NewLocalServer(receiverAddress)
+		require.NoError(t, err)
+		receiver := &notificationReceiver{
+			memberID: memberID,
+		}
+		receivers = append(receivers, receiver)
+		receiverServer.RegisterHandler(transport.HandlerIDFetcherTableRegisteredNotification, receiver.receivedNotification)
+		membershipData := common.MembershipData{ListenAddress: receiverAddress}
+		membership.Members = append(membership.Members, cluster.MembershipEntry{
+			ID:         memberID,
+			Data:       membershipData.Serialize(nil),
+			UpdateTime: time.Now().UnixMilli(),
+		})
+	}
+	err := controllers[0].MembershipChanged(membership)
+	require.NoError(t, err)
+
 	setupTopics(t, controller)
 
 	cl, err := controller.Client()
 	require.NoError(t, err)
 
-	return cl, receiver, func(t *testing.T) {
+	return cl, receivers, func(t *testing.T) {
 		err := cl.Close()
 		require.NoError(t, err)
 		tearDown(t)
@@ -788,7 +732,7 @@ func createRegEntry() lsm.RegistrationEntry {
 type notificationReceiver struct {
 	lock     sync.Mutex
 	received []TablesRegisteredNotification
-	address  string
+	memberID string
 }
 
 func (n *notificationReceiver) receivedNotification(_ *transport.ConnectionContext, request []byte, _ []byte,

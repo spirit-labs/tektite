@@ -1,11 +1,12 @@
 package agent
 
 import (
-	"context"
-	"errors"
+	"github.com/google/uuid"
+	"github.com/pkg/errors"
 	"github.com/spirit-labs/tektite/cluster"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/control"
+	"github.com/spirit-labs/tektite/fetchcache"
 	"github.com/spirit-labs/tektite/fetcher"
 	"github.com/spirit-labs/tektite/kafkaserver2"
 	"github.com/spirit-labs/tektite/lsm"
@@ -16,6 +17,7 @@ import (
 	"github.com/spirit-labs/tektite/topicmeta"
 	"github.com/spirit-labs/tektite/transport"
 	"sync"
+	"sync/atomic"
 )
 
 type Agent struct {
@@ -30,6 +32,8 @@ type Agent struct {
 	membership               ClusterMembership
 	compactionWorkersService *lsm.CompactionWorkerService
 	partitionHashes          *parthash.PartitionHashes
+	fetchCache               *fetchcache.Cache
+	manifold                 *membershipChangedManifold
 }
 
 func NewAgent(cfg Conf, objStore objstore.Client) (*Agent, error) {
@@ -41,8 +45,8 @@ func NewAgent(cfg Conf, objStore objstore.Client) (*Agent, error) {
 	if err != nil {
 		return nil, err
 	}
-	clusterMembershipFactory := func(address string, listener MembershipListener) ClusterMembership {
-		return cluster.NewMembership(cfg.ClusterMembershipConfig, address, objStore, listener)
+	clusterMembershipFactory := func(id string, data []byte, listener MembershipListener) ClusterMembership {
+		return cluster.NewMembership(cfg.ClusterMembershipConfig, id, data, objStore, listener)
 	}
 	return NewAgentWithFactories(cfg, objStore, socketClient.CreateConnection, transportServer,
 		clusterMembershipFactory)
@@ -50,9 +54,12 @@ func NewAgent(cfg Conf, objStore objstore.Client) (*Agent, error) {
 
 const partitionHashCacheMaxSize = 100000
 
-type ClusterMembershipFactory func(address string, listener MembershipListener) ClusterMembership
+type ClusterMembershipFactory func(id string, data []byte, listener MembershipListener) ClusterMembership
 
 type MembershipListener func(state cluster.MembershipState) error
+
+type MembershipData struct {
+}
 
 type ClusterMembership interface {
 	Start() error
@@ -67,7 +74,12 @@ func NewAgentWithFactories(cfg Conf, objStore objstore.Client, connectionFactory
 	agent := &Agent{
 		cfg: cfg,
 	}
-	agent.controller = control.NewController(cfg.ControllerConf, objStore, connectionFactory, transportServer)
+	membershipData := common.MembershipData{
+		ListenAddress: transportServer.Address(),
+		AZInfo:        cfg.FetchCacheConf.AzInfo,
+	}
+	membershipID := uuid.New().String()
+	agent.controller = control.NewController(cfg.ControllerConf, objStore, connectionFactory, transportServer, membershipID)
 	topicMetaCache := topicmeta.NewLocalCache(func() (topicmeta.ControllerClient, error) {
 		cl, err := agent.controller.Client()
 		return cl, err
@@ -90,12 +102,14 @@ func NewAgentWithFactories(cfg Conf, objStore objstore.Client, connectionFactory
 	fetcherClFactory := func() (fetcher.ControlClient, error) {
 		return agent.controller.Client()
 	}
-	getter := &objStoreGetter{
-		bucketName: cfg.FetcherConf.DataBucketName,
-		objStore:   objStore,
+	fetchCache, err := fetchcache.NewCache(objStore, connectionFactory, transportServer, cfg.FetchCacheConf)
+	if err != nil {
+		return nil, err
 	}
+	agent.fetchCache = fetchCache
+	getter := &fetchCacheGetter{fetchCache: fetchCache}
 	bf, err := fetcher.NewBatchFetcher(objStore, topicMetaCache, partitionHashes, fetcherClFactory, getter.get,
-		transportServer.Address(), cfg.FetcherConf)
+		membershipID, cfg.FetcherConf)
 	if err != nil {
 		return nil, err
 	}
@@ -103,9 +117,9 @@ func NewAgentWithFactories(cfg Conf, objStore objstore.Client, connectionFactory
 	agent.batchFetcher = bf
 	agent.kafkaServer = kafkaserver2.NewKafkaServer(cfg.KafkaListenerConfig.Address,
 		cfg.KafkaListenerConfig.TLSConfig, cfg.KafkaListenerConfig.AuthenticationType, agent.newKafkaHandler)
-	manifold := &membershipChangedManifold{listeners: []MembershipListener{agent.controller.MembershipChanged,
-		bf.MembershipChanged}}
-	agent.membership = clusterMembershipFactory(transportServer.Address(), manifold.membershipChanged)
+	agent.manifold = &membershipChangedManifold{listeners: []MembershipListener{agent.controller.MembershipChanged,
+		bf.MembershipChanged, fetchCache.MembershipChanged}}
+	agent.membership = clusterMembershipFactory(membershipID, membershipData.Serialize(nil), agent.manifold.membershipChanged)
 	agent.transportServer = transportServer
 	clFactory := func() (lsm.ControllerClient, error) {
 		return agent.controller.Client()
@@ -113,38 +127,6 @@ func NewAgentWithFactories(cfg Conf, objStore objstore.Client, connectionFactory
 	agent.compactionWorkersService = lsm.NewCompactionWorkerService(lsm.NewCompactionWorkerServiceConf(), objStore,
 		clFactory, true)
 	return agent, nil
-}
-
-// temp struct that gets direct from object store - will be replaced when we have fetch cache
-type objStoreGetter struct {
-	bucketName string
-	objStore   objstore.Client
-}
-
-func (o *objStoreGetter) get(tableID sst.SSTableID) (*sst.SSTable, error) {
-	bytes, err := o.objStore.Get(context.Background(), o.bucketName, string(tableID))
-	if err != nil {
-		return nil, err
-	}
-	if len(bytes) == 0 {
-		return nil, nil
-	}
-	table := &sst.SSTable{}
-	table.Deserialize(bytes, 0)
-	return table, nil
-}
-
-type membershipChangedManifold struct {
-	listeners []MembershipListener
-}
-
-func (m *membershipChangedManifold) membershipChanged(membership cluster.MembershipState) error {
-	for _, l := range m.listeners {
-		if err := l(membership); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 func (a *Agent) Start() error {
@@ -162,6 +144,7 @@ func (a *Agent) Start() error {
 	if err := a.tablePusher.Start(); err != nil {
 		return err
 	}
+	a.fetchCache.Start()
 	if err := a.batchFetcher.Start(); err != nil {
 		return err
 	}
@@ -196,6 +179,7 @@ func (a *Agent) Stop() error {
 	if err := a.tablePusher.Stop(); err != nil {
 		return err
 	}
+	a.fetchCache.Stop()
 	if err := a.membership.Stop(); err != nil {
 		return err
 	}
@@ -206,6 +190,42 @@ func (a *Agent) Stop() error {
 	return nil
 }
 
+func (a *Agent) DeliveredClusterVersion() int {
+	return int(atomic.LoadInt64(&a.manifold.deliveredClusterVersion))
+}
+
 func (a *Agent) Conf() Conf {
 	return a.cfg
+}
+
+type membershipChangedManifold struct {
+	listeners               []MembershipListener
+	deliveredClusterVersion int64
+}
+
+func (m *membershipChangedManifold) membershipChanged(membership cluster.MembershipState) error {
+	for _, l := range m.listeners {
+		if err := l(membership); err != nil {
+			return err
+		}
+	}
+	atomic.StoreInt64(&m.deliveredClusterVersion, int64(membership.ClusterVersion))
+	return nil
+}
+
+type fetchCacheGetter struct {
+	fetchCache *fetchcache.Cache
+}
+
+func (o *fetchCacheGetter) get(tableID sst.SSTableID) (*sst.SSTable, error) {
+	bytes, err := o.fetchCache.GetTableBytes(tableID)
+	if err != nil {
+		return nil, err
+	}
+	if len(bytes) == 0 {
+		return nil, errors.Errorf("cannot find sstable %s", tableID)
+	}
+	table := &sst.SSTable{}
+	table.Deserialize(bytes, 0)
+	return table, nil
 }

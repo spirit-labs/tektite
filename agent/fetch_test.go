@@ -111,6 +111,7 @@ func testFetch(t *testing.T, numAgents int, writeTimeout time.Duration, numBatch
 	}
 	cfg := NewConf()
 	cfg.PusherConf.WriteTimeout = writeTimeout
+	cfg.FetchCacheConf.MaxSizeBytes = 16 * 1024 * 1024
 	var agents []*Agent
 	var tearDowns []func(*testing.T)
 	objStore := dev.NewInMemStore(0)
@@ -432,4 +433,12 @@ func produceBatch(t *testing.T, topicName string, partitionID int, address strin
 	require.Equal(t, int16(kafkaprotocol.ErrorCodeNone), partResp.ErrorCode)
 	require.Equal(t, (*string)(nil), partResp.ErrorMessage)
 	return batch
+}
+
+func waitForDeliveredClusterVersion(t *testing.T, agents ...*Agent) {
+	for _, agent := range agents {
+		testutils.WaitUntil(t, func() (bool, error) {
+			return agent.DeliveredClusterVersion() > 0, nil
+		})
+	}
 }

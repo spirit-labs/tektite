@@ -20,25 +20,27 @@ import (
 )
 
 /*
-FIXME - update this blurb!
+Cache caches next available and least readable offset for a topic partition in memory. It also re-orders table
+registrations by offset, so tables notifications are always released by the controller in offset order.
+Before an agent can write topic data to object storage it must first obtain partition offsets for the data it's writing.
+It does this by calliong GetOffsets to request offsets for the partitions in the ssTable it wants to write. The offsets
+cache allocates offsets while locking each partition being requested. It then returns the offsets along with a sequence
+number. Requests to get offsets are always ordered by [topic_id, partition_id] so deadlock cannot occur between
+concurrent requests for overlapping sets of partitions.
 
-Cache caches next available offset for a topic partition in memory. Before an agent can write topic data to object storage
-it must first obtain partition offsets for the data it's writing. It does this by requesting the offset cache for a
-number of offsets for each partition that's being written.
-
-The Cache also caches highestReadOffset for each partition. Any offsets greater than this might exist in storage but
+The Cache also maintains lastReadOffset for each partition. Any offsets greater than this might exist in storage but
 cannot be read. As offsets are obtained before the SSTable is written to object storage and the SSTable is registered
 with the LSM it's possible that two different agents who are writing for the same partition can register a SSTable
 containing later offsets before earlier offsets. If we made all offsets immediately readable then a consumer could
 read the later offsets (Kafka consumers tolerate gaps in offsets), thus skipping the data for the earlier offsets.
 To prevent this behaviour, when an SStable is registered after pushing to object storage the caller also provides the
-offsets for each partition in the table. We then add the offsets to a min heap on each partition, and then pop offsets
-as long as they are no gaps. Any consumer can only read offsets < highestReadOffset so this ensures consumers do not
-miss any data.
+sequence number that was returned in the call to GetOffsets, we know that sequence is in offset order. A min heap
+is maintained which then re-orders the registrations by sequence, and we pop entries from the heap as long as sequence
+is contiguous, and maintain lastReadableOffset from the last entry popped.
 
 In case of failure of an agent, the agent may have obtained offsets but failed before registering the SSTable. In this
-case there would be a gap in written offsets and highestReadOffset wouldn't advance thus stalling consumers. To
-prevent this, the cache responds to a change in cluster membership and sets highestReadOffset to the value of
+case there would be a gap in written offsets and lastReadOffset wouldn't advance thus stalling consumers. To
+prevent this, the cache responds to a change in cluster membership and sets lastReadOffset to the value of
 nextWriteOffset - 1, effectively making all offsets obtained, readable and allowing consumers to advance, potentially
 with gaps in the offset sequence. However, it cannot be allowed for registrations to occur for the offsets in the gap
 after this change has occurred otherwise that data would be skipped past by consumers. Therefore we maintain a field

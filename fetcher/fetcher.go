@@ -43,7 +43,7 @@ type BatchFetcher struct {
 	partitionHashes *parthash.PartitionHashes
 	controlFactory  controllerClientFactory
 	tableGetter     sst.TableGetter
-	address         string
+	memberID         string
 	recentTables    PartitionRecentTables
 	controlClients  *clientCache
 	dataBucketName  string
@@ -54,7 +54,7 @@ type BatchFetcher struct {
 }
 
 func NewBatchFetcher(objStore objstore.Client, topicProvider topicInfoProvider, partitionHashes *parthash.PartitionHashes,
-	controlFactory controllerClientFactory, tableGetter sst.TableGetter, address string, cfg Conf) (*BatchFetcher, error) {
+	controlFactory controllerClientFactory, tableGetter sst.TableGetter, memberID string, cfg Conf) (*BatchFetcher, error) {
 	localCache, err := NewLocalSSTCache(cfg.LocalCacheNumEntries, cfg.LocalCacheMaxBytes)
 	if err != nil {
 		return nil, err
@@ -65,7 +65,7 @@ func NewBatchFetcher(objStore objstore.Client, topicProvider topicInfoProvider, 
 		partitionHashes: partitionHashes,
 		controlFactory:  controlFactory,
 		tableGetter:     tableGetter,
-		address:         address,
+		memberID:         memberID,
 		controlClients:  newClientCache(cfg.MaxControllerConnections, controlFactory),
 		readExecs:       make([]readExecutor, cfg.NumReadExecutors),
 		localCache:      localCache,
@@ -116,7 +116,7 @@ type topicInfoProvider interface {
 type controllerClientFactory func() (ControlClient, error)
 
 type ControlClient interface {
-	RegisterTableListener(topicID int, partitionID int, address string, resetSequence int64) (int64, error)
+	RegisterTableListener(topicID int, partitionID int, memberID string, resetSequence int64) (int64, error)
 	QueryTablesInRange(keyStart []byte, keyEnd []byte) (lsm.OverlappingTables, error)
 	Close() error
 }

@@ -386,6 +386,7 @@ func setupAgentWithArgs(t *testing.T, cfg Conf, objStore objstore.Client, inMemM
 	require.NoError(t, err)
 	err = agent.Start()
 	require.NoError(t, err)
+	waitForDeliveredClusterVersion(t, agent)
 	tearDown := func(t *testing.T) {
 		err := agent.Stop()
 		require.NoError(t, err)
