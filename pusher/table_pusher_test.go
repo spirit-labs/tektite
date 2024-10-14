@@ -56,7 +56,9 @@ func TestTablePusherHandleProduceBatchSimple(t *testing.T) {
 	topicProvider := &simpleTopicInfoProvider{infos: map[string]topicmeta.TopicInfo{
 		"topic1": {ID: topicID, PartitionCount: 20},
 	}}
-	pusher, err := NewTablePusher(cfg, topicProvider, objStore, clientFactory)
+	partHashes, err := parthash.NewPartitionHashes(100)
+	require.NoError(t, err)
+	pusher, err := NewTablePusher(cfg, topicProvider, objStore, clientFactory, partHashes)
 	require.NoError(t, err)
 	err = pusher.Start()
 	require.NoError(t, err)
@@ -73,7 +75,7 @@ func TestTablePusherHandleProduceBatchSimple(t *testing.T) {
 		TimeoutMs:       1234,
 		TopicData: []kafkaprotocol.ProduceRequestTopicProduceData{
 			{
-				Name: strPtr("topic1"),
+				Name: common.StrPtr("topic1"),
 				PartitionData: []kafkaprotocol.ProduceRequestPartitionProduceData{
 					{
 						Index: 12,
@@ -150,7 +152,9 @@ func TestTablePusherHandleProduceBatchMultipleTopicsAndPartitions(t *testing.T) 
 		"topic1": {ID: topicID1, PartitionCount: 20},
 		"topic2": {ID: topicID2, PartitionCount: 30},
 	}}
-	pusher, err := NewTablePusher(cfg, topicProvider, objStore, clientFactory)
+	partHashes, err := parthash.NewPartitionHashes(100)
+	require.NoError(t, err)
+	pusher, err := NewTablePusher(cfg, topicProvider, objStore, clientFactory, partHashes)
 	require.NoError(t, err)
 
 	err = pusher.Start()
@@ -171,7 +175,7 @@ func TestTablePusherHandleProduceBatchMultipleTopicsAndPartitions(t *testing.T) 
 		TimeoutMs:       1234,
 		TopicData: []kafkaprotocol.ProduceRequestTopicProduceData{
 			{
-				Name: strPtr("topic1"),
+				Name: common.StrPtr("topic1"),
 				PartitionData: []kafkaprotocol.ProduceRequestPartitionProduceData{
 					{
 						Index: 12,
@@ -194,7 +198,7 @@ func TestTablePusherHandleProduceBatchMultipleTopicsAndPartitions(t *testing.T) 
 				},
 			},
 			{
-				Name: strPtr("topic2"),
+				Name: common.StrPtr("topic2"),
 				PartitionData: []kafkaprotocol.ProduceRequestPartitionProduceData{
 					{
 						Index: 23,
@@ -328,7 +332,9 @@ func TestTablePusherPushWhenBufferIsFull(t *testing.T) {
 		"topic1": {ID: topicID, PartitionCount: 30},
 	}}
 
-	pusher, err := NewTablePusher(cfg, topicProvider, objStore, clientFactory)
+	partHashes, err := parthash.NewPartitionHashes(100)
+	require.NoError(t, err)
+	pusher, err := NewTablePusher(cfg, topicProvider, objStore, clientFactory, partHashes)
 	require.NoError(t, err)
 
 	err = pusher.Start()
@@ -344,7 +350,7 @@ func TestTablePusherPushWhenBufferIsFull(t *testing.T) {
 		TimeoutMs:       1234,
 		TopicData: []kafkaprotocol.ProduceRequestTopicProduceData{
 			{
-				Name: strPtr("topic1"),
+				Name: common.StrPtr("topic1"),
 				PartitionData: []kafkaprotocol.ProduceRequestPartitionProduceData{
 					{
 						Index: 12,
@@ -378,7 +384,7 @@ func TestTablePusherPushWhenBufferIsFull(t *testing.T) {
 		TimeoutMs:       1234,
 		TopicData: []kafkaprotocol.ProduceRequestTopicProduceData{
 			{
-				Name: strPtr("topic1"),
+				Name: common.StrPtr("topic1"),
 				PartitionData: []kafkaprotocol.ProduceRequestPartitionProduceData{
 					{
 						Index: 23,
@@ -435,7 +441,9 @@ func TestTablePusherPushWhenTimeoutIsExceeded(t *testing.T) {
 		"topic1": {ID: topicID, PartitionCount: 20},
 	}}
 
-	pusher, err := NewTablePusher(cfg, topicProvider, objStore, clientFactory)
+	partHashes, err := parthash.NewPartitionHashes(100)
+	require.NoError(t, err)
+	pusher, err := NewTablePusher(cfg, topicProvider, objStore, clientFactory, partHashes)
 	require.NoError(t, err)
 
 	start := time.Now()
@@ -452,7 +460,7 @@ func TestTablePusherPushWhenTimeoutIsExceeded(t *testing.T) {
 		TimeoutMs:       1234,
 		TopicData: []kafkaprotocol.ProduceRequestTopicProduceData{
 			{
-				Name: strPtr("topic1"),
+				Name: common.StrPtr("topic1"),
 				PartitionData: []kafkaprotocol.ProduceRequestPartitionProduceData{
 					{
 						Index: 12,
@@ -524,7 +532,9 @@ func TestTablePusherHandleProduceBatchMixtureErrorsAndSuccesses(t *testing.T) {
 		"topic2": {ID: topicID2, PartitionCount: 30},
 	}}
 
-	pusher, err := NewTablePusher(cfg, topicProvider, objStore, clientFactory)
+	partHashes, err := parthash.NewPartitionHashes(100)
+	require.NoError(t, err)
+	pusher, err := NewTablePusher(cfg, topicProvider, objStore, clientFactory, partHashes)
 	require.NoError(t, err)
 
 	err = pusher.Start()
@@ -550,7 +560,7 @@ func TestTablePusherHandleProduceBatchMixtureErrorsAndSuccesses(t *testing.T) {
 		TimeoutMs:       1234,
 		TopicData: []kafkaprotocol.ProduceRequestTopicProduceData{
 			{
-				Name: strPtr("topic1"),
+				Name: common.StrPtr("topic1"),
 				PartitionData: []kafkaprotocol.ProduceRequestPartitionProduceData{
 					{
 						Index: 12,
@@ -579,7 +589,7 @@ func TestTablePusherHandleProduceBatchMixtureErrorsAndSuccesses(t *testing.T) {
 				},
 			},
 			{
-				Name: strPtr("topic2"),
+				Name: common.StrPtr("topic2"),
 				PartitionData: []kafkaprotocol.ProduceRequestPartitionProduceData{
 					{
 						Index: 23,
@@ -590,7 +600,7 @@ func TestTablePusherHandleProduceBatchMixtureErrorsAndSuccesses(t *testing.T) {
 				},
 			},
 			{
-				Name: strPtr("topic_unknown"),
+				Name: common.StrPtr("topic_unknown"),
 				PartitionData: []kafkaprotocol.ProduceRequestPartitionProduceData{
 					{
 						Index: 11,
@@ -707,7 +717,9 @@ func TestTablePusherUnexpectedError(t *testing.T) {
 	topicProvider := &simpleTopicInfoProvider{infos: map[string]topicmeta.TopicInfo{
 		"topic1": {ID: topicID, PartitionCount: 20},
 	}}
-	pusher, err := NewTablePusher(cfg, topicProvider, objStore, clientFactory)
+	partHashes, err := parthash.NewPartitionHashes(100)
+	require.NoError(t, err)
+	pusher, err := NewTablePusher(cfg, topicProvider, objStore, clientFactory, partHashes)
 	require.NoError(t, err)
 	err = pusher.Start()
 	require.NoError(t, err)
@@ -731,7 +743,7 @@ func TestTablePusherUnexpectedError(t *testing.T) {
 		TimeoutMs:       1234,
 		TopicData: []kafkaprotocol.ProduceRequestTopicProduceData{
 			{
-				Name: strPtr("topic1"),
+				Name: common.StrPtr("topic1"),
 				PartitionData: []kafkaprotocol.ProduceRequestPartitionProduceData{
 					{
 						Index: 12,
@@ -781,7 +793,9 @@ func TestTablePusherTemporaryUnavailability(t *testing.T) {
 	topicProvider := &simpleTopicInfoProvider{infos: map[string]topicmeta.TopicInfo{
 		"topic1": {ID: topicID, PartitionCount: 30},
 	}}
-	pusher, err := NewTablePusher(cfg, topicProvider, objStore, clientFactory)
+	partHashes, err := parthash.NewPartitionHashes(100)
+	require.NoError(t, err)
+	pusher, err := NewTablePusher(cfg, topicProvider, objStore, clientFactory, partHashes)
 	require.NoError(t, err)
 	err = pusher.Start()
 	require.NoError(t, err)
@@ -807,7 +821,7 @@ func TestTablePusherTemporaryUnavailability(t *testing.T) {
 		TimeoutMs:       1234,
 		TopicData: []kafkaprotocol.ProduceRequestTopicProduceData{
 			{
-				Name: strPtr("topic1"),
+				Name: common.StrPtr("topic1"),
 				PartitionData: []kafkaprotocol.ProduceRequestPartitionProduceData{
 					{
 						Index: 12,
@@ -835,7 +849,7 @@ func TestTablePusherTemporaryUnavailability(t *testing.T) {
 		TimeoutMs:       1234,
 		TopicData: []kafkaprotocol.ProduceRequestTopicProduceData{
 			{
-				Name: strPtr("topic1"),
+				Name: common.StrPtr("topic1"),
 				PartitionData: []kafkaprotocol.ProduceRequestPartitionProduceData{
 					{
 						Index: 20,
@@ -1002,10 +1016,6 @@ func (t *testControllerClient) GetOffsets(infos []offsets.GetOffsetTopicInfo) ([
 
 func (t *testControllerClient) Close() error {
 	return nil
-}
-
-func strPtr(s string) *string {
-	return &s
 }
 
 type failingObjectStoreClient struct {

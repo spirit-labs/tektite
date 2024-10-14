@@ -4,8 +4,6 @@ import (
 	"bytes"
 	"container/heap"
 	"context"
-	"fmt"
-	"github.com/google/uuid"
 	"github.com/spirit-labs/tektite/asl/encoding"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/objstore"
@@ -537,7 +535,7 @@ func setupInitialOffsets(t *testing.T, objStore objstore.Client, dataBucketName 
 	table, _, _, _, _, err := sst.BuildSSTable(common.DataFormatV1,
 		0, 0, iter)
 	require.NoError(t, err)
-	tableID := fmt.Sprintf("sst-%s", uuid.New().String())
+	tableID := sst.CreateSSTableId()
 	// Push sstable to object store
 	tableData := table.Serialize()
 	err = objStore.Put(context.Background(), dataBucketName, tableID, tableData)

@@ -104,3 +104,11 @@ func varintLength(x int64) int {
 	}
 	return i + 1
 }
+
+func NumRecords(records []byte) int {
+	return int(binary.BigEndian.Uint32(records[57:]))
+}
+
+func BaseOffset(records []byte) int64 {
+	return int64(binary.BigEndian.Uint64(records))
+}

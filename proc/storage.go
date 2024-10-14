@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
-	"github.com/google/uuid"
 	"github.com/spirit-labs/tektite/asl/arenaskl"
 	"github.com/spirit-labs/tektite/asl/arista"
 	"github.com/spirit-labs/tektite/asl/errwrap"
@@ -286,7 +285,7 @@ func (ps *ProcessorStore) buildAndPushTable(entry *flushQueueEntry) error {
 			return err
 		}
 		// Push and register the SSTable
-		sid := fmt.Sprintf("sst-%s", uuid.New().String())
+		sid := sst2.CreateSSTableId()
 		id := []byte(sid)
 		tableBytes := ssTable.Serialize()
 		for {
@@ -494,7 +493,7 @@ func (ps *ProcessorStore) createSSTableIterators(keyStart []byte, keyEnd []byte)
 		if len(nonOverLapIDs) == 1 {
 			log.Debugf("using sstable %v in iterator [%d, 0] for key start %v", nonOverLapIDs[0], i, keyStart)
 			info := nonOverLapIDs[0]
-			iter, err := sst2.NewLazySSTableIterator(info.ID, ps.pm.tableCache, keyStart, keyEnd)
+			iter, err := sst2.NewLazySSTableIterator(info.ID, ps.pm.tableCache.GetSSTable, keyStart, keyEnd)
 			if err != nil {
 				return nil, err
 			}
@@ -506,7 +505,7 @@ func (ps *ProcessorStore) createSSTableIterators(keyStart []byte, keyEnd []byte)
 			itersInChain := make([]iteration.Iterator, len(nonOverLapIDs))
 			for j, nonOverlapID := range nonOverLapIDs {
 				log.Debugf("using sstable %v in iterator [%d, %d] for key start %v", nonOverlapID, i, j, keyStart)
-				iter, err := sst2.NewLazySSTableIterator(nonOverlapID.ID, ps.pm.tableCache, keyStart, keyEnd)
+				iter, err := sst2.NewLazySSTableIterator(nonOverlapID.ID, ps.pm.tableCache.GetSSTable, keyStart, keyEnd)
 				if err != nil {
 					return nil, err
 				}

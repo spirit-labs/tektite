@@ -3,6 +3,7 @@ package agent
 import (
 	"encoding/binary"
 	"github.com/pkg/errors"
+	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/kafkaprotocol"
 	"github.com/spirit-labs/tektite/sockserver"
 	"sync"
@@ -68,7 +69,7 @@ func (k *KafkaApiConnection) createRequestAndRegisterHandler(req KafkaProtocolRe
 	hdr.CorrelationId = k.correlationIDSeq
 	hdr.RequestApiKey = apiKey
 	hdr.RequestApiVersion = apiVersion
-	hdr.ClientId = strPtr("some-client-id")
+	hdr.ClientId = common.StrPtr("some-client-id")
 	requestHeaderVersion, responseHeaderVersion := req.HeaderVersions(apiVersion)
 	buff := hdr.Write(requestHeaderVersion, nil, nil)
 	buff = req.Write(apiVersion, buff, nil)
@@ -111,8 +112,4 @@ type KafkaProtocolMessage interface {
 type KafkaProtocolRequest interface {
 	KafkaProtocolMessage
 	HeaderVersions(version int16) (int16, int16)
-}
-
-func strPtr(s string) *string {
-	return &s
 }
