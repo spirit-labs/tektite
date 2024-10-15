@@ -143,7 +143,6 @@ func (m *Membership) updateState(buff []byte) ([]byte, error) {
 			found = true
 		} else {
 			if now-member.UpdateTime >= m.evicationDuration.Milliseconds() {
-				log.Infof("%p member %d evicted", m, i)
 				// member evicted
 				changed = true
 				if i == 0 {
