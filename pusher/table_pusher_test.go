@@ -3,7 +3,6 @@ package pusher
 import (
 	"bytes"
 	"context"
-	"encoding/binary"
 	"errors"
 	"github.com/spirit-labs/tektite/asl/encoding"
 	"github.com/spirit-labs/tektite/common"
@@ -121,9 +120,11 @@ func TestTablePusherHandleProduceBatchSimple(t *testing.T) {
 	infos := receivedRegs[0].updateWrittenOffsetInfos
 	require.Equal(t, 1, len(infos))
 	require.Equal(t, topicID, infos[0].TopicID)
-	require.Equal(t, 12, infos[0].PartitionID)
-	require.Equal(t, 0, int(infos[0].OffsetStart))
-	require.Equal(t, 10, infos[0].NumOffsets)
+	require.Equal(t, 1, len(infos[0].PartitionInfos))
+	partInfo := infos[0].PartitionInfos[0]
+	require.Equal(t, 12, partInfo.PartitionID)
+	require.Equal(t, 0, int(partInfo.OffsetStart))
+	require.Equal(t, 10, partInfo.NumOffsets)
 }
 
 func TestTablePusherHandleProduceBatchMultipleTopicsAndPartitions(t *testing.T) {
@@ -276,33 +277,46 @@ func TestTablePusherHandleProduceBatchMultipleTopicsAndPartitions(t *testing.T) 
 	require.Equal(t, 1, len(receivedRegs))
 
 	infos := receivedRegs[0].updateWrittenOffsetInfos
-	require.Equal(t, 3, len(infos))
+	require.Equal(t, 2, len(infos))
 
 	// sort by [topic_id, partition_id]
-	slices.SortFunc(infos, func(a, b offsets.UpdateWrittenOffsetInfo) int {
-		b1 := make([]byte, 16)
-		binary.BigEndian.PutUint64(b1, uint64(a.TopicID))
-		binary.BigEndian.PutUint64(b1[8:], uint64(a.PartitionID))
-		b2 := make([]byte, 16)
-		binary.BigEndian.PutUint64(b2, uint64(b.TopicID))
-		binary.BigEndian.PutUint64(b2[8:], uint64(b.PartitionID))
-		return bytes.Compare(b1, b2)
+	slices.SortFunc(infos, func(a, b offsets.UpdateWrittenOffsetTopicInfo) int {
+		if a.TopicID < b.TopicID {
+			return -1
+		} else if a.TopicID == b.TopicID {
+			return 0
+		} else {
+			return 1
+		}
 	})
+	for _, topicInfo := range infos {
+		slices.SortFunc(topicInfo.PartitionInfos, func(a, b offsets.UpdateWrittenOffsetPartitionInfo) int {
+			if a.PartitionID < b.PartitionID {
+				return -1
+			} else if a.PartitionID == b.PartitionID {
+				return 0
+			} else {
+				return 1
+			}
+		})
+	}
 
 	require.Equal(t, topicID1, infos[0].TopicID)
-	require.Equal(t, 7, infos[0].PartitionID)
-	require.Equal(t, 32, int(infos[0].OffsetStart))
-	require.Equal(t, 20, infos[0].NumOffsets)
+	partInfo := infos[0].PartitionInfos[0]
+	require.Equal(t, 7, partInfo.PartitionID)
+	require.Equal(t, 32, int(partInfo.OffsetStart))
+	require.Equal(t, 20, partInfo.NumOffsets)
 
-	require.Equal(t, topicID1, infos[1].TopicID)
-	require.Equal(t, 12, infos[1].PartitionID)
-	require.Equal(t, 1002, int(infos[1].OffsetStart))
-	require.Equal(t, 25, infos[1].NumOffsets)
+	partInfo = infos[0].PartitionInfos[1]
+	require.Equal(t, 12, partInfo.PartitionID)
+	require.Equal(t, 1002, int(partInfo.OffsetStart))
+	require.Equal(t, 25, partInfo.NumOffsets)
 
-	require.Equal(t, topicID2, infos[2].TopicID)
-	require.Equal(t, 23, infos[2].PartitionID)
-	require.Equal(t, 564, int(infos[2].OffsetStart))
-	require.Equal(t, 25, infos[2].NumOffsets)
+	require.Equal(t, topicID2, infos[1].TopicID)
+	partInfo = infos[1].PartitionInfos[0]
+	require.Equal(t, 23, partInfo.PartitionID)
+	require.Equal(t, 564, int(partInfo.OffsetStart))
+	require.Equal(t, 25, partInfo.NumOffsets)
 
 	reg := receivedRegs[0].regEntry
 	require.Equal(t, []byte(objects[0].Key), []byte(reg.TableID))
@@ -971,11 +985,11 @@ type testControllerClient struct {
 }
 
 type regL0TableInvocation struct {
-	updateWrittenOffsetInfos []offsets.UpdateWrittenOffsetInfo
+	updateWrittenOffsetInfos []offsets.UpdateWrittenOffsetTopicInfo
 	regEntry                 lsm.RegistrationEntry
 }
 
-func (t *testControllerClient) RegisterL0Table(updateWrittenOffsetInfos []offsets.UpdateWrittenOffsetInfo, regEntry lsm.RegistrationEntry) error {
+func (t *testControllerClient) RegisterL0Table(updateWrittenOffsetInfos []offsets.UpdateWrittenOffsetTopicInfo, regEntry lsm.RegistrationEntry) error {
 	t.lock.Lock()
 	defer t.lock.Unlock()
 	t.registrations = append(t.registrations, regL0TableInvocation{
@@ -997,19 +1011,21 @@ func (t *testControllerClient) GetOffsets(infos []offsets.GetOffsetTopicInfo) ([
 	t.lock.Lock()
 	defer t.lock.Unlock()
 	var offs []int64
-	for _, info := range infos {
-		partitionOffsets, ok := t.offsets[info.TopicID]
+	for _, tInfo := range infos {
+		partitionOffsets, ok := t.offsets[tInfo.TopicID]
 		if !ok {
 			partitionOffsets = make(map[int]int64)
-			t.offsets[info.TopicID] = partitionOffsets
+			t.offsets[tInfo.TopicID] = partitionOffsets
 		}
-		offset, ok := partitionOffsets[info.PartitionID]
-		if !ok {
-			offset = 0
+		for _, pInfo := range tInfo.PartitionInfos {
+			offset, ok := partitionOffsets[pInfo.PartitionID]
+			if !ok {
+				offset = 0
+			}
+			newOffset := pInfo.NumOffsets + int(offset)
+			partitionOffsets[pInfo.PartitionID] = int64(newOffset)
+			offs = append(offs, offset)
 		}
-		newOffset := info.NumOffsets + int(offset)
-		partitionOffsets[info.PartitionID] = int64(newOffset)
-		offs = append(offs, offset)
 	}
 	return offs, nil
 }

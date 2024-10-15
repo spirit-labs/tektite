@@ -78,7 +78,7 @@ type LazySSTableIterator struct {
 	iter     iteration.Iterator
 }
 
-func NewLazySSTableIterator(tableID SSTableID, tableGetter TableGetter,	keyStart []byte,
+func NewLazySSTableIterator(tableID SSTableID, tableGetter TableGetter, keyStart []byte,
 	keyEnd []byte) (iteration.Iterator, error) {
 	it := &LazySSTableIterator{
 		tableID:  tableID,
@@ -137,12 +137,10 @@ func (l *LazySSTableIterator) getIter() (iteration.Iterator, error) {
 		if err != nil {
 			return nil, err
 		}
-
 		iter, err := ssTable.NewIterator(l.keyStart, l.keyEnd)
 		if err != nil {
 			return nil, err
 		}
-
 		l.iter = iter
 	}
 	return l.iter, nil

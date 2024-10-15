@@ -1,20 +1,27 @@
 package fetcher
 
 import (
+	"github.com/spirit-labs/tektite/control"
+	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/sst"
 	"sync"
+	"sync/atomic"
 )
 
 type PartitionRecentTables struct {
+	bf                     *BatchFetcher
 	lock                   sync.RWMutex
 	topicMap               map[int]map[int]*PartitionTables
 	maxEntriesPerPartition int
+	lastReceivedSequence   int64
 }
 
-func CreatePartitionRecentTables(maxEntriesPerPartition int) PartitionRecentTables {
+func CreatePartitionRecentTables(maxEntriesPerPartition int, bf *BatchFetcher) PartitionRecentTables {
 	return PartitionRecentTables{
+		bf:                     bf,
 		topicMap:               make(map[int]map[int]*PartitionTables),
 		maxEntriesPerPartition: maxEntriesPerPartition,
+		lastReceivedSequence:   -1,
 	}
 }
 
@@ -23,15 +30,23 @@ type PartitionTables struct {
 	maxEntriesPerPartition int
 	entries                []RecentTableEntry
 	listeners              []*PartitionFetchState
+	initialised            bool
+	validFromOffset        int64
 }
 
-func (p *PartitionRecentTables) getPartitionTables(topicID int, partitionID int) *PartitionTables {
+func (p *PartitionRecentTables) getPartitionMap(topicID int) map[int]*PartitionTables {
 	p.lock.RLock()
 	defer p.lock.RUnlock()
 	partitionMap, ok := p.topicMap[topicID]
 	if !ok {
 		partitionMap = p.createPartitionMap(topicID)
 	}
+	return partitionMap
+}
+
+func (p *PartitionRecentTables) getPartitionTables(partitionMap map[int]*PartitionTables, partitionID int) *PartitionTables {
+	p.lock.RLock()
+	defer p.lock.RUnlock()
 	partitionTables, ok := partitionMap[partitionID]
 	if !ok {
 		partitionTables = p.createPartitionTables(partitionID, partitionMap)
@@ -39,43 +54,70 @@ func (p *PartitionRecentTables) getPartitionTables(topicID int, partitionID int)
 	return partitionTables
 }
 
-func (p *PartitionTables) getCacheTables(fetchOffset int64) ([]*sst.SSTableID, int64) {
-	p.lock.RLock()
-	defer p.lock.RUnlock()
-	if len(p.entries) == 0 {
-		return nil, 0
-	}
-	// We find the rightmost table where the lastReadableOffset < fetchOffset
-	// Then we know that any table to the left of that must contain only offsets < fetchOffset and we have all the
-	// table ids we need for the iterator.
-	// If we can't find any such table it means all tables lastReadableOffset must be >= fetchOffset and we don't have
-	// enough tables cached to return the data
-	pos := -1
-	for i := len(p.entries) - 1; i >= 0; i-- {
-		if p.entries[i].LastReadableOffset >= fetchOffset {
-			continue
-		}
-		pos = i
-		break
-	}
-	if pos == -1 {
-		return nil, 0
-	}
-	tabIDs := make([]*sst.SSTableID, len(p.entries)-pos)
-	for i := pos; i < len(p.entries); i++ {
-		tabIDs[i-pos] = p.entries[i].TableID
-	}
-	return tabIDs, p.entries[len(p.entries)-1].LastReadableOffset
-}
-
-func (p *PartitionTables) addEntry(tableID *sst.SSTableID, lastReadableOffset int64, fetchStates map[*FetchState]struct{}) error {
+func (p *PartitionTables) initialise(queryFunc func() (int64, error)) (int64, bool, error) {
 	p.lock.Lock()
 	defer p.lock.Unlock()
-	p.entries = append(p.entries, RecentTableEntry{tableID, lastReadableOffset})
+	if p.initialised {
+		return 0, true, nil
+	}
+	// We execute the registration and get the initial lastReadableOffset via a function passed in here. The function is
+	// executed with the lock held which handles a race where a new notification comes in very quickly and updates
+	// partitionTables before we have fully initialised.
+	lro, err := queryFunc()
+	if err != nil {
+		return 0, false, err
+	}
+	p.validFromOffset = lro + 1
+	p.initialised = true
+	return lro, false, nil
+}
+
+func (p *PartitionTables) maybeGetRecentTableIDs(fetchOffset int64) (tables []*sst.SSTableID, lastReadableOffset int64,
+	initialised bool, isInCachedRange bool) {
+	p.lock.RLock()
+	defer p.lock.RUnlock()
+	if !p.initialised {
+		return nil, 0, false, false
+	}
+	if len(p.entries) == 0 {
+		lastReadableOffset = p.validFromOffset - 1
+	} else {
+		lastReadableOffset = p.entries[len(p.entries)-1].LastReadableOffset
+	}
+	if fetchOffset < p.validFromOffset {
+		// We are trying to fetch from an offset before the first offset we are caching tables from
+		return nil, lastReadableOffset, true, false
+	}
+	// Screen out any ids which can't contain any data from >= fetchOffset
+	var tabIDs []*sst.SSTableID
+	for _, entry := range p.entries {
+		if entry.LastReadableOffset < fetchOffset {
+			continue
+		}
+		tabIDs = append(tabIDs, entry.TableID)
+	}
+	return tabIDs, lastReadableOffset, true, true
+}
+
+func (p *PartitionTables) isInitialised() bool {
+	p.lock.Lock()
+	defer p.lock.Unlock()
+	return p.initialised
+}
+
+func (p *PartitionTables) addEntry(tableID *sst.SSTableID, lastReadableOffset int64,
+	fetchStates map[*FetchState]struct{}) error {
+	p.lock.Lock()
+	defer p.lock.Unlock()
+	if !p.initialised {
+		panic("partition tables not initialised")
+	}
 	if len(p.entries) == p.maxEntriesPerPartition {
-		// remove the first one.
+		// remove the first one before adding
+		p.validFromOffset = p.entries[0].LastReadableOffset + 1
 		p.entries = p.entries[1:]
 	}
+	p.entries = append(p.entries, RecentTableEntry{tableID, lastReadableOffset})
 	// Call listeners
 	for _, listener := range p.listeners {
 		fs, err := listener.updateIterator(p.entries)
@@ -119,14 +161,22 @@ func (p *PartitionTables) removeListener(listener *PartitionFetchState) {
 	p.listeners = newListeners
 }
 
+func (p *PartitionTables) invalidate() {
+	p.lock.Lock()
+	defer p.lock.Unlock()
+	// Clear the cache entries
+	p.entries = nil
+	// Clear the listeners. Any waiting fetches will timeout and return
+	p.listeners = nil
+	// Set as initialised - this will cause next fetch to call to the controller with incremented reset sequence which
+	// will cause it to invalidate all listeners for the agent
+	p.initialised = false
+	p.validFromOffset = -1
+}
+
 type RecentTableEntry struct {
 	TableID            *sst.SSTableID
 	LastReadableOffset int64
-}
-
-type TableRegisteredNotification struct {
-	ID                       sst.SSTableID
-	PartitionReadableOffsets map[int]map[int]int64
 }
 
 func (p *PartitionRecentTables) registerPartitionStates(partitionStates map[int]map[int]*PartitionFetchState) error {
@@ -144,7 +194,7 @@ func (p *PartitionRecentTables) registerPartitionStates(partitionStates map[int]
 				partitionTables = p.createPartitionTables(partitionID, partitionMap)
 			}
 			// data might have been added between us executing the controller query and registering listeners in the case
-			// that the agent was already registered for updates. so we need to update the partition fetch state's
+			// that the agent was already initialised. so we need to update the partition fetch state's
 			// iterator and collect a unique set of fetch states so we can call read on them again
 			fs, err := partitionTables.addListener(partitionFetchState)
 			if err != nil {
@@ -159,24 +209,6 @@ func (p *PartitionRecentTables) registerPartitionStates(partitionStates map[int]
 		fs.readAsync()
 	}
 	return nil
-}
-
-func (p *PartitionRecentTables) unregisterPartitionStates(partitionStates map[int]map[int]*PartitionFetchState) {
-	p.lock.RLock()
-	defer p.lock.RUnlock()
-	for topicID, partitionFetchStates := range partitionStates {
-		partitionMap, ok := p.topicMap[topicID]
-		if !ok {
-			continue
-		}
-		for partitionID, partitionFetchState := range partitionFetchStates {
-			partitionTables, ok := partitionMap[partitionID]
-			if !ok {
-				continue
-			}
-			partitionTables.removeListener(partitionFetchState)
-		}
-	}
 }
 
 func (p *PartitionRecentTables) createPartitionMap(topicID int) map[int]*PartitionTables {
@@ -213,25 +245,33 @@ func (p *PartitionRecentTables) createPartitionTables(partitionID int, partition
 	return partitionTables
 }
 
-func (p *PartitionRecentTables) handleTableRegisteredNotification(notif TableRegisteredNotification) error {
+func (p *PartitionRecentTables) handleTableRegisteredNotification(notification control.TableRegisteredNotification) error {
+	// check sequence number
+	if !atomic.CompareAndSwapInt64(&p.lastReceivedSequence, notification.Sequence-1, notification.Sequence) {
+		// unexpected sequence number
+		p.maybeInvalidateRecentTables()
+		return nil
+	}
+	if notification.ID == nil {
+		// Periodic empty notification - this just updates the sequence number and received time
+		return nil
+	}
 	p.lock.RLock()
 	defer p.lock.RUnlock()
+
 	// Get unique set of fetch states to read
 	fetchStates := map[*FetchState]struct{}{}
-	for topicID, topicNotif := range notif.PartitionReadableOffsets {
-		partitionMap, ok := p.topicMap[topicID]
+	for _, topicNotification := range notification.Infos {
+		partitionMap, ok := p.topicMap[topicNotification.TopicID]
 		if !ok {
-			// Even though we register write before waiting, there is a race with the notification coming in after we
-			// called to fetch on the controller, and a new table gets registered really quickly, so we need to create
-			// here if necessary
-			partitionMap = p.createPartitionMap(topicID)
+			panic("cannot find topic map")
 		}
-		for partitionID, offset := range topicNotif {
-			partitionTables, ok := partitionMap[partitionID]
+		for _, partitionInfo := range topicNotification.PartitionInfos {
+			partitionTables, ok := partitionMap[partitionInfo.PartitionID]
 			if !ok {
-				partitionTables = p.createPartitionTables(partitionID, partitionMap)
+				panic("cannot find partition tables")
 			}
-			if err := partitionTables.addEntry(&notif.ID, offset, fetchStates); err != nil {
+			if err := partitionTables.addEntry(&notification.ID, partitionInfo.LastReadableOffset, fetchStates); err != nil {
 				return err
 			}
 		}
@@ -240,4 +280,24 @@ func (p *PartitionRecentTables) handleTableRegisteredNotification(notif TableReg
 		fs.readAsync()
 	}
 	return nil
+}
+
+func (p *PartitionRecentTables) maybeInvalidateRecentTables() {
+	p.lock.Lock()
+	defer p.lock.Unlock()
+	currSequence := atomic.LoadInt64(&p.lastReceivedSequence)
+	if currSequence == -1 {
+		// Ignore - we received another invalid sequence while we were waiting
+		return
+	}
+	log.Warn("batch fetcher received out of sequence readable offsets notification. will invalidate")
+	for _, partitionTables := range p.topicMap {
+		for _, partition := range partitionTables {
+			partition.invalidate()
+		}
+	}
+	// Reset to -1, then next good sequence will be zero
+	atomic.StoreInt64(&p.lastReceivedSequence, -1)
+	// Increment reset sequence
+	atomic.AddInt64(&p.bf.resetSequence, 1)
 }

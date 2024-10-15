@@ -44,7 +44,7 @@ func TestSerializeDeserializeOverlappingTableIDs(t *testing.T) {
 	buff = append(buff, 1, 2, 3)
 	require.NotNil(t, overlapping)
 	buff = overlapping.Serialize(buff)
-	overlappingAfter := DeserializeOverlappingTables(buff, 3)
+	overlappingAfter, _ := DeserializeOverlappingTables(buff, 3)
 	require.Equal(t, overlapping, overlappingAfter)
 }
 

@@ -1,7 +1,10 @@
 package agent
 
 import (
+	"context"
+	"errors"
 	"github.com/spirit-labs/tektite/cluster"
+	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/control"
 	"github.com/spirit-labs/tektite/fetcher"
 	"github.com/spirit-labs/tektite/kafkaserver2"
@@ -9,6 +12,7 @@ import (
 	"github.com/spirit-labs/tektite/objstore"
 	"github.com/spirit-labs/tektite/parthash"
 	"github.com/spirit-labs/tektite/pusher"
+	"github.com/spirit-labs/tektite/sst"
 	"github.com/spirit-labs/tektite/topicmeta"
 	"github.com/spirit-labs/tektite/transport"
 	"sync"
@@ -57,6 +61,9 @@ type ClusterMembership interface {
 
 func NewAgentWithFactories(cfg Conf, objStore objstore.Client, connectionFactory transport.ConnectionFactory,
 	transportServer transport.Server, clusterMembershipFactory ClusterMembershipFactory) (*Agent, error) {
+	if !common.Is64BitArch() {
+		return nil, errors.New("agent can only run on a 64-bit CPU architecture")
+	}
 	agent := &Agent{
 		cfg: cfg,
 	}
@@ -83,7 +90,12 @@ func NewAgentWithFactories(cfg Conf, objStore objstore.Client, connectionFactory
 	fetcherClFactory := func() (fetcher.ControlClient, error) {
 		return agent.controller.Client()
 	}
-	bf, err := fetcher.NewBatchFetcher(objStore, topicMetaCache, partitionHashes, fetcherClFactory, nil, cfg.FetcherConf)
+	getter := &objStoreGetter{
+		bucketName: cfg.FetcherConf.DataBucketName,
+		objStore:   objStore,
+	}
+	bf, err := fetcher.NewBatchFetcher(objStore, topicMetaCache, partitionHashes, fetcherClFactory, getter.get,
+		transportServer.Address(), cfg.FetcherConf)
 	if err != nil {
 		return nil, err
 	}
@@ -98,6 +110,25 @@ func NewAgentWithFactories(cfg Conf, objStore objstore.Client, connectionFactory
 	agent.compactionWorkersService = lsm.NewCompactionWorkerService(lsm.NewCompactionWorkerServiceConf(), objStore,
 		clFactory, true)
 	return agent, nil
+}
+
+// temp struct that gets direct from object store - will be replaced when we have fetch cache
+type objStoreGetter struct {
+	bucketName string
+	objStore   objstore.Client
+}
+
+func (o *objStoreGetter) get(tableID sst.SSTableID) (*sst.SSTable, error) {
+	bytes, err := o.objStore.Get(context.Background(), o.bucketName, string(tableID))
+	if err != nil {
+		return nil, err
+	}
+	if len(bytes) == 0 {
+		return nil, nil
+	}
+	table := &sst.SSTable{}
+	table.Deserialize(bytes, 0)
+	return table, nil
 }
 
 func (a *Agent) Start() error {

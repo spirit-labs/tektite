@@ -39,7 +39,6 @@ func (i *InMemClusterMemberships) Stop() {
 
 func (i *InMemClusterMemberships) deliverUpdatesLoop() {
 	for update := range i.updatesChan {
-		log.Infof("delivering update")
 		for _, listener := range update.listeners {
 			if err := listener(update.membership); err != nil {
 				log.Errorf("Failed to send membership update: %v", err)
@@ -59,7 +58,6 @@ func (i *InMemClusterMemberships) NewMembership(address string, listener Members
 func (i *InMemClusterMemberships) addMember(address string, listener MembershipListener) {
 	i.lock.Lock()
 	defer i.lock.Unlock()
-	log.Infof("adding member %s", address)
 	i.currentMembership.Members = append(i.currentMembership.Members, cluster.MembershipEntry{
 		Address:    address,
 		UpdateTime: time.Now().UnixMilli(),

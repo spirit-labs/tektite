@@ -15,11 +15,11 @@ type Client interface {
 
 	ApplyLsmChanges(regBatch lsm.RegistrationBatch) error
 
-	RegisterL0Table(writtenOffsetInfos []offsets.UpdateWrittenOffsetInfo, regEntry lsm.RegistrationEntry) error
+	RegisterL0Table(writtenOffsetInfos []offsets.UpdateWrittenOffsetTopicInfo, regEntry lsm.RegistrationEntry) error
 
 	QueryTablesInRange(keyStart []byte, keyEnd []byte) (lsm.OverlappingTables, error)
 
-	FetchTablesForPrefix(topicID int, partitionID int, prefix []byte, offsetStart int64) (lsm.OverlappingTables, int64, error)
+	RegisterTableListener(topicID int, partitionID int, address string, resetSequence int64) (int64, error)
 
 	PollForJob() (lsm.CompactionJob, error)
 
@@ -45,7 +45,7 @@ type client struct {
 
 var _ Client = &client{}
 
-func (c *client) RegisterL0Table(writtenOffsetInfos []offsets.UpdateWrittenOffsetInfo, regEntry lsm.RegistrationEntry) error {
+func (c *client) RegisterL0Table(writtenOffsetInfos []offsets.UpdateWrittenOffsetTopicInfo, regEntry lsm.RegistrationEntry) error {
 	conn, err := c.getConnection()
 	if err != nil {
 		return err
@@ -89,12 +89,30 @@ func (c *client) QueryTablesInRange(keyStart []byte, keyEnd []byte) (lsm.Overlap
 	if err != nil {
 		return nil, err
 	}
-	return lsm.DeserializeOverlappingTables(respBuff, 0), nil
+	queryRes, _ := lsm.DeserializeOverlappingTables(respBuff, 0)
+	return queryRes, nil
 }
 
-func (c *client) FetchTablesForPrefix(topicID int, partitionID int, prefix []byte, offsetStart int64) (lsm.OverlappingTables, int64, error) {
-	// TODO
-	return nil, 0, nil
+func (c *client) RegisterTableListener(topicID int, partitionID int, address string, resetSequence int64) (int64, error) {
+	conn, err := c.getConnection()
+	if err != nil {
+		return 0, err
+	}
+	req := RegisterTableListenerRequest{
+		ClusterVersion: c.clusterVersion,
+		TopicID:        topicID,
+		PartitionID:    partitionID,
+		Address:        address,
+		ResetSequence:  resetSequence,
+	}
+	request := req.Serialize(createRequestBuffer())
+	respBuff, err := conn.SendRPC(transport.HandlerIDControllerRegisterTableListener, request)
+	if err != nil {
+		return 0, err
+	}
+	var resp RegisterTableListenerResponse
+	resp.Deserialize(respBuff, 0)
+	return resp.LastReadableOffset, nil
 }
 
 func (c *client) GetOffsets(infos []offsets.GetOffsetTopicInfo) ([]int64, error) {

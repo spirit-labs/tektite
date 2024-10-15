@@ -4,6 +4,7 @@ const (
 	HandlerIDControllerRegisterL0Table = iota + 10
 	HandlerIDControllerApplyChanges
 	HandlerIDControllerQueryTablesInRange
+	HandlerIDControllerRegisterTableListener
 	HandlerIDControllerGetOffsets
 	HandlerIDControllerPollForJob
 	HandlerIDControllerGetTopicInfo
@@ -11,4 +12,5 @@ const (
 	HandlerIDControllerDeleteTopic
 	HandlerIDMetaLocalCacheTopicAdded
 	HandlerIDMetaLocalCacheTopicDeleted
+	HandlerIDFetcherOffsetNotification
 )

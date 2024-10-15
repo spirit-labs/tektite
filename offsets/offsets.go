@@ -83,16 +83,34 @@ func NewOffsetsCache(topicProvider topicMetaProvider, lsm lsmHolder, objStore ob
 }
 
 type GetOffsetTopicInfo struct {
-	TopicID     int
+	TopicID        int
+	PartitionInfos []GetOffsetPartitionInfo
+}
+
+type GetOffsetPartitionInfo struct {
 	PartitionID int
 	NumOffsets  int
 }
 
-type UpdateWrittenOffsetInfo struct {
-	TopicID     int
+type UpdateWrittenOffsetTopicInfo struct {
+	TopicID        int
+	PartitionInfos []UpdateWrittenOffsetPartitionInfo
+}
+
+type UpdateWrittenOffsetPartitionInfo struct {
 	PartitionID int
 	OffsetStart int64
 	NumOffsets  int
+}
+
+type LastReadableOffsetUpdatedTopicInfo struct {
+	TopicID        int
+	PartitionInfos []LastReadableOffsetUpdatedPartitionInfo
+}
+
+type LastReadableOffsetUpdatedPartitionInfo struct {
+	PartitionID        int
+	LastReadableOffset int64
 }
 
 func (o *Cache) Start() error {
@@ -109,7 +127,7 @@ func (o *Cache) Stop() {
 	o.stopping.Store(true)
 }
 
-// GetOffsets returns an offset for each of the provider GetOffsetTopicInfo instances
+// GetOffsets returns offsets for the provided GetOffsetTopicInfo instances
 func (o *Cache) GetOffsets(infos []GetOffsetTopicInfo) ([]int64, error) {
 	if len(infos) == 0 {
 		return nil, errors.New("empty infos")
@@ -119,18 +137,18 @@ func (o *Cache) GetOffsets(infos []GetOffsetTopicInfo) ([]int64, error) {
 	if !o.started {
 		return nil, errors.New("offsets cache not started")
 	}
-	res := make([]int64, len(infos))
-	for i, id := range infos {
-		off, err := o.getOffset(id)
+	var res []int64
+	for _, id := range infos {
+		offs, err := o.getOffset(id)
 		if err != nil {
 			return nil, err
 		}
-		res[i] = off
+		res = append(res, offs...)
 	}
 	return res, nil
 }
 
-func (o *Cache) GetHighestReadableOffset(topicID int, partitionID int) (int64, error) {
+func (o *Cache) GetLastReadableOffset(topicID int, partitionID int) (int64, error) {
 	o.lock.RLock()
 	defer o.lock.RUnlock()
 	if !o.started {
@@ -143,7 +161,7 @@ func (o *Cache) GetHighestReadableOffset(topicID int, partitionID int) (int64, e
 	if err := checkPartitionOffsetInRange(partitionID, len(offs)); err != nil {
 		return 0, err
 	}
-	return offs[partitionID].getHighestReadableOffset(), nil
+	return offs[partitionID].getLastReadableOffset(topicID, partitionID, o)
 }
 
 func (o *Cache) MembershipChanged() {
@@ -180,33 +198,28 @@ func (o *Cache) loadTopicInfo(topicID int) ([]partitionOffsets, error) {
 	return offsets, nil
 }
 
-func (o *Cache) getOffset(info GetOffsetTopicInfo) (int64, error) {
-	if info.NumOffsets < 1 {
-		// OK to panic as would be programming error
-		panic(fmt.Sprintf("invalid value for NumOffsets: %d", info.NumOffsets))
+func (o *Cache) getOffset(info GetOffsetTopicInfo) ([]int64, error) {
+	offsets, err := o.getTopicOffsets(info.TopicID)
+	if err != nil {
+		return nil, err
 	}
-	offsets, ok := o.topicOffsets[info.TopicID]
-	if !ok {
-		var err error
-		offsets, err = o.loadTopicInfo(info.TopicID)
+	var res []int64
+	for _, partitionInfo := range info.PartitionInfos {
+		if partitionInfo.NumOffsets < 1 {
+			// OK to panic as would be programming error
+			panic(fmt.Sprintf("invalid value for NumOffsets: %d", partitionInfo.NumOffsets))
+		}
+		if err := checkPartitionOffsetInRange(partitionInfo.PartitionID, len(offsets)); err != nil {
+			return nil, err
+		}
+		offs := &offsets[partitionInfo.PartitionID]
+		offset, err := offs.getNextOffset(partitionInfo.NumOffsets, info.TopicID, partitionInfo.PartitionID, o)
 		if err != nil {
-			return 0, err
+			return nil, err
 		}
+		res = append(res, offset)
 	}
-	if err := checkPartitionOffsetInRange(info.PartitionID, len(offsets)); err != nil {
-		return 0, err
-	}
-	offs := &offsets[info.PartitionID]
-	for {
-		offset, loaded := offs.getNextOffset(info.NumOffsets)
-		if loaded {
-			return offset, nil
-		}
-		// lazy load the offset.
-		if err := offs.load(info.TopicID, info.PartitionID, o); err != nil {
-			return 0, err
-		}
-	}
+	return res, nil
 }
 
 func checkPartitionOffsetInRange(partitionID int, numPartitions int) error {
@@ -219,36 +232,52 @@ func checkPartitionOffsetInRange(partitionID int, numPartitions int) error {
 func (o *Cache) getTopicOffsets(topicID int) ([]partitionOffsets, error) {
 	offsets, ok := o.topicOffsets[topicID]
 	if !ok {
-		return nil, errors.Errorf("unknown topic id: %d", topicID)
+		var err error
+		offsets, err = o.loadTopicInfo(topicID)
+		if err != nil {
+			return nil, err
+		}
 	}
 	return offsets, nil
 }
 
-func (o *Cache) UpdateWrittenOffsets(writtenOffsetInfos []UpdateWrittenOffsetInfo) error {
+func (o *Cache) UpdateWrittenOffsets(writtenOffsetInfos []UpdateWrittenOffsetTopicInfo) ([]LastReadableOffsetUpdatedTopicInfo, error) {
 	prevOk := false
+	var lastReadableOffsets []LastReadableOffsetUpdatedTopicInfo
 	for _, writtenOffsetInfo := range writtenOffsetInfos {
 		offsets, ok := o.topicOffsets[writtenOffsetInfo.TopicID]
 		if !ok {
-			return errors.Errorf("unknown topic id: %d", writtenOffsetInfo.TopicID)
+			return nil, errors.Errorf("unknown topic id: %d", writtenOffsetInfo.TopicID)
 		}
-		ok = offsets[writtenOffsetInfo.PartitionID].updateWrittenOffsets(writtenOffsetInfo)
-		if !ok {
-			if prevOk {
-				// If any of the WrittenOffsets fail, they will all fail so there will be no partial state applied.
-				// Cannot occur - sanity check invariant
-				panic("all or none written offsets should fail")
+		var lastReadablePartitionInfos []LastReadableOffsetUpdatedPartitionInfo
+		for _, partitionInfo := range writtenOffsetInfo.PartitionInfos {
+			lastReadable, ok := offsets[partitionInfo.PartitionID].updateWrittenOffsets(partitionInfo)
+			if !ok {
+				if prevOk {
+					// If any of the WrittenOffsets fail, they will all fail so there will be no partial state applied.
+					// Cannot occur - sanity check invariant
+					panic("all or none written offsets should fail")
+				}
+				// Attempting to update written offsets failed - this will occur if a membership change happened
+				// which causes any attempts to update written offsets for offsets that were got before the membership
+				// change to fail.
+				// We send back an unavailable error and the table pusher will close it's connection then retry with
+				// new offsets and a new table
+				return nil, common.NewTektiteErrorf(common.Unavailable,
+					"Cannot update written offsets - membership change has occurred")
 			}
-			// Attempting to update written offsets failed - this will occur if a membership change happened
-			// which causes any attempts to update written offsets for offsets that were got before the membership
-			// change to fail.
-			// We send back an unavailable error and the table pusher will close it's connection then retry with
-			// new offets and a new table
-			return common.NewTektiteErrorf(common.Unavailable, "Cannot update written offsets - membership change has occurred")
-		} else {
 			prevOk = true
+			lastReadablePartitionInfos = append(lastReadablePartitionInfos, LastReadableOffsetUpdatedPartitionInfo{
+				PartitionID:        partitionInfo.PartitionID,
+				LastReadableOffset: lastReadable,
+			})
 		}
+		lastReadableOffsets = append(lastReadableOffsets, LastReadableOffsetUpdatedTopicInfo{
+			TopicID:        writtenOffsetInfo.TopicID,
+			PartitionInfos: lastReadablePartitionInfos,
+		})
 	}
-	return nil
+	return lastReadableOffsets, nil
 }
 
 func (o *Cache) LoadHighestOffsetForPartition(topicID int, partitionID int) (int64, error) {
@@ -303,7 +332,7 @@ func (o *Cache) getWithRetry(tableID sst.SSTableID) ([]byte, error) {
 			return buff, nil
 		}
 		if o.stopping.Load() {
-			return nil, errors.New("offsetloader is stopping")
+			return nil, errors.New("offset loader is stopping")
 		}
 		if common.IsUnavailableError(err) {
 			log.Warnf("Unable to load offset from object storage due to unavailability, will retry after delay: %v", err)
@@ -315,7 +344,7 @@ func (o *Cache) getWithRetry(tableID sst.SSTableID) ([]byte, error) {
 type partitionOffsets struct {
 	lock                          sync.Mutex
 	nextWriteOffset               int64
-	highestReadableOffset         int64
+	lastReadableOffset            int64
 	lowestAcceptableWrittenOffset int64
 	writtenHeap                   writtenOffsetHeap
 	loaded                        bool
@@ -324,31 +353,32 @@ type partitionOffsets struct {
 func (p *partitionOffsets) clusterVersionChanged() {
 	p.lock.Lock()
 	defer p.lock.Unlock()
-	p.highestReadableOffset = p.nextWriteOffset - 1
+	p.lastReadableOffset = p.nextWriteOffset - 1
 	p.lowestAcceptableWrittenOffset = p.nextWriteOffset
 	p.writtenHeap = p.writtenHeap[:0]
 }
 
-func (p *partitionOffsets) updateWrittenOffsets(wo UpdateWrittenOffsetInfo) bool {
+func (p *partitionOffsets) updateWrittenOffsets(wo UpdateWrittenOffsetPartitionInfo) (int64, bool) {
 	p.lock.Lock()
 	defer p.lock.Unlock()
 	if !p.loaded {
 		panic("partitionOffsets has not been loaded")
 	}
 	if wo.OffsetStart < p.lowestAcceptableWrittenOffset {
-		return false
+		return 0, false
 	}
 	lastOffset := wo.OffsetStart + int64(wo.NumOffsets) - 1
 	if lastOffset >= p.nextWriteOffset {
 		panic("invalid written offset")
 	}
-	if wo.OffsetStart == p.highestReadableOffset+1 {
-		p.highestReadableOffset += int64(wo.NumOffsets)
+	lastReadableStart := p.lastReadableOffset
+	if wo.OffsetStart == p.lastReadableOffset+1 {
+		p.lastReadableOffset += int64(wo.NumOffsets)
 		// We pop offsets from the heap as long as there are no gaps in written offsets
 		for len(p.writtenHeap) > 0 {
 			minOffset := p.writtenHeap.Peek()
-			if minOffset.offsetStart == p.highestReadableOffset+1 {
-				p.highestReadableOffset = minOffset.offsetStart + int64(minOffset.numOffsets) - 1
+			if minOffset.offsetStart == p.lastReadableOffset+1 {
+				p.lastReadableOffset = minOffset.offsetStart + int64(minOffset.numOffsets) - 1
 				heap.Pop(&p.writtenHeap)
 			} else {
 				break
@@ -361,40 +391,47 @@ func (p *partitionOffsets) updateWrittenOffsets(wo UpdateWrittenOffsetInfo) bool
 			numOffsets:  int32(wo.NumOffsets),
 		})
 	}
-	return true
+	if lastReadableStart != p.lastReadableOffset {
+		// highest readable changed
+		return p.lastReadableOffset, true
+	}
+	return -1, true
 }
 
-func (p *partitionOffsets) getNextOffset(numOffsets int) (int64, bool) {
+func (p *partitionOffsets) getNextOffset(numOffsets int, topicID int, partitionID int, o *Cache) (int64, error) {
 	p.lock.Lock()
 	defer p.lock.Unlock()
 	if !p.loaded {
-		return 0, false
+		if err := p.load(topicID, partitionID, o); err != nil {
+			return 0, err
+		}
 	}
 	offset := p.nextWriteOffset
 	p.nextWriteOffset += int64(numOffsets)
-	return offset, true
+	return offset, nil
+}
+
+func (p *partitionOffsets) getLastReadableOffset(topicID int, partitionID int, o *Cache) (int64, error) {
+	p.lock.Lock()
+	defer p.lock.Unlock()
+	if !p.loaded {
+		if err := p.load(topicID, partitionID, o); err != nil {
+			return 0, err
+		}
+	}
+	return p.lastReadableOffset, nil
 }
 
 func (p *partitionOffsets) load(topicID int, partitionID int, o *Cache) error {
-	p.lock.Lock()
-	defer p.lock.Unlock()
-	if p.loaded {
-		return nil
-	}
 	off, err := o.LoadHighestOffsetForPartition(topicID, partitionID)
 	if err != nil {
 		return err
 	}
 	p.nextWriteOffset = off + 1
-	p.highestReadableOffset = off
+	p.lastReadableOffset = off
+	log.Infof("setting last readable on load to %d", off)
 	p.loaded = true
 	return nil
-}
-
-func (p *partitionOffsets) getHighestReadableOffset() int64 {
-	p.lock.Lock()
-	defer p.lock.Unlock()
-	return p.highestReadableOffset
 }
 
 type writtenOffset struct {

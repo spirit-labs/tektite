@@ -20,10 +20,17 @@ type Server interface {
 type ResponseWriter func(response []byte, err error) error
 
 // RequestHandler is implemented on the server to handle a request and return a response
-type RequestHandler func(connectionID int, request []byte, responseBuff []byte, responseWriter ResponseWriter) error
+type RequestHandler func(ctx *ConnectionContext, request []byte, responseBuff []byte, responseWriter ResponseWriter) error
 
 // ConnectionFactory returns a Connection that connects to the specified server address
 type ConnectionFactory func(address string) (Connection, error)
+
+type ConnectionContext struct {
+	// ConnectionID is a unique (per transport server) id of the connection
+	ConnectionID int
+	// ClientAddress is the address of the client
+	ClientAddress string
+}
 
 /*
 Connection is the interface implemented by a client connection
@@ -31,6 +38,8 @@ Connection is the interface implemented by a client connection
 type Connection interface {
 	// SendRPC sends a request to the server handler and returns a response, or an error
 	SendRPC(handlerID int, request []byte) ([]byte, error)
+	// SendOneway sends a message to the server handler and returns immediately
+	SendOneway(handlerID int, message []byte) error
 	// Close closes the connection
 	Close() error
 }
