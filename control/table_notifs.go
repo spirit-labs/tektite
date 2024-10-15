@@ -24,6 +24,7 @@ type tableListeners struct {
 	membersMap             map[string]struct{}
 	connectionFactory      transport.ConnectionFactory
 	started                bool
+	leaderVersion          int
 }
 
 type tableAddedListener struct {
@@ -109,6 +110,7 @@ func (t *tableListeners) membershipChanged(newState *cluster.MembershipState) {
 		}
 	}
 	t.membersMap = membersMap
+	t.leaderVersion = newState.LeaderVersion
 }
 
 func (t *tableListeners) unregisterListenersForAddress(address string) {
@@ -238,8 +240,9 @@ func (t *tableListeners) sendTableRegisteredNotification(tableID sst.SSTableID, 
 	}
 	// Create notification
 	notif := TableRegisteredNotification{
-		ID:    tableID,
-		Infos: infos,
+		LeaderVersion: t.leaderVersion,
+		ID:            tableID,
+		Infos:         infos,
 	}
 	// Look up agents and send notification. It is sent one way (fire and forget) so we don't block waiting for a
 	// response from each agent.
@@ -312,10 +315,11 @@ func (l *tableAddedListener) sendNotificationNoLock(buff []byte) error {
 	// We copy the buffer and change the sequence to avoid serializing multiple times
 	copied := make([]byte, len(buff))
 	copy(copied, buff)
+	// This assumes sequence is the first member in the serialized form
 	binary.BigEndian.PutUint64(copied, uint64(l.sequence))
 	l.sequence++
 	l.lastSentTime = arista.NanoTime()
-	if err := conn.SendOneway(transport.HandlerIDFetcherOffsetNotification, copied); err != nil {
+	if err := conn.SendOneway(transport.HandlerIDFetcherTableRegisteredNotification, copied); err != nil {
 		l.closeConnectionNoLock()
 		return err
 	}

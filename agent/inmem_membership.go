@@ -64,6 +64,9 @@ func (i *InMemClusterMemberships) addMember(address string, listener MembershipL
 	})
 	i.listeners = append(i.listeners, listener)
 	i.currentMembership.ClusterVersion++
+	if len(i.currentMembership.Members) == 1 {
+		i.currentMembership.LeaderVersion++
+	}
 	i.sendUpdate()
 }
 
@@ -76,6 +79,8 @@ func (i *InMemClusterMemberships) removeMember(address string) {
 		if member.Address != address {
 			newMembers = append(newMembers, member)
 			newListeners = append(newListeners, i.listeners[j])
+		} else if j == 0 {
+			i.currentMembership.LeaderVersion++
 		}
 	}
 	i.currentMembership.Members = newMembers

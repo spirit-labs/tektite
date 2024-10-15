@@ -205,11 +205,11 @@ func TestMultipleReceivers(t *testing.T) {
 		receiver := &notificationReceiver{
 			address: address,
 		}
-		receiverServer.RegisterHandler(transport.HandlerIDFetcherOffsetNotification, receiver.receivedNotification)
+		receiverServer.RegisterHandler(transport.HandlerIDFetcherTableRegisteredNotification, receiver.receivedNotification)
 		receivers = append(receivers, receiver)
 	}
 
-	updateMembership(t, 1, controllers, 0)
+	updateMembership(t, 1, 1, controllers, 0)
 	setupTopics(t, controller)
 
 	cl, err := controller.Client()
@@ -358,6 +358,56 @@ func TestMultipleNotifications(t *testing.T) {
 
 }
 
+func TestNotificationLeaderVersion(t *testing.T) {
+
+	objStore := dev.NewInMemStore(0)
+	controllers, localTransports, tearDown := setupControllersWithObjectStore(t, 1, objStore)
+	controller := controllers[0]
+	defer tearDown(t)
+
+	address := uuid.New().String()
+	receiverServer, err := localTransports.NewLocalServer(address)
+	require.NoError(t, err)
+	receiver := &notificationReceiver{
+		address: address,
+	}
+	receiverServer.RegisterHandler(transport.HandlerIDFetcherTableRegisteredNotification, receiver.receivedNotification)
+
+	updateMembership(t, 1, 23, controllers, 0)
+	setupTopics(t, controller)
+
+	cl, err := controller.Client()
+	require.NoError(t, err)
+	defer func() {
+		err := cl.Close()
+		require.NoError(t, err)
+	}()
+
+	// register for notifications
+	_, err = cl.RegisterTableListener(0, 3, receiver.address, 0)
+	require.NoError(t, err)
+
+	offsetInfos := []offsets.GetOffsetTopicInfo{
+		{
+			TopicID: 0,
+			PartitionInfos: []offsets.GetOffsetPartitionInfo{
+				{
+					PartitionID: 3,
+					NumOffsets:  125,
+				},
+			},
+		},
+	}
+	triggerTableAddedNotification(t, cl, offsetInfos)
+
+	waitForNotifications(t, receiver, 1)
+
+	notifs := receiver.getNotifications()
+	notif := notifs[0]
+
+	require.Equal(t, 23, notif.LeaderVersion)
+}
+
 func TestInvalidateListeners(t *testing.T) {
 	numReceivers := 3
 
@@ -374,11 +424,11 @@ func TestInvalidateListeners(t *testing.T) {
 		receiver := &notificationReceiver{
 			address: address,
 		}
-		receiverServer.RegisterHandler(transport.HandlerIDFetcherOffsetNotification, receiver.receivedNotification)
+		receiverServer.RegisterHandler(transport.HandlerIDFetcherTableRegisteredNotification, receiver.receivedNotification)
 		receivers = append(receivers, receiver)
 	}
 
-	updateMembership(t, 1, controllers, 0)
+	updateMembership(t, 1, 1, controllers, 0)
 	setupTopics(t, controller)
 
 	cl, err := controller.Client()
@@ -496,11 +546,11 @@ func TestListenersRemovedOnMembershipChange(t *testing.T) {
 		receiver := &notificationReceiver{
 			address: address,
 		}
-		controllers[i].transportServer.RegisterHandler(transport.HandlerIDFetcherOffsetNotification, receiver.receivedNotification)
+		controllers[i].transportServer.RegisterHandler(transport.HandlerIDFetcherTableRegisteredNotification, receiver.receivedNotification)
 		receivers = append(receivers, receiver)
 	}
 
-	updateMembership(t, 1, controllers, 0, 1, 2)
+	updateMembership(t, 1, 1, controllers, 0, 1, 2)
 
 	controller := controllers[0]
 	setupTopics(t, controller)
@@ -542,7 +592,7 @@ func TestListenersRemovedOnMembershipChange(t *testing.T) {
 
 	// Now remove member 1 from cluster
 
-	newState := createMembership(2, controllers, 0, 2)
+	newState := createMembership(2, 1, controllers, 0, 2)
 	err = controller.MembershipChanged(newState)
 	require.NoError(t, err)
 
@@ -557,7 +607,7 @@ func TestListenersRemovedOnMembershipChange(t *testing.T) {
 
 	// Now remove one more
 
-	newState = createMembership(2, controllers, 0)
+	newState = createMembership(2, 1, controllers, 0)
 	err = controller.MembershipChanged(newState)
 	require.NoError(t, err)
 
@@ -590,10 +640,10 @@ func TestPeriodicNotification(t *testing.T) {
 	receiver := &notificationReceiver{
 		address: address,
 	}
-	receiverServer.RegisterHandler(transport.HandlerIDFetcherOffsetNotification, receiver.receivedNotification)
+	receiverServer.RegisterHandler(transport.HandlerIDFetcherTableRegisteredNotification, receiver.receivedNotification)
 
 	controller := controllers[0]
-	updateMembership(t, 1, controllers, 0)
+	updateMembership(t, 1, 1, controllers, 0)
 	setupTopics(t, controller)
 
 	cl, err := controllers[0].Client()
@@ -625,9 +675,9 @@ func setupAndRegisterReceiver(t *testing.T) (Client, *notificationReceiver, func
 	receiver := &notificationReceiver{
 		address: address,
 	}
-	receiverServer.RegisterHandler(transport.HandlerIDFetcherOffsetNotification, receiver.receivedNotification)
+	receiverServer.RegisterHandler(transport.HandlerIDFetcherTableRegisteredNotification, receiver.receivedNotification)
 
-	updateMembership(t, 1, controllers, 0)
+	updateMembership(t, 1, 1, controllers, 0)
 	setupTopics(t, controller)
 
 	cl, err := controller.Client()
@@ -710,8 +760,8 @@ type notificationReceiver struct {
 	address  string
 }
 
-func (n *notificationReceiver) receivedNotification(ctx *transport.ConnectionContext, request []byte,
-	responseBuff []byte, responseWriter transport.ResponseWriter) error {
+func (n *notificationReceiver) receivedNotification(_ *transport.ConnectionContext, request []byte, _ []byte,
+	_ transport.ResponseWriter) error {
 	var notif TableRegisteredNotification
 	notif.Deserialize(request, 0)
 	n.lock.Lock()

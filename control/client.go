@@ -34,13 +34,13 @@ type Client interface {
 
 // on error, the caller must close the connection
 type client struct {
-	m              *Controller
-	lock           sync.RWMutex
-	clusterVersion int
-	address        string
-	conn           transport.Connection
-	connFactory    transport.ConnectionFactory
-	closed         bool
+	m             *Controller
+	lock          sync.RWMutex
+	leaderVersion int
+	address       string
+	conn          transport.Connection
+	connFactory   transport.ConnectionFactory
+	closed        bool
 }
 
 var _ Client = &client{}
@@ -51,9 +51,9 @@ func (c *client) RegisterL0Table(writtenOffsetInfos []offsets.UpdateWrittenOffse
 		return err
 	}
 	req := RegisterL0Request{
-		ClusterVersion: c.clusterVersion,
-		OffsetInfos:    writtenOffsetInfos,
-		RegEntry:       regEntry,
+		LeaderVersion: c.leaderVersion,
+		OffsetInfos:   writtenOffsetInfos,
+		RegEntry:      regEntry,
 	}
 	request := req.Serialize(createRequestBuffer())
 	_, err = conn.SendRPC(transport.HandlerIDControllerRegisterL0Table, request)
@@ -66,8 +66,8 @@ func (c *client) ApplyLsmChanges(regBatch lsm.RegistrationBatch) error {
 		return err
 	}
 	req := ApplyChangesRequest{
-		ClusterVersion: c.clusterVersion,
-		RegBatch:       regBatch,
+		LeaderVersion: c.leaderVersion,
+		RegBatch:      regBatch,
 	}
 	request := req.Serialize(createRequestBuffer())
 	_, err = conn.SendRPC(transport.HandlerIDControllerApplyChanges, request)
@@ -80,9 +80,9 @@ func (c *client) QueryTablesInRange(keyStart []byte, keyEnd []byte) (lsm.Overlap
 		return nil, err
 	}
 	req := QueryTablesInRangeRequest{
-		ClusterVersion: c.clusterVersion,
-		KeyStart:       keyStart,
-		KeyEnd:         keyEnd,
+		LeaderVersion: c.leaderVersion,
+		KeyStart:      keyStart,
+		KeyEnd:        keyEnd,
 	}
 	request := req.Serialize(createRequestBuffer())
 	respBuff, err := conn.SendRPC(transport.HandlerIDControllerQueryTablesInRange, request)
@@ -99,11 +99,11 @@ func (c *client) RegisterTableListener(topicID int, partitionID int, address str
 		return 0, err
 	}
 	req := RegisterTableListenerRequest{
-		ClusterVersion: c.clusterVersion,
-		TopicID:        topicID,
-		PartitionID:    partitionID,
-		Address:        address,
-		ResetSequence:  resetSequence,
+		LeaderVersion: c.leaderVersion,
+		TopicID:       topicID,
+		PartitionID:   partitionID,
+		Address:       address,
+		ResetSequence: resetSequence,
 	}
 	request := req.Serialize(createRequestBuffer())
 	respBuff, err := conn.SendRPC(transport.HandlerIDControllerRegisterTableListener, request)
@@ -121,8 +121,8 @@ func (c *client) GetOffsets(infos []offsets.GetOffsetTopicInfo) ([]int64, error)
 		return nil, err
 	}
 	req := GetOffsetsRequest{
-		ClusterVersion: c.clusterVersion,
-		Infos:          infos,
+		LeaderVersion: c.leaderVersion,
+		Infos:         infos,
 	}
 	request := req.Serialize(createRequestBuffer())
 	respBuff, err := conn.SendRPC(transport.HandlerIDControllerGetOffsets, request)
@@ -154,8 +154,8 @@ func (c *client) GetTopicInfo(topicName string) (topicmeta.TopicInfo, int, error
 		return topicmeta.TopicInfo{}, 0, err
 	}
 	req := GetTopicInfoRequest{
-		ClusterVersion: c.clusterVersion,
-		TopicName:      topicName,
+		LeaderVersion: c.leaderVersion,
+		TopicName:     topicName,
 	}
 	buff := req.Serialize(createRequestBuffer())
 	respBuff, err := conn.SendRPC(transport.HandlerIDControllerGetTopicInfo, buff)
@@ -173,8 +173,8 @@ func (c *client) CreateTopic(topicInfo topicmeta.TopicInfo) error {
 		return err
 	}
 	req := CreateTopicRequest{
-		ClusterVersion: c.clusterVersion,
-		Info:           topicInfo,
+		LeaderVersion: c.leaderVersion,
+		Info:          topicInfo,
 	}
 	buff := req.Serialize(createRequestBuffer())
 	_, err = conn.SendRPC(transport.HandlerIDControllerCreateTopic, buff)
@@ -187,8 +187,8 @@ func (c *client) DeleteTopic(topicName string) error {
 		return err
 	}
 	req := DeleteTopicRequest{
-		ClusterVersion: c.clusterVersion,
-		TopicName:      topicName,
+		LeaderVersion: c.leaderVersion,
+		TopicName:     topicName,
 	}
 	buff := req.Serialize(createRequestBuffer())
 	_, err = conn.SendRPC(transport.HandlerIDControllerDeleteTopic, buff)

@@ -429,7 +429,6 @@ func (p *partitionOffsets) load(topicID int, partitionID int, o *Cache) error {
 	}
 	p.nextWriteOffset = off + 1
 	p.lastReadableOffset = off
-	log.Infof("setting last readable on load to %d", off)
 	p.loaded = true
 	return nil
 }

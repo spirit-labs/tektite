@@ -10,13 +10,13 @@ import (
 )
 
 type RegisterL0Request struct {
-	ClusterVersion int
-	OffsetInfos    []offsets.UpdateWrittenOffsetTopicInfo
-	RegEntry       lsm.RegistrationEntry
+	LeaderVersion int
+	OffsetInfos   []offsets.UpdateWrittenOffsetTopicInfo
+	RegEntry      lsm.RegistrationEntry
 }
 
 func (r *RegisterL0Request) Serialize(buff []byte) []byte {
-	buff = binary.BigEndian.AppendUint64(buff, uint64(r.ClusterVersion))
+	buff = binary.BigEndian.AppendUint64(buff, uint64(r.LeaderVersion))
 	buff = binary.BigEndian.AppendUint32(buff, uint32(len(r.OffsetInfos)))
 	for _, topicInfo := range r.OffsetInfos {
 		buff = binary.BigEndian.AppendUint64(buff, uint64(topicInfo.TopicID))
@@ -31,7 +31,7 @@ func (r *RegisterL0Request) Serialize(buff []byte) []byte {
 }
 
 func (r *RegisterL0Request) Deserialize(buff []byte, offset int) int {
-	r.ClusterVersion = int(binary.BigEndian.Uint64(buff[offset:]))
+	r.LeaderVersion = int(binary.BigEndian.Uint64(buff[offset:]))
 	offset += 8
 	numTopicOffsets := int(binary.BigEndian.Uint32(buff[offset:]))
 	offset += 4
@@ -59,29 +59,29 @@ func (r *RegisterL0Request) Deserialize(buff []byte, offset int) int {
 }
 
 type ApplyChangesRequest struct {
-	ClusterVersion int
-	RegBatch       lsm.RegistrationBatch
+	LeaderVersion int
+	RegBatch      lsm.RegistrationBatch
 }
 
 func (a *ApplyChangesRequest) Serialize(buff []byte) []byte {
-	buff = binary.BigEndian.AppendUint64(buff, uint64(a.ClusterVersion))
+	buff = binary.BigEndian.AppendUint64(buff, uint64(a.LeaderVersion))
 	return a.RegBatch.Serialize(buff)
 }
 
 func (a *ApplyChangesRequest) Deserialize(buff []byte, offset int) int {
-	a.ClusterVersion = int(binary.BigEndian.Uint64(buff[offset:]))
+	a.LeaderVersion = int(binary.BigEndian.Uint64(buff[offset:]))
 	offset += 8
 	return a.RegBatch.Deserialize(buff, offset)
 }
 
 type QueryTablesInRangeRequest struct {
-	ClusterVersion int
-	KeyStart       []byte
-	KeyEnd         []byte
+	LeaderVersion int
+	KeyStart      []byte
+	KeyEnd        []byte
 }
 
 func (q *QueryTablesInRangeRequest) Serialize(buff []byte) []byte {
-	buff = binary.BigEndian.AppendUint64(buff, uint64(q.ClusterVersion))
+	buff = binary.BigEndian.AppendUint64(buff, uint64(q.LeaderVersion))
 	buff = binary.BigEndian.AppendUint32(buff, uint32(len(q.KeyStart)))
 	buff = append(buff, q.KeyStart...)
 	buff = binary.BigEndian.AppendUint32(buff, uint32(len(q.KeyEnd)))
@@ -90,7 +90,7 @@ func (q *QueryTablesInRangeRequest) Serialize(buff []byte) []byte {
 }
 
 func (q *QueryTablesInRangeRequest) Deserialize(buff []byte, offset int) int {
-	q.ClusterVersion = int(binary.BigEndian.Uint64(buff[offset:]))
+	q.LeaderVersion = int(binary.BigEndian.Uint64(buff[offset:]))
 	offset += 8
 	lks := int(binary.BigEndian.Uint32(buff[offset:]))
 	offset += 4
@@ -108,15 +108,15 @@ func (q *QueryTablesInRangeRequest) Deserialize(buff []byte, offset int) int {
 }
 
 type RegisterTableListenerRequest struct {
-	ClusterVersion int
-	TopicID        int
-	PartitionID    int
-	Address        string
-	ResetSequence  int64
+	LeaderVersion int
+	TopicID       int
+	PartitionID   int
+	Address       string
+	ResetSequence int64
 }
 
 func (f *RegisterTableListenerRequest) Serialize(buff []byte) []byte {
-	buff = binary.BigEndian.AppendUint64(buff, uint64(f.ClusterVersion))
+	buff = binary.BigEndian.AppendUint64(buff, uint64(f.LeaderVersion))
 	buff = binary.BigEndian.AppendUint64(buff, uint64(f.TopicID))
 	buff = binary.BigEndian.AppendUint64(buff, uint64(f.PartitionID))
 	buff = binary.BigEndian.AppendUint32(buff, uint32(len(f.Address)))
@@ -126,7 +126,7 @@ func (f *RegisterTableListenerRequest) Serialize(buff []byte) []byte {
 }
 
 func (f *RegisterTableListenerRequest) Deserialize(buff []byte, offset int) int {
-	f.ClusterVersion = int(binary.BigEndian.Uint64(buff[offset:]))
+	f.LeaderVersion = int(binary.BigEndian.Uint64(buff[offset:]))
 	offset += 8
 	f.TopicID = int(binary.BigEndian.Uint64(buff[offset:]))
 	offset += 8
@@ -158,12 +158,12 @@ func (g *RegisterTableListenerResponse) Deserialize(buff []byte, offset int) int
 }
 
 type GetOffsetsRequest struct {
-	ClusterVersion int
-	Infos          []offsets.GetOffsetTopicInfo
+	LeaderVersion int
+	Infos         []offsets.GetOffsetTopicInfo
 }
 
 func (g *GetOffsetsRequest) Serialize(buff []byte) []byte {
-	buff = binary.BigEndian.AppendUint64(buff, uint64(g.ClusterVersion))
+	buff = binary.BigEndian.AppendUint64(buff, uint64(g.LeaderVersion))
 	buff = binary.BigEndian.AppendUint32(buff, uint32(len(g.Infos)))
 	for _, topicInfo := range g.Infos {
 		buff = binary.BigEndian.AppendUint64(buff, uint64(topicInfo.TopicID))
@@ -177,7 +177,7 @@ func (g *GetOffsetsRequest) Serialize(buff []byte) []byte {
 }
 
 func (g *GetOffsetsRequest) Deserialize(buff []byte, offset int) int {
-	g.ClusterVersion = int(binary.BigEndian.Uint64(buff[offset:]))
+	g.LeaderVersion = int(binary.BigEndian.Uint64(buff[offset:]))
 	offset += 8
 	lInfos := int(binary.BigEndian.Uint32(buff[offset:]))
 	offset += 4
@@ -224,19 +224,19 @@ func (g *GetOffsetsResponse) Deserialize(buff []byte, offset int) int {
 }
 
 type GetTopicInfoRequest struct {
-	ClusterVersion int
-	TopicName      string
+	LeaderVersion int
+	TopicName     string
 }
 
 func (g *GetTopicInfoRequest) Serialize(buff []byte) []byte {
-	buff = binary.BigEndian.AppendUint64(buff, uint64(g.ClusterVersion))
+	buff = binary.BigEndian.AppendUint64(buff, uint64(g.LeaderVersion))
 	buff = binary.BigEndian.AppendUint32(buff, uint32(len(g.TopicName)))
 	buff = append(buff, g.TopicName...)
 	return buff
 }
 
 func (g *GetTopicInfoRequest) Deserialize(buff []byte, offset int) int {
-	g.ClusterVersion = int(binary.BigEndian.Uint64(buff[offset:]))
+	g.LeaderVersion = int(binary.BigEndian.Uint64(buff[offset:]))
 	offset += 8
 	ln := int(binary.BigEndian.Uint32(buff[offset:]))
 	offset += 4
@@ -262,35 +262,35 @@ func (g *GetTopicInfoResponse) Deserialize(buff []byte, offset int) int {
 }
 
 type CreateTopicRequest struct {
-	ClusterVersion int
-	Info           topicmeta.TopicInfo
+	LeaderVersion int
+	Info          topicmeta.TopicInfo
 }
 
 func (g *CreateTopicRequest) Serialize(buff []byte) []byte {
-	buff = binary.BigEndian.AppendUint64(buff, uint64(g.ClusterVersion))
+	buff = binary.BigEndian.AppendUint64(buff, uint64(g.LeaderVersion))
 	return g.Info.Serialize(buff)
 }
 
 func (g *CreateTopicRequest) Deserialize(buff []byte, offset int) int {
-	g.ClusterVersion = int(binary.BigEndian.Uint64(buff[offset:]))
+	g.LeaderVersion = int(binary.BigEndian.Uint64(buff[offset:]))
 	offset += 8
 	return g.Info.Deserialize(buff, offset)
 }
 
 type DeleteTopicRequest struct {
-	ClusterVersion int
-	TopicName      string
+	LeaderVersion int
+	TopicName     string
 }
 
 func (g *DeleteTopicRequest) Serialize(buff []byte) []byte {
-	buff = binary.BigEndian.AppendUint64(buff, uint64(g.ClusterVersion))
+	buff = binary.BigEndian.AppendUint64(buff, uint64(g.LeaderVersion))
 	buff = binary.BigEndian.AppendUint32(buff, uint32(len(g.TopicName)))
 	buff = append(buff, g.TopicName...)
 	return buff
 }
 
 func (g *DeleteTopicRequest) Deserialize(buff []byte, offset int) int {
-	g.ClusterVersion = int(binary.BigEndian.Uint64(buff[offset:]))
+	g.LeaderVersion = int(binary.BigEndian.Uint64(buff[offset:]))
 	offset += 8
 	ln := int(binary.BigEndian.Uint32(buff[offset:]))
 	offset += 4
@@ -300,14 +300,15 @@ func (g *DeleteTopicRequest) Deserialize(buff []byte, offset int) int {
 }
 
 type TableRegisteredNotification struct {
-	// TODO - need to include cluster version or epoch in here to screen out zombies
 	Sequence int64
+	LeaderVersion int
 	ID       sst.SSTableID
 	Infos    []offsets.LastReadableOffsetUpdatedTopicInfo
 }
 
 func (r *TableRegisteredNotification) Serialize(buff []byte) []byte {
 	buff = binary.BigEndian.AppendUint64(buff, uint64(r.Sequence))
+	buff = binary.BigEndian.AppendUint64(buff, uint64(r.LeaderVersion))
 	buff = binary.BigEndian.AppendUint32(buff, uint32(len(r.ID)))
 	buff = append(buff, r.ID...)
 	buff = binary.BigEndian.AppendUint32(buff, uint32(len(r.Infos)))
@@ -324,6 +325,8 @@ func (r *TableRegisteredNotification) Serialize(buff []byte) []byte {
 
 func (r *TableRegisteredNotification) Deserialize(buff []byte, offset int) int {
 	r.Sequence = int64(binary.BigEndian.Uint64(buff[offset:]))
+	offset += 8
+	r.LeaderVersion = int(binary.BigEndian.Uint64(buff[offset:]))
 	offset += 8
 	ln := int(binary.BigEndian.Uint32(buff[offset:]))
 	offset += 4

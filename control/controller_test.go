@@ -30,9 +30,9 @@ func TestClientNoMembersOnCreation(t *testing.T) {
 }
 
 func TestClientWrongClusterVersion(t *testing.T) {
-	controllers, tearDown := setupControllers(t, 1)
+	controllers, tearDown := setupControllers(t, 2)
 	defer tearDown(t)
-	updateMembership(t, 1, controllers, 0)
+	updateMembership(t, 1, 1, controllers, 0)
 
 	keyStart := []byte("key000001")
 	keyEnd := []byte("key000010")
@@ -42,25 +42,52 @@ func TestClientWrongClusterVersion(t *testing.T) {
 	cl, err := controllers[0].Client()
 	require.NoError(t, err)
 
-	// Now update membership again so cluster version increases
-	updateMembership(t, 2, controllers, 0)
+	// Now update membership again so leader changes
+	updateMembership(t, 2, 2, controllers, 0)
 
 	err = cl.ApplyLsmChanges(batch)
 	require.Error(t, err)
 	require.True(t, common.IsTektiteErrorWithCode(err, common.Unavailable))
-	require.Equal(t, "controller - cluster version mismatch", err.Error())
+	require.Equal(t, "controller - leader version mismatch", err.Error())
 
 	_, err = cl.QueryTablesInRange(nil, nil)
 	require.Error(t, err)
 	require.True(t, common.IsTektiteErrorWithCode(err, common.Unavailable))
-	require.Equal(t, "controller - cluster version mismatch", err.Error())
+	require.Equal(t, "controller - leader version mismatch", err.Error())
+}
+
+func TestClientControllerNotLeader(t *testing.T) {
+	controllers, tearDown := setupControllers(t, 2)
+	defer tearDown(t)
+	updateMembership(t, 1, 1, controllers, 0, 1)
+
+	keyStart := []byte("key000001")
+	keyEnd := []byte("key000010")
+	tableID := []byte(uuid.New().String())
+	batch := createBatch(1, tableID, keyStart, keyEnd)
+
+	cl, err := controllers[0].Client()
+	require.NoError(t, err)
+
+	// Now remove node 0 (leader)
+	updateMembership(t, 2, 2, controllers, 1)
+
+	err = cl.ApplyLsmChanges(batch)
+	require.Error(t, err)
+	require.True(t, common.IsTektiteErrorWithCode(err, common.Unavailable))
+	require.Equal(t, "controller is not leader", err.Error())
+
+	_, err = cl.QueryTablesInRange(nil, nil)
+	require.Error(t, err)
+	require.True(t, common.IsTektiteErrorWithCode(err, common.Unavailable))
+	require.Equal(t, "controller is not leader", err.Error())
 }
 
 func TestControllerUseClosedClient(t *testing.T) {
 	controllers, tearDown := setupControllers(t, 1)
 	defer tearDown(t)
 
-	updateMembership(t, 1, controllers, 0)
+	updateMembership(t, 1, 1, controllers, 0)
 
 	cl, err := controllers[0].Client()
 	require.NoError(t, err)
@@ -99,7 +126,7 @@ func TestControllerApplyChanges(t *testing.T) {
 	controllers, tearDown := setupControllers(t, 1)
 	defer tearDown(t)
 
-	updateMembership(t, 1, controllers, 0)
+	updateMembership(t, 1, 1, controllers, 0)
 
 	cl, err := controllers[0].Client()
 	require.NoError(t, err)
@@ -138,7 +165,7 @@ func TestControllerRegisterL0(t *testing.T) {
 	controllers, tearDown := setupControllers(t, 1)
 	defer tearDown(t)
 
-	updateMembership(t, 1, controllers, 0)
+	updateMembership(t, 1, 1, controllers, 0)
 	setupTopics(t, controllers[0])
 
 	cl, err := controllers[0].Client()
@@ -249,7 +276,7 @@ func TestControllerCreateGetDeleteTopics(t *testing.T) {
 	objStore := dev.NewInMemStore(0)
 	controllers, _, tearDown := setupControllersWithObjectStore(t, 1, objStore)
 
-	updateMembership(t, 1, controllers, 0)
+	updateMembership(t, 1, 1, controllers, 0)
 
 	cl, err := controllers[0].Client()
 	require.NoError(t, err)
@@ -281,7 +308,7 @@ func TestControllerCreateGetDeleteTopics(t *testing.T) {
 	require.NoError(t, err)
 	tearDown(t)
 	controllers, _, tearDown = setupControllersWithObjectStore(t, 1, objStore)
-	updateMembership(t, 1, controllers, 0)
+	updateMembership(t, 1, 1, controllers, 0)
 	cl, err = controllers[0].Client()
 	require.NoError(t, err)
 
@@ -315,7 +342,7 @@ func TestControllerCreateGetDeleteTopics(t *testing.T) {
 	require.NoError(t, err)
 	tearDown(t)
 	controllers, _, tearDown = setupControllersWithObjectStore(t, 1, objStore)
-	updateMembership(t, 1, controllers, 0)
+	updateMembership(t, 1, 1, controllers, 0)
 	cl, err = controllers[0].Client()
 	require.NoError(t, err)
 
@@ -346,7 +373,7 @@ func TestControllerCreateGetDeleteTopics(t *testing.T) {
 	tearDown(t)
 	controllers, _, tearDown = setupControllersWithObjectStore(t, 1, objStore)
 	defer tearDown(t)
-	updateMembership(t, 1, controllers, 0)
+	updateMembership(t, 1, 1, controllers, 0)
 	cl, err = controllers[0].Client()
 	require.NoError(t, err)
 	defer func() {
@@ -410,9 +437,9 @@ func setupControllersWithObjectStoreAndConfigSetter(t *testing.T, numMembers int
 	}
 }
 
-func updateMembership(t *testing.T, clusterVersion int, controllers []*Controller,
+func updateMembership(t *testing.T, clusterVersion int, leaderVersion int, controllers []*Controller,
 	memberIndexes ...int) []cluster.MembershipEntry {
-	newState := createMembership(clusterVersion, controllers, memberIndexes...)
+	newState := createMembership(clusterVersion, leaderVersion, controllers, memberIndexes...)
 	for _, mgr := range controllers {
 		err := mgr.MembershipChanged(newState)
 		require.NoError(t, err)
@@ -420,7 +447,7 @@ func updateMembership(t *testing.T, clusterVersion int, controllers []*Controlle
 	return newState.Members
 }
 
-func createMembership(clusterVersion int, controllers []*Controller, memberIndexes ...int) cluster.MembershipState {
+func createMembership(clusterVersion int, leaderVersion int, controllers []*Controller, memberIndexes ...int) cluster.MembershipState {
 	now := time.Now().UnixMilli()
 	var members []cluster.MembershipEntry
 	for _, memberIndex := range memberIndexes {
@@ -431,6 +458,7 @@ func createMembership(clusterVersion int, controllers []*Controller, memberIndex
 	}
 	return cluster.MembershipState{
 		ClusterVersion: clusterVersion,
+		LeaderVersion:  leaderVersion,
 		Members:        members,
 	}
 }

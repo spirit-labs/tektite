@@ -6,6 +6,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	"github.com/spirit-labs/tektite/asl/encoding"
+	"github.com/spirit-labs/tektite/cluster"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/control"
 	"github.com/spirit-labs/tektite/kafkaprotocol"
@@ -1130,9 +1131,10 @@ func TestFetcherMultipleRequestsFetchFromCacheAfterFirstRequest(t *testing.T) {
 	var seq int64
 	// send notifications - should result in entries added
 	// we add the first two tables
-	err := fetcher.recentTables.handleTableRegisteredNotification(control.TableRegisteredNotification{
-		ID:       tabIDs[0],
-		Sequence: seq,
+	err := fetcher.recentTables.handleTableRegisteredNotification(&control.TableRegisteredNotification{
+		LeaderVersion: 1,
+		ID:            tabIDs[0],
+		Sequence:      seq,
 		Infos: []offsets.LastReadableOffsetUpdatedTopicInfo{
 			{
 				TopicID: defaultTopicID,
@@ -1147,9 +1149,10 @@ func TestFetcherMultipleRequestsFetchFromCacheAfterFirstRequest(t *testing.T) {
 	})
 	require.NoError(t, err)
 	seq++
-	err = fetcher.recentTables.handleTableRegisteredNotification(control.TableRegisteredNotification{
-		ID:       tabIDs[1],
-		Sequence: seq,
+	err = fetcher.recentTables.handleTableRegisteredNotification(&control.TableRegisteredNotification{
+		LeaderVersion: 1,
+		ID:            tabIDs[1],
+		Sequence:      seq,
 		Infos: []offsets.LastReadableOffsetUpdatedTopicInfo{
 			{
 				TopicID: defaultTopicID,
@@ -1176,9 +1179,10 @@ func TestFetcherMultipleRequestsFetchFromCacheAfterFirstRequest(t *testing.T) {
 	tabsToAdd := tabIDs[2:]
 	lros := []int64{2999, 3999, 4999, 5999, 6999, 7999, 8999, 9999}
 	for i, tabID := range tabsToAdd {
-		err = fetcher.recentTables.handleTableRegisteredNotification(control.TableRegisteredNotification{
-			ID:       tabID,
-			Sequence: seq,
+		err = fetcher.recentTables.handleTableRegisteredNotification(&control.TableRegisteredNotification{
+			LeaderVersion: 1,
+			ID:            tabID,
+			Sequence:      seq,
 			Infos: []offsets.LastReadableOffsetUpdatedTopicInfo{
 				{
 					TopicID: defaultTopicID,
@@ -1249,8 +1253,9 @@ func TestFetcherRequestNotEnoughBytesAndNotificationAddsSufficientData(t *testin
 
 	// send notification - should result in entry added to recent tables
 	// we add the first two tables
-	err = fetcher.recentTables.handleTableRegisteredNotification(control.TableRegisteredNotification{
-		ID: tabIDs2[0],
+	err = fetcher.recentTables.handleTableRegisteredNotification(&control.TableRegisteredNotification{
+		LeaderVersion: 1,
+		ID:            tabIDs2[0],
 		Infos: []offsets.LastReadableOffsetUpdatedTopicInfo{
 			{
 				TopicID: defaultTopicID,
@@ -1319,9 +1324,10 @@ func TestFetcherRequestNotEnoughBytesAndNotificationsDontAddSufficientData(t *te
 	var seq int64
 
 	// send notification - with second batch - not enough data so shouldn't complete yet
-	err = fetcher.recentTables.handleTableRegisteredNotification(control.TableRegisteredNotification{
-		Sequence: seq,
-		ID:       tabIds2[0],
+	err = fetcher.recentTables.handleTableRegisteredNotification(&control.TableRegisteredNotification{
+		LeaderVersion: 1,
+		Sequence:      seq,
+		ID:            tabIds2[0],
 		Infos: []offsets.LastReadableOffsetUpdatedTopicInfo{
 			{
 				TopicID: defaultTopicID,
@@ -1341,9 +1347,10 @@ func TestFetcherRequestNotEnoughBytesAndNotificationsDontAddSufficientData(t *te
 	require.False(t, completionCalled.Load())
 
 	// send notification - with third batch - not enough data so shouldn't complete yet
-	err = fetcher.recentTables.handleTableRegisteredNotification(control.TableRegisteredNotification{
-		Sequence: seq,
-		ID:       tabIds3[0],
+	err = fetcher.recentTables.handleTableRegisteredNotification(&control.TableRegisteredNotification{
+		LeaderVersion: 1,
+		Sequence:      seq,
+		ID:            tabIds3[0],
 		Infos: []offsets.LastReadableOffsetUpdatedTopicInfo{
 			{
 				TopicID: defaultTopicID,
@@ -1363,9 +1370,10 @@ func TestFetcherRequestNotEnoughBytesAndNotificationsDontAddSufficientData(t *te
 	require.False(t, completionCalled.Load())
 
 	// send notification - with fourth batch - should now complete
-	err = fetcher.recentTables.handleTableRegisteredNotification(control.TableRegisteredNotification{
-		Sequence: seq,
-		ID:       tabIds4[0],
+	err = fetcher.recentTables.handleTableRegisteredNotification(&control.TableRegisteredNotification{
+		LeaderVersion: 1,
+		Sequence:      seq,
+		ID:            tabIds4[0],
 		Infos: []offsets.LastReadableOffsetUpdatedTopicInfo{
 			{
 				TopicID: defaultTopicID,
@@ -1404,9 +1412,10 @@ func TestFetcherHistoricConsumer(t *testing.T) {
 
 	// Add just the last two to the cache - this simulates the case where we have older batches in storage but only
 	// newer ones cached
-	err := fetcher.recentTables.handleTableRegisteredNotification(control.TableRegisteredNotification{
-		Sequence: 0,
-		ID:       tabIDs[8],
+	err := fetcher.recentTables.handleTableRegisteredNotification(&control.TableRegisteredNotification{
+		LeaderVersion: 1,
+		Sequence:      0,
+		ID:            tabIDs[8],
 		Infos: []offsets.LastReadableOffsetUpdatedTopicInfo{
 			{
 				TopicID: defaultTopicID,
@@ -1420,9 +1429,10 @@ func TestFetcherHistoricConsumer(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	err = fetcher.recentTables.handleTableRegisteredNotification(control.TableRegisteredNotification{
-		Sequence: 1,
-		ID:       tabIDs[9],
+	err = fetcher.recentTables.handleTableRegisteredNotification(&control.TableRegisteredNotification{
+		LeaderVersion: 1,
+		Sequence:      1,
+		ID:            tabIDs[9],
 		Infos: []offsets.LastReadableOffsetUpdatedTopicInfo{
 			{
 				TopicID: defaultTopicID,
@@ -1473,9 +1483,10 @@ func TestFetcherExceedMaxCachedTables(t *testing.T) {
 	// send notifications
 	var seq int64
 	for i := 0; i < numBatches; i++ {
-		err := fetcher.recentTables.handleTableRegisteredNotification(control.TableRegisteredNotification{
-			Sequence: seq,
-			ID:       tabIDs[i],
+		err := fetcher.recentTables.handleTableRegisteredNotification(&control.TableRegisteredNotification{
+			LeaderVersion: 1,
+			Sequence:      seq,
+			ID:            tabIDs[i],
 			Infos: []offsets.LastReadableOffsetUpdatedTopicInfo{
 				{
 					TopicID: defaultTopicID,
@@ -1522,16 +1533,17 @@ func TestFetcherResetSequence(t *testing.T) {
 	sendFetchDefault(t, 0, 0, 0, defaultMaxBytes, defaultMaxBytes, fetcher)
 
 	// Setup a bunch of batches
-	numBatches := 10
+	numBatches := 5
 	lastOff := numBatches*1000 - 1
 	batches, tabIDs := setupDataDefault(t, 0, lastOff, lastOff, numBatches, numBatches, topicProvider, controlClient, objStore)
 
 	// send initial notifications
 	var seq int64
-	for i := 0; i < numBatches/2; i++ {
-		err := fetcher.recentTables.handleTableRegisteredNotification(control.TableRegisteredNotification{
-			Sequence: seq,
-			ID:       tabIDs[i],
+	for i := 0; i < numBatches; i++ {
+		err := fetcher.recentTables.handleTableRegisteredNotification(&control.TableRegisteredNotification{
+			LeaderVersion: 1,
+			Sequence:      seq,
+			ID:            tabIDs[i],
 			Infos: []offsets.LastReadableOffsetUpdatedTopicInfo{
 				{
 					TopicID: defaultTopicID,
@@ -1550,12 +1562,12 @@ func TestFetcherResetSequence(t *testing.T) {
 
 	// fetch data - so far so good
 	offset := 0
-	for i := 0; i < numBatches/2; i++ {
+	for i := 0; i < numBatches; i++ {
 		resp := sendFetchDefault(t, offset, 0, 0, len(batches[i]), defaultMaxBytes, fetcher)
 		verifyDefaultResponse(t, resp, batches[i:i+1])
 		offset += 1000
 	}
-	require.Equal(t, numBatches/2-1, int(atomic.LoadInt64(&fetcher.recentTables.lastReceivedSequence)))
+	require.Equal(t, numBatches-1, fetcher.recentTables.getLastReceivedSequence())
 	require.Equal(t, 0, int(atomic.LoadInt64(&fetcher.resetSequence)))
 	address, resetSequence := controlClient.getAddressAndResetSequence()
 	require.Equal(t, fetcher.address, address)
@@ -1563,17 +1575,16 @@ func TestFetcherResetSequence(t *testing.T) {
 
 	// now send notification out of sequence - should cause partition states to be invalidated
 	seq++
-	i := numBatches / 2
-	err := fetcher.recentTables.handleTableRegisteredNotification(control.TableRegisteredNotification{
-		Sequence: seq,
-		ID:       tabIDs[i],
+	err := fetcher.recentTables.handleTableRegisteredNotification(&control.TableRegisteredNotification{
+		LeaderVersion: 1,
+		Sequence:      seq,
+		ID:            tabIDs[numBatches-1],
 		Infos: []offsets.LastReadableOffsetUpdatedTopicInfo{
 			{
 				TopicID: defaultTopicID,
 				PartitionInfos: []offsets.LastReadableOffsetUpdatedPartitionInfo{
 					{
-						PartitionID:        defaultPartitionID,
-						LastReadableOffset: int64((i+1)*1000 - 1),
+						PartitionID: defaultPartitionID,
 					},
 				},
 			},
@@ -1585,24 +1596,79 @@ func TestFetcherResetSequence(t *testing.T) {
 	partitionTables := fetcher.recentTables.getPartitionTables(partitionMap, defaultPartitionID)
 	require.False(t, partitionTables.isInitialised())
 
-	require.Equal(t, -1, int(atomic.LoadInt64(&fetcher.recentTables.lastReceivedSequence)))
+	require.Equal(t, -1, fetcher.recentTables.getLastReceivedSequence())
 	require.Equal(t, 1, int(atomic.LoadInt64(&fetcher.resetSequence)))
 
-	// Send another fetch - this should cause controller to be called again
-	resp := sendFetchDefault(t, offset, 0, 0, len(batches[i]), defaultMaxBytes, fetcher)
-	verifyDefaultResponse(t, resp, batches[i:i+1])
+	// Register again - this should cause controller to be called again
+	sendFetchDefault(t, 0, 0, 0, defaultMaxBytes, defaultMaxBytes, fetcher)
 
 	address, resetSequence = controlClient.getAddressAndResetSequence()
 	require.Equal(t, fetcher.address, address)
 	require.Equal(t, 1, int(resetSequence))
 
+	// setup more batches
+	batches, tabIDs = setupDataDefault(t, 5000, 5000+lastOff, 5000+lastOff, numBatches, numBatches, topicProvider, controlClient, objStore)
+
+	// prevent going to controller
+	controlClient.clearQueryRes()
+
 	// The controller should now reset it's sequence to zero, so we should be able to receive further notifications
 	seq = 0
 
-	for i := numBatches / 2; i < numBatches; i++ {
-		err := fetcher.recentTables.handleTableRegisteredNotification(control.TableRegisteredNotification{
-			Sequence: seq,
-			ID:       tabIDs[i],
+	for i := 0; i < numBatches; i++ {
+		err := fetcher.recentTables.handleTableRegisteredNotification(&control.TableRegisteredNotification{
+			LeaderVersion: 1,
+			Sequence:      seq,
+			ID:            tabIDs[i],
+			Infos: []offsets.LastReadableOffsetUpdatedTopicInfo{
+				{
+					TopicID: defaultTopicID,
+					PartitionInfos: []offsets.LastReadableOffsetUpdatedPartitionInfo{
+						{
+							PartitionID:        defaultPartitionID,
+							LastReadableOffset: 5000 + int64((i+1)*1000-1),
+						},
+					},
+				},
+			},
+		})
+		require.NoError(t, err)
+		seq++
+	}
+
+	for i := 0; i < numBatches; i++ {
+		resp := sendFetchDefault(t, offset, 0, 0, len(batches[i]), defaultMaxBytes, fetcher)
+		verifyDefaultResponse(t, resp, batches[i:i+1])
+		offset += 1000
+	}
+}
+
+func TestFetcherInvalidateOnLeaderChange(t *testing.T) {
+	fetcher, topicProvider, controlClient, objStore := setupFetcher(t)
+	defer stopFetcher(t, fetcher)
+
+	// no data yet
+	topicProvider.infos[defaultTopicName] = topicmeta.TopicInfo{
+		ID:             defaultTopicID,
+		Name:           defaultTopicName,
+		PartitionCount: defaultNumPartitions,
+	}
+	controlClient.setLastReadableOffset(defaultTopicID, defaultPartitionID, -1)
+
+	// Send a fetch past the last offset to initialise the partition tables
+	sendFetchDefault(t, 0, 0, 0, defaultMaxBytes, defaultMaxBytes, fetcher)
+
+	numBatches := 5
+	lastOff := numBatches*1000 - 1
+	batches, tabIDs := setupDataDefault(t, 0, lastOff, lastOff, numBatches, numBatches, topicProvider, controlClient, objStore)
+
+	// send initial notifications
+	var seq int64
+	for i := 0; i < numBatches; i++ {
+		err := fetcher.recentTables.handleTableRegisteredNotification(&control.TableRegisteredNotification{
+			LeaderVersion: 1,
+			Sequence:      seq,
+			ID:            tabIDs[i],
 			Infos: []offsets.LastReadableOffsetUpdatedTopicInfo{
 				{
 					TopicID: defaultTopicID,
@@ -1619,7 +1685,59 @@ func TestFetcherResetSequence(t *testing.T) {
 		seq++
 	}
 
-	for i := numBatches / 2; i < numBatches; i++ {
+	// fetch data - so far so good
+	offset := 0
+	for i := 0; i < numBatches; i++ {
+		resp := sendFetchDefault(t, offset, 0, 0, len(batches[i]), defaultMaxBytes, fetcher)
+		verifyDefaultResponse(t, resp, batches[i:i+1])
+		offset += 1000
+	}
+	require.Equal(t, numBatches-1, fetcher.recentTables.getLastReceivedSequence())
+	require.Equal(t, 0, int(atomic.LoadInt64(&fetcher.resetSequence)))
+	address, resetSequence := controlClient.getAddressAndResetSequence()
+	require.Equal(t, fetcher.address, address)
+	require.Equal(t, 0, int(resetSequence))
+
+	// now bump leader version
+	err := fetcher.MembershipChanged(cluster.MembershipState{
+		LeaderVersion: 2,
+	})
+	require.NoError(t, err)
+
+	// The controller should now reset it's sequence to zero, so we should be able to receive further notifications
+	seq = 0
+
+	// register again
+	sendFetchDefault(t, 0, 0, 0, defaultMaxBytes, defaultMaxBytes, fetcher)
+
+	// setup more batches
+	batches, tabIDs = setupDataDefault(t, 5000, 5000+lastOff, 5000+lastOff, numBatches, numBatches, topicProvider, controlClient, objStore)
+
+	for i := 0; i < numBatches; i++ {
+		err := fetcher.recentTables.handleTableRegisteredNotification(&control.TableRegisteredNotification{
+			LeaderVersion: 2,
+			Sequence:      seq,
+			ID:            tabIDs[i],
+			Infos: []offsets.LastReadableOffsetUpdatedTopicInfo{
+				{
+					TopicID: defaultTopicID,
+					PartitionInfos: []offsets.LastReadableOffsetUpdatedPartitionInfo{
+						{
+							PartitionID:        defaultPartitionID,
+							LastReadableOffset: 5000 + int64((i+1)*1000-1),
+						},
+					},
+				},
+			},
+		})
+		require.NoError(t, err)
+		seq++
+	}
+
+	// prevent going to controller
+	controlClient.clearQueryRes()
+
+	for i := 0; i < numBatches; i++ {
 		resp := sendFetchDefault(t, offset, 0, 0, len(batches[i]), defaultMaxBytes, fetcher)
 		verifyDefaultResponse(t, resp, batches[i:i+1])
 		offset += 1000
@@ -1677,6 +1795,76 @@ func TestFetcherControllerUnavailabilityMultiplePartitions(t *testing.T) {
 	require.Equal(t, 2, len(topicResp.Partitions))
 	require.Equal(t, kafkaprotocol.ErrorCodeLeaderNotAvailable, int(topicResp.Partitions[0].ErrorCode))
 	require.Equal(t, kafkaprotocol.ErrorCodeLeaderNotAvailable, int(topicResp.Partitions[1].ErrorCode))
+}
+
+func TestFetcherNotificationWithInvalidLeaderVersion(t *testing.T) {
+	fetcher, topicProvider, controlClient, objStore := setupFetcher(t)
+	defer stopFetcher(t, fetcher)
+
+	topicProvider.infos[defaultTopicName] = topicmeta.TopicInfo{
+		ID:             defaultTopicID,
+		Name:           defaultTopicName,
+		PartitionCount: defaultNumPartitions,
+	}
+	controlClient.setLastReadableOffset(defaultTopicID, defaultPartitionID, -1)
+
+	// initialise partition tables
+	resp := sendFetchDefault(t, 0, 0, 0, defaultMaxBytes, defaultMaxBytes, fetcher)
+
+	verifyDefaultResponse(t, resp, nil)
+
+	// Add two tables
+	batches, tabIDs, queryRes := setupBatchesForPartition(t, defaultTopicID, defaultPartitionID, 0, 1999, 2, 2, objStore)
+	controlClient.queryRes = queryRes
+	controlClient.setLastReadableOffset(defaultTopicID, defaultPartitionID, 1999)
+
+	var seq int64
+	// send notification for first table
+	err := fetcher.recentTables.handleTableRegisteredNotification(&control.TableRegisteredNotification{
+		LeaderVersion: 1,
+		ID:            tabIDs[0],
+		Sequence:      seq,
+		Infos: []offsets.LastReadableOffsetUpdatedTopicInfo{
+			{
+				TopicID: defaultTopicID,
+				PartitionInfos: []offsets.LastReadableOffsetUpdatedPartitionInfo{
+					{
+						PartitionID:        defaultPartitionID,
+						LastReadableOffset: 999,
+					},
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	// Next notification should be ignored as wrong leader version
+	seq++
+	err = fetcher.recentTables.handleTableRegisteredNotification(&control.TableRegisteredNotification{
+		LeaderVersion: 0,
+		ID:            tabIDs[1],
+		Sequence:      seq,
+		Infos: []offsets.LastReadableOffsetUpdatedTopicInfo{
+			{
+				TopicID: defaultTopicID,
+				PartitionInfos: []offsets.LastReadableOffsetUpdatedPartitionInfo{
+					{
+						PartitionID:        defaultPartitionID,
+						LastReadableOffset: 1999,
+					},
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
+	seq++
+
+	// reset ids from testControllerClient so won't fetch from controller
+	controlClient.queryRes = nil
+
+	// Should only get first batch
+	resp = sendFetchDefault(t, 0, 0, 0, defaultMaxBytes, defaultMaxBytes, fetcher)
+	verifyDefaultResponse(t, resp, batches[0:1])
 }
 
 func TestFetcherControllerUnexpectedErrorSinglePartition(t *testing.T) {
@@ -1776,6 +1964,11 @@ func setupFetcher(t *testing.T) (*BatchFetcher, *testTopicProvider, *testControl
 		uuid.New().String(), cfg)
 	require.NoError(t, err)
 	err = fetcher.Start()
+	require.NoError(t, err)
+	err = fetcher.MembershipChanged(cluster.MembershipState{
+		LeaderVersion:  1,
+		ClusterVersion: 1,
+	})
 	require.NoError(t, err)
 	return fetcher, infoProvider, controlClient, objStore
 }
@@ -1984,6 +2177,12 @@ type testControlClient struct {
 	resetSequence       int64
 }
 
+func (t *testControlClient) clearQueryRes() {
+	t.lock.Lock()
+	defer t.lock.Unlock()
+	t.queryRes = nil
+}
+
 func (t *testControlClient) setUnavailable() {
 	t.lock.Lock()
 	defer t.lock.Unlock()
@@ -2019,7 +2218,7 @@ func (t *testControlClient) RegisterTableListener(topicID int, partitionID int, 
 	return off, nil
 }
 
-func (t *testControlClient) QueryTablesInRange(keyStart []byte, keyEnd []byte) (lsm.OverlappingTables, error) {
+func (t *testControlClient) QueryTablesInRange(_ []byte, _ []byte) (lsm.OverlappingTables, error) {
 	t.lock.Lock()
 	defer t.lock.Unlock()
 	if t.unavailable {
@@ -2078,33 +2277,4 @@ func (t *testTopicProvider) GetTopicInfo(topicName string) (topicmeta.TopicInfo,
 		return topicmeta.TopicInfo{}, errors.Errorf("unknown topic: %s", topicName)
 	}
 	return info, nil
-}
-
-func checkNoResponseErrors(t *testing.T, respCh chan *kafkaprotocol.FetchResponse, req *kafkaprotocol.FetchRequest) *kafkaprotocol.FetchResponse {
-	resp := <-respCh
-	require.NotNil(t, resp)
-	require.Equal(t, len(req.Topics), len(resp.Responses))
-	for i, topicResp := range resp.Responses {
-		require.Equal(t, len(req.Topics[i].Partitions), len(topicResp.Partitions))
-		for _, pResp := range topicResp.Partitions {
-			require.Equalf(t, kafkaprotocol.ErrorCodeNone, int(pResp.ErrorCode),
-				"expected no error but got errorCode: %d", pResp.ErrorCode)
-		}
-	}
-	return resp
-}
-
-func checkResponseErrors(t *testing.T, respCh chan *kafkaprotocol.FetchResponse, expectedCodes [][]int) {
-	resp := <-respCh
-	require.NotNil(t, resp)
-	require.Equal(t, len(expectedCodes), len(resp.Responses))
-	for i, topicResp := range resp.Responses {
-		require.Equal(t, len(expectedCodes[i]), len(topicResp.Partitions))
-		for j, pResp := range topicResp.Partitions {
-			var errMsg string
-			expectedCode := expectedCodes[i][j]
-			require.Equalf(t, expectedCode, int(pResp.ErrorCode),
-				"expected errorCode: %d but got: %dmsg: %s", expectedCode, pResp.ErrorCode, errMsg)
-		}
-	}
 }

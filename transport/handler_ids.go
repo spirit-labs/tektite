@@ -12,5 +12,5 @@ const (
 	HandlerIDControllerDeleteTopic
 	HandlerIDMetaLocalCacheTopicAdded
 	HandlerIDMetaLocalCacheTopicDeleted
-	HandlerIDFetcherOffsetNotification
+	HandlerIDFetcherTableRegisteredNotification
 )
