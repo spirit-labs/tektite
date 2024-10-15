@@ -91,7 +91,6 @@ func (i *InMemClusterMemberships) removeMember(address string) {
 
 func (i *InMemClusterMemberships) sendUpdate() {
 	listenersCopy := make([]MembershipListener, len(i.listeners))
-	log.Infof("sending update")
 	copy(listenersCopy, i.listeners)
 	i.updatesChan <- updateInfo{
 		membership: i.currentMembership,

@@ -568,8 +568,8 @@ func TestFetcherSinglePartitionNoWaitPartitionMaxSizeSlightlyLessThanFirstBatchS
 	batches, _ := setupDataDefault(t, 0, 9999, 9999, 10, 2, topicProvider, controlClient, objStore)
 	partitionMaxBytes := len(batches[0]) - 1
 	resp := sendFetchDefault(t, 0, 0, 0, defaultMaxBytes, partitionMaxBytes, fetcher)
-	// No batches should be fetched
-	verifyDefaultResponse(t, resp, nil)
+	// Only first batch should be fetched - as we always return one batch if available even if it exceeds max size
+	verifyDefaultResponse(t, resp, batches[:1])
 }
 
 func TestFetcherSinglePartitionNoWaitPartitionMaxSizeExactlyFirstTwoBatchSizes(t *testing.T) {
@@ -611,7 +611,7 @@ func TestFetcherSingleTopicMultiplePartitionsNoWaitPartitionMax(t *testing.T) {
 					{
 						Partition:         23,
 						FetchOffset:       1000,
-						PartitionMaxBytes: int32(len(batches1[0]) - 1),
+						PartitionMaxBytes: int32(len(batches1[0])),
 					},
 					{
 						Partition:         24,
@@ -629,7 +629,7 @@ func TestFetcherSingleTopicMultiplePartitionsNoWaitPartitionMax(t *testing.T) {
 	}
 	resp := sendFetch(t, &req, fetcher)
 
-	verifyPartitionRecordsInResponse(t, resp, defaultTopicName, 23, nil)
+	verifyPartitionRecordsInResponse(t, resp, defaultTopicName, 23, batches1[:1])
 	verifyPartitionRecordsInResponse(t, resp, defaultTopicName, 24, batches2[:3])
 	verifyPartitionRecordsInResponse(t, resp, defaultTopicName, 25, batches3[:4])
 }
@@ -1131,17 +1131,17 @@ func TestFetcherMultipleRequestsFetchFromCacheAfterFirstRequest(t *testing.T) {
 	var seq int64
 	// send notifications - should result in entries added
 	// we add the first two tables
-	err := fetcher.recentTables.handleTableRegisteredNotification(&control.TableRegisteredNotification{
+	err := fetcher.recentTables.handleTableRegisteredNotification(&control.TablesRegisteredNotification{
 		LeaderVersion: 1,
-		ID:            tabIDs[0],
+		TableIDs:      tabIDs[0:1],
 		Sequence:      seq,
-		Infos: []offsets.LastReadableOffsetUpdatedTopicInfo{
+		Infos: []offsets.OffsetTopicInfo{
 			{
 				TopicID: defaultTopicID,
-				PartitionInfos: []offsets.LastReadableOffsetUpdatedPartitionInfo{
+				PartitionInfos: []offsets.OffsetPartitionInfo{
 					{
-						PartitionID:        defaultPartitionID,
-						LastReadableOffset: 999,
+						PartitionID: defaultPartitionID,
+						Offset:      999,
 					},
 				},
 			},
@@ -1149,17 +1149,17 @@ func TestFetcherMultipleRequestsFetchFromCacheAfterFirstRequest(t *testing.T) {
 	})
 	require.NoError(t, err)
 	seq++
-	err = fetcher.recentTables.handleTableRegisteredNotification(&control.TableRegisteredNotification{
+	err = fetcher.recentTables.handleTableRegisteredNotification(&control.TablesRegisteredNotification{
 		LeaderVersion: 1,
-		ID:            tabIDs[1],
+		TableIDs:      tabIDs[1:2],
 		Sequence:      seq,
-		Infos: []offsets.LastReadableOffsetUpdatedTopicInfo{
+		Infos: []offsets.OffsetTopicInfo{
 			{
 				TopicID: defaultTopicID,
-				PartitionInfos: []offsets.LastReadableOffsetUpdatedPartitionInfo{
+				PartitionInfos: []offsets.OffsetPartitionInfo{
 					{
-						PartitionID:        defaultPartitionID,
-						LastReadableOffset: 1999,
+						PartitionID: defaultPartitionID,
+						Offset:      1999,
 					},
 				},
 			},
@@ -1179,17 +1179,17 @@ func TestFetcherMultipleRequestsFetchFromCacheAfterFirstRequest(t *testing.T) {
 	tabsToAdd := tabIDs[2:]
 	lros := []int64{2999, 3999, 4999, 5999, 6999, 7999, 8999, 9999}
 	for i, tabID := range tabsToAdd {
-		err = fetcher.recentTables.handleTableRegisteredNotification(&control.TableRegisteredNotification{
+		err = fetcher.recentTables.handleTableRegisteredNotification(&control.TablesRegisteredNotification{
 			LeaderVersion: 1,
-			ID:            tabID,
+			TableIDs:      []sst.SSTableID{tabID},
 			Sequence:      seq,
-			Infos: []offsets.LastReadableOffsetUpdatedTopicInfo{
+			Infos: []offsets.OffsetTopicInfo{
 				{
 					TopicID: defaultTopicID,
-					PartitionInfos: []offsets.LastReadableOffsetUpdatedPartitionInfo{
+					PartitionInfos: []offsets.OffsetPartitionInfo{
 						{
-							PartitionID:        defaultPartitionID,
-							LastReadableOffset: lros[i],
+							PartitionID: defaultPartitionID,
+							Offset:      lros[i],
 						},
 					},
 				},
@@ -1253,16 +1253,16 @@ func TestFetcherRequestNotEnoughBytesAndNotificationAddsSufficientData(t *testin
 
 	// send notification - should result in entry added to recent tables
 	// we add the first two tables
-	err = fetcher.recentTables.handleTableRegisteredNotification(&control.TableRegisteredNotification{
+	err = fetcher.recentTables.handleTableRegisteredNotification(&control.TablesRegisteredNotification{
 		LeaderVersion: 1,
-		ID:            tabIDs2[0],
-		Infos: []offsets.LastReadableOffsetUpdatedTopicInfo{
+		TableIDs:      tabIDs2[0:1],
+		Infos: []offsets.OffsetTopicInfo{
 			{
 				TopicID: defaultTopicID,
-				PartitionInfos: []offsets.LastReadableOffsetUpdatedPartitionInfo{
+				PartitionInfos: []offsets.OffsetPartitionInfo{
 					{
-						PartitionID:        defaultPartitionID,
-						LastReadableOffset: 1999,
+						PartitionID: defaultPartitionID,
+						Offset:      1999,
 					},
 				},
 			},
@@ -1324,17 +1324,17 @@ func TestFetcherRequestNotEnoughBytesAndNotificationsDontAddSufficientData(t *te
 	var seq int64
 
 	// send notification - with second batch - not enough data so shouldn't complete yet
-	err = fetcher.recentTables.handleTableRegisteredNotification(&control.TableRegisteredNotification{
+	err = fetcher.recentTables.handleTableRegisteredNotification(&control.TablesRegisteredNotification{
 		LeaderVersion: 1,
 		Sequence:      seq,
-		ID:            tabIds2[0],
-		Infos: []offsets.LastReadableOffsetUpdatedTopicInfo{
+		TableIDs:      tabIds2[0:1],
+		Infos: []offsets.OffsetTopicInfo{
 			{
 				TopicID: defaultTopicID,
-				PartitionInfos: []offsets.LastReadableOffsetUpdatedPartitionInfo{
+				PartitionInfos: []offsets.OffsetPartitionInfo{
 					{
-						PartitionID:        defaultPartitionID,
-						LastReadableOffset: 1999,
+						PartitionID: defaultPartitionID,
+						Offset:      1999,
 					},
 				},
 			},
@@ -1347,17 +1347,17 @@ func TestFetcherRequestNotEnoughBytesAndNotificationsDontAddSufficientData(t *te
 	require.False(t, completionCalled.Load())
 
 	// send notification - with third batch - not enough data so shouldn't complete yet
-	err = fetcher.recentTables.handleTableRegisteredNotification(&control.TableRegisteredNotification{
+	err = fetcher.recentTables.handleTableRegisteredNotification(&control.TablesRegisteredNotification{
 		LeaderVersion: 1,
 		Sequence:      seq,
-		ID:            tabIds3[0],
-		Infos: []offsets.LastReadableOffsetUpdatedTopicInfo{
+		TableIDs:      tabIds3[0:1],
+		Infos: []offsets.OffsetTopicInfo{
 			{
 				TopicID: defaultTopicID,
-				PartitionInfos: []offsets.LastReadableOffsetUpdatedPartitionInfo{
+				PartitionInfos: []offsets.OffsetPartitionInfo{
 					{
-						PartitionID:        defaultPartitionID,
-						LastReadableOffset: 2999,
+						PartitionID: defaultPartitionID,
+						Offset:      2999,
 					},
 				},
 			},
@@ -1370,17 +1370,17 @@ func TestFetcherRequestNotEnoughBytesAndNotificationsDontAddSufficientData(t *te
 	require.False(t, completionCalled.Load())
 
 	// send notification - with fourth batch - should now complete
-	err = fetcher.recentTables.handleTableRegisteredNotification(&control.TableRegisteredNotification{
+	err = fetcher.recentTables.handleTableRegisteredNotification(&control.TablesRegisteredNotification{
 		LeaderVersion: 1,
 		Sequence:      seq,
-		ID:            tabIds4[0],
-		Infos: []offsets.LastReadableOffsetUpdatedTopicInfo{
+		TableIDs:      tabIds4[0:1],
+		Infos: []offsets.OffsetTopicInfo{
 			{
 				TopicID: defaultTopicID,
-				PartitionInfos: []offsets.LastReadableOffsetUpdatedPartitionInfo{
+				PartitionInfos: []offsets.OffsetPartitionInfo{
 					{
-						PartitionID:        defaultPartitionID,
-						LastReadableOffset: 3999,
+						PartitionID: defaultPartitionID,
+						Offset:      3999,
 					},
 				},
 			},
@@ -1412,34 +1412,34 @@ func TestFetcherHistoricConsumer(t *testing.T) {
 
 	// Add just the last two to the cache - this simulates the case where we have older batches in storage but only
 	// newer ones cached
-	err := fetcher.recentTables.handleTableRegisteredNotification(&control.TableRegisteredNotification{
+	err := fetcher.recentTables.handleTableRegisteredNotification(&control.TablesRegisteredNotification{
 		LeaderVersion: 1,
 		Sequence:      0,
-		ID:            tabIDs[8],
-		Infos: []offsets.LastReadableOffsetUpdatedTopicInfo{
+		TableIDs:      tabIDs[8:9],
+		Infos: []offsets.OffsetTopicInfo{
 			{
 				TopicID: defaultTopicID,
-				PartitionInfos: []offsets.LastReadableOffsetUpdatedPartitionInfo{
+				PartitionInfos: []offsets.OffsetPartitionInfo{
 					{
-						PartitionID:        defaultPartitionID,
-						LastReadableOffset: 8999,
+						PartitionID: defaultPartitionID,
+						Offset:      8999,
 					},
 				},
 			},
 		},
 	})
 	require.NoError(t, err)
-	err = fetcher.recentTables.handleTableRegisteredNotification(&control.TableRegisteredNotification{
+	err = fetcher.recentTables.handleTableRegisteredNotification(&control.TablesRegisteredNotification{
 		LeaderVersion: 1,
 		Sequence:      1,
-		ID:            tabIDs[9],
-		Infos: []offsets.LastReadableOffsetUpdatedTopicInfo{
+		TableIDs:      tabIDs[9:10],
+		Infos: []offsets.OffsetTopicInfo{
 			{
 				TopicID: defaultTopicID,
-				PartitionInfos: []offsets.LastReadableOffsetUpdatedPartitionInfo{
+				PartitionInfos: []offsets.OffsetPartitionInfo{
 					{
-						PartitionID:        defaultPartitionID,
-						LastReadableOffset: 9999,
+						PartitionID: defaultPartitionID,
+						Offset:      9999,
 					},
 				},
 			},
@@ -1483,17 +1483,17 @@ func TestFetcherExceedMaxCachedTables(t *testing.T) {
 	// send notifications
 	var seq int64
 	for i := 0; i < numBatches; i++ {
-		err := fetcher.recentTables.handleTableRegisteredNotification(&control.TableRegisteredNotification{
+		err := fetcher.recentTables.handleTableRegisteredNotification(&control.TablesRegisteredNotification{
 			LeaderVersion: 1,
 			Sequence:      seq,
-			ID:            tabIDs[i],
-			Infos: []offsets.LastReadableOffsetUpdatedTopicInfo{
+			TableIDs:      tabIDs[i : i+1],
+			Infos: []offsets.OffsetTopicInfo{
 				{
 					TopicID: defaultTopicID,
-					PartitionInfos: []offsets.LastReadableOffsetUpdatedPartitionInfo{
+					PartitionInfos: []offsets.OffsetPartitionInfo{
 						{
-							PartitionID:        defaultPartitionID,
-							LastReadableOffset: int64((i+1)*1000 - 1),
+							PartitionID: defaultPartitionID,
+							Offset:      int64((i+1)*1000 - 1),
 						},
 					},
 				},
@@ -1540,17 +1540,17 @@ func TestFetcherResetSequence(t *testing.T) {
 	// send initial notifications
 	var seq int64
 	for i := 0; i < numBatches; i++ {
-		err := fetcher.recentTables.handleTableRegisteredNotification(&control.TableRegisteredNotification{
+		err := fetcher.recentTables.handleTableRegisteredNotification(&control.TablesRegisteredNotification{
 			LeaderVersion: 1,
 			Sequence:      seq,
-			ID:            tabIDs[i],
-			Infos: []offsets.LastReadableOffsetUpdatedTopicInfo{
+			TableIDs:      tabIDs[i : i+1],
+			Infos: []offsets.OffsetTopicInfo{
 				{
 					TopicID: defaultTopicID,
-					PartitionInfos: []offsets.LastReadableOffsetUpdatedPartitionInfo{
+					PartitionInfos: []offsets.OffsetPartitionInfo{
 						{
-							PartitionID:        defaultPartitionID,
-							LastReadableOffset: int64((i+1)*1000 - 1),
+							PartitionID: defaultPartitionID,
+							Offset:      int64((i+1)*1000 - 1),
 						},
 					},
 				},
@@ -1575,14 +1575,14 @@ func TestFetcherResetSequence(t *testing.T) {
 
 	// now send notification out of sequence - should cause partition states to be invalidated
 	seq++
-	err := fetcher.recentTables.handleTableRegisteredNotification(&control.TableRegisteredNotification{
+	err := fetcher.recentTables.handleTableRegisteredNotification(&control.TablesRegisteredNotification{
 		LeaderVersion: 1,
 		Sequence:      seq,
-		ID:            tabIDs[numBatches-1],
-		Infos: []offsets.LastReadableOffsetUpdatedTopicInfo{
+		TableIDs:      []sst.SSTableID{tabIDs[numBatches-1]},
+		Infos: []offsets.OffsetTopicInfo{
 			{
 				TopicID: defaultTopicID,
-				PartitionInfos: []offsets.LastReadableOffsetUpdatedPartitionInfo{
+				PartitionInfos: []offsets.OffsetPartitionInfo{
 					{
 						PartitionID: defaultPartitionID,
 					},
@@ -1616,17 +1616,17 @@ func TestFetcherResetSequence(t *testing.T) {
 	seq = 0
 
 	for i := 0; i < numBatches; i++ {
-		err := fetcher.recentTables.handleTableRegisteredNotification(&control.TableRegisteredNotification{
+		err := fetcher.recentTables.handleTableRegisteredNotification(&control.TablesRegisteredNotification{
 			LeaderVersion: 1,
 			Sequence:      seq,
-			ID:            tabIDs[i],
-			Infos: []offsets.LastReadableOffsetUpdatedTopicInfo{
+			TableIDs:      tabIDs[i : i+1],
+			Infos: []offsets.OffsetTopicInfo{
 				{
 					TopicID: defaultTopicID,
-					PartitionInfos: []offsets.LastReadableOffsetUpdatedPartitionInfo{
+					PartitionInfos: []offsets.OffsetPartitionInfo{
 						{
-							PartitionID:        defaultPartitionID,
-							LastReadableOffset: 5000 + int64((i+1)*1000-1),
+							PartitionID: defaultPartitionID,
+							Offset:      5000 + int64((i+1)*1000-1),
 						},
 					},
 				},
@@ -1665,17 +1665,17 @@ func TestFetcherInvalidateOnLeaderChange(t *testing.T) {
 	// send initial notifications
 	var seq int64
 	for i := 0; i < numBatches; i++ {
-		err := fetcher.recentTables.handleTableRegisteredNotification(&control.TableRegisteredNotification{
+		err := fetcher.recentTables.handleTableRegisteredNotification(&control.TablesRegisteredNotification{
 			LeaderVersion: 1,
 			Sequence:      seq,
-			ID:            tabIDs[i],
-			Infos: []offsets.LastReadableOffsetUpdatedTopicInfo{
+			TableIDs:      tabIDs[i : i+1],
+			Infos: []offsets.OffsetTopicInfo{
 				{
 					TopicID: defaultTopicID,
-					PartitionInfos: []offsets.LastReadableOffsetUpdatedPartitionInfo{
+					PartitionInfos: []offsets.OffsetPartitionInfo{
 						{
-							PartitionID:        defaultPartitionID,
-							LastReadableOffset: int64((i+1)*1000 - 1),
+							PartitionID: defaultPartitionID,
+							Offset:      int64((i+1)*1000 - 1),
 						},
 					},
 				},
@@ -1714,17 +1714,17 @@ func TestFetcherInvalidateOnLeaderChange(t *testing.T) {
 	batches, tabIDs = setupDataDefault(t, 5000, 5000+lastOff, 5000+lastOff, numBatches, numBatches, topicProvider, controlClient, objStore)
 
 	for i := 0; i < numBatches; i++ {
-		err := fetcher.recentTables.handleTableRegisteredNotification(&control.TableRegisteredNotification{
+		err := fetcher.recentTables.handleTableRegisteredNotification(&control.TablesRegisteredNotification{
 			LeaderVersion: 2,
 			Sequence:      seq,
-			ID:            tabIDs[i],
-			Infos: []offsets.LastReadableOffsetUpdatedTopicInfo{
+			TableIDs:      tabIDs[i : i+1],
+			Infos: []offsets.OffsetTopicInfo{
 				{
 					TopicID: defaultTopicID,
-					PartitionInfos: []offsets.LastReadableOffsetUpdatedPartitionInfo{
+					PartitionInfos: []offsets.OffsetPartitionInfo{
 						{
-							PartitionID:        defaultPartitionID,
-							LastReadableOffset: 5000 + int64((i+1)*1000-1),
+							PartitionID: defaultPartitionID,
+							Offset:      5000 + int64((i+1)*1000-1),
 						},
 					},
 				},
@@ -1820,17 +1820,17 @@ func TestFetcherNotificationWithInvalidLeaderVersion(t *testing.T) {
 
 	var seq int64
 	// send notification for first table
-	err := fetcher.recentTables.handleTableRegisteredNotification(&control.TableRegisteredNotification{
+	err := fetcher.recentTables.handleTableRegisteredNotification(&control.TablesRegisteredNotification{
 		LeaderVersion: 1,
-		ID:            tabIDs[0],
+		TableIDs:      tabIDs[0:1],
 		Sequence:      seq,
-		Infos: []offsets.LastReadableOffsetUpdatedTopicInfo{
+		Infos: []offsets.OffsetTopicInfo{
 			{
 				TopicID: defaultTopicID,
-				PartitionInfos: []offsets.LastReadableOffsetUpdatedPartitionInfo{
+				PartitionInfos: []offsets.OffsetPartitionInfo{
 					{
-						PartitionID:        defaultPartitionID,
-						LastReadableOffset: 999,
+						PartitionID: defaultPartitionID,
+						Offset:      999,
 					},
 				},
 			},
@@ -1840,17 +1840,17 @@ func TestFetcherNotificationWithInvalidLeaderVersion(t *testing.T) {
 
 	// Next notification should be ignored as wrong leader version
 	seq++
-	err = fetcher.recentTables.handleTableRegisteredNotification(&control.TableRegisteredNotification{
+	err = fetcher.recentTables.handleTableRegisteredNotification(&control.TablesRegisteredNotification{
 		LeaderVersion: 0,
-		ID:            tabIDs[1],
+		TableIDs:      tabIDs[1:2],
 		Sequence:      seq,
-		Infos: []offsets.LastReadableOffsetUpdatedTopicInfo{
+		Infos: []offsets.OffsetTopicInfo{
 			{
 				TopicID: defaultTopicID,
-				PartitionInfos: []offsets.LastReadableOffsetUpdatedPartitionInfo{
+				PartitionInfos: []offsets.OffsetPartitionInfo{
 					{
-						PartitionID:        defaultPartitionID,
-						LastReadableOffset: 1999,
+						PartitionID: defaultPartitionID,
+						Offset:      1999,
 					},
 				},
 			},
@@ -1943,6 +1943,46 @@ func testFetcherErrorUnknownPartition(t *testing.T, partitionID int) {
 	require.Equal(t, 1, len(topicResp.Partitions))
 	partResp := topicResp.Partitions[0]
 	require.Equal(t, kafkaprotocol.ErrorCodeUnknownTopicOrPartition, int(partResp.ErrorCode))
+}
+
+func TestFetcherTableNotificationWithMultipleTables(t *testing.T) {
+	fetcher, topicProvider, controlClient, objStore := setupFetcher(t)
+	defer stopFetcher(t, fetcher)
+
+	topicProvider.infos[defaultTopicName] = topicmeta.TopicInfo{
+		ID:             defaultTopicID,
+		Name:           defaultTopicName,
+		PartitionCount: defaultNumPartitions,
+	}
+	controlClient.setLastReadableOffset(defaultTopicID, defaultPartitionID, -1)
+
+	// Initialise
+	resp := sendFetchDefault(t, 0, 0, 0, defaultMaxBytes, defaultMaxBytes, fetcher)
+	verifyDefaultResponse(t, resp, nil)
+
+	batches, tabIds := setupDataDefault(t, 0, 9999, 9999, 10, 10, topicProvider, controlClient, objStore)
+
+	// send a notification with all the tables
+	err := fetcher.recentTables.handleTableRegisteredNotification(&control.TablesRegisteredNotification{
+		LeaderVersion: 1,
+		TableIDs:      tabIds,
+		Infos: []offsets.OffsetTopicInfo{
+			{
+				TopicID: defaultTopicID,
+				PartitionInfos: []offsets.OffsetPartitionInfo{
+					{
+						PartitionID: defaultPartitionID,
+						Offset:      9999,
+					},
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	// should get everything
+	resp = sendFetchDefault(t, 0, 0, 0, defaultMaxBytes, defaultMaxBytes, fetcher)
+	verifyDefaultResponse(t, resp, batches)
 }
 
 func setupFetcher(t *testing.T) (*BatchFetcher, *testTopicProvider, *testControlClient, objstore.Client) {

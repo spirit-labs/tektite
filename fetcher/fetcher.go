@@ -137,9 +137,9 @@ func (b *BatchFetcher) Stop() error {
 	return nil
 }
 
-func (b *BatchFetcher) HandleTableRegisteredNotification(ctx *transport.ConnectionContext, request []byte,
+func (b *BatchFetcher) HandleTableRegisteredNotification(_ *transport.ConnectionContext, request []byte,
 	_ []byte, _ transport.ResponseWriter) error {
-	notif := &control.TableRegisteredNotification{}
+	notif := &control.TablesRegisteredNotification{}
 	notif.Deserialize(request, 0)
 	return b.recentTables.handleTableRegisteredNotification(notif)
 }
@@ -181,8 +181,8 @@ func (b *BatchFetcher) getClient() (ControlClient, error) {
 	return b.controlClients.getClient()
 }
 
-func (p *BatchFetcher) MembershipChanged(membership cluster.MembershipState) error {
-	p.recentTables.membershipChanged(membership)
+func (b *BatchFetcher) MembershipChanged(membership cluster.MembershipState) error {
+	b.recentTables.membershipChanged(membership)
 	return nil
 }
 

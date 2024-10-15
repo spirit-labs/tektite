@@ -11,50 +11,21 @@ import (
 
 type RegisterL0Request struct {
 	LeaderVersion int
-	OffsetInfos   []offsets.UpdateWrittenOffsetTopicInfo
+	Sequence int64
 	RegEntry      lsm.RegistrationEntry
 }
 
 func (r *RegisterL0Request) Serialize(buff []byte) []byte {
 	buff = binary.BigEndian.AppendUint64(buff, uint64(r.LeaderVersion))
-	buff = binary.BigEndian.AppendUint32(buff, uint32(len(r.OffsetInfos)))
-	for _, topicInfo := range r.OffsetInfos {
-		buff = binary.BigEndian.AppendUint64(buff, uint64(topicInfo.TopicID))
-		buff = binary.BigEndian.AppendUint32(buff, uint32(len(topicInfo.PartitionInfos)))
-		for _, partitionInfo := range topicInfo.PartitionInfos {
-			buff = binary.BigEndian.AppendUint64(buff, uint64(partitionInfo.PartitionID))
-			buff = binary.BigEndian.AppendUint64(buff, uint64(partitionInfo.OffsetStart))
-			buff = binary.BigEndian.AppendUint32(buff, uint32(partitionInfo.NumOffsets))
-		}
-	}
+	buff = binary.BigEndian.AppendUint64(buff, uint64(r.Sequence))
 	return r.RegEntry.Serialize(buff)
 }
 
 func (r *RegisterL0Request) Deserialize(buff []byte, offset int) int {
 	r.LeaderVersion = int(binary.BigEndian.Uint64(buff[offset:]))
 	offset += 8
-	numTopicOffsets := int(binary.BigEndian.Uint32(buff[offset:]))
-	offset += 4
-	r.OffsetInfos = make([]offsets.UpdateWrittenOffsetTopicInfo, numTopicOffsets)
-	for i := 0; i < numTopicOffsets; i++ {
-		var topicOffsets offsets.UpdateWrittenOffsetTopicInfo
-		topicOffsets.TopicID = int(binary.BigEndian.Uint64(buff[offset:]))
-		offset += 8
-		numPartitionOffsets := int(binary.BigEndian.Uint32(buff[offset:]))
-		offset += 4
-		topicOffsets.PartitionInfos = make([]offsets.UpdateWrittenOffsetPartitionInfo, numPartitionOffsets)
-		for j := 0; j < numPartitionOffsets; j++ {
-			var partitionInfo offsets.UpdateWrittenOffsetPartitionInfo
-			partitionInfo.PartitionID = int(binary.BigEndian.Uint64(buff[offset:]))
-			offset += 8
-			partitionInfo.OffsetStart = int64(binary.BigEndian.Uint64(buff[offset:]))
-			offset += 8
-			partitionInfo.NumOffsets = int(binary.BigEndian.Uint32(buff[offset:]))
-			offset += 4
-			topicOffsets.PartitionInfos[j] = partitionInfo
-		}
-		r.OffsetInfos[i] = topicOffsets
-	}
+	r.Sequence = int64(binary.BigEndian.Uint64(buff[offset:]))
+	offset += 8
 	return r.RegEntry.Deserialize(buff, offset)
 }
 
@@ -201,25 +172,50 @@ func (g *GetOffsetsRequest) Deserialize(buff []byte, offset int) int {
 }
 
 type GetOffsetsResponse struct {
-	Offsets []int64
+	Offsets []offsets.OffsetTopicInfo
+	Sequence int64
 }
 
 func (g *GetOffsetsResponse) Serialize(buff []byte) []byte {
 	buff = binary.BigEndian.AppendUint32(buff, uint32(len(g.Offsets)))
 	for _, offset := range g.Offsets {
-		buff = binary.BigEndian.AppendUint64(buff, uint64(offset))
+		buff = binary.BigEndian.AppendUint64(buff, uint64(offset.TopicID))
+		buff = binary.BigEndian.AppendUint32(buff, uint32(len(offset.PartitionInfos)))
+		for _, partOffset := range offset.PartitionInfos {
+			buff = binary.BigEndian.AppendUint64(buff, uint64(partOffset.PartitionID))
+			buff = binary.BigEndian.AppendUint64(buff, uint64(partOffset.Offset))
+		}
 	}
-	return buff
+	return binary.BigEndian.AppendUint64(buff, uint64(g.Sequence))
 }
 
 func (g *GetOffsetsResponse) Deserialize(buff []byte, offset int) int {
 	numOffsets := int(binary.BigEndian.Uint32(buff[offset:]))
 	offset += 4
-	g.Offsets = make([]int64, numOffsets)
+	g.Offsets = make([]offsets.OffsetTopicInfo, numOffsets)
 	for i := 0; i < numOffsets; i++ {
-		g.Offsets[i] = int64(binary.BigEndian.Uint64(buff[offset:]))
+		topicID := int(binary.BigEndian.Uint64(buff[offset:]))
 		offset += 8
+		numPartOffsets := int(binary.BigEndian.Uint32(buff[offset:]))
+		offset += 4
+		partInfos := make([]offsets.OffsetPartitionInfo, numPartOffsets)
+		for j := 0; j < numPartOffsets; j++ {
+			partitionID := int(binary.BigEndian.Uint64(buff[offset:]))
+			offset += 8
+			off := int64(binary.BigEndian.Uint64(buff[offset:]))
+			offset += 8
+			partInfos[j] = offsets.OffsetPartitionInfo{
+				PartitionID: partitionID,
+				Offset:      off,
+			}
+		}
+		g.Offsets[i] = offsets.OffsetTopicInfo{
+			TopicID:        topicID,
+			PartitionInfos: partInfos,
+		}
 	}
+	g.Sequence = int64(binary.BigEndian.Uint64(buff[offset:]))
+	offset += 8
 	return offset
 }
 
@@ -299,56 +295,65 @@ func (g *DeleteTopicRequest) Deserialize(buff []byte, offset int) int {
 	return offset
 }
 
-type TableRegisteredNotification struct {
+type TablesRegisteredNotification struct {
 	Sequence int64
 	LeaderVersion int
-	ID       sst.SSTableID
-	Infos    []offsets.LastReadableOffsetUpdatedTopicInfo
+	TableIDs       []sst.SSTableID
+	Infos    []offsets.OffsetTopicInfo
 }
 
-func (r *TableRegisteredNotification) Serialize(buff []byte) []byte {
+func (r *TablesRegisteredNotification) Serialize(buff []byte) []byte {
 	buff = binary.BigEndian.AppendUint64(buff, uint64(r.Sequence))
 	buff = binary.BigEndian.AppendUint64(buff, uint64(r.LeaderVersion))
-	buff = binary.BigEndian.AppendUint32(buff, uint32(len(r.ID)))
-	buff = append(buff, r.ID...)
+	buff = binary.BigEndian.AppendUint32(buff, uint32(len(r.TableIDs)))
+	for _, id := range r.TableIDs {
+		buff = binary.BigEndian.AppendUint32(buff, uint32(len(id)))
+		buff = append(buff, id...)
+	}
 	buff = binary.BigEndian.AppendUint32(buff, uint32(len(r.Infos)))
 	for _, info := range r.Infos {
 		buff = binary.BigEndian.AppendUint64(buff, uint64(info.TopicID))
 		buff = binary.BigEndian.AppendUint32(buff, uint32(len(info.PartitionInfos)))
 		for _, partInfo := range info.PartitionInfos {
 			buff = binary.BigEndian.AppendUint64(buff, uint64(partInfo.PartitionID))
-			buff = binary.BigEndian.AppendUint64(buff, uint64(partInfo.LastReadableOffset))
+			buff = binary.BigEndian.AppendUint64(buff, uint64(partInfo.Offset))
 		}
 	}
 	return buff
 }
 
-func (r *TableRegisteredNotification) Deserialize(buff []byte, offset int) int {
+func (r *TablesRegisteredNotification) Deserialize(buff []byte, offset int) int {
 	r.Sequence = int64(binary.BigEndian.Uint64(buff[offset:]))
 	offset += 8
 	r.LeaderVersion = int(binary.BigEndian.Uint64(buff[offset:]))
 	offset += 8
 	ln := int(binary.BigEndian.Uint32(buff[offset:]))
 	offset += 4
-	id := buff[offset : offset+ln]
-	r.ID = make([]byte, len(id))
-	copy(r.ID, id)
-	offset += ln
+	r.TableIDs = make([]sst.SSTableID, ln)
+	for i := 0; i < ln; i++ {
+		lid := int(binary.BigEndian.Uint32(buff[offset:]))
+		offset += 4
+		id := buff[offset : offset+lid]
+		copied := make([]byte, len(id))
+		copy(copied, id)
+		r.TableIDs[i] = copied
+		offset += lid
+	}
 	nt := int(binary.BigEndian.Uint32(buff[offset:]))
 	offset += 4
-	r.Infos = make([]offsets.LastReadableOffsetUpdatedTopicInfo, nt)
+	r.Infos = make([]offsets.OffsetTopicInfo, nt)
 	for i := 0; i < nt; i++ {
 		topicInfo := &r.Infos[i]
 		topicInfo.TopicID = int(binary.BigEndian.Uint64(buff[offset:]))
 		offset += 8
 		np := int(binary.BigEndian.Uint32(buff[offset:]))
 		offset += 4
-		topicInfo.PartitionInfos = make([]offsets.LastReadableOffsetUpdatedPartitionInfo, np)
+		topicInfo.PartitionInfos = make([]offsets.OffsetPartitionInfo, np)
 		for j := 0; j < np; j++ {
 			partInfo := &topicInfo.PartitionInfos[j]
 			partInfo.PartitionID = int(binary.BigEndian.Uint64(buff[offset:]))
 			offset += 8
-			partInfo.LastReadableOffset = int64(binary.BigEndian.Uint64(buff[offset:]))
+			partInfo.Offset = int64(binary.BigEndian.Uint64(buff[offset:]))
 			offset += 8
 		}
 	}

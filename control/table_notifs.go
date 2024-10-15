@@ -86,10 +86,11 @@ func (t *tableListeners) scheduleNotifTimer() {
 }
 
 func (t *tableListeners) maybeSendEmptyNotification() {
-	var notif TableRegisteredNotification
-	buff := notif.Serialize(nil)
 	now := arista.NanoTime()
 	period := uint64(t.notificationInterval.Nanoseconds())
+	var notif TablesRegisteredNotification
+	notif.LeaderVersion = t.leaderVersion
+	buff := notif.Serialize(nil)
 	for _, listener := range t.tableAddedListeners {
 		listener.maybeSendPeriodicNotification(buff, now, period)
 	}
@@ -219,10 +220,9 @@ func (t *tableListeners) resetListener(listener *tableAddedListener, resetSequen
 	listener.resetSequence = resetSequence
 }
 
-func (t *tableListeners) sendTableRegisteredNotification(tableID sst.SSTableID, infos []offsets.LastReadableOffsetUpdatedTopicInfo) error {
+func (t *tableListeners) sendTableRegisteredNotification(tableIDs []sst.SSTableID, infos []offsets.OffsetTopicInfo) error {
 	t.lock.RLock()
 	defer t.lock.RUnlock()
-
 	// Figure out which agents are interested in this notification
 	agentIDs := map[int]struct{}{}
 	for _, topicInfo := range infos {
@@ -239,9 +239,9 @@ func (t *tableListeners) sendTableRegisteredNotification(tableID sst.SSTableID, 
 		}
 	}
 	// Create notification
-	notif := TableRegisteredNotification{
+	notif := TablesRegisteredNotification{
 		LeaderVersion: t.leaderVersion,
-		ID:            tableID,
+		TableIDs:      tableIDs,
 		Infos:         infos,
 	}
 	// Look up agents and send notification. It is sent one way (fire and forget) so we don't block waiting for a

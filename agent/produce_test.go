@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"github.com/google/uuid"
 	"github.com/spirit-labs/tektite/asl/encoding"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/control"
@@ -321,7 +322,10 @@ func TestProduceSimpleWithReload(t *testing.T) {
 
 	// Restart agent, and send another batch
 
-	agent, tearDown = setupAgentWithObjStore(t, nil, cfg, objStore)
+	inMemMemberships := NewInMemClusterMemberships()
+	inMemMemberships.Start()
+	localTransports := transport.NewLocalTransports()
+	agent, tearDown = setupAgentWithArgs(t, cfg, objStore, inMemMemberships, localTransports)
 	defer tearDown(t)
 
 	batch2 := testutils.CreateKafkaRecordBatchWithIncrementingKVs(100, 100)
@@ -372,31 +376,30 @@ func TestProduceSimpleWithReload(t *testing.T) {
 		agent.Conf().PusherConf.DataBucketName, objStore)
 }
 
-func setupAgentWithObjStore(t *testing.T, topicInfos []topicmeta.TopicInfo, cfg Conf, objStore objstore.Client) (*Agent, func(t *testing.T)) {
+func setupAgentWithArgs(t *testing.T, cfg Conf, objStore objstore.Client, inMemMemberships *InMemClusterMemberships, localTransports *transport.LocalTransports) (*Agent, func(t *testing.T)) {
 	kafkaAddress, err := common.AddressWithPort("localhost")
 	require.NoError(t, err)
 	cfg.KafkaListenerConfig.Address = kafkaAddress
-	localTransports := transport.NewLocalTransports()
-	transportServer, err := localTransports.NewLocalServer("test-address")
+	transportServer, err := localTransports.NewLocalServer(uuid.New().String())
 	require.NoError(t, err)
-	inMemMemberships := NewInMemClusterMemberships()
-	inMemMemberships.Start()
 	agent, err := NewAgentWithFactories(cfg, objStore, localTransports.CreateConnection, transportServer, inMemMemberships.NewMembership)
 	require.NoError(t, err)
 	err = agent.Start()
 	require.NoError(t, err)
-	setupTopics(t, agent, topicInfos)
 	tearDown := func(t *testing.T) {
 		err := agent.Stop()
 		require.NoError(t, err)
-		inMemMemberships.Stop()
 	}
 	return agent, tearDown
 }
 
 func setupAgent(t *testing.T, topicInfos []topicmeta.TopicInfo, cfg Conf) (*Agent, *dev.InMemStore, func(t *testing.T)) {
 	objStore := dev.NewInMemStore(0)
-	agent, tearDown := setupAgentWithObjStore(t, topicInfos, cfg, objStore)
+	inMemMemberships := NewInMemClusterMemberships()
+	inMemMemberships.Start()
+	localTransports := transport.NewLocalTransports()
+	agent, tearDown := setupAgentWithArgs(t, cfg, objStore, inMemMemberships, localTransports)
+	setupTopics(t, agent, topicInfos)
 	return agent, objStore, tearDown
 }
 

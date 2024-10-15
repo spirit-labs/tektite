@@ -191,14 +191,14 @@ func (c *Controller) handleRegisterL0Table(_ *transport.ConnectionContext, reque
 		if err != nil {
 			return responseWriter(nil, err)
 		}
-		lastReadableInfos, err := c.offsetsCache.UpdateWrittenOffsets(req.OffsetInfos)
+		offsetInfos, tableIDs, err := c.offsetsCache.MaybeReleaseOffsets(req.Sequence, req.RegEntry.TableID)
 		if err != nil {
 			return err
 		}
-		// Note, if no readable offsets updated we will still send back a notification with the table id so it
-		// can be cached on the fetcher
-		if err := c.tableListeners.sendTableRegisteredNotification(req.RegEntry.TableID, lastReadableInfos); err != nil {
-			return err
+		if len(tableIDs) > 0 {
+			if err := c.tableListeners.sendTableRegisteredNotification(tableIDs, offsetInfos); err != nil {
+				return err
+			}
 		}
 		// Send back zero byte to represent nil OK response
 		responseBuff = append(responseBuff, 0)
@@ -304,11 +304,14 @@ func (c *Controller) handleGetOffsets(_ *transport.ConnectionContext, request []
 	if err := c.checkLeaderVersion(req.LeaderVersion); err != nil {
 		return responseWriter(nil, err)
 	}
-	offs, err := c.offsetsCache.GetOffsets(req.Infos)
+	offs, seq, err := c.offsetsCache.GetOffsets(req.Infos)
 	if err != nil {
 		return responseWriter(nil, err)
 	}
-	resp := GetOffsetsResponse{Offsets: offs}
+	resp := GetOffsetsResponse{
+		Offsets:  offs,
+		Sequence: seq,
+	}
 	responseBuff = resp.Serialize(responseBuff)
 	return responseWriter(responseBuff, nil)
 }
