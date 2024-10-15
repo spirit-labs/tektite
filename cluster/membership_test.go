@@ -34,6 +34,7 @@ func TestJoinSequential(t *testing.T) {
 		state, err := membership.GetState()
 		require.NoError(t, err)
 		require.Equal(t, i+1, state.ClusterVersion)
+		require.Equal(t, 1, state.LeaderVersion)
 	}
 	for _, membership := range memberships {
 		state, err := membership.GetState()
@@ -112,6 +113,7 @@ func TestJoinParallel(t *testing.T) {
 		state, err := membership.GetState()
 		require.NoError(t, err)
 		require.Equal(t, numMembers, state.ClusterVersion)
+		require.Equal(t, 1, state.LeaderVersion)
 	}
 }
 
@@ -159,6 +161,79 @@ func TestEviction(t *testing.T) {
 	finalState, err := memberships[0].GetState()
 	require.NoError(t, err)
 	require.Equal(t, 1, len(finalState.Members))
+}
+
+func TestLeaderVersionChangedOnEviction(t *testing.T) {
+	t.Parallel()
+	objStore := dev.NewInMemStore(0)
+	var memberships []*Membership
+	defer func() {
+		for _, membership := range memberships {
+			err := membership.Stop()
+			require.NoError(t, err)
+		}
+	}()
+	numMembers := 5
+	for i := 0; i < numMembers; i++ {
+		address := fmt.Sprintf("address-%d", i)
+		cfg := createConfig()
+		cfg.EvictionDuration = 1 * time.Second
+		memberShip := NewMembership(cfg, address, objStore, func(state MembershipState) error {
+			return nil
+		})
+		err := memberShip.Start()
+		require.NoError(t, err)
+		memberships = append(memberships, memberShip)
+		waitForMembers(t, memberships...)
+	}
+
+	// evict 0 - should cause leader version to increment
+	err := memberships[0].Stop()
+	require.NoError(t, err)
+	memberships = memberships[1:]
+	// wait to be evicted
+	waitForMembers(t, memberships...)
+	for _, membership := range memberships {
+		state, err := membership.GetState()
+		require.NoError(t, err)
+		require.Equal(t, 2, state.LeaderVersion)
+	}
+
+	// evict 1 - not leader so shouldn't cause increment
+	err = memberships[1].Stop()
+	require.NoError(t, err)
+	memberships = append(memberships[0:1], memberships[2:]...)
+	// wait to be evicted
+	waitForMembers(t, memberships...)
+	for _, membership := range memberships {
+		state, err := membership.GetState()
+		require.NoError(t, err)
+		require.Equal(t, 2, state.LeaderVersion)
+	}
+
+	// evict 2 - not leader so shouldn't cause increment
+	err = memberships[2].Stop()
+	require.NoError(t, err)
+	memberships = memberships[:2]
+	// wait to be evicted
+	waitForMembers(t, memberships...)
+	for _, membership := range memberships {
+		state, err := membership.GetState()
+		require.NoError(t, err)
+		require.Equal(t, 2, state.LeaderVersion)
+	}
+
+	// evict 0 - leader
+	err = memberships[0].Stop()
+	require.NoError(t, err)
+	memberships = memberships[1:]
+	// wait to be evicted
+	waitForMembers(t, memberships...)
+	for _, membership := range memberships {
+		state, err := membership.GetState()
+		require.NoError(t, err)
+		require.Equal(t, 3, state.LeaderVersion)
+	}
 }
 
 func waitForMembers(t *testing.T, memberships ...*Membership) {

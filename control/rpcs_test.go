@@ -12,7 +12,7 @@ import (
 
 func TestSerializeDeserializeRegisterL0Request(t *testing.T) {
 	req := RegisterL0Request{
-		ClusterVersion: 4555,
+		LeaderVersion: 4555,
 		OffsetInfos: []offsets.UpdateWrittenOffsetTopicInfo{
 			{
 				TopicID: 1234,
@@ -80,7 +80,7 @@ func TestSerializeDeserializeRegisterL0Request(t *testing.T) {
 
 func TestSerializeDeserializeApplyChangesRequest(t *testing.T) {
 	req := ApplyChangesRequest{
-		ClusterVersion: 4555,
+		LeaderVersion: 4555,
 		RegBatch: lsm.RegistrationBatch{
 			Compaction: true,
 			JobID:      "job-12345",
@@ -121,24 +121,24 @@ func TestSerializeDeserializeApplyChangesRequest(t *testing.T) {
 
 func TestSerializeDeserializeQueryTablesInRangeRequest(t *testing.T) {
 	req := QueryTablesInRangeRequest{
-		ClusterVersion: 567456,
-		KeyStart:       []byte("keystart1"),
-		KeyEnd:         []byte("keyend1"),
+		LeaderVersion: 567456,
+		KeyStart:      []byte("keystart1"),
+		KeyEnd:        []byte("keyend1"),
 	}
 	testSerializeDeserializeQueryTablesInRangeRequest(t, req)
 
 	// And with nil ranges
 	req = QueryTablesInRangeRequest{
-		ClusterVersion: 456456,
-		KeyStart:       nil,
-		KeyEnd:         []byte("keyend1"),
+		LeaderVersion: 456456,
+		KeyStart:      nil,
+		KeyEnd:        []byte("keyend1"),
 	}
 	testSerializeDeserializeQueryTablesInRangeRequest(t, req)
 
 	req = QueryTablesInRangeRequest{
-		ClusterVersion: 23424,
-		KeyStart:       nil,
-		KeyEnd:         nil,
+		LeaderVersion: 23424,
+		KeyStart:      nil,
+		KeyEnd:        nil,
 	}
 	testSerializeDeserializeQueryTablesInRangeRequest(t, req)
 }
@@ -155,11 +155,11 @@ func testSerializeDeserializeQueryTablesInRangeRequest(t *testing.T, req QueryTa
 
 func TestSerializeDeserializeRegisterTableListenerRequest(t *testing.T) {
 	req := RegisterTableListenerRequest{
-		ClusterVersion: 567456,
-		TopicID:        123123,
-		PartitionID:    34546,
-		Address:        "some address",
-		ResetSequence:  123456,
+		LeaderVersion: 567456,
+		TopicID:       123123,
+		PartitionID:   34546,
+		Address:       "some address",
+		ResetSequence: 123456,
 	}
 	var buff []byte
 	buff = append(buff, 1, 2, 3)
@@ -185,7 +185,7 @@ func TestSerializeDeserializeRegisterTableListenerResponse(t *testing.T) {
 
 func TestSerializeDeserializeGetOffsetsRequest(t *testing.T) {
 	req := GetOffsetsRequest{
-		ClusterVersion: 4536,
+		LeaderVersion: 4536,
 		Infos: []offsets.GetOffsetTopicInfo{
 
 			{
@@ -233,8 +233,8 @@ func TestSerializeDeserializeGetOffsetsResponse(t *testing.T) {
 
 func TestSerializeDeserializeGetTopicInfoRequest(t *testing.T) {
 	req := GetTopicInfoRequest{
-		ClusterVersion: 123,
-		TopicName:      "some-topic",
+		LeaderVersion: 123,
+		TopicName:     "some-topic",
 	}
 	var buff []byte
 	buff = append(buff, 1, 2, 3)
@@ -266,7 +266,7 @@ func TestSerializeDeserializeGetTopicInfoResponse(t *testing.T) {
 
 func TestSerializeDeserializeCreateTopicRequest(t *testing.T) {
 	req := CreateTopicRequest{
-		ClusterVersion: 123,
+		LeaderVersion: 123,
 		Info: topicmeta.TopicInfo{
 			ID:             23423,
 			Name:           "some-topic",
@@ -285,8 +285,8 @@ func TestSerializeDeserializeCreateTopicRequest(t *testing.T) {
 
 func TestSerializeDeserializeDeleteTopicRequest(t *testing.T) {
 	req := DeleteTopicRequest{
-		ClusterVersion: 123,
-		TopicName:      "some-topic",
+		LeaderVersion: 123,
+		TopicName:     "some-topic",
 	}
 	var buff []byte
 	buff = append(buff, 1, 2, 3)
@@ -299,6 +299,7 @@ func TestSerializeDeserializeDeleteTopicRequest(t *testing.T) {
 
 func TestSerializeDeserializeTableRegisteredNotification(t *testing.T) {
 	notif := TableRegisteredNotification{
+		LeaderVersion: 23,
 		Sequence: 1232343,
 		ID:       []byte("some_table_id"),
 		Infos: []offsets.LastReadableOffsetUpdatedTopicInfo{

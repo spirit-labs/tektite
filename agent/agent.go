@@ -99,10 +99,13 @@ func NewAgentWithFactories(cfg Conf, objStore objstore.Client, connectionFactory
 	if err != nil {
 		return nil, err
 	}
+	transportServer.RegisterHandler(transport.HandlerIDFetcherTableRegisteredNotification, bf.HandleTableRegisteredNotification)
 	agent.batchFetcher = bf
 	agent.kafkaServer = kafkaserver2.NewKafkaServer(cfg.KafkaListenerConfig.Address,
 		cfg.KafkaListenerConfig.TLSConfig, cfg.KafkaListenerConfig.AuthenticationType, agent.newKafkaHandler)
-	agent.membership = clusterMembershipFactory(transportServer.Address(), agent.controller.MembershipChanged)
+	manifold := &membershipChangedManifold{listeners: []MembershipListener{agent.controller.MembershipChanged,
+		bf.MembershipChanged}}
+	agent.membership = clusterMembershipFactory(transportServer.Address(), manifold.membershipChanged)
 	agent.transportServer = transportServer
 	clFactory := func() (lsm.ControllerClient, error) {
 		return agent.controller.Client()
@@ -129,6 +132,19 @@ func (o *objStoreGetter) get(tableID sst.SSTableID) (*sst.SSTable, error) {
 	table := &sst.SSTable{}
 	table.Deserialize(bytes, 0)
 	return table, nil
+}
+
+type membershipChangedManifold struct {
+	listeners []MembershipListener
+}
+
+func (m *membershipChangedManifold) membershipChanged(membership cluster.MembershipState) error {
+	for _, l := range m.listeners {
+		if err := l(membership); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (a *Agent) Start() error {

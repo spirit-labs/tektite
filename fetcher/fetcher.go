@@ -1,6 +1,8 @@
 package fetcher
 
 import (
+	"github.com/spirit-labs/tektite/cluster"
+	"github.com/spirit-labs/tektite/control"
 	"github.com/spirit-labs/tektite/kafkaprotocol"
 	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/lsm"
@@ -8,6 +10,7 @@ import (
 	"github.com/spirit-labs/tektite/parthash"
 	"github.com/spirit-labs/tektite/sst"
 	"github.com/spirit-labs/tektite/topicmeta"
+	"github.com/spirit-labs/tektite/transport"
 	"sync"
 	"sync/atomic"
 )
@@ -134,6 +137,13 @@ func (b *BatchFetcher) Stop() error {
 	return nil
 }
 
+func (b *BatchFetcher) HandleTableRegisteredNotification(ctx *transport.ConnectionContext, request []byte,
+	_ []byte, _ transport.ResponseWriter) error {
+	notif := &control.TableRegisteredNotification{}
+	notif.Deserialize(request, 0)
+	return b.recentTables.handleTableRegisteredNotification(notif)
+}
+
 func (b *BatchFetcher) HandleFetchRequest(req *kafkaprotocol.FetchRequest,
 	completionFunc func(resp *kafkaprotocol.FetchResponse) error) error {
 	pos := atomic.AddInt64(&b.execAssignPos, 1)
@@ -169,6 +179,11 @@ func (b *BatchFetcher) getTableFromCache(tableID sst.SSTableID) (*sst.SSTable, e
 
 func (b *BatchFetcher) getClient() (ControlClient, error) {
 	return b.controlClients.getClient()
+}
+
+func (p *BatchFetcher) MembershipChanged(membership cluster.MembershipState) error {
+	p.recentTables.membershipChanged(membership)
+	return nil
 }
 
 type readExecutor struct {

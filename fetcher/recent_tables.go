@@ -1,6 +1,7 @@
 package fetcher
 
 import (
+	"github.com/spirit-labs/tektite/cluster"
 	"github.com/spirit-labs/tektite/control"
 	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/sst"
@@ -13,7 +14,10 @@ type PartitionRecentTables struct {
 	lock                   sync.RWMutex
 	topicMap               map[int]map[int]*PartitionTables
 	maxEntriesPerPartition int
-	lastReceivedSequence   int64
+	lastReceivedSequence   int
+	currentLeaderVersion   int
+	// We use a separate lock to protect received sequence and leader version so not to contend with fetching table ids
+	sequenceLock sync.Mutex
 }
 
 func CreatePartitionRecentTables(maxEntriesPerPartition int, bf *BatchFetcher) PartitionRecentTables {
@@ -22,6 +26,7 @@ func CreatePartitionRecentTables(maxEntriesPerPartition int, bf *BatchFetcher) P
 		topicMap:               make(map[int]map[int]*PartitionTables),
 		maxEntriesPerPartition: maxEntriesPerPartition,
 		lastReceivedSequence:   -1,
+		currentLeaderVersion:   -1,
 	}
 }
 
@@ -32,6 +37,22 @@ type PartitionTables struct {
 	listeners              []*PartitionFetchState
 	initialised            bool
 	validFromOffset        int64
+}
+
+func (p *PartitionRecentTables) membershipChanged(membership cluster.MembershipState) {
+	p.sequenceLock.Lock()
+	defer p.sequenceLock.Unlock()
+	if p.currentLeaderVersion != -1 && p.currentLeaderVersion != membership.LeaderVersion {
+		// If the leader changed them we invalidate any cached table ids
+		p.maybeInvalidateRecentTables()
+	}
+	p.currentLeaderVersion = membership.LeaderVersion
+}
+
+func (p *PartitionRecentTables) getLastReceivedSequence() int {
+	p.sequenceLock.Lock()
+	defer p.sequenceLock.Unlock()
+	return p.lastReceivedSequence
 }
 
 func (p *PartitionRecentTables) getPartitionMap(topicID int) map[int]*PartitionTables {
@@ -245,15 +266,24 @@ func (p *PartitionRecentTables) createPartitionTables(partitionID int, partition
 	return partitionTables
 }
 
-func (p *PartitionRecentTables) handleTableRegisteredNotification(notification control.TableRegisteredNotification) error {
-	// check sequence number
-	if !atomic.CompareAndSwapInt64(&p.lastReceivedSequence, notification.Sequence-1, notification.Sequence) {
+func (p *PartitionRecentTables) handleTableRegisteredNotification(notification *control.TableRegisteredNotification) error {
+	p.sequenceLock.Lock()
+	defer p.sequenceLock.Unlock()
+	if notification.LeaderVersion != p.currentLeaderVersion {
+		log.Warnf("received table registered notification from invalid leader version expected %d actual %d",
+			p.currentLeaderVersion, notification.LeaderVersion)
+		return nil
+	}
+	if int(notification.Sequence) != p.lastReceivedSequence+1 {
 		// unexpected sequence number
+		log.Warn("batch fetcher received out of sequence readable offsets notification. will invalidate")
 		p.maybeInvalidateRecentTables()
 		return nil
 	}
+	p.lastReceivedSequence = int(notification.Sequence)
 	if notification.ID == nil {
-		// Periodic empty notification - this just updates the sequence number and received time
+		// Periodic empty notification - this just updates the sequence number - we send them so they will highlight
+		// any previous gap in sequence and cause an invalidation
 		return nil
 	}
 	p.lock.RLock()
@@ -285,19 +315,13 @@ func (p *PartitionRecentTables) handleTableRegisteredNotification(notification c
 func (p *PartitionRecentTables) maybeInvalidateRecentTables() {
 	p.lock.Lock()
 	defer p.lock.Unlock()
-	currSequence := atomic.LoadInt64(&p.lastReceivedSequence)
-	if currSequence == -1 {
-		// Ignore - we received another invalid sequence while we were waiting
-		return
-	}
-	log.Warn("batch fetcher received out of sequence readable offsets notification. will invalidate")
 	for _, partitionTables := range p.topicMap {
 		for _, partition := range partitionTables {
 			partition.invalidate()
 		}
 	}
 	// Reset to -1, then next good sequence will be zero
-	atomic.StoreInt64(&p.lastReceivedSequence, -1)
+	p.lastReceivedSequence = -1
 	// Increment reset sequence
 	atomic.AddInt64(&p.bf.resetSequence, 1)
 }
