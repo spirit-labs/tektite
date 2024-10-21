@@ -17,6 +17,7 @@ import (
 	"github.com/spirit-labs/tektite/topicmeta"
 	"github.com/stretchr/testify/require"
 	"math"
+	"math/rand"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -46,8 +47,22 @@ func TestTablePusherHandleProduceBatchSimple(t *testing.T) {
 	cfg.WriteTimeout = 1 * time.Millisecond // So it pushes straightaway
 	objStore := dev.NewInMemStore(0)
 	topicID := 1234
+	seq := int64(23)
+	numRecordsInBatch := 10
+
 	controllerClient := &testControllerClient{
-		offsets: map[int]map[int]int64{},
+		sequence: seq,
+		offsets: []offsets.OffsetTopicInfo{
+			{
+				TopicID: topicID,
+				PartitionInfos: []offsets.OffsetPartitionInfo{
+					{
+						PartitionID: 12,
+						Offset:      int64(numRecordsInBatch - 1),
+					},
+				},
+			},
+		},
 	}
 	clientFactory := func() (ControlClient, error) {
 		return controllerClient, nil
@@ -66,7 +81,7 @@ func TestTablePusherHandleProduceBatchSimple(t *testing.T) {
 		require.NoError(t, err)
 	}()
 
-	recordBatch := testutils.CreateKafkaRecordBatchWithIncrementingKVs(0, 10)
+	recordBatch := testutils.CreateKafkaRecordBatchWithIncrementingKVs(0, numRecordsInBatch)
 
 	req := kafkaprotocol.ProduceRequest{
 		TransactionalId: nil,
@@ -109,22 +124,33 @@ func TestTablePusherHandleProduceBatchSimple(t *testing.T) {
 		require.Equal(t, recordBatch, kv.Value)
 	}
 
-	// check that table has been registered with LSM, and correct written offsets provided
+	// check getOffsets was called with correct args
+	getOffsetInvocs := controllerClient.getGetOffsetInvocations()
+	require.Equal(t, 1, len(getOffsetInvocs))
+	infos := getOffsetInvocs[0].infos
+
+	expectedInfos := []offsets.GetOffsetTopicInfo{
+		{
+			TopicID: topicID,
+			PartitionInfos: []offsets.GetOffsetPartitionInfo{
+				{
+					PartitionID: 12,
+					NumOffsets:  numRecordsInBatch,
+				},
+			},
+		},
+	}
+
+	require.Equal(t, expectedInfos, infos)
+
+	// check that table has been registered with LSM, and correct sequence provided
 
 	receivedRegs := controllerClient.getRegistrations()
 	require.Equal(t, 1, len(receivedRegs))
 
 	reg := receivedRegs[0].regEntry
 	require.Equal(t, []byte(objects[0].Key), []byte(reg.TableID))
-
-	infos := receivedRegs[0].updateWrittenOffsetInfos
-	require.Equal(t, 1, len(infos))
-	require.Equal(t, topicID, infos[0].TopicID)
-	require.Equal(t, 1, len(infos[0].PartitionInfos))
-	partInfo := infos[0].PartitionInfos[0]
-	require.Equal(t, 12, partInfo.PartitionID)
-	require.Equal(t, 0, int(partInfo.OffsetStart))
-	require.Equal(t, 10, partInfo.NumOffsets)
+	require.Equal(t, seq, receivedRegs[0].seq)
 }
 
 func TestTablePusherHandleProduceBatchMultipleTopicsAndPartitions(t *testing.T) {
@@ -135,16 +161,33 @@ func TestTablePusherHandleProduceBatchMultipleTopicsAndPartitions(t *testing.T) 
 	topicID1 := 1234
 	topicID2 := 4321
 
+	seq := int64(46)
 	controllerClient := &testControllerClient{
-		offsets: map[int]map[int]int64{
-			topicID1: {
-				12: 1002,
-				7:  32,
+		offsets: []offsets.OffsetTopicInfo{
+			{
+				TopicID: topicID1,
+				PartitionInfos: []offsets.OffsetPartitionInfo{
+					{
+						PartitionID: 7,
+						Offset:      32,
+					},
+					{
+						PartitionID: 12,
+						Offset:      1002,
+					},
+				},
 			},
-			topicID2: {
-				23: 564,
+			{
+				TopicID: topicID2,
+				PartitionInfos: []offsets.OffsetPartitionInfo{
+					{
+						PartitionID: 23,
+						Offset:      564,
+					},
+				},
 			},
 		},
+		sequence: seq,
 	}
 	clientFactory := func() (ControlClient, error) {
 		return controllerClient, nil
@@ -220,6 +263,36 @@ func TestTablePusherHandleProduceBatchMultipleTopicsAndPartitions(t *testing.T) 
 
 	checkNoPartitionResponseErrors(t, respCh, &req)
 
+	// verify get offsets called correctly
+	// note, will be sorted in topic, partition order
+	expectedGetOffsets := []offsets.GetOffsetTopicInfo{
+		{
+			TopicID: topicID1,
+			PartitionInfos: []offsets.GetOffsetPartitionInfo{
+				{
+					PartitionID: 7,
+					NumOffsets:  20,
+				},
+				{
+					PartitionID: 12,
+					NumOffsets:  10 + 15,
+				},
+			},
+		},
+		{
+			TopicID: topicID2,
+			PartitionInfos: []offsets.GetOffsetPartitionInfo{
+				{
+					PartitionID: 23,
+					NumOffsets:  25,
+				},
+			},
+		},
+	}
+	getOffsetInvs := controllerClient.getGetOffsetInvocations()
+	require.Equal(t, 1, len(getOffsetInvs))
+	require.Equal(t, expectedGetOffsets, getOffsetInvs[0].infos)
+
 	// check that table has been pushed to object store
 
 	ssTables, objects := getSSTablesFromStore(t, cfg.DataBucketName, objStore)
@@ -239,29 +312,34 @@ func TestTablePusherHandleProduceBatchMultipleTopicsAndPartitions(t *testing.T) 
 
 	var expectedKVs []common.KV
 
-	partitionID := int(req.TopicData[0].PartitionData[0].Index)
-	expectedKey1, err := createExpectedKey(topicID1, partitionID, 1002)
-	require.NoError(t, err)
-	expectedKey2, err := createExpectedKey(topicID1, partitionID, 1002+10)
-	require.NoError(t, err)
-
-	partitionID = int(req.TopicData[0].PartitionData[2].Index)
-	expectedKey3, err := createExpectedKey(topicID1, partitionID, 32)
+	// offset 32
+	// asked for 20
+	// first 13
+	expectedKey1, err := createExpectedKey(topicID1, 7, 13)
 	require.NoError(t, err)
 
-	partitionID = int(req.TopicData[1].PartitionData[0].Index)
-	expectedKey4, err := createExpectedKey(topicID2, partitionID, 564)
+	// offset 1002
+	// asked for 25
+	// 10 and 15 batches
+	expectedKey2, err := createExpectedKey(topicID1, 12, 978)
+	require.NoError(t, err)
+	expectedKey3, err := createExpectedKey(topicID1, 12, 988)
+	require.NoError(t, err)
+
+	// offset 564
+	// asked for 25
+	expectedKey4, err := createExpectedKey(topicID2, 23, 540)
 	require.NoError(t, err)
 
 	expectedKVs = append(expectedKVs, common.KV{
 		Key:   expectedKey1,
-		Value: recordBatch1,
+		Value: recordBatch3,
 	}, common.KV{
 		Key:   expectedKey2,
-		Value: recordBatch2,
+		Value: recordBatch1,
 	}, common.KV{
 		Key:   expectedKey3,
-		Value: recordBatch3,
+		Value: recordBatch2,
 	}, common.KV{
 		Key:   expectedKey4,
 		Value: recordBatch4,
@@ -271,55 +349,16 @@ func TestTablePusherHandleProduceBatchMultipleTopicsAndPartitions(t *testing.T) 
 		return bytes.Compare(a.Key, b.Key)
 	})
 
+	require.Equal(t, len(expectedKVs), len(receivedKVs))
 	require.Equal(t, expectedKVs, receivedKVs)
 
 	receivedRegs := controllerClient.getRegistrations()
 	require.Equal(t, 1, len(receivedRegs))
 
-	infos := receivedRegs[0].updateWrittenOffsetInfos
-	require.Equal(t, 2, len(infos))
-
-	// sort by [topic_id, partition_id]
-	slices.SortFunc(infos, func(a, b offsets.UpdateWrittenOffsetTopicInfo) int {
-		if a.TopicID < b.TopicID {
-			return -1
-		} else if a.TopicID == b.TopicID {
-			return 0
-		} else {
-			return 1
-		}
-	})
-	for _, topicInfo := range infos {
-		slices.SortFunc(topicInfo.PartitionInfos, func(a, b offsets.UpdateWrittenOffsetPartitionInfo) int {
-			if a.PartitionID < b.PartitionID {
-				return -1
-			} else if a.PartitionID == b.PartitionID {
-				return 0
-			} else {
-				return 1
-			}
-		})
-	}
-
-	require.Equal(t, topicID1, infos[0].TopicID)
-	partInfo := infos[0].PartitionInfos[0]
-	require.Equal(t, 7, partInfo.PartitionID)
-	require.Equal(t, 32, int(partInfo.OffsetStart))
-	require.Equal(t, 20, partInfo.NumOffsets)
-
-	partInfo = infos[0].PartitionInfos[1]
-	require.Equal(t, 12, partInfo.PartitionID)
-	require.Equal(t, 1002, int(partInfo.OffsetStart))
-	require.Equal(t, 25, partInfo.NumOffsets)
-
-	require.Equal(t, topicID2, infos[1].TopicID)
-	partInfo = infos[1].PartitionInfos[0]
-	require.Equal(t, 23, partInfo.PartitionID)
-	require.Equal(t, 564, int(partInfo.OffsetStart))
-	require.Equal(t, 25, partInfo.NumOffsets)
-
 	reg := receivedRegs[0].regEntry
 	require.Equal(t, []byte(objects[0].Key), []byte(reg.TableID))
+
+	require.Equal(t, seq, receivedRegs[0].seq)
 }
 
 func TestTablePusherPushWhenBufferIsFull(t *testing.T) {
@@ -337,7 +376,21 @@ func TestTablePusherPushWhenBufferIsFull(t *testing.T) {
 	topicID := 1234
 
 	controllerClient := &testControllerClient{
-		offsets: map[int]map[int]int64{},
+		offsets: []offsets.OffsetTopicInfo{
+			{
+				TopicID: topicID,
+				PartitionInfos: []offsets.OffsetPartitionInfo{
+					{
+						PartitionID: 12,
+						Offset:      1000,
+					},
+					{
+						PartitionID: 23,
+						Offset:      1000,
+					},
+				},
+			},
+		},
 	}
 	clientFactory := func() (ControlClient, error) {
 		return controllerClient, nil
@@ -446,7 +499,17 @@ func TestTablePusherPushWhenTimeoutIsExceeded(t *testing.T) {
 	topicID := 1234
 
 	controllerClient := &testControllerClient{
-		offsets: map[int]map[int]int64{},
+		offsets: []offsets.OffsetTopicInfo{
+			{
+				TopicID: topicID,
+				PartitionInfos: []offsets.OffsetPartitionInfo{
+					{
+						PartitionID: 12,
+						Offset:      1000,
+					},
+				},
+			},
+		},
 	}
 	clientFactory := func() (ControlClient, error) {
 		return controllerClient, nil
@@ -527,16 +590,33 @@ func TestTablePusherHandleProduceBatchMixtureErrorsAndSuccesses(t *testing.T) {
 	topicID1 := 1234
 	topicID2 := 4321
 
+	seq := int64(46)
 	controllerClient := &testControllerClient{
-		offsets: map[int]map[int]int64{
-			topicID1: {
-				12: 1002,
-				7:  32,
+		offsets: []offsets.OffsetTopicInfo{
+			{
+				TopicID: topicID1,
+				PartitionInfos: []offsets.OffsetPartitionInfo{
+					{
+						PartitionID: 7,
+						Offset:      32,
+					},
+					{
+						PartitionID: 12,
+						Offset:      1002,
+					},
+				},
 			},
-			topicID2: {
-				23: 564,
+			{
+				TopicID: topicID2,
+				PartitionInfos: []offsets.OffsetPartitionInfo{
+					{
+						PartitionID: 23,
+						Offset:      564,
+					},
+				},
 			},
 		},
+		sequence: seq,
 	}
 	clientFactory := func() (ControlClient, error) {
 		return controllerClient, nil
@@ -545,7 +625,6 @@ func TestTablePusherHandleProduceBatchMixtureErrorsAndSuccesses(t *testing.T) {
 		"topic1": {ID: topicID1, PartitionCount: 20},
 		"topic2": {ID: topicID2, PartitionCount: 30},
 	}}
-
 	partHashes, err := parthash.NewPartitionHashes(100)
 	require.NoError(t, err)
 	pusher, err := NewTablePusher(cfg, topicProvider, objStore, clientFactory, partHashes)
@@ -563,10 +642,8 @@ func TestTablePusherHandleProduceBatchMixtureErrorsAndSuccesses(t *testing.T) {
 	recordBatch3 := testutils.CreateKafkaRecordBatchWithIncrementingKVs(0, 20)
 	recordBatch4 := testutils.CreateKafkaRecordBatchWithIncrementingKVs(0, 25)
 
-	recordBatch5 := testutils.CreateKafkaRecordBatchWithIncrementingKVs(0, 10)
-	recordBatch6 := testutils.CreateKafkaRecordBatchWithIncrementingKVs(0, 10)
-	recordBatch7 := testutils.CreateKafkaRecordBatchWithIncrementingKVs(0, 10)
-	recordBatch8 := testutils.CreateKafkaRecordBatchWithIncrementingKVs(0, 10)
+	recordBatch5 := testutils.CreateKafkaRecordBatchWithIncrementingKVs(0, 25)
+	recordBatch6 := testutils.CreateKafkaRecordBatchWithIncrementingKVs(0, 25)
 
 	req := kafkaprotocol.ProduceRequest{
 		TransactionalId: nil,
@@ -589,9 +666,9 @@ func TestTablePusherHandleProduceBatchMixtureErrorsAndSuccesses(t *testing.T) {
 						},
 					},
 					{
-						Index: 999, // unknown
+						Index: 999,
 						Records: [][]byte{
-							recordBatch8,
+							recordBatch5,
 						},
 					},
 					{
@@ -614,31 +691,18 @@ func TestTablePusherHandleProduceBatchMixtureErrorsAndSuccesses(t *testing.T) {
 				},
 			},
 			{
-				Name: common.StrPtr("topic_unknown"),
+				Name: common.StrPtr("unknown_topic"),
 				PartitionData: []kafkaprotocol.ProduceRequestPartitionProduceData{
 					{
-						Index: 11,
-						Records: [][]byte{
-							recordBatch5,
-						},
-					},
-					{
-						Index: 26,
+						Index: 23,
 						Records: [][]byte{
 							recordBatch6,
-						},
-					},
-					{
-						Index: 76,
-						Records: [][]byte{
-							recordBatch7,
 						},
 					},
 				},
 			},
 		},
 	}
-
 	respCh := make(chan *kafkaprotocol.ProduceResponse, 1)
 	err = pusher.HandleProduceRequest(&req, func(resp *kafkaprotocol.ProduceResponse) error {
 		respCh <- resp
@@ -646,14 +710,49 @@ func TestTablePusherHandleProduceBatchMixtureErrorsAndSuccesses(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Some of the partition produces should have succeeded and some should have failed
-	noSuchTopicErr := expectedErr{errCode: kafkaprotocol.ErrorCodeUnknownTopicOrPartition, errMsg: "unknown topic: topic_unknown"}
-	expected := [][]expectedErr{
-		{noErr, noErr, expectedErr{errCode: kafkaprotocol.ErrorCodeUnknownTopicOrPartition, errMsg: "unknown partition: 999 for topic: topic1"}, noErr},
-		{noErr},
-		{noSuchTopicErr, noSuchTopicErr, noSuchTopicErr},
+	checkResponseErrors(t, respCh, [][]expectedErr{
+		{
+			noErr, noErr, expectedErr{errCode: kafkaprotocol.ErrorCodeUnknownTopicOrPartition,
+				errMsg: "unknown partition: 999 for topic: topic1"}, noErr,
+		},
+		{
+			noErr,
+		},
+		{
+			expectedErr{errCode: kafkaprotocol.ErrorCodeUnknownTopicOrPartition,
+				errMsg: "unknown topic: unknown_topic"},
+		},
+	})
+
+	// verify get offsets called correctly
+	// note, will be sorted in topic, partition order
+	expectedGetOffsets := []offsets.GetOffsetTopicInfo{
+		{
+			TopicID: topicID1,
+			PartitionInfos: []offsets.GetOffsetPartitionInfo{
+				{
+					PartitionID: 7,
+					NumOffsets:  20,
+				},
+				{
+					PartitionID: 12,
+					NumOffsets:  10 + 15,
+				},
+			},
+		},
+		{
+			TopicID: topicID2,
+			PartitionInfos: []offsets.GetOffsetPartitionInfo{
+				{
+					PartitionID: 23,
+					NumOffsets:  25,
+				},
+			},
+		},
 	}
-	checkResponseErrors(t, respCh, expected)
+	getOffsetInvs := controllerClient.getGetOffsetInvocations()
+	require.Equal(t, 1, len(getOffsetInvs))
+	require.Equal(t, expectedGetOffsets, getOffsetInvs[0].infos)
 
 	// check that table has been pushed to object store
 
@@ -674,29 +773,34 @@ func TestTablePusherHandleProduceBatchMixtureErrorsAndSuccesses(t *testing.T) {
 
 	var expectedKVs []common.KV
 
-	partitionID := int(req.TopicData[0].PartitionData[0].Index)
-	expectedKey1, err := createExpectedKey(topicID1, partitionID, 1002)
-	require.NoError(t, err)
-	expectedKey2, err := createExpectedKey(topicID1, partitionID, 1002+10)
-	require.NoError(t, err)
-
-	partitionID = int(req.TopicData[0].PartitionData[3].Index)
-	expectedKey3, err := createExpectedKey(topicID1, partitionID, 32)
+	// offset 32
+	// asked for 20
+	// first 13
+	expectedKey1, err := createExpectedKey(topicID1, 7, 13)
 	require.NoError(t, err)
 
-	partitionID = int(req.TopicData[1].PartitionData[0].Index)
-	expectedKey4, err := createExpectedKey(topicID2, partitionID, 564)
+	// offset 1002
+	// asked for 25
+	// 10 and 15 batches
+	expectedKey2, err := createExpectedKey(topicID1, 12, 978)
+	require.NoError(t, err)
+	expectedKey3, err := createExpectedKey(topicID1, 12, 988)
+	require.NoError(t, err)
+
+	// offset 564
+	// asked for 25
+	expectedKey4, err := createExpectedKey(topicID2, 23, 540)
 	require.NoError(t, err)
 
 	expectedKVs = append(expectedKVs, common.KV{
 		Key:   expectedKey1,
-		Value: recordBatch1,
+		Value: recordBatch3,
 	}, common.KV{
 		Key:   expectedKey2,
-		Value: recordBatch2,
+		Value: recordBatch1,
 	}, common.KV{
 		Key:   expectedKey3,
-		Value: recordBatch3,
+		Value: recordBatch2,
 	}, common.KV{
 		Key:   expectedKey4,
 		Value: recordBatch4,
@@ -706,14 +810,16 @@ func TestTablePusherHandleProduceBatchMixtureErrorsAndSuccesses(t *testing.T) {
 		return bytes.Compare(a.Key, b.Key)
 	})
 
+	require.Equal(t, len(expectedKVs), len(receivedKVs))
 	require.Equal(t, expectedKVs, receivedKVs)
 
-	// check that table has been registered with LSM
 	receivedRegs := controllerClient.getRegistrations()
 	require.Equal(t, 1, len(receivedRegs))
-	receivedReg := receivedRegs[0]
-	reg := receivedReg.regEntry
+
+	reg := receivedRegs[0].regEntry
 	require.Equal(t, []byte(objects[0].Key), []byte(reg.TableID))
+
+	require.Equal(t, seq, receivedRegs[0].seq)
 }
 
 func TestTablePusherUnexpectedError(t *testing.T) {
@@ -723,7 +829,17 @@ func TestTablePusherUnexpectedError(t *testing.T) {
 	objStore := &failingObjectStoreClient{}
 	topicID := 1234
 	controllerClient := &testControllerClient{
-		offsets: map[int]map[int]int64{},
+		offsets: []offsets.OffsetTopicInfo{
+			{
+				TopicID: topicID,
+				PartitionInfos: []offsets.OffsetPartitionInfo{
+					{
+						PartitionID: 12,
+						Offset:      1000,
+					},
+				},
+			},
+		},
 	}
 	clientFactory := func() (ControlClient, error) {
 		return controllerClient, nil
@@ -799,7 +915,17 @@ func TestTablePusherTemporaryUnavailability(t *testing.T) {
 	}
 	topicID := 1234
 	controllerClient := &testControllerClient{
-		offsets: map[int]map[int]int64{},
+		offsets: []offsets.OffsetTopicInfo{
+			{
+				TopicID: topicID,
+				PartitionInfos: []offsets.OffsetPartitionInfo{
+					{
+						PartitionID: 12,
+						Offset:      1000,
+					},
+				},
+			},
+		},
 	}
 	clientFactory := func() (ControlClient, error) {
 		return controllerClient, nil
@@ -978,23 +1104,28 @@ func createExpectedKey(topicID int, partitionID int, offset int64) ([]byte, erro
 }
 
 type testControllerClient struct {
-	lock          sync.Mutex
-	shardID       int
-	registrations []regL0TableInvocation
-	offsets       map[int]map[int]int64
+	lock                 sync.Mutex
+	registrations        []regL0TableInvocation
+	getOffsetInvocations []getOffsetsInvocation
+	offsets              []offsets.OffsetTopicInfo
+	sequence             int64
 }
 
 type regL0TableInvocation struct {
-	updateWrittenOffsetInfos []offsets.UpdateWrittenOffsetTopicInfo
-	regEntry                 lsm.RegistrationEntry
+	seq      int64
+	regEntry lsm.RegistrationEntry
 }
 
-func (t *testControllerClient) RegisterL0Table(updateWrittenOffsetInfos []offsets.UpdateWrittenOffsetTopicInfo, regEntry lsm.RegistrationEntry) error {
+type getOffsetsInvocation struct {
+	infos []offsets.GetOffsetTopicInfo
+}
+
+func (t *testControllerClient) RegisterL0Table(sequence int64, regEntry lsm.RegistrationEntry) error {
 	t.lock.Lock()
 	defer t.lock.Unlock()
 	t.registrations = append(t.registrations, regL0TableInvocation{
-		updateWrittenOffsetInfos: updateWrittenOffsetInfos,
-		regEntry:                 regEntry,
+		seq:      sequence,
+		regEntry: regEntry,
 	})
 	return nil
 }
@@ -1007,27 +1138,19 @@ func (t *testControllerClient) getRegistrations() []regL0TableInvocation {
 	return copied
 }
 
-func (t *testControllerClient) GetOffsets(infos []offsets.GetOffsetTopicInfo) ([]int64, error) {
+func (t *testControllerClient) GetOffsets(infos []offsets.GetOffsetTopicInfo) ([]offsets.OffsetTopicInfo, int64, error) {
 	t.lock.Lock()
 	defer t.lock.Unlock()
-	var offs []int64
-	for _, tInfo := range infos {
-		partitionOffsets, ok := t.offsets[tInfo.TopicID]
-		if !ok {
-			partitionOffsets = make(map[int]int64)
-			t.offsets[tInfo.TopicID] = partitionOffsets
-		}
-		for _, pInfo := range tInfo.PartitionInfos {
-			offset, ok := partitionOffsets[pInfo.PartitionID]
-			if !ok {
-				offset = 0
-			}
-			newOffset := pInfo.NumOffsets + int(offset)
-			partitionOffsets[pInfo.PartitionID] = int64(newOffset)
-			offs = append(offs, offset)
-		}
-	}
-	return offs, nil
+	t.getOffsetInvocations = append(t.getOffsetInvocations, getOffsetsInvocation{infos: infos})
+	return t.offsets, t.sequence, nil
+}
+
+func (t *testControllerClient) getGetOffsetInvocations() []getOffsetsInvocation {
+	t.lock.Lock()
+	defer t.lock.Unlock()
+	copied := make([]getOffsetsInvocation, len(t.getOffsetInvocations))
+	copy(copied, t.getOffsetInvocations)
+	return copied
 }
 
 func (t *testControllerClient) Close() error {
@@ -1122,4 +1245,23 @@ func (u *unavailableObjStoreClient) Start() error {
 
 func (u *unavailableObjStoreClient) Stop() error {
 	return u.cl.Stop()
+}
+
+func TestExtractBatches(t *testing.T) {
+	numBatches := 10
+	offset := 1001
+	var batches [][]byte
+	var concat []byte
+	for i := 0; i < numBatches; i++ {
+		numRecords := rand.Intn(1000) + 1
+		batch := testutils.CreateKafkaRecordBatchWithIncrementingKVs(offset, numRecords)
+		batches = append(batches, batch)
+		offset += numRecords
+		concat = append(concat, batch...)
+	}
+	extracted := extractBatches(concat)
+	require.Equal(t, numBatches, len(extracted))
+	for i, batch := range batches {
+		require.Equal(t, batch, extracted[i])
+	}
 }

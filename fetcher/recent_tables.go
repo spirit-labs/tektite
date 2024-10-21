@@ -1,6 +1,7 @@
 package fetcher
 
 import (
+	"fmt"
 	"github.com/spirit-labs/tektite/cluster"
 	"github.com/spirit-labs/tektite/control"
 	log "github.com/spirit-labs/tektite/logger"
@@ -126,48 +127,32 @@ func (p *PartitionTables) isInitialised() bool {
 	return p.initialised
 }
 
-func (p *PartitionTables) addEntry(tableID *sst.SSTableID, lastReadableOffset int64,
+func (p *PartitionTables) addTableIDs(tableIDs []sst.SSTableID, lastReadableOffset int64,
 	fetchStates map[*FetchState]struct{}) error {
 	p.lock.Lock()
 	defer p.lock.Unlock()
 	if !p.initialised {
 		panic("partition tables not initialised")
 	}
-	if len(p.entries) == p.maxEntriesPerPartition {
-		// remove the first one before adding
-		p.validFromOffset = p.entries[0].LastReadableOffset + 1
-		p.entries = p.entries[1:]
+	for _, tabID := range tableIDs {
+		p.entries = append(p.entries, RecentTableEntry{&tabID, lastReadableOffset})
 	}
-	p.entries = append(p.entries, RecentTableEntry{tableID, lastReadableOffset})
-	// Call listeners
-	for _, listener := range p.listeners {
-		fs, err := listener.updateIterator(p.entries)
-		if err != nil {
-			return err
-		}
-		if fs != nil {
-			fetchStates[fs] = struct{}{}
-		}
+	extra := len(p.entries) - p.maxEntriesPerPartition
+	if extra > 0 {
+		p.validFromOffset = p.entries[extra-1].LastReadableOffset + 1
+		p.entries = p.entries[extra:]
+	}
+	// Gather listeners
+	for _, pfs := range p.listeners {
+		fetchStates[pfs.fs] = struct{}{}
 	}
 	return nil
 }
 
-func (p *PartitionTables) addListener(listener *PartitionFetchState) (*FetchState, error) {
+func (p *PartitionTables) addListener(listener *PartitionFetchState) {
 	p.lock.Lock()
 	defer p.lock.Unlock()
-	for _, entry := range p.listeners {
-		if entry == listener {
-			panic("listener already registered")
-		}
-	}
 	p.listeners = append(p.listeners, listener)
-	if len(p.entries) > 0 {
-		// data might have been added between us executing the controller query and registering listeners in the case
-		// that the agent was already registered for updates. so we need to update the partition fetch state's
-		// iterator
-		return listener.updateIterator(p.entries)
-	}
-	return nil, nil
 }
 
 func (p *PartitionTables) removeListener(listener *PartitionFetchState) {
@@ -198,38 +183,6 @@ func (p *PartitionTables) invalidate() {
 type RecentTableEntry struct {
 	TableID            *sst.SSTableID
 	LastReadableOffset int64
-}
-
-func (p *PartitionRecentTables) registerPartitionStates(partitionStates map[int]map[int]*PartitionFetchState) error {
-	p.lock.RLock()
-	defer p.lock.RUnlock()
-	fetchStates := map[*FetchState]struct{}{}
-	for topicID, partitionFetchStates := range partitionStates {
-		partitionMap, ok := p.topicMap[topicID]
-		if !ok {
-			partitionMap = p.createPartitionMap(topicID)
-		}
-		for partitionID, partitionFetchState := range partitionFetchStates {
-			partitionTables, ok := partitionMap[partitionID]
-			if !ok {
-				partitionTables = p.createPartitionTables(partitionID, partitionMap)
-			}
-			// data might have been added between us executing the controller query and registering listeners in the case
-			// that the agent was already initialised. so we need to update the partition fetch state's
-			// iterator and collect a unique set of fetch states so we can call read on them again
-			fs, err := partitionTables.addListener(partitionFetchState)
-			if err != nil {
-				return err
-			}
-			if fs != nil {
-				fetchStates[fs] = struct{}{}
-			}
-		}
-	}
-	for fs := range fetchStates {
-		fs.readAsync()
-	}
-	return nil
 }
 
 func (p *PartitionRecentTables) createPartitionMap(topicID int) map[int]*PartitionTables {
@@ -266,7 +219,7 @@ func (p *PartitionRecentTables) createPartitionTables(partitionID int, partition
 	return partitionTables
 }
 
-func (p *PartitionRecentTables) handleTableRegisteredNotification(notification *control.TableRegisteredNotification) error {
+func (p *PartitionRecentTables) handleTableRegisteredNotification(notification *control.TablesRegisteredNotification) error {
 	p.sequenceLock.Lock()
 	defer p.sequenceLock.Unlock()
 	if notification.LeaderVersion != p.currentLeaderVersion {
@@ -281,14 +234,13 @@ func (p *PartitionRecentTables) handleTableRegisteredNotification(notification *
 		return nil
 	}
 	p.lastReceivedSequence = int(notification.Sequence)
-	if notification.ID == nil {
+	if notification.TableIDs == nil {
 		// Periodic empty notification - this just updates the sequence number - we send them so they will highlight
 		// any previous gap in sequence and cause an invalidation
 		return nil
 	}
 	p.lock.RLock()
 	defer p.lock.RUnlock()
-
 	// Get unique set of fetch states to read
 	fetchStates := map[*FetchState]struct{}{}
 	for _, topicNotification := range notification.Infos {
@@ -299,14 +251,14 @@ func (p *PartitionRecentTables) handleTableRegisteredNotification(notification *
 		for _, partitionInfo := range topicNotification.PartitionInfos {
 			partitionTables, ok := partitionMap[partitionInfo.PartitionID]
 			if !ok {
-				panic("cannot find partition tables")
+				panic(fmt.Sprintf("cannot find partition tables for partition %d", partitionInfo.PartitionID))
 			}
-			if err := partitionTables.addEntry(&notification.ID, partitionInfo.LastReadableOffset, fetchStates); err != nil {
+			if err := partitionTables.addTableIDs(notification.TableIDs, partitionInfo.Offset, fetchStates); err != nil {
 				return err
 			}
 		}
 	}
-	for fs := range fetchStates {
+	for fs, _ := range fetchStates {
 		fs.readAsync()
 	}
 	return nil

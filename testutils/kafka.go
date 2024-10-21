@@ -17,14 +17,14 @@ func CreateKafkaRecordBatch(messages []RawKafkaMessage, offsetStart int64) []byt
 	var firstTimestamp types.Timestamp
 	var timestamp types.Timestamp
 	offset := offsetStart
-	for _, msg := range messages {
+	for i, msg := range messages {
 		var ok bool
 		timestamp = types.Timestamp{Val: msg.Timestamp}
 		if first {
 			firstTimestamp = timestamp
 		}
-		batchBytes, ok = kafkaencoding.AppendToBatch(batchBytes, offset, msg.Key, nil, msg.Value, timestamp,
-			firstTimestamp, offsetStart, math.MaxInt, first)
+		batchBytes, ok = kafkaencoding.AppendToBatch(batchBytes, int64(i), msg.Key, nil, msg.Value, timestamp,
+			firstTimestamp, math.MaxInt, first)
 		if !ok {
 			panic("failed to append")
 		}

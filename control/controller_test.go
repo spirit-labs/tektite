@@ -161,7 +161,7 @@ func TestControllerApplyChanges(t *testing.T) {
 	require.Equal(t, tableID, []byte(resTableID))
 }
 
-func TestControllerRegisterL0(t *testing.T) {
+func TestControllerGetOffsetsAndRegisterL0(t *testing.T) {
 	controllers, tearDown := setupControllers(t, 1)
 	defer tearDown(t)
 
@@ -176,7 +176,7 @@ func TestControllerRegisterL0(t *testing.T) {
 	}()
 
 	// First get some offsets
-	offs, err := cl.GetOffsets([]offsets.GetOffsetTopicInfo{
+	offs, seq, err := cl.GetOffsets([]offsets.GetOffsetTopicInfo{
 		{
 			TopicID: 0,
 			PartitionInfos: []offsets.GetOffsetPartitionInfo{
@@ -186,7 +186,7 @@ func TestControllerRegisterL0(t *testing.T) {
 				},
 				{
 					PartitionID: 2,
-					NumOffsets:  100,
+					NumOffsets:  150,
 				},
 			},
 		},
@@ -195,13 +195,25 @@ func TestControllerRegisterL0(t *testing.T) {
 			PartitionInfos: []offsets.GetOffsetPartitionInfo{
 				{
 					PartitionID: 1,
-					NumOffsets:  100,
+					NumOffsets:  50,
 				},
 			},
 		},
 	})
 	require.NoError(t, err)
-	require.Equal(t, 3, len(offs))
+	require.Equal(t, 2, len(offs))
+	require.Equal(t, 0, offs[0].TopicID)
+	require.Equal(t, 2, len(offs[0].PartitionInfos))
+	require.Equal(t, 1, offs[0].PartitionInfos[0].PartitionID)
+	require.Equal(t, 99, int(offs[0].PartitionInfos[0].Offset))
+	require.Equal(t, 2, offs[0].PartitionInfos[1].PartitionID)
+	require.Equal(t, 149, int(offs[0].PartitionInfos[1].Offset))
+
+	require.Equal(t, 1, offs[1].TopicID)
+	require.Equal(t, 1, len(offs[1].PartitionInfos))
+	require.Equal(t, 1, offs[1].PartitionInfos[0].PartitionID)
+	require.Equal(t, 49, int(offs[1].PartitionInfos[0].Offset))
+	require.Equal(t, 1, int(seq))
 
 	keyStart := []byte("key000001")
 	keyEnd := []byte("key000010")
@@ -217,35 +229,8 @@ func TestControllerRegisterL0(t *testing.T) {
 		NumEntries: 1234,
 		TableSize:  12345567,
 	}
-	writtenOffs := []offsets.UpdateWrittenOffsetTopicInfo{
-		{
-			TopicID: 0,
-			PartitionInfos: []offsets.UpdateWrittenOffsetPartitionInfo{
-				{
-					PartitionID: 1,
-					OffsetStart: offs[0],
-					NumOffsets:  100,
-				},
-				{
-					PartitionID: 2,
-					OffsetStart: offs[1],
-					NumOffsets:  100,
-				},
-			},
-		},
-		{
-			TopicID: 1,
-			PartitionInfos: []offsets.UpdateWrittenOffsetPartitionInfo{
-				{
-					PartitionID: 1,
-					OffsetStart: offs[2],
-					NumOffsets:  100,
-				},
-			},
-		},
-	}
 
-	err = cl.RegisterL0Table(writtenOffs, regEntry)
+	err = cl.RegisterL0Table(seq, regEntry)
 	require.NoError(t, err)
 
 	res, err := cl.QueryTablesInRange(keyStart, keyEnd)

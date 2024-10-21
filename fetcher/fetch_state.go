@@ -26,7 +26,6 @@ type FetchState struct {
 	readExec        *readExecutor
 	bytesFetched    int
 	first           bool
-	waiting         bool
 }
 
 func newFetchState(batchFetcher *BatchFetcher, req *kafkaprotocol.FetchRequest, readExec *readExecutor,
@@ -37,6 +36,7 @@ func newFetchState(batchFetcher *BatchFetcher, req *kafkaprotocol.FetchRequest, 
 		partitionStates: map[int]map[int]*PartitionFetchState{},
 		completionFunc:  completionFunc,
 		readExec:        readExec,
+		first:           true,
 	}
 	fetchState.resp.Responses = make([]kafkaprotocol.FetchResponseFetchableTopicResponse, len(fetchState.req.Topics))
 	recentTables := &fetchState.bf.recentTables
@@ -79,7 +79,7 @@ func newFetchState(batchFetcher *BatchFetcher, req *kafkaprotocol.FetchRequest, 
 					topicID:            topicInfo.ID,
 					partitionID:        partitionID,
 					partitionHash:      partHash,
-					lastReadOffset:     -1,
+					fetchOffset:        partitionData.FetchOffset,
 				}
 			}
 		}
@@ -94,24 +94,11 @@ func (f *FetchState) readAsync() {
 }
 
 func (f *FetchState) read() error {
-	waiting, err := f.read0()
-	if err != nil {
-		return err
-	}
-	if waiting {
-		// We register our partition states to receive notifications when new data arrives
-		// Needs to be done outside lock to prevent deadlock with incoming notification updating iterator
-		return f.bf.recentTables.registerPartitionStates(f.partitionStates)
-	}
-	return nil
-}
-
-func (f *FetchState) read0() (waiting bool, err error) {
 	f.lock.Lock()
 	defer f.lock.Unlock()
 	if f.completionFunc == nil {
 		// Response already sent
-		return false, nil
+		return nil
 	}
 	wouldExceedRequestMax := false
 outer:
@@ -143,32 +130,31 @@ outer:
 		// We either exceeded request max size or exceeded partition max size on all partitions, or errored on all
 		// partitions so the request is complete
 		if err := f.sendResponse(); err != nil {
-			return false, err
+			return err
 		}
-		return false, nil
+		return nil
 	}
 	if f.bytesFetched >= int(f.req.MinBytes) {
 		// We fetched enough data
 		if err := f.sendResponse(); err != nil {
-			return false, err
+			return err
 		}
-		return false, nil
+		return nil
 	}
 	// We didn't fetch enough data
 	if f.req.MaxWaitMs == 0 {
 		// Give up now and return no data
 		f.clearFetchedRecords()
 		if err := f.sendResponse(); err != nil {
-			return false, err
+			return err
 		}
-		return false, nil
+		return nil
 	}
 	if f.timeoutTimer == nil {
 		// Set a timeout if we haven't already set one - as we need to wait
-		time.AfterFunc(time.Duration(f.req.MaxWaitMs)*time.Millisecond, f.timeout)
+		f.timeoutTimer = time.AfterFunc(time.Duration(f.req.MaxWaitMs)*time.Millisecond, f.timeout)
 	}
-	f.waiting = true
-	return true, nil
+	return nil
 }
 
 func (f *FetchState) clearFetchedRecords() {
@@ -192,12 +178,10 @@ func (f *FetchState) sendResponse() error {
 		f.timeoutTimer.Stop()
 	}
 	f.completionFunc = nil
-	if f.waiting {
-		// unregister any waiting partition states
-		for _, partitionMap := range f.partitionStates {
-			for _, partitionState := range partitionMap {
-				partitionState.partitionTables.removeListener(partitionState)
-			}
+	// unregister any waiting partition states
+	for _, partitionMap := range f.partitionStates {
+		for _, partitionState := range partitionMap {
+			partitionState.partitionTables.removeListener(partitionState)
 		}
 	}
 	return nil
@@ -219,74 +203,64 @@ type PartitionFetchState struct {
 	partitionFetchReq  *kafkaprotocol.FetchRequestFetchPartition
 	partitionFetchResp *kafkaprotocol.FetchResponsePartitionData
 	partitionTables    *PartitionTables
-	iter               iteration.Iterator
 	topicID            int
 	partitionID        int
-	partitionHash      []byte
 	bytesFetched       int
-	lastReadOffset     int64
+	fetchOffset        int64
+	partitionHash      []byte
+	listening          bool
 }
 
 func (p *PartitionFetchState) read() (wouldExceedRequestMax bool, wouldExceedPartitionMax bool, err error) {
-	if p.iter == nil {
-		// read on a new request
-		fetchOffset := p.partitionFetchReq.FetchOffset
-		var iter iteration.Iterator
-		for {
-			tabIds, lastReadableOffset, initialised, isInCachedRange := p.partitionTables.maybeGetRecentTableIDs(fetchOffset)
-			if !initialised {
-				// initialise it - call initialise passing in function for Fetch to prevent race, as executed under
-				// partition tables lock
-				cl, err := p.fs.bf.getClient()
-				lastReadable, alreadyInitialised, err := p.partitionTables.initialise(func() (int64, error) {
-					return cl.RegisterTableListener(p.topicID, p.partitionID, p.fs.bf.address, atomic.LoadInt64(&p.fs.bf.resetSequence))
-				})
-				if err != nil {
-					return false, false, err
-				}
-				if alreadyInitialised {
-					// There is a race to initialise it and another request got there first, we try again
-					continue
-				}
-				keyStart, keyEnd := p.createKeyStartAndEnd(fetchOffset, lastReadable)
-				queryRes, err := cl.QueryTablesInRange(keyStart, keyEnd)
-				if err != nil {
-					return false, false, err
-				}
-				iter, err = p.createIteratorForKeyRange(queryRes, keyStart, keyEnd)
-				if err != nil {
-					return false, false, err
-				}
-			} else {
-				if isInCachedRange {
-					iter, err = p.createIteratorFromTabIDs(tabIds, fetchOffset, lastReadableOffset)
-					if err != nil {
-						return false, false, err
-					}
-				} else {
-					// Query fetch is before start of cached data
-					cl, err := p.fs.bf.getClient()
-					if err != nil {
-						return false, false, err
-					}
-					keyStart, keyEnd := p.createKeyStartAndEnd(fetchOffset, lastReadableOffset)
-					ids, err := cl.QueryTablesInRange(keyStart, keyEnd)
-					if err != nil {
-						return false, false, err
-					}
-					iter, err = p.createIteratorForKeyRange(ids, keyStart, keyEnd)
-					if err != nil {
-						return false, false, err
-					}
-				}
-			}
-			p.iter = iter
-			break
+	var iter iteration.Iterator
+	for {
+		if !p.listening {
+			p.partitionTables.addListener(p)
+			p.listening = true
 		}
+		tabIds, lastReadableOffset, initialised, isInCachedRange := p.partitionTables.maybeGetRecentTableIDs(p.fetchOffset)
+		if !initialised {
+			// initialise it - call initialise passing in function for Fetch to prevent race, as executed under
+			// partition tables lock
+			cl, err := p.fs.bf.getClient()
+			var alreadyInitialised bool
+			lastReadableOffset, alreadyInitialised, err = p.partitionTables.initialise(func() (int64, error) {
+				return cl.RegisterTableListener(p.topicID, p.partitionID, p.fs.bf.address, atomic.LoadInt64(&p.fs.bf.resetSequence))
+			})
+			if err != nil {
+				return false, false, err
+			}
+			if alreadyInitialised {
+				// There is a race to initialise it and another request got there first, we try again
+				continue
+			}
+		}
+		if isInCachedRange {
+			iter, err = p.createIteratorFromTabIDs(tabIds, p.fetchOffset, lastReadableOffset)
+			if err != nil {
+				return false, false, err
+			}
+		} else {
+			// Query fetch is before start of cached data or newly initialised
+			cl, err := p.fs.bf.getClient()
+			if err != nil {
+				return false, false, err
+			}
+			keyStart, keyEnd := p.createKeyStartAndEnd(p.fetchOffset, lastReadableOffset)
+			ids, err := cl.QueryTablesInRange(keyStart, keyEnd)
+			if err != nil {
+				return false, false, err
+			}
+			iter, err = p.createIteratorForKeyRange(ids, keyStart, keyEnd)
+			if err != nil {
+				return false, false, err
+			}
+		}
+		break
 	}
 	var batches [][]byte
 	for {
-		ok, kv, err := p.iter.Next()
+		ok, kv, err := iter.Next()
 		if err != nil {
 			return false, false, err
 		}
@@ -307,13 +281,13 @@ func (p *PartitionFetchState) read() (wouldExceedRequestMax bool, wouldExceedPar
 			}
 		}
 		batches = append(batches, kv.Value)
+		p.fs.first = false
 		p.bytesFetched += batchSize
 		p.fs.bytesFetched += batchSize
-		p.lastReadOffset = kafkaencoding.BaseOffset(kv.Value) + int64(kafkaencoding.NumRecords(kv.Value)) - 1
+		p.fetchOffset += int64(kafkaencoding.NumRecords(kv.Value))
 	}
 	if len(batches) > 0 {
 		p.partitionFetchResp.Records = append(p.partitionFetchResp.Records, batches...)
-		p.fs.first = false
 	}
 	return
 }
@@ -396,42 +370,4 @@ func (p *PartitionFetchState) createIteratorFromTabIDs(tableIDs []*sst.SSTableID
 		}
 	}
 	return iter, nil
-}
-
-func (p *PartitionFetchState) updateIterator(entries []RecentTableEntry) (*FetchState, error) {
-	p.fs.lock.Lock()
-	defer p.fs.lock.Unlock()
-	if p.fs.completionFunc == nil {
-		// response already sent - probably timed out
-		return nil, nil
-	}
-	// Find tables of interest
-	var tableIDs []*sst.SSTableID
-	for _, entry := range entries {
-		if entry.LastReadableOffset <= p.lastReadOffset {
-			// Skip past this table as it cannot have any offsets we are interested in
-			// Entries aren't added until all the offsets in a table are readable, so this is safe
-			continue
-		}
-		tableIDs = append(tableIDs, entry.TableID)
-	}
-	if len(tableIDs) == 0 {
-		// Nothing to update
-		return nil, nil
-	}
-	lastReadableOffset := entries[len(entries)-1].LastReadableOffset
-	// We know that we must have already iterated to previous last readable offset so we can throw away the previous
-	// iterator and replace it with a simple chaining iterator if we have more than one table or just a single iterator
-	var offsetStart int64
-	if p.lastReadOffset == -1 {
-		offsetStart = p.partitionFetchReq.FetchOffset
-	} else {
-		offsetStart = p.lastReadOffset
-	}
-	iter, err := p.createIteratorFromTabIDs(tableIDs, offsetStart, lastReadableOffset)
-	if err != nil {
-		return nil, err
-	}
-	p.iter = iter
-	return p.fs, nil
 }

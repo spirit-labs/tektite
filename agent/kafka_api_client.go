@@ -46,6 +46,7 @@ type respHolder struct {
 	resp              KafkaProtocolMessage
 	respHeaderVersion int16
 	ch                chan KafkaProtocolMessage
+	apiVersion        int16
 }
 
 func (k *KafkaApiConnection) SendRequest(req KafkaProtocolRequest, apiKey int16, apiVersion int16,
@@ -78,6 +79,7 @@ func (k *KafkaApiConnection) createRequestAndRegisterHandler(req KafkaProtocolRe
 		resp:              resp,
 		respHeaderVersion: responseHeaderVersion,
 		ch:                ch,
+		apiVersion:        apiVersion,
 	}
 	k.correlationIDSeq++
 	return buff, ch
@@ -96,7 +98,7 @@ func (k *KafkaApiConnection) responseHandler(buff []byte) error {
 	if err != nil {
 		return err
 	}
-	if _, err := respHandler.resp.Read(3, buff[bytesRead:]); err != nil {
+	if _, err := respHandler.resp.Read(respHandler.apiVersion, buff[bytesRead:]); err != nil {
 		return err
 	}
 	delete(k.respHandlers, hdr.CorrelationId)

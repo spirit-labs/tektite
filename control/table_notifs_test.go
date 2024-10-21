@@ -94,7 +94,7 @@ func testMultiplePartitionTableNotification(t *testing.T, topicID int, partition
 	verifyTableRegisteredNotification(t, 0, tableID, writtenOffs, notif)
 }
 
-func TestRegisterTableNotificationReturnsLRO(t *testing.T) {
+func TestRegisterTableListenerReturnsLRO(t *testing.T) {
 
 	cl, receiver, tearDown := setupAndRegisterReceiver(t)
 	defer tearDown(t)
@@ -664,6 +664,51 @@ func TestPeriodicNotification(t *testing.T) {
 	}
 }
 
+func TestNotificationWithMultipleTables(t *testing.T) {
+	cl, receiver, tearDown := setupAndRegisterReceiver(t)
+	defer tearDown(t)
+
+	// register for notifications
+	_, err := cl.RegisterTableListener(0, 3, receiver.address, 0)
+	require.NoError(t, err)
+
+	offsetInfos := []offsets.GetOffsetTopicInfo{
+		{
+			TopicID: 0,
+			PartitionInfos: []offsets.GetOffsetPartitionInfo{
+				{
+					PartitionID: 3,
+					NumOffsets:  100,
+				},
+			},
+		},
+	}
+
+	numRegs := 10
+	for i := 0; i < numRegs; i++ {
+		_, seq, err := cl.GetOffsets(offsetInfos)
+		require.NoError(t, err)
+		require.Equal(t, i+1, int(seq))
+	}
+
+	// Now register in reverse order which will cause them to be delayed and re-ordered
+	var tableIds []sst.SSTableID
+	for i := numRegs - 1; i >= 0; i-- {
+		regEntry := createRegEntry()
+		err = cl.RegisterL0Table(int64(i+1), regEntry)
+		require.NoError(t, err)
+		tableIds = append([]sst.SSTableID{regEntry.TableID}, tableIds...)
+	}
+
+	testutils.WaitUntil(t, func() (bool, error) {
+		return len(receiver.getNotifications()) == 1, nil
+	})
+
+	notif := receiver.getNotifications()[0]
+	require.Equal(t, numRegs, len(notif.TableIDs))
+	require.Equal(t, tableIds, notif.TableIDs)
+}
+
 func setupAndRegisterReceiver(t *testing.T) (Client, *notificationReceiver, func(t *testing.T)) {
 	objStore := dev.NewInMemStore(0)
 	controllers, localTransports, tearDown := setupControllersWithObjectStore(t, 1, objStore)
@@ -696,29 +741,38 @@ func waitForNotifications(t *testing.T, receiver *notificationReceiver, numNotif
 	})
 }
 
-func verifyTableRegisteredNotification(t *testing.T, sequence int, tableID sst.SSTableID, writtenOffs []offsets.UpdateWrittenOffsetTopicInfo, notif TableRegisteredNotification) {
+func verifyTableRegisteredNotification(t *testing.T, sequence int, tableID sst.SSTableID, offs []offsets.OffsetTopicInfo, notif TablesRegisteredNotification) {
 	require.Equal(t, sequence, int(notif.Sequence))
-	require.Equal(t, tableID, notif.ID)
-	require.Equal(t, len(writtenOffs), len(notif.Infos))
-	for i, topicInfo := range writtenOffs {
+	require.Equal(t, []sst.SSTableID{tableID}, notif.TableIDs)
+	require.Equal(t, len(offs), len(notif.Infos))
+	for i, topicInfo := range offs {
 		require.Equal(t, topicInfo.TopicID, notif.Infos[i].TopicID)
 		require.Equal(t, len(topicInfo.PartitionInfos), len(notif.Infos[i].PartitionInfos))
 		for j, partInfo := range topicInfo.PartitionInfos {
 			require.Equal(t, partInfo.PartitionID, notif.Infos[i].PartitionInfos[j].PartitionID)
-			expectedLRO := int(partInfo.OffsetStart) + partInfo.NumOffsets - 1
-			require.Equal(t, expectedLRO, int(notif.Infos[i].PartitionInfos[j].LastReadableOffset))
+			require.Equal(t, partInfo.Offset, notif.Infos[i].PartitionInfos[j].Offset)
 		}
 	}
 }
 
-func triggerTableAddedNotification(t *testing.T, cl Client, offInfos []offsets.GetOffsetTopicInfo) (sst.SSTableID, []offsets.UpdateWrittenOffsetTopicInfo) {
-	offs, err := cl.GetOffsets(offInfos)
+func triggerTableAddedNotification(t *testing.T, cl Client, offInfos []offsets.GetOffsetTopicInfo) (sst.SSTableID, []offsets.OffsetTopicInfo) {
+	offs, seq, err := cl.GetOffsets(offInfos)
 	require.NoError(t, err)
 
+	regEntry := createRegEntry()
+
+	// cause a notification to be sent
+	err = cl.RegisterL0Table(seq, regEntry)
+	require.NoError(t, err)
+
+	return regEntry.TableID, offs
+}
+
+func createRegEntry() lsm.RegistrationEntry {
 	keyStart := []byte("key000001")
 	keyEnd := []byte("key000010")
 	tableID := []byte(uuid.New().String())
-	regEntry := lsm.RegistrationEntry{
+	return lsm.RegistrationEntry{
 		Level:      0,
 		TableID:    tableID,
 		MinVersion: 123,
@@ -729,40 +783,17 @@ func triggerTableAddedNotification(t *testing.T, cl Client, offInfos []offsets.G
 		NumEntries: 1234,
 		TableSize:  12345567,
 	}
-
-	var writtenOffs []offsets.UpdateWrittenOffsetTopicInfo
-	index := 0
-	for _, topicOff := range offInfos {
-		var writtenTopicOff offsets.UpdateWrittenOffsetTopicInfo
-		writtenTopicOff.TopicID = topicOff.TopicID
-		for _, partitionOff := range topicOff.PartitionInfos {
-			writtenPartOff := offsets.UpdateWrittenOffsetPartitionInfo{
-				PartitionID: partitionOff.PartitionID,
-				OffsetStart: offs[index],
-				NumOffsets:  partitionOff.NumOffsets,
-			}
-			writtenTopicOff.PartitionInfos = append(writtenTopicOff.PartitionInfos, writtenPartOff)
-			index++
-		}
-		writtenOffs = append(writtenOffs, writtenTopicOff)
-	}
-
-	// cause a notification to be sent
-	err = cl.RegisterL0Table(writtenOffs, regEntry)
-	require.NoError(t, err)
-
-	return tableID, writtenOffs
 }
 
 type notificationReceiver struct {
 	lock     sync.Mutex
-	received []TableRegisteredNotification
+	received []TablesRegisteredNotification
 	address  string
 }
 
 func (n *notificationReceiver) receivedNotification(_ *transport.ConnectionContext, request []byte, _ []byte,
 	_ transport.ResponseWriter) error {
-	var notif TableRegisteredNotification
+	var notif TablesRegisteredNotification
 	notif.Deserialize(request, 0)
 	n.lock.Lock()
 	defer n.lock.Unlock()
@@ -770,10 +801,10 @@ func (n *notificationReceiver) receivedNotification(_ *transport.ConnectionConte
 	return nil
 }
 
-func (n *notificationReceiver) getNotifications() []TableRegisteredNotification {
+func (n *notificationReceiver) getNotifications() []TablesRegisteredNotification {
 	n.lock.Lock()
 	defer n.lock.Unlock()
-	copied := make([]TableRegisteredNotification, len(n.received))
+	copied := make([]TablesRegisteredNotification, len(n.received))
 	copy(copied, n.received)
 	return copied
 }

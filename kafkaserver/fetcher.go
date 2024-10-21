@@ -410,7 +410,7 @@ func (f *PartitionFetcher) fetchFromStore(fetchOffset int64, maxBytes int) ([]by
 			val, off = encoding2.ReadBytesFromBufferLE(kv.Value, off)
 		}
 
-		batchBytes, ok = kafkaencoding.AppendToBatch(batchBytes, offset, key, hdrs, val, ts, firstTimestamp, firstOffset, maxBytes, first)
+		batchBytes, ok = kafkaencoding.AppendToBatch(batchBytes, offset-firstOffset, key, hdrs, val, ts, firstTimestamp, maxBytes, first)
 		if !ok {
 			// would exceed maxBytes
 			break

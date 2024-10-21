@@ -11,11 +11,11 @@ import (
 )
 
 type Client interface {
-	GetOffsets(infos []offsets.GetOffsetTopicInfo) ([]int64, error)
+	GetOffsets(infos []offsets.GetOffsetTopicInfo) ([]offsets.OffsetTopicInfo, int64, error)
 
 	ApplyLsmChanges(regBatch lsm.RegistrationBatch) error
 
-	RegisterL0Table(writtenOffsetInfos []offsets.UpdateWrittenOffsetTopicInfo, regEntry lsm.RegistrationEntry) error
+	RegisterL0Table(sequence int64, regEntry lsm.RegistrationEntry) error
 
 	QueryTablesInRange(keyStart []byte, keyEnd []byte) (lsm.OverlappingTables, error)
 
@@ -45,14 +45,14 @@ type client struct {
 
 var _ Client = &client{}
 
-func (c *client) RegisterL0Table(writtenOffsetInfos []offsets.UpdateWrittenOffsetTopicInfo, regEntry lsm.RegistrationEntry) error {
+func (c *client) RegisterL0Table(sequence int64, regEntry lsm.RegistrationEntry) error {
 	conn, err := c.getConnection()
 	if err != nil {
 		return err
 	}
 	req := RegisterL0Request{
 		LeaderVersion: c.leaderVersion,
-		OffsetInfos:   writtenOffsetInfos,
+		Sequence:      sequence,
 		RegEntry:      regEntry,
 	}
 	request := req.Serialize(createRequestBuffer())
@@ -115,10 +115,10 @@ func (c *client) RegisterTableListener(topicID int, partitionID int, address str
 	return resp.LastReadableOffset, nil
 }
 
-func (c *client) GetOffsets(infos []offsets.GetOffsetTopicInfo) ([]int64, error) {
+func (c *client) GetOffsets(infos []offsets.GetOffsetTopicInfo) ([]offsets.OffsetTopicInfo, int64, error) {
 	conn, err := c.getConnection()
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	req := GetOffsetsRequest{
 		LeaderVersion: c.leaderVersion,
@@ -127,11 +127,11 @@ func (c *client) GetOffsets(infos []offsets.GetOffsetTopicInfo) ([]int64, error)
 	request := req.Serialize(createRequestBuffer())
 	respBuff, err := conn.SendRPC(transport.HandlerIDControllerGetOffsets, request)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	var resp GetOffsetsResponse
 	resp.Deserialize(respBuff, 0)
-	return resp.Offsets, nil
+	return resp.Offsets, resp.Sequence, nil
 }
 
 func (c *client) PollForJob() (lsm.CompactionJob, error) {
