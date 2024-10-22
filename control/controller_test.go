@@ -161,7 +161,7 @@ func TestControllerApplyChanges(t *testing.T) {
 	require.Equal(t, tableID, []byte(resTableID))
 }
 
-func TestControllerGetOffsetsAndRegisterL0(t *testing.T) {
+func TestControllerPrePushAndRegisterL0(t *testing.T) {
 	controllers, tearDown := setupControllers(t, 1)
 	defer tearDown(t)
 
@@ -175,10 +175,9 @@ func TestControllerGetOffsetsAndRegisterL0(t *testing.T) {
 		require.NoError(t, err)
 	}()
 
-	// First get some offsets
-	offs, seq, err := cl.GetOffsets([]offsets.GetOffsetTopicInfo{
+	offs, seq, _, err := cl.PrePush([]offsets.GetOffsetTopicInfo{
 		{
-			TopicID: 0,
+			TopicID: 1000,
 			PartitionInfos: []offsets.GetOffsetPartitionInfo{
 				{
 					PartitionID: 1,
@@ -191,7 +190,7 @@ func TestControllerGetOffsetsAndRegisterL0(t *testing.T) {
 			},
 		},
 		{
-			TopicID: 1,
+			TopicID: 1001,
 			PartitionInfos: []offsets.GetOffsetPartitionInfo{
 				{
 					PartitionID: 1,
@@ -199,17 +198,17 @@ func TestControllerGetOffsetsAndRegisterL0(t *testing.T) {
 				},
 			},
 		},
-	})
+	}, nil)
 	require.NoError(t, err)
 	require.Equal(t, 2, len(offs))
-	require.Equal(t, 0, offs[0].TopicID)
+	require.Equal(t, 1000, offs[0].TopicID)
 	require.Equal(t, 2, len(offs[0].PartitionInfos))
 	require.Equal(t, 1, offs[0].PartitionInfos[0].PartitionID)
 	require.Equal(t, 99, int(offs[0].PartitionInfos[0].Offset))
 	require.Equal(t, 2, offs[0].PartitionInfos[1].PartitionID)
 	require.Equal(t, 149, int(offs[0].PartitionInfos[1].Offset))
 
-	require.Equal(t, 1, offs[1].TopicID)
+	require.Equal(t, 1001, offs[1].TopicID)
 	require.Equal(t, 1, len(offs[1].PartitionInfos))
 	require.Equal(t, 1, offs[1].PartitionInfos[0].PartitionID)
 	require.Equal(t, 49, int(offs[1].PartitionInfos[0].Offset))
@@ -257,6 +256,68 @@ func TestControllerGetOffsetsAndRegisterL0(t *testing.T) {
 	require.True(t, found)
 }
 
+func TestControllerGroupEpochs(t *testing.T) {
+	controllers, tearDown := setupControllers(t, 1)
+	defer tearDown(t)
+
+	updateMembership(t, 1, 1, controllers, 0)
+	setupTopics(t, controllers[0])
+
+	cl, err := controllers[0].Client()
+	require.NoError(t, err)
+	defer func() {
+		err := cl.Close()
+		require.NoError(t, err)
+	}()
+
+	numGroups := 10
+	var groupIDs []string
+	for i := 0; i < numGroups; i++ {
+		groupIDs = append(groupIDs, uuid.New().String())
+	}
+
+	var epochInfos []GroupEpochInfo
+	for _, groupID := range groupIDs {
+		memberID, address, groupEpoch, err := cl.GetGroupCoordinatorInfo(groupID)
+		require.NoError(t, err)
+		require.Equal(t, controllers[0].memberID, memberID)
+		require.Equal(t, "kafka-address-0:1234", address)
+		require.Equal(t, 1, groupEpoch)
+
+		epochInfos = append(epochInfos, GroupEpochInfo{
+			GroupID:    groupID,
+			GroupEpoch: 1,
+		})
+	}
+
+	offs, seq, epochsOK, err := cl.PrePush([]offsets.GetOffsetTopicInfo{}, epochInfos)
+	require.NoError(t, err)
+	require.Equal(t, 0, len(offs))
+	require.Equal(t, 1, int(seq))
+
+	require.Equal(t, numGroups, len(epochInfos))
+	for _, ok := range epochsOK {
+		require.True(t, ok)
+	}
+
+	// Now try with incorrect epoch infos
+	for i := 0; i < len(epochInfos); i++ {
+		if i%2 == 0 {
+			epochInfos[i].GroupEpoch++
+		}
+	}
+
+	offs, seq, epochsOK, err = cl.PrePush([]offsets.GetOffsetTopicInfo{}, epochInfos)
+	require.NoError(t, err)
+	require.Equal(t, 0, len(offs))
+	require.Equal(t, 2, int(seq))
+
+	require.Equal(t, numGroups, len(epochInfos))
+	for i, ok := range epochsOK {
+		require.Equal(t, ok, i%2 != 0)
+	}
+}
+
 func TestControllerCreateGetDeleteTopics(t *testing.T) {
 	objStore := dev.NewInMemStore(0)
 	controllers, _, tearDown := setupControllersWithObjectStore(t, 1, objStore)
@@ -276,7 +337,7 @@ func TestControllerCreateGetDeleteTopics(t *testing.T) {
 		require.True(t, common.IsTektiteErrorWithCode(err, common.TopicDoesNotExist))
 		info := topicmeta.TopicInfo{
 			Name:           topicName,
-			ID:             i,
+			ID:             1000 + i,
 			PartitionCount: i + 1,
 			RetentionTime:  time.Duration(1000000 + i),
 		}
@@ -399,8 +460,7 @@ func setupControllersWithObjectStoreAndConfigSetter(t *testing.T, numMembers int
 		if configSetter != nil {
 			configSetter(&cfg)
 		}
-		membershipID := fmt.Sprintf("id-%d", i)
-		ctrl := NewController(cfg, objStore, localTransports.CreateConnection, transportServer, membershipID)
+		ctrl := NewController(cfg, objStore, localTransports.CreateConnection, transportServer)
 		err = ctrl.Start()
 		require.NoError(t, err)
 		controllers = append(controllers, ctrl)
@@ -426,8 +486,8 @@ func setupControllersWithObjectStoreAndConfigSetter(t *testing.T, numMembers int
 func updateMembership(t *testing.T, clusterVersion int, leaderVersion int, controllers []*Controller,
 	memberIndexes ...int) []cluster.MembershipEntry {
 	newState := createMembership(clusterVersion, leaderVersion, controllers, memberIndexes...)
-	for _, mgr := range controllers {
-		err := mgr.MembershipChanged(newState)
+	for i, mgr := range controllers {
+		err := mgr.MembershipChanged(int32(i), newState)
 		require.NoError(t, err)
 	}
 	return newState.Members
@@ -436,10 +496,14 @@ func updateMembership(t *testing.T, clusterVersion int, leaderVersion int, contr
 func createMembership(clusterVersion int, leaderVersion int, controllers []*Controller, memberIndexes ...int) cluster.MembershipState {
 	now := time.Now().UnixMilli()
 	var members []cluster.MembershipEntry
-	for _, memberIndex := range memberIndexes {
-		membershipData := common.MembershipData{ListenAddress: controllers[memberIndex].transportServer.Address()}
+	for i, memberIndex := range memberIndexes {
+		membershipData := common.MembershipData{
+			ClusterListenAddress: controllers[memberIndex].transportServer.Address(),
+			// Make up a fake kafka address
+			KafkaListenerAddress: fmt.Sprintf("kafka-address-%d:1234", i),
+		}
 		members = append(members, cluster.MembershipEntry{
-			ID:         fmt.Sprintf("id-%d", memberIndex),
+			ID:         int32(memberIndex),
 			Data:       membershipData.Serialize(nil),
 			UpdateTime: now,
 		})

@@ -23,6 +23,7 @@ func TestManager(t *testing.T) {
 	numTopics := 100
 	var infos []TopicInfo
 
+	expectedSeq := topicIDSequenceBase
 	for i := 0; i < numTopics; i++ {
 		topicName := fmt.Sprintf("topic-%03d", i)
 		_, _, err := mgr.GetTopicInfo(topicName)
@@ -30,15 +31,17 @@ func TestManager(t *testing.T) {
 		require.True(t, common.IsTektiteErrorWithCode(err, common.TopicDoesNotExist))
 		info := TopicInfo{
 			Name:           topicName,
-			ID:             i,
+			ID:             expectedSeq,
 			PartitionCount: i + 1,
 			RetentionTime:  time.Duration(1000000 + i),
 		}
 		err = mgr.CreateTopic(info)
 		require.NoError(t, err)
-		received, _, err := mgr.GetTopicInfo(topicName)
+		received, seq, err := mgr.GetTopicInfo(topicName)
 		require.NoError(t, err)
 		require.Equal(t, info, received)
+		expectedSeq++
+		require.Equal(t, expectedSeq, seq)
 		infos = append(infos, info)
 	}
 
@@ -130,11 +133,12 @@ func TestGetTopicInfoSequence(t *testing.T) {
 	require.NoError(t, err)
 
 	numTopics := 100
+	expectedSeq := topicIDSequenceBase
 	for i := 0; i < numTopics; i++ {
 		topicName := fmt.Sprintf("topic-%03d", i)
 		info := TopicInfo{
 			Name:           topicName,
-			ID:             i,
+			ID:             expectedSeq,
 			PartitionCount: i + 1,
 			RetentionTime:  time.Duration(1000000 + i),
 		}
@@ -143,17 +147,101 @@ func TestGetTopicInfoSequence(t *testing.T) {
 		received, seq, err := mgr.GetTopicInfo(topicName)
 		require.NoError(t, err)
 		require.Equal(t, info, received)
-		require.Equal(t, i+1, seq)
+		expectedSeq++
+		require.Equal(t, expectedSeq, seq)
 	}
 	// Delete one - should make sequence increase again
 	topicName := fmt.Sprintf("topic-%03d", numTopics-1)
 	err = mgr.DeleteTopic(topicName)
 	require.NoError(t, err)
+	expectedSeq++
 
 	topicName = fmt.Sprintf("topic-%03d", 0)
 	_, seq, err := mgr.GetTopicInfo(topicName)
 	require.NoError(t, err)
-	require.Equal(t, numTopics+1, seq)
+	require.Equal(t, expectedSeq, seq)
+}
+
+func TestGetTopicInfoSequencePersisted(t *testing.T) {
+	lsmH := &testLsmHolder{}
+	objStore := dev.NewInMemStore(0)
+
+	mgr, err := NewManager(lsmH, objStore, "test-bucket", common.DataFormatV1, nil)
+	require.NoError(t, err)
+	err = mgr.Start()
+	require.NoError(t, err)
+
+	numTopics := 10
+	var infos []TopicInfo
+	expectedSeq := topicIDSequenceBase
+	for i := 0; i < numTopics; i++ {
+		topicName := fmt.Sprintf("topic-%03d", i)
+		info := TopicInfo{
+			Name:           topicName,
+			ID:             expectedSeq,
+			PartitionCount: i + 1,
+			RetentionTime:  time.Duration(1000000 + i),
+		}
+		err = mgr.CreateTopic(info)
+		require.NoError(t, err)
+		received, seq, err := mgr.GetTopicInfo(topicName)
+		require.NoError(t, err)
+		require.Equal(t, info, received)
+		expectedSeq++
+		require.Equal(t, expectedSeq, seq)
+		infos = append(infos, info)
+	}
+
+	// restart
+	err = mgr.Stop()
+	require.NoError(t, err)
+	mgr, err = NewManager(lsmH, objStore, "test-bucket", common.DataFormatV1, nil)
+	require.NoError(t, err)
+	err = mgr.Start()
+	require.NoError(t, err)
+
+	for i := 0; i < numTopics; i++ {
+		topicName := fmt.Sprintf("topic-%03d", i)
+		received, seq, err := mgr.GetTopicInfo(topicName)
+		require.NoError(t, err)
+		require.Equal(t, infos[i], received)
+		require.Equal(t, expectedSeq, seq)
+	}
+
+	// Add more topics
+	for i := numTopics; i < numTopics*2; i++ {
+		topicName := fmt.Sprintf("topic-%03d", i)
+		info := TopicInfo{
+			Name:           topicName,
+			ID:             expectedSeq,
+			PartitionCount: i + 1,
+			RetentionTime:  time.Duration(1000000 + i),
+		}
+		err = mgr.CreateTopic(info)
+		require.NoError(t, err)
+		received, seq, err := mgr.GetTopicInfo(topicName)
+		require.NoError(t, err)
+		require.Equal(t, info, received)
+		expectedSeq++
+		require.Equal(t, expectedSeq, seq)
+		infos = append(infos, info)
+	}
+
+	// restart again
+	err = mgr.Stop()
+	require.NoError(t, err)
+	mgr, err = NewManager(lsmH, objStore, "test-bucket", common.DataFormatV1, nil)
+	require.NoError(t, err)
+	err = mgr.Start()
+	require.NoError(t, err)
+
+	for i := 0; i < numTopics*2; i++ {
+		topicName := fmt.Sprintf("topic-%03d", i)
+		received, seq, err := mgr.GetTopicInfo(topicName)
+		require.NoError(t, err)
+		require.Equal(t, infos[i], received)
+		require.Equal(t, expectedSeq, seq)
+	}
 }
 
 func TestSerializeDeserializeTopicNotification(t *testing.T) {

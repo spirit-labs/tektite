@@ -11,7 +11,8 @@ import (
 )
 
 type Client interface {
-	GetOffsets(infos []offsets.GetOffsetTopicInfo) ([]offsets.OffsetTopicInfo, int64, error)
+	PrePush(infos []offsets.GetOffsetTopicInfo, epochInfos []GroupEpochInfo) ([]offsets.OffsetTopicInfo, int64,
+		[]bool, error)
 
 	ApplyLsmChanges(regBatch lsm.RegistrationBatch) error
 
@@ -19,7 +20,7 @@ type Client interface {
 
 	QueryTablesInRange(keyStart []byte, keyEnd []byte) (lsm.OverlappingTables, error)
 
-	RegisterTableListener(topicID int, partitionID int, memberID string, resetSequence int64) (int64, error)
+	RegisterTableListener(topicID int, partitionID int, memberID int32, resetSequence int64) (int64, error)
 
 	PollForJob() (lsm.CompactionJob, error)
 
@@ -28,6 +29,8 @@ type Client interface {
 	CreateTopic(topicInfo topicmeta.TopicInfo) error
 
 	DeleteTopic(topicName string) error
+
+	GetGroupCoordinatorInfo(groupID string) (memberID int32, address string, groupEpoch int, err error)
 
 	Close() error
 }
@@ -93,7 +96,7 @@ func (c *client) QueryTablesInRange(keyStart []byte, keyEnd []byte) (lsm.Overlap
 	return queryRes, nil
 }
 
-func (c *client) RegisterTableListener(topicID int, partitionID int, memberID string, resetSequence int64) (int64, error) {
+func (c *client) RegisterTableListener(topicID int, partitionID int, memberID int32, resetSequence int64) (int64, error) {
 	conn, err := c.getConnection()
 	if err != nil {
 		return 0, err
@@ -102,7 +105,7 @@ func (c *client) RegisterTableListener(topicID int, partitionID int, memberID st
 		LeaderVersion: c.leaderVersion,
 		TopicID:       topicID,
 		PartitionID:   partitionID,
-		MemberID:       memberID,
+		MemberID:      memberID,
 		ResetSequence: resetSequence,
 	}
 	request := req.Serialize(createRequestBuffer())
@@ -115,23 +118,25 @@ func (c *client) RegisterTableListener(topicID int, partitionID int, memberID st
 	return resp.LastReadableOffset, nil
 }
 
-func (c *client) GetOffsets(infos []offsets.GetOffsetTopicInfo) ([]offsets.OffsetTopicInfo, int64, error) {
+func (c *client) PrePush(infos []offsets.GetOffsetTopicInfo, epochInfos []GroupEpochInfo) ([]offsets.OffsetTopicInfo,
+	int64, []bool, error) {
 	conn, err := c.getConnection()
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, nil, err
 	}
-	req := GetOffsetsRequest{
-		LeaderVersion: c.leaderVersion,
-		Infos:         infos,
+	req := PrePushRequest{
+		LeaderVersion:   c.leaderVersion,
+		Infos:           infos,
+		GroupEpochInfos: epochInfos,
 	}
 	request := req.Serialize(createRequestBuffer())
 	respBuff, err := conn.SendRPC(transport.HandlerIDControllerGetOffsets, request)
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, nil, err
 	}
-	var resp GetOffsetsResponse
+	var resp PrePushResponse
 	resp.Deserialize(respBuff, 0)
-	return resp.Offsets, resp.Sequence, nil
+	return resp.Offsets, resp.Sequence, resp.EpochsOK, nil
 }
 
 func (c *client) PollForJob() (lsm.CompactionJob, error) {
@@ -193,6 +198,25 @@ func (c *client) DeleteTopic(topicName string) error {
 	buff := req.Serialize(createRequestBuffer())
 	_, err = conn.SendRPC(transport.HandlerIDControllerDeleteTopic, buff)
 	return err
+}
+
+func (c *client) GetGroupCoordinatorInfo(groupID string) (int32, string, int, error) {
+	conn, err := c.getConnection()
+	if err != nil {
+		return 0, "", 0, err
+	}
+	req := GetGroupCoordinatorInfoRequest{
+		LeaderVersion: c.leaderVersion,
+		GroupID:       groupID,
+	}
+	buff := req.Serialize(createRequestBuffer())
+	respBuff, err := conn.SendRPC(transport.HandlerIDControllerGetGroupCoordinatorInfo, buff)
+	if err != nil {
+		return 0, "", 0, err
+	}
+	var resp GetGroupCoordinatorInfoResponse
+	resp.Deserialize(respBuff, 0)
+	return resp.MemberID, resp.Address, resp.GroupEpoch, nil
 }
 
 func (c *client) Close() error {

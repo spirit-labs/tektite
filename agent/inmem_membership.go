@@ -10,13 +10,15 @@ import (
 type InMemClusterMemberships struct {
 	lock              sync.Mutex
 	currentMembership cluster.MembershipState
-	listeners         []MembershipListener
+	listeners         []listenerHolder
 	updatesChan       chan updateInfo
+	idSeq             int32
 }
 
 type updateInfo struct {
-	membership cluster.MembershipState
-	listeners  []MembershipListener
+	thisMemberID int32
+	membership   cluster.MembershipState
+	listeners    []listenerHolder
 }
 
 func NewInMemClusterMemberships() *InMemClusterMemberships {
@@ -39,44 +41,55 @@ func (i *InMemClusterMemberships) Stop() {
 
 func (i *InMemClusterMemberships) deliverUpdatesLoop() {
 	for update := range i.updatesChan {
-		for _, listener := range update.listeners {
-			if err := listener(update.membership); err != nil {
+		for _, holder := range update.listeners {
+			if err := holder.listener(holder.memberID, update.membership); err != nil {
 				log.Errorf("Failed to send membership update: %v", err)
 			}
 		}
 	}
 }
 
-func (i *InMemClusterMemberships) NewMembership(id string, data []byte, listener MembershipListener) ClusterMembership {
+func (i *InMemClusterMemberships) NewMembership(data []byte, listener MembershipListener) ClusterMembership {
 	return &InMemMembership{
 		memberships: i,
-		id:          id,
 		data:        data,
 		listener:    listener,
+		id:          -1,
 	}
 }
 
-func (i *InMemClusterMemberships) addMember(id string, data []byte, listener MembershipListener) {
+func (i *InMemClusterMemberships) addMember(data []byte, listener MembershipListener) int32 {
 	i.lock.Lock()
 	defer i.lock.Unlock()
+	id := i.idSeq
 	i.currentMembership.Members = append(i.currentMembership.Members, cluster.MembershipEntry{
 		ID:         id,
 		Data:       data,
 		UpdateTime: time.Now().UnixMilli(),
 	})
-	i.listeners = append(i.listeners, listener)
+	i.idSeq++
+	i.listeners = append(i.listeners, listenerHolder{
+		memberID: id,
+		listener: listener,
+	})
 	i.currentMembership.ClusterVersion++
 	if len(i.currentMembership.Members) == 1 {
 		i.currentMembership.LeaderVersion++
 	}
 	i.sendUpdate()
+	return id
 }
 
-func (i *InMemClusterMemberships) removeMember(id string) {
+type listenerHolder struct {
+	memberID int32
+	listener MembershipListener
+}
+
+func (i *InMemClusterMemberships) removeMember(id int32) {
 	i.lock.Lock()
 	defer i.lock.Unlock()
 	var newMembers []cluster.MembershipEntry
-	var newListeners []MembershipListener
+	var newListeners []listenerHolder
 	for j, member := range i.currentMembership.Members {
 		if member.ID != id {
 			newMembers = append(newMembers, member)
@@ -92,7 +105,7 @@ func (i *InMemClusterMemberships) removeMember(id string) {
 }
 
 func (i *InMemClusterMemberships) sendUpdate() {
-	listenersCopy := make([]MembershipListener, len(i.listeners))
+	listenersCopy := make([]listenerHolder, len(i.listeners))
 	copy(listenersCopy, i.listeners)
 	i.updatesChan <- updateInfo{
 		membership: i.currentMembership,
@@ -102,13 +115,13 @@ func (i *InMemClusterMemberships) sendUpdate() {
 
 type InMemMembership struct {
 	memberships *InMemClusterMemberships
-	id          string
+	id          int32
 	data        []byte
 	listener    MembershipListener
 }
 
 func (i *InMemMembership) Start() error {
-	i.memberships.addMember(i.id, i.data, i.listener)
+	i.id = i.memberships.addMember(i.data, i.listener)
 	return nil
 }
 

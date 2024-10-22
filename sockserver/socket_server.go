@@ -162,7 +162,7 @@ func (c *serverConnection) readLoop() {
 			ignoreErr = strings.Contains(msg, "use of closed network connection")
 		}
 		if !ignoreErr {
-			log.Errorf("error in reading from server connection: %v", err)
+			log.Errorf("error in reading from kafka server connection: %v", err)
 		}
 		if err := c.conn.Close(); err != nil {
 			// Ignore

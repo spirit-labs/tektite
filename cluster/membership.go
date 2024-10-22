@@ -5,22 +5,24 @@ import (
 	"github.com/pkg/errors"
 	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/objstore"
+	"math"
 	"sync"
 	"time"
 )
 
 type Membership struct {
 	updateInterval       time.Duration
-	evicationDuration    time.Duration
+	evictionDuration     time.Duration
 	updateTimer          *time.Timer
 	lock                 sync.Mutex
 	started              bool
-	stateUpdator         *StateUpdater
-	id                   string
+	stateUpdater         *StateUpdater
+	id                   int32
+	candidateID          int32
 	data                 []byte
 	leader               bool
 	currentState         MembershipState
-	stateChangedCallback func(state MembershipState) error
+	stateChangedCallback func(thisMemberID int32, state MembershipState) error
 }
 
 type MembershipConf struct {
@@ -43,13 +45,14 @@ func (m *MembershipConf) Validate() error {
 	return nil
 }
 
-func NewMembership(cfg MembershipConf, id string, data []byte, objStoreClient objstore.Client, stateChangedCallback func(state MembershipState) error) *Membership {
+func NewMembership(cfg MembershipConf, data []byte, objStoreClient objstore.Client,
+	stateChangedCallback func(thisMemberID int32, state MembershipState) error) *Membership {
 	return &Membership{
-		id:                   id,
+		id:                   -1,
 		data:                 data,
-		stateUpdator:         NewStateUpdator(cfg.BucketName, cfg.KeyPrefix, objStoreClient, StateUpdatorOpts{}),
+		stateUpdater:         NewStateUpdator(cfg.BucketName, cfg.KeyPrefix, objStoreClient, StateUpdatorOpts{}),
 		updateInterval:       cfg.UpdateInterval,
-		evicationDuration:    cfg.EvictionDuration,
+		evictionDuration:     cfg.EvictionDuration,
 		stateChangedCallback: stateChangedCallback,
 	}
 }
@@ -60,7 +63,7 @@ func (m *Membership) Start() error {
 	if m.started {
 		return nil
 	}
-	m.stateUpdator.Start()
+	m.stateUpdater.Start()
 	m.scheduleTimer()
 	m.started = true
 	return nil
@@ -74,7 +77,7 @@ func (m *Membership) Stop() error {
 	}
 	m.started = false
 	m.updateTimer.Stop()
-	m.stateUpdator.Stop()
+	m.stateUpdater.Stop()
 	return nil
 }
 
@@ -95,9 +98,13 @@ func (m *Membership) updateOnTimer() {
 }
 
 func (m *Membership) update() error {
-	buff, err := m.stateUpdator.Update(m.updateState)
+	buff, err := m.stateUpdater.Update(m.updateState)
 	if err != nil {
 		return err
+	}
+	// Update succeed so set member id if not already set
+	if m.id == -1 {
+		m.id = m.candidateID
 	}
 	var newState MembershipState
 	err = json.Unmarshal(buff, &newState)
@@ -105,7 +112,10 @@ func (m *Membership) update() error {
 		return err
 	}
 	if membershipChanged(m.currentState.Members, newState.Members) {
-		if err := m.stateChangedCallback(newState); err != nil {
+		if m.id == -1 {
+			panic("member id not generated")
+		}
+		if err := m.stateChangedCallback(m.id, newState); err != nil {
 			log.Errorf("failed to call membership state changed callback: %v", err)
 		}
 	}
@@ -144,7 +154,7 @@ func (m *Membership) updateState(buff []byte) ([]byte, error) {
 			member.UpdateTime = now
 			found = true
 		} else {
-			if now-member.UpdateTime >= m.evicationDuration.Milliseconds() {
+			if now-member.UpdateTime >= m.evictionDuration.Milliseconds() {
 				// member evicted
 				changed = true
 				if i == 0 {
@@ -157,9 +167,11 @@ func (m *Membership) updateState(buff []byte) ([]byte, error) {
 		newMembers = append(newMembers, member)
 	}
 	if !found {
-		// Add the new member on the end
+		// Generate an id
+		m.candidateID = m.generateMemberID(&memberShipState)
+		// Add ourself on the end
 		newMembers = append(newMembers, MembershipEntry{
-			ID:         m.id,
+			ID:         m.candidateID,
 			Data:       m.data,
 			UpdateTime: now,
 		})
@@ -181,6 +193,35 @@ func (m *Membership) updateState(buff []byte) ([]byte, error) {
 	return json.Marshal(&memberShipState)
 }
 
+func (m *Membership) generateMemberID(memberShipState *MembershipState) int32 {
+	// we take the last 32 bits of the cluster version - it will wrap around if cluster version
+	// gets bigger than max int32 - this is ok
+	startID := int32(memberShipState.ClusterVersion)
+	candidateID := startID
+	for {
+		// Sanity check that no members have this id already, note, this is *very* unlikely is it would require at least
+		// one of the members to remain as other members were added/removed over 2 billion times. If it does exist
+		// we try the next one
+		for _, member := range memberShipState.Members {
+			if member.ID == candidateID {
+				if candidateID == math.MaxInt32 {
+					// wrap to zero
+					candidateID = 0
+				} else {
+					// try the next one
+					candidateID++
+				}
+				if candidateID == startID {
+					panic("cannot generate member ID")
+				}
+				continue
+			}
+		}
+		break
+	}
+	return candidateID
+}
+
 type MembershipState struct {
 	// LeaderVersion increments every time the member at position zero in the Members changes
 	// This member can be considered the leader and hosts the controller
@@ -192,7 +233,7 @@ type MembershipState struct {
 }
 
 type MembershipEntry struct {
-	ID         string // Unique ID of the member
+	ID         int32  // Unique ID of the member in the cluster - 32 bits for compatibility with kafka node id
 	Data       []byte // Arbitrary data added by the member
 	UpdateTime int64  // Time the member last updated itself, in Unix millis
 }
@@ -203,7 +244,7 @@ func (m *Membership) GetState() (MembershipState, error) {
 	if !m.started {
 		return MembershipState{}, errors.New("membership not started")
 	}
-	buff, err := m.stateUpdator.GetState()
+	buff, err := m.stateUpdater.GetState()
 	if err != nil {
 		return MembershipState{}, err
 	}

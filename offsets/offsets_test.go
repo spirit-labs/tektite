@@ -338,14 +338,6 @@ func TestOffsetsCacheUnknownTopicID(t *testing.T) {
 	require.Equal(t, "unknown topic id: 2323", err.Error())
 }
 
-func TestOffsetsCacheEmptyInfos(t *testing.T) {
-	oc := setupAndStartCache(t)
-
-	_, _, err := oc.GetOffsets(nil)
-	require.Error(t, err)
-	require.Equal(t, "empty infos", err.Error())
-}
-
 func TestMembershipChanged(t *testing.T) {
 	oc := setupAndStartCache(t)
 

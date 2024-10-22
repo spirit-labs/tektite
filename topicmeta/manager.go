@@ -60,8 +60,10 @@ func NewManager(lsm lsmHolder, objStore objstore.Client, dataBucketName string,
 }
 
 const (
-	objStoreCallTimeout      = 5 * time.Second
-	unavailabilityRetryDelay = 1 * time.Second
+	objStoreCallTimeout             = 5 * time.Second
+	unavailabilityRetryDelay        = 1 * time.Second
+	topicMetadataVersion     uint16 = 1
+	topicIDSequenceBase             = 1000
 )
 
 func (m *Manager) Start() error {
@@ -122,6 +124,7 @@ func (m *Manager) CreateTopic(topicInfo TopicInfo) error {
 		return common.NewTektiteErrorf(common.TopicAlreadyExists, "topic: %s already exists", topicInfo.Name)
 	}
 	topicInfo.ID = int(m.topicIDSequence)
+	log.Debugf("created topic with id %d", topicInfo.ID)
 	m.topicIDSequence++
 	if err := m.WriteTopic(topicInfo); err != nil {
 		return err
@@ -191,6 +194,7 @@ func (m *Manager) loadAllTopicsFromStorage() ([]TopicInfo, error) {
 		return nil, err
 	}
 	if mi == nil {
+		m.topicIDSequence = topicIDSequenceBase
 		return nil, nil
 	}
 	defer mi.Close()
@@ -211,17 +215,20 @@ func (m *Manager) loadAllTopicsFromStorage() ([]TopicInfo, error) {
 		info.Deserialize(kv.Value, 2)
 		allTopics = append(allTopics, info)
 	}
+	if len(allTopics) > 0 {
+		m.topicIDSequence = int64(allTopics[len(allTopics)-1].ID + 1)
+	} else {
+		m.topicIDSequence = topicIDSequenceBase
+	}
 	return allTopics, nil
 }
-
-const topicMetadataVersion uint16 = 1
 
 func (m *Manager) WriteTopic(topicInfo TopicInfo) error {
 	prefix := createPrefix()
 	key := encoding.KeyEncodeInt(prefix, int64(topicInfo.ID))
 	key = encoding.EncodeVersion(key, 0)
 	// Encode a version number before the data
-	buff := binary.BigEndian.AppendUint16(nil, uint16(topicMetadataVersion))
+	buff := binary.BigEndian.AppendUint16(nil, topicMetadataVersion)
 	value := topicInfo.Serialize(buff)
 	return m.writeKV(common.KV{Key: key, Value: value})
 }
@@ -241,7 +248,7 @@ func (m *Manager) writeKV(kv common.KV) error {
 	if err != nil {
 		return err
 	}
-	tableID := string(sst.CreateSSTableId())
+	tableID := sst.CreateSSTableId()
 	// Push ssTable to object store
 	tableData := table.Serialize()
 	if err := m.putWithRetry(tableID, tableData); err != nil {
@@ -291,7 +298,8 @@ func (m *Manager) putWithRetry(key string, value []byte) error {
 }
 
 func createPrefix() []byte {
-	prefix := make([]byte, 8)
+	// All table prefixes must be 16 bytes to avoid collisions with partition hashes used for data
+	prefix := make([]byte, 16)
 	binary.BigEndian.PutUint64(prefix, common.TopicMetadataSlabID)
 	return prefix
 }
@@ -364,7 +372,7 @@ func (m *Manager) SendTopicNotification(handlerID int, topicInfo TopicInfo) {
 		for i := 0; i < len(m.membership.Members); i++ {
 			var memberData common.MembershipData
 			memberData.Deserialize(m.membership.Members[i].Data, 0)
-			if err := m.sendNotificationToAddress(handlerID, memberData.ListenAddress, bytes); err != nil {
+			if err := m.sendNotificationToAddress(handlerID, memberData.ClusterListenAddress, bytes); err != nil {
 				// best effort - continue
 				log.Warnf("Unable to send topic added notification: %v", err)
 			}

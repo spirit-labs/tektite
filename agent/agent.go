@@ -1,13 +1,13 @@
 package agent
 
 import (
-	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	"github.com/spirit-labs/tektite/cluster"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/control"
 	"github.com/spirit-labs/tektite/fetchcache"
 	"github.com/spirit-labs/tektite/fetcher"
+	"github.com/spirit-labs/tektite/group"
 	"github.com/spirit-labs/tektite/kafkaserver2"
 	"github.com/spirit-labs/tektite/lsm"
 	"github.com/spirit-labs/tektite/objstore"
@@ -33,6 +33,7 @@ type Agent struct {
 	compactionWorkersService *lsm.CompactionWorkerService
 	partitionHashes          *parthash.PartitionHashes
 	fetchCache               *fetchcache.Cache
+	groupCoordinator         *group.Coordinator
 	manifold                 *membershipChangedManifold
 }
 
@@ -45,8 +46,8 @@ func NewAgent(cfg Conf, objStore objstore.Client) (*Agent, error) {
 	if err != nil {
 		return nil, err
 	}
-	clusterMembershipFactory := func(id string, data []byte, listener MembershipListener) ClusterMembership {
-		return cluster.NewMembership(cfg.ClusterMembershipConfig, id, data, objStore, listener)
+	clusterMembershipFactory := func(data []byte, listener MembershipListener) ClusterMembership {
+		return cluster.NewMembership(cfg.ClusterMembershipConfig, data, objStore, listener)
 	}
 	return NewAgentWithFactories(cfg, objStore, socketClient.CreateConnection, transportServer,
 		clusterMembershipFactory)
@@ -54,9 +55,9 @@ func NewAgent(cfg Conf, objStore objstore.Client) (*Agent, error) {
 
 const partitionHashCacheMaxSize = 100000
 
-type ClusterMembershipFactory func(id string, data []byte, listener MembershipListener) ClusterMembership
+type ClusterMembershipFactory func(data []byte, listener MembershipListener) ClusterMembership
 
-type MembershipListener func(state cluster.MembershipState) error
+type MembershipListener func(thisMemberID int32, state cluster.MembershipState) error
 
 type MembershipData struct {
 }
@@ -75,11 +76,11 @@ func NewAgentWithFactories(cfg Conf, objStore objstore.Client, connectionFactory
 		cfg: cfg,
 	}
 	membershipData := common.MembershipData{
-		ListenAddress: transportServer.Address(),
-		AZInfo:        cfg.FetchCacheConf.AzInfo,
+		ClusterListenAddress: transportServer.Address(),
+		KafkaListenerAddress: cfg.KafkaListenerConfig.Address,
+		AZInfo:               cfg.FetchCacheConf.AzInfo,
 	}
-	membershipID := uuid.New().String()
-	agent.controller = control.NewController(cfg.ControllerConf, objStore, connectionFactory, transportServer, membershipID)
+	agent.controller = control.NewController(cfg.ControllerConf, objStore, connectionFactory, transportServer)
 	topicMetaCache := topicmeta.NewLocalCache(func() (topicmeta.ControllerClient, error) {
 		cl, err := agent.controller.Client()
 		return cl, err
@@ -94,32 +95,36 @@ func NewAgentWithFactories(cfg Conf, objStore objstore.Client, connectionFactory
 		return nil, err
 	}
 	agent.partitionHashes = partitionHashes
-	rb, err := pusher.NewTablePusher(cfg.PusherConf, topicMetaCache, objStore, clientFactory, partitionHashes)
+	tablePusher, err := pusher.NewTablePusher(cfg.PusherConf, topicMetaCache, objStore, clientFactory, partitionHashes)
 	if err != nil {
 		return nil, err
 	}
-	agent.tablePusher = rb
-	fetcherClFactory := func() (fetcher.ControlClient, error) {
-		return agent.controller.Client()
-	}
+	agent.tablePusher = tablePusher
+	transportServer.RegisterHandler(transport.HandlerIDTablePusherOffsetCommit, tablePusher.HandleOffsetCommit)
 	fetchCache, err := fetchcache.NewCache(objStore, connectionFactory, transportServer, cfg.FetchCacheConf)
 	if err != nil {
 		return nil, err
 	}
 	agent.fetchCache = fetchCache
 	getter := &fetchCacheGetter{fetchCache: fetchCache}
-	bf, err := fetcher.NewBatchFetcher(objStore, topicMetaCache, partitionHashes, fetcherClFactory, getter.get,
-		membershipID, cfg.FetcherConf)
+	bf, err := fetcher.NewBatchFetcher(objStore, topicMetaCache, partitionHashes, agent.controller.Client, getter.get,
+		cfg.FetcherConf)
 	if err != nil {
 		return nil, err
 	}
 	transportServer.RegisterHandler(transport.HandlerIDFetcherTableRegisteredNotification, bf.HandleTableRegisteredNotification)
 	agent.batchFetcher = bf
+	coordinator, err := group.NewCoordinator(cfg.GroupCoordinatorConf, cfg.KafkaListenerConfig.Address, topicMetaCache,
+		agent.controller.Client, connectionFactory, getter.get)
+	if err != nil {
+		return nil, err
+	}
+	agent.groupCoordinator = coordinator
 	agent.kafkaServer = kafkaserver2.NewKafkaServer(cfg.KafkaListenerConfig.Address,
 		cfg.KafkaListenerConfig.TLSConfig, cfg.KafkaListenerConfig.AuthenticationType, agent.newKafkaHandler)
 	agent.manifold = &membershipChangedManifold{listeners: []MembershipListener{agent.controller.MembershipChanged,
-		bf.MembershipChanged, fetchCache.MembershipChanged}}
-	agent.membership = clusterMembershipFactory(membershipID, membershipData.Serialize(nil), agent.manifold.membershipChanged)
+		bf.MembershipChanged, fetchCache.MembershipChanged, coordinator.MembershipChanged}}
+	agent.membership = clusterMembershipFactory(membershipData.Serialize(nil), agent.manifold.membershipChanged)
 	agent.transportServer = transportServer
 	clFactory := func() (lsm.ControllerClient, error) {
 		return agent.controller.Client()
@@ -148,6 +153,9 @@ func (a *Agent) Start() error {
 	if err := a.batchFetcher.Start(); err != nil {
 		return err
 	}
+	if err := a.groupCoordinator.Start(); err != nil {
+		return err
+	}
 	if err := a.kafkaServer.Start(); err != nil {
 		return err
 	}
@@ -171,6 +179,9 @@ func (a *Agent) Stop() error {
 		return err
 	}
 	if err := a.kafkaServer.Stop(); err != nil {
+		return err
+	}
+	if err := a.groupCoordinator.Stop(); err != nil {
 		return err
 	}
 	if err := a.batchFetcher.Stop(); err != nil {
@@ -203,9 +214,9 @@ type membershipChangedManifold struct {
 	deliveredClusterVersion int64
 }
 
-func (m *membershipChangedManifold) membershipChanged(membership cluster.MembershipState) error {
+func (m *membershipChangedManifold) membershipChanged(thisMemberID int32, membership cluster.MembershipState) error {
 	for _, l := range m.listeners {
-		if err := l(membership); err != nil {
+		if err := l(thisMemberID, membership); err != nil {
 			return err
 		}
 	}

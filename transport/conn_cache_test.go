@@ -1,15 +1,14 @@
-package fetchcache
+package transport
 
 import (
 	"github.com/google/uuid"
-	"github.com/spirit-labs/tektite/transport"
 	"github.com/stretchr/testify/require"
 	"testing"
 )
 
 func TestConnCacheGetConnections(t *testing.T) {
 
-	localTransports := transport.NewLocalTransports()
+	localTransports := NewLocalTransports()
 
 	localTransport, err := localTransports.NewLocalServer(uuid.New().String())
 	require.NoError(t, err)
@@ -20,7 +19,7 @@ func TestConnCacheGetConnections(t *testing.T) {
 
 	require.Equal(t, 0, connCache.NumConnections())
 
-	allConns := map[transport.Connection]struct{}{}
+	allConns := map[Connection]struct{}{}
 	for i := 0; i < 10*maxConnections; i++ {
 		conn, err := connCache.GetConnection()
 		require.NoError(t, err)
@@ -42,7 +41,7 @@ func TestConnCacheGetConnections(t *testing.T) {
 
 func TestCloseInvidualConnections(t *testing.T) {
 
-	localTransports := transport.NewLocalTransports()
+	localTransports := NewLocalTransports()
 
 	localTransport, err := localTransports.NewLocalServer(uuid.New().String())
 	require.NoError(t, err)
@@ -53,7 +52,7 @@ func TestCloseInvidualConnections(t *testing.T) {
 
 	require.Equal(t, 0, connCache.NumConnections())
 
-	var conns []transport.Connection
+	var conns []Connection
 	for i := 0; i < maxConnections; i++ {
 		conn, err := connCache.GetConnection()
 		require.NoError(t, err)

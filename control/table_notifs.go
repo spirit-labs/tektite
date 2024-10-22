@@ -18,10 +18,10 @@ type tableListeners struct {
 	notificationInterval    time.Duration
 	partitionListeners      map[int]map[int][]int
 	tableAddedListeners     map[int]*tableAddedListener
-	memberIDToListenerIDMap map[string]int
+	memberIDToListenerIDMap map[int32]int
 	listenerIDSequence      int
 	notifTimer              *time.Timer
-	membersMap              map[string]struct{}
+	membersMap              map[int32]struct{}
 	connectionFactory       transport.ConnectionFactory
 	started                 bool
 	leaderVersion           int
@@ -32,7 +32,7 @@ type tableAddedListener struct {
 	connFactory   transport.ConnectionFactory
 	connection    transport.Connection
 	address       string
-	memberID      string
+	memberID      int32
 	resetSequence int64
 	sequence      int64
 	lastSentTime  uint64
@@ -44,8 +44,8 @@ func newTableListeners(notificationInterval time.Duration, connectionFactory tra
 	return &tableListeners{
 		partitionListeners:      map[int]map[int][]int{},
 		tableAddedListeners:     map[int]*tableAddedListener{},
-		memberIDToListenerIDMap: map[string]int{},
-		membersMap:              make(map[string]struct{}),
+		memberIDToListenerIDMap: map[int32]int{},
+		membersMap:              make(map[int32]struct{}),
 		notificationInterval:    notificationInterval,
 		connectionFactory:       connectionFactory,
 	}
@@ -100,7 +100,7 @@ func (t *tableListeners) maybeSendEmptyNotification() {
 func (t *tableListeners) membershipChanged(newState *cluster.MembershipState) {
 	t.lock.Lock()
 	defer t.lock.Unlock()
-	membersMap := make(map[string]struct{}, len(newState.Members))
+	membersMap := make(map[int32]struct{}, len(newState.Members))
 	for _, member := range newState.Members {
 		membersMap[member.ID] = struct{}{}
 	}
@@ -115,7 +115,7 @@ func (t *tableListeners) membershipChanged(newState *cluster.MembershipState) {
 	t.leaderVersion = newState.LeaderVersion
 }
 
-func (t *tableListeners) unregisterListenersForMemberID(memberID string) {
+func (t *tableListeners) unregisterListenersForMemberID(memberID int32) {
 	listenerID, ok := t.memberIDToListenerIDMap[memberID]
 	if !ok {
 		// no listeners
@@ -147,14 +147,14 @@ func (t *tableListeners) unregisterListenersForMemberID(memberID string) {
 	delete(t.memberIDToListenerIDMap, memberID)
 }
 
-func (t *tableListeners) hasListenerForMemberID(memberID string) bool {
+func (t *tableListeners) hasListenerForMemberID(memberID int32) bool {
 	t.lock.Lock()
 	defer t.lock.Unlock()
 	_, exists := t.memberIDToListenerIDMap[memberID]
 	return exists
 }
 
-func (t *tableListeners) maybeRegisterListenerForPartition(memberID string, address string, topicID int, partitionID int, resetSequence int64) {
+func (t *tableListeners) maybeRegisterListenerForPartition(memberID int32, address string, topicID int, partitionID int, resetSequence int64) {
 	if t.isRegisteredForPartition(memberID, topicID, partitionID, resetSequence) {
 		return
 	}
@@ -179,7 +179,7 @@ func (t *tableListeners) maybeRegisterListenerForPartition(memberID string, addr
 	partitionMap[partitionID] = append(partitionMap[partitionID], id)
 }
 
-func (t *tableListeners) isRegisteredForPartition(memberID string, topicID int, partitionID int, resetSequence int64) bool {
+func (t *tableListeners) isRegisteredForPartition(memberID int32, topicID int, partitionID int, resetSequence int64) bool {
 	t.lock.RLock()
 	defer t.lock.RUnlock()
 	id, ok := t.memberIDToListenerIDMap[memberID]

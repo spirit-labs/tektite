@@ -34,14 +34,14 @@ func TestCacheSingleNode(t *testing.T) {
 	defer cache.Stop()
 
 	membershipData := common.MembershipData{
-		ListenAddress: transportServer.Address(),
-		AZInfo:        cfg.AzInfo,
+		ClusterListenAddress: transportServer.Address(),
+		AZInfo:               cfg.AzInfo,
 	}
-	err = cache.MembershipChanged(cluster.MembershipState{
+	err = cache.MembershipChanged(0, cluster.MembershipState{
 		ClusterVersion: 1,
 		Members: []cluster.MembershipEntry{
 			{
-				ID:   uuid.New().String(),
+				ID:   0,
 				Data: membershipData.Serialize(nil),
 			},
 		},
@@ -116,11 +116,11 @@ func TestCacheMultipleNodes(t *testing.T) {
 		require.NoError(t, err)
 		cache.Start()
 		membershipData := common.MembershipData{
-			ListenAddress: transportServer.Address(),
-			AZInfo:        cfg.AzInfo,
+			ClusterListenAddress: transportServer.Address(),
+			AZInfo:               cfg.AzInfo,
 		}
 		members = append(members, cluster.MembershipEntry{
-			ID:   uuid.New().String(),
+			ID:   int32(i),
 			Data: membershipData.Serialize(nil),
 		})
 		caches = append(caches, cache)
@@ -136,8 +136,8 @@ func TestCacheMultipleNodes(t *testing.T) {
 		ClusterVersion: 1,
 		Members:        members,
 	}
-	for _, cache := range caches {
-		err := cache.MembershipChanged(membership)
+	for i, cache := range caches {
+		err := cache.MembershipChanged(int32(i), membership)
 		require.NoError(t, err)
 	}
 
@@ -179,6 +179,11 @@ func TestCacheMultipleNodes(t *testing.T) {
 	require.Equal(t, numKeys*(numGetsPerKey-1), totHits)
 	require.Equal(t, numKeys, totMisses)
 
+	cacheMemberIDMap := map[*Cache]int32{}
+	for i, cache := range caches {
+		cacheMemberIDMap[cache] = int32(i)
+	}
+
 	nodesToRemove := 3
 	for i := 0; i < nodesToRemove; i++ {
 		memberToRemove := mrand.Intn(len(members))
@@ -189,7 +194,9 @@ func TestCacheMultipleNodes(t *testing.T) {
 		newMembers = append(newMembers, members[memberToRemove+1:]...)
 
 		for _, c := range newCaches {
-			err := c.MembershipChanged(cluster.MembershipState{
+			memberID, ok := cacheMemberIDMap[c]
+			require.True(t, ok)
+			err := c.MembershipChanged(memberID, cluster.MembershipState{
 				LeaderVersion:  1,
 				ClusterVersion: 2,
 				Members:        members,
@@ -227,6 +234,7 @@ func TestMultipleAZs(t *testing.T) {
 	var members []cluster.MembershipEntry
 	var allAzCaches [][]*Cache
 
+	var memberID int32
 	for i := 0; i < numAzs; i++ {
 		az := fmt.Sprintf("AZ-%d", i)
 		var azCaches []*Cache
@@ -239,13 +247,14 @@ func TestMultipleAZs(t *testing.T) {
 			require.NoError(t, err)
 			cache.Start()
 			membershipData := common.MembershipData{
-				ListenAddress: transportServer.Address(),
-				AZInfo:        az,
+				ClusterListenAddress: transportServer.Address(),
+				AZInfo:               az,
 			}
 			members = append(members, cluster.MembershipEntry{
-				ID:   uuid.New().String(),
+				ID:   memberID,
 				Data: membershipData.Serialize(nil),
 			})
+			memberID++
 			allCaches = append(allCaches, cache)
 			azCaches = append(azCaches, cache)
 		}
@@ -257,8 +266,8 @@ func TestMultipleAZs(t *testing.T) {
 		ClusterVersion: 1,
 		Members:        members,
 	}
-	for _, cache := range allCaches {
-		err := cache.MembershipChanged(membership)
+	for i, cache := range allCaches {
+		err := cache.MembershipChanged(int32(i), membership)
 		require.NoError(t, err)
 	}
 

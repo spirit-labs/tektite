@@ -29,7 +29,7 @@ func init() {
 
 func TestProduceSimple(t *testing.T) {
 	topicName := "test-topic-1"
-	topicID := 1
+	topicID := 1001
 	partitionID := 12
 	topicInfos := []topicmeta.TopicInfo{
 		{
@@ -174,7 +174,7 @@ func TestProduceMultipleTopicsAndPartitions(t *testing.T) {
 		for j := 0; j < numPartitionsPerTopic; j++ {
 			batch := batches[pos]
 			pos++
-			verifyBatchesWritten(t, i, j, 0, [][]byte{batch}, controllerCl,
+			verifyBatchesWritten(t, i+1000, j, 0, [][]byte{batch}, controllerCl,
 				agent.Conf().PusherConf.DataBucketName, objStore)
 		}
 	}
@@ -182,7 +182,7 @@ func TestProduceMultipleTopicsAndPartitions(t *testing.T) {
 
 func TestProduceMultipleBatches(t *testing.T) {
 	topicName := "test-topic-1"
-	topicID := 1
+	topicID := 1001
 	partitionID := 12
 	topicInfos := []topicmeta.TopicInfo{
 		{
@@ -261,7 +261,7 @@ func TestProduceMultipleBatches(t *testing.T) {
 
 func TestProduceSimpleWithReload(t *testing.T) {
 	topicName := "test-topic-1"
-	topicID := 1
+	topicID := 1001
 	partitionID := 12
 	topicInfos := []topicmeta.TopicInfo{
 		{

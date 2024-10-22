@@ -335,7 +335,6 @@ func (c *connection) HandleOffsetCommitRequest(_ *kafkaprotocol.RequestHeader, r
 		partitionIDs[i] = pids
 		offsets[i] = offs
 	}
-	// TODO why not pass the req straight into the OffsetCommit method?
 	errorCodes := c.s.groupCoordinator.OffsetCommit(*req.GroupId, *req.MemberId,
 		int(req.GenerationIdOrMemberEpoch), topicNames, partitionIDs, offsets)
 	for i, errs := range errorCodes {

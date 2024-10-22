@@ -29,7 +29,7 @@ func (p *PartitionHashes) GetPartitionHash(topicID int, partitionID int) ([]byte
 	// We cache partition hashes in an LRU as crypto hashes like sha-256 are usually quite slow
 	kb := createKeyBytes(topicID, partitionID)
 	if p.cache == nil {
-		return createHash(kb)
+		return CreateHash(kb)
 	}
 	key := common.ByteSliceToStringZeroCopy(kb)
 	hash := p.getFromCache(key)
@@ -38,7 +38,7 @@ func (p *PartitionHashes) GetPartitionHash(topicID int, partitionID int) ([]byte
 	}
 	p.lock.Lock()
 	defer p.lock.Unlock()
-	hash, err := createHash(kb)
+	hash, err := CreateHash(kb)
 	if err != nil {
 		return nil, err
 	}
@@ -46,7 +46,7 @@ func (p *PartitionHashes) GetPartitionHash(topicID int, partitionID int) ([]byte
 	return hash, nil
 }
 
-func createHash(kb []byte) ([]byte, error) {
+func CreateHash(kb []byte) ([]byte, error) {
 	hashFunc := sha256.New()
 	if _, err := hashFunc.Write(kb); err != nil {
 		return nil, err
@@ -74,6 +74,6 @@ func createKeyBytes(topicID int, partitionID int) []byte {
 }
 
 func CreatePartitionHash(topicID int, partitionID int) ([]byte, error) {
-	return createHash(createKeyBytes(topicID, partitionID))
+	return CreateHash(createKeyBytes(topicID, partitionID))
 }
 

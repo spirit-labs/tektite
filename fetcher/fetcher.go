@@ -5,7 +5,6 @@ import (
 	"github.com/spirit-labs/tektite/control"
 	"github.com/spirit-labs/tektite/kafkaprotocol"
 	log "github.com/spirit-labs/tektite/logger"
-	"github.com/spirit-labs/tektite/lsm"
 	"github.com/spirit-labs/tektite/objstore"
 	"github.com/spirit-labs/tektite/parthash"
 	"github.com/spirit-labs/tektite/sst"
@@ -41,20 +40,20 @@ type BatchFetcher struct {
 	objStore        objstore.Client
 	topicProvider   topicInfoProvider
 	partitionHashes *parthash.PartitionHashes
-	controlFactory  controllerClientFactory
+	controlFactory  control.ClientFactory
 	tableGetter     sst.TableGetter
-	memberID         string
 	recentTables    PartitionRecentTables
-	controlClients  *clientCache
+	controlClients  *control.ClientCache
 	dataBucketName  string
 	readExecs       []readExecutor
 	localCache      *LocalSSTCache
 	execAssignPos   int64
 	resetSequence   int64
+	memberID int32
 }
 
 func NewBatchFetcher(objStore objstore.Client, topicProvider topicInfoProvider, partitionHashes *parthash.PartitionHashes,
-	controlFactory controllerClientFactory, tableGetter sst.TableGetter, memberID string, cfg Conf) (*BatchFetcher, error) {
+	controlFactory control.ClientFactory, tableGetter sst.TableGetter, cfg Conf) (*BatchFetcher, error) {
 	localCache, err := NewLocalSSTCache(cfg.LocalCacheNumEntries, cfg.LocalCacheMaxBytes)
 	if err != nil {
 		return nil, err
@@ -65,11 +64,11 @@ func NewBatchFetcher(objStore objstore.Client, topicProvider topicInfoProvider, 
 		partitionHashes: partitionHashes,
 		controlFactory:  controlFactory,
 		tableGetter:     tableGetter,
-		memberID:         memberID,
-		controlClients:  newClientCache(cfg.MaxControllerConnections, controlFactory),
+		controlClients:  control.NewClientCache(cfg.MaxControllerConnections, controlFactory),
 		readExecs:       make([]readExecutor, cfg.NumReadExecutors),
 		localCache:      localCache,
 		dataBucketName:  cfg.DataBucketName,
+		memberID: -1,
 	}
 	bf.recentTables = CreatePartitionRecentTables(cfg.MaxCachedTablesPerPartition, bf)
 	return bf, nil
@@ -113,14 +112,6 @@ type topicInfoProvider interface {
 	GetTopicInfo(topicName string) (topicmeta.TopicInfo, error)
 }
 
-type controllerClientFactory func() (ControlClient, error)
-
-type ControlClient interface {
-	RegisterTableListener(topicID int, partitionID int, memberID string, resetSequence int64) (int64, error)
-	QueryTablesInRange(keyStart []byte, keyEnd []byte) (lsm.OverlappingTables, error)
-	Close() error
-}
-
 func (b *BatchFetcher) Start() error {
 	for i := 0; i < len(b.readExecs); i++ {
 		b.readExecs[i].ch = make(chan *FetchState, readExecChannelSize)
@@ -133,7 +124,7 @@ func (b *BatchFetcher) Stop() error {
 	for i := 0; i < len(b.readExecs); i++ {
 		b.readExecs[i].stop()
 	}
-	b.controlClients.close()
+	b.controlClients.Close()
 	return nil
 }
 
@@ -177,11 +168,12 @@ func (b *BatchFetcher) getTableFromCache(tableID sst.SSTableID) (*sst.SSTable, e
 	return table, nil
 }
 
-func (b *BatchFetcher) getClient() (ControlClient, error) {
-	return b.controlClients.getClient()
+func (b *BatchFetcher) getClient() (control.Client, error) {
+	return b.controlClients.GetClient()
 }
 
-func (b *BatchFetcher) MembershipChanged(membership cluster.MembershipState) error {
+func (b *BatchFetcher) MembershipChanged(thisMemberID int32, membership cluster.MembershipState) error {
+	atomic.StoreInt32(&b.memberID, thisMemberID)
 	b.recentTables.membershipChanged(membership)
 	return nil
 }

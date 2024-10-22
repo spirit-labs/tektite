@@ -3,9 +3,13 @@ package pusher
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"errors"
+	"fmt"
+	"github.com/google/uuid"
 	"github.com/spirit-labs/tektite/asl/encoding"
 	"github.com/spirit-labs/tektite/common"
+	"github.com/spirit-labs/tektite/control"
 	"github.com/spirit-labs/tektite/kafkaprotocol"
 	"github.com/spirit-labs/tektite/lsm"
 	"github.com/spirit-labs/tektite/objstore"
@@ -39,6 +43,490 @@ func (s *simpleTopicInfoProvider) GetTopicInfo(topicName string) (topicmeta.Topi
 		return topicmeta.TopicInfo{}, common.NewTektiteErrorf(common.TopicDoesNotExist, "unknown topic: %s", topicName)
 	}
 	return info, nil
+}
+
+func TestTablePusherOffsetCommitSingleTopicAndPartitionOK(t *testing.T) {
+	cfg := NewConf()
+	cfg.DataBucketName = "test-data-bucket"
+	cfg.WriteTimeout = 1 * time.Millisecond // So it pushes straightaway
+	objStore := dev.NewInMemStore(0)
+	topicID := 1234
+	seq := int64(23)
+
+	controllerClient := &testControllerClient{
+		sequence: seq,
+	}
+	clientFactory := func() (ControlClient, error) {
+		return controllerClient, nil
+	}
+	topicName := "topic1"
+	topicProvider := &simpleTopicInfoProvider{infos: map[string]topicmeta.TopicInfo{
+		topicName: {ID: topicID, PartitionCount: 20},
+	}}
+	partHashes, err := parthash.NewPartitionHashes(100)
+	require.NoError(t, err)
+	pusher, err := NewTablePusher(cfg, topicProvider, objStore, clientFactory, partHashes)
+	require.NoError(t, err)
+	err = pusher.Start()
+	require.NoError(t, err)
+	defer func() {
+		err := pusher.Stop()
+		require.NoError(t, err)
+	}()
+
+	partitionID := 3
+
+	groupID := uuid.New().String()
+
+	controllerClient.epochsOkMap = map[string]bool{
+		groupID: true,
+	}
+
+	committedOffset := 123213
+	req := kafkaprotocol.OffsetCommitRequest{
+		GroupId:  common.StrPtr(groupID),
+		MemberId: common.StrPtr("member-24242"),
+		Topics: []kafkaprotocol.OffsetCommitRequestOffsetCommitRequestTopic{
+			{
+				Name: common.StrPtr(topicName),
+				Partitions: []kafkaprotocol.OffsetCommitRequestOffsetCommitRequestPartition{
+					{
+						PartitionIndex:  int32(partitionID),
+						CommittedOffset: int64(committedOffset),
+					},
+				},
+			},
+		},
+	}
+
+	groupEpoch := 23
+	respCh := make(chan *kafkaprotocol.OffsetCommitResponse, 1)
+	err = pusher.handleOffsetCommit0(&req, groupEpoch, func(resp *kafkaprotocol.OffsetCommitResponse) {
+		respCh <- resp
+	})
+	require.NoError(t, err)
+	resp := <-respCh
+
+	require.Equal(t, 1, len(resp.Topics))
+	require.Equal(t, req.Topics[0].Name, resp.Topics[0].Name)
+
+	require.Equal(t, 1, len(resp.Topics[0].Partitions))
+	require.Equal(t, 3, int(resp.Topics[0].Partitions[0].PartitionIndex))
+	require.Equal(t, kafkaprotocol.ErrorCodeNone, int(resp.Topics[0].Partitions[0].ErrorCode))
+
+	// check that table has been pushed to object store
+
+	ssTables, _ := getSSTablesFromStore(t, cfg.DataBucketName, objStore)
+	require.Equal(t, 1, len(ssTables))
+	iter, err := ssTables[0].NewIterator(nil, nil)
+	require.NoError(t, err)
+	ok, kv, err := iter.Next()
+	require.NoError(t, err)
+	require.True(t, ok)
+
+	// check KV is as expected
+	checkExpectedOffsetCommitKV(t, kv, groupID, topicID, partitionID, committedOffset)
+
+	// check called with correct group epochs
+	invocs := controllerClient.getPrePushInvocations()
+	require.Equal(t, 1, len(invocs))
+	require.Equal(t, 0, len(invocs[0].infos))
+	require.Equal(t, 1, len(invocs[0].epochInfos))
+	epochInfo := invocs[0].epochInfos[0]
+	require.Equal(t, groupEpoch, epochInfo.GroupEpoch)
+	require.Equal(t, groupID, epochInfo.GroupID)
+}
+
+func TestTablePusherOffsetCommitMultipleTopicsAndPartitionsOK(t *testing.T) {
+	cfg := NewConf()
+	cfg.DataBucketName = "test-data-bucket"
+	cfg.WriteTimeout = 1 * time.Millisecond // So it pushes straightaway
+	objStore := dev.NewInMemStore(0)
+	seq := int64(23)
+
+	controllerClient := &testControllerClient{
+		sequence: seq,
+	}
+	clientFactory := func() (ControlClient, error) {
+		return controllerClient, nil
+	}
+
+	numTopics := 10
+	numPartitionsPerTopic := 5
+	topicInfos := map[string]topicmeta.TopicInfo{}
+	for i := 0; i < numTopics; i++ {
+		topicName := fmt.Sprintf("topic-%d", i)
+		topicInfos[topicName] = topicmeta.TopicInfo{
+			ID:             1000 + i,
+			Name:           topicName,
+			PartitionCount: numPartitionsPerTopic,
+		}
+	}
+	topicProvider := &simpleTopicInfoProvider{infos: topicInfos}
+	partHashes, err := parthash.NewPartitionHashes(100)
+	require.NoError(t, err)
+	pusher, err := NewTablePusher(cfg, topicProvider, objStore, clientFactory, partHashes)
+	require.NoError(t, err)
+	err = pusher.Start()
+	require.NoError(t, err)
+	defer func() {
+		err := pusher.Stop()
+		require.NoError(t, err)
+	}()
+
+	groupID := uuid.New().String()
+	controllerClient.epochsOkMap = map[string]bool{
+		groupID: true,
+	}
+	req := kafkaprotocol.OffsetCommitRequest{
+		GroupId:  common.StrPtr(groupID),
+		MemberId: common.StrPtr("member-24242"),
+	}
+	for topicName, info := range topicInfos {
+		topicData := kafkaprotocol.OffsetCommitRequestOffsetCommitRequestTopic{
+			Name: common.StrPtr(topicName),
+		}
+		for i := 0; i < numPartitionsPerTopic; i++ {
+			partitionData := kafkaprotocol.OffsetCommitRequestOffsetCommitRequestPartition{
+				PartitionIndex:  int32(i),
+				CommittedOffset: int64(info.ID + i),
+			}
+			topicData.Partitions = append(topicData.Partitions, partitionData)
+		}
+		req.Topics = append(req.Topics, topicData)
+	}
+
+	groupEpoch := 23
+	respCh := make(chan *kafkaprotocol.OffsetCommitResponse, 1)
+	err = pusher.handleOffsetCommit0(&req, groupEpoch, func(resp *kafkaprotocol.OffsetCommitResponse) {
+		respCh <- resp
+	})
+	require.NoError(t, err)
+	resp := <-respCh
+	require.Equal(t, numTopics, len(resp.Topics))
+	for i, topicResp := range resp.Topics {
+		require.Equal(t, req.Topics[i].Name, topicResp.Name)
+		require.Equal(t, numPartitionsPerTopic, len(topicResp.Partitions))
+		for j, partitionResp := range topicResp.Partitions {
+			require.Equal(t, req.Topics[i].Partitions[j].PartitionIndex, partitionResp.PartitionIndex)
+			require.Equal(t, kafkaprotocol.ErrorCodeNone, int(partitionResp.ErrorCode))
+		}
+	}
+
+	// check that table has been pushed to object store
+	ssTables, _ := getSSTablesFromStore(t, cfg.DataBucketName, objStore)
+	require.Equal(t, 1, len(ssTables))
+	iter, err := ssTables[0].NewIterator(nil, nil)
+	require.NoError(t, err)
+
+	// check correct KVs
+	for i := 0; i < numTopics; i++ {
+		for j := 0; j < numPartitionsPerTopic; j++ {
+			ok, kv, err := iter.Next()
+			require.NoError(t, err)
+			require.True(t, ok)
+			checkExpectedOffsetCommitKV(t, kv, groupID, 1000+i, j, 1000+i+j)
+		}
+	}
+	ok, _, err := iter.Next()
+	require.NoError(t, err)
+	require.False(t, ok)
+
+	// check called with correct group epochs
+	invocs := controllerClient.getPrePushInvocations()
+	require.Equal(t, 1, len(invocs))
+	require.Equal(t, 0, len(invocs[0].infos))
+	require.Equal(t, 1, len(invocs[0].epochInfos))
+	epochInfo := invocs[0].epochInfos[0]
+	require.Equal(t, groupEpoch, epochInfo.GroupEpoch)
+	require.Equal(t, groupID, epochInfo.GroupID)
+}
+
+func TestTablePusherOffsetCommitMultipleGroupsOK(t *testing.T) {
+	cfg := NewConf()
+	cfg.DataBucketName = "test-data-bucket"
+	cfg.WriteTimeout = 1 * time.Millisecond // So it pushes straightaway
+	objStore := dev.NewInMemStore(0)
+	topicID := 1234
+	seq := int64(23)
+
+	controllerClient := &testControllerClient{
+		sequence: seq,
+	}
+	clientFactory := func() (ControlClient, error) {
+		return controllerClient, nil
+	}
+	topicName := "topic1"
+	topicProvider := &simpleTopicInfoProvider{infos: map[string]topicmeta.TopicInfo{
+		topicName: {ID: topicID, PartitionCount: 20},
+	}}
+	partHashes, err := parthash.NewPartitionHashes(100)
+	require.NoError(t, err)
+	pusher, err := NewTablePusher(cfg, topicProvider, objStore, clientFactory, partHashes)
+	require.NoError(t, err)
+	err = pusher.Start()
+	require.NoError(t, err)
+	defer func() {
+		err := pusher.Stop()
+		require.NoError(t, err)
+	}()
+
+	partitionID := 3
+	numGroups := 10
+
+	var groupIDs []string
+
+	var chans []chan *kafkaprotocol.OffsetCommitResponse
+	epochsOKMap := map[string]bool{}
+	for i := 0; i < numGroups; i++ {
+		groupID := fmt.Sprintf("test-group-%d", i)
+		epochsOKMap[groupID] = true
+		groupIDs = append(groupIDs, groupID)
+		committedOffset := 10000 + i
+		req := kafkaprotocol.OffsetCommitRequest{
+			GroupId:  common.StrPtr(groupID),
+			MemberId: common.StrPtr(uuid.New().String()),
+			Topics: []kafkaprotocol.OffsetCommitRequestOffsetCommitRequestTopic{
+				{
+					Name: common.StrPtr(topicName),
+					Partitions: []kafkaprotocol.OffsetCommitRequestOffsetCommitRequestPartition{
+						{
+							PartitionIndex:  int32(partitionID),
+							CommittedOffset: int64(committedOffset),
+						},
+					},
+				},
+			},
+		}
+		groupEpoch := 23 + i
+		respCh := make(chan *kafkaprotocol.OffsetCommitResponse, 1)
+		err = pusher.handleOffsetCommit0(&req, groupEpoch, func(resp *kafkaprotocol.OffsetCommitResponse) {
+			respCh <- resp
+		})
+		require.NoError(t, err)
+		chans = append(chans, respCh)
+	}
+	controllerClient.epochsOkMap = epochsOKMap
+
+	for _, ch := range chans {
+		resp := <-ch
+		require.Equal(t, 1, len(resp.Topics))
+		require.Equal(t, topicName, *resp.Topics[0].Name)
+		require.Equal(t, 1, len(resp.Topics[0].Partitions))
+		require.Equal(t, 3, int(resp.Topics[0].Partitions[0].PartitionIndex))
+		require.Equal(t, kafkaprotocol.ErrorCodeNone, int(resp.Topics[0].Partitions[0].ErrorCode))
+	}
+
+	// check that table has been pushed to object store
+	ssTables, _ := getSSTablesFromStore(t, cfg.DataBucketName, objStore)
+	require.Equal(t, 1, len(ssTables))
+	iter, err := ssTables[0].NewIterator(nil, nil)
+	require.NoError(t, err)
+	var kvs []common.KV
+	for {
+		ok, kv, err := iter.Next()
+		require.NoError(t, err)
+		if !ok {
+			break
+		}
+		kvs = append(kvs, kv)
+	}
+	require.Equal(t, numGroups, len(kvs))
+
+	var expectedKVs []common.KV
+	for i := 0; i < numGroups; i++ {
+		groupID := groupIDs[i]
+		partHash, err := parthash.CreateHash([]byte(groupID))
+		require.NoError(t, err)
+		expectedKey := CreateOffsetKey(partHash, topicID, partitionID)
+		expectedValue := make([]byte, 8)
+		binary.BigEndian.PutUint64(expectedValue, uint64(10000+i))
+		expectedKVs = append(expectedKVs, common.KV{Key: expectedKey, Value: expectedValue})
+	}
+	// sort them
+	slices.SortFunc(expectedKVs, func(a, b common.KV) int {
+		return bytes.Compare(a.Key, b.Key)
+	})
+
+	require.Equal(t, expectedKVs, kvs)
+
+	// check called with correct group epochs
+	invocs := controllerClient.getPrePushInvocations()
+	require.Equal(t, 1, len(invocs))
+	require.Equal(t, 0, len(invocs[0].infos))
+	epochInfos := invocs[0].epochInfos
+	require.Equal(t, numGroups, len(epochInfos))
+
+	receivedInfos := map[string]control.GroupEpochInfo{}
+	for _, info := range epochInfos {
+		receivedInfos[info.GroupID] = info
+	}
+	for i := 0; i < numGroups; i++ {
+		groupID := groupIDs[i]
+		received, ok := receivedInfos[groupID]
+		require.True(t, ok)
+		require.Equal(t, groupID, received.GroupID)
+		require.Equal(t, 23+i, received.GroupEpoch)
+	}
+}
+
+func TestTablePusherOffsetCommitMultipleGroupsInvalidEpochs(t *testing.T) {
+	cfg := NewConf()
+	cfg.DataBucketName = "test-data-bucket"
+	cfg.WriteTimeout = 1 * time.Millisecond // So it pushes straightaway
+	objStore := dev.NewInMemStore(0)
+	topicID := 1234
+	seq := int64(23)
+
+	controllerClient := &testControllerClient{
+		sequence: seq,
+	}
+	clientFactory := func() (ControlClient, error) {
+		return controllerClient, nil
+	}
+	topicName := "topic1"
+	topicProvider := &simpleTopicInfoProvider{infos: map[string]topicmeta.TopicInfo{
+		topicName: {ID: topicID, PartitionCount: 20},
+	}}
+	partHashes, err := parthash.NewPartitionHashes(100)
+	require.NoError(t, err)
+	pusher, err := NewTablePusher(cfg, topicProvider, objStore, clientFactory, partHashes)
+	require.NoError(t, err)
+	err = pusher.Start()
+	require.NoError(t, err)
+	defer func() {
+		err := pusher.Stop()
+		require.NoError(t, err)
+	}()
+
+	partitionID := 3
+	numGroups := 10
+
+	var groupIDs []string
+
+	var chans []chan *kafkaprotocol.OffsetCommitResponse
+	epochsOkMap := map[string]bool{}
+	for i := 0; i < numGroups; i++ {
+		// Every other epoch is OK
+		epochOK := i%2 == 0
+		groupID := fmt.Sprintf("test-group-%d", i)
+		epochsOkMap[groupID] = epochOK
+		groupIDs = append(groupIDs, groupID)
+		committedOffset := 10000 + i
+		req := kafkaprotocol.OffsetCommitRequest{
+			GroupId:  common.StrPtr(groupID),
+			MemberId: common.StrPtr(uuid.New().String()),
+			Topics: []kafkaprotocol.OffsetCommitRequestOffsetCommitRequestTopic{
+				{
+					Name: common.StrPtr(topicName),
+					Partitions: []kafkaprotocol.OffsetCommitRequestOffsetCommitRequestPartition{
+						{
+							PartitionIndex:  int32(partitionID),
+							CommittedOffset: int64(committedOffset),
+						},
+					},
+				},
+			},
+		}
+		var groupEpoch int
+		if i%2 == 0 {
+			groupEpoch = 23 + i
+		} else {
+			groupEpoch = 25 + i
+		}
+		respCh := make(chan *kafkaprotocol.OffsetCommitResponse, 1)
+		err = pusher.handleOffsetCommit0(&req, groupEpoch, func(resp *kafkaprotocol.OffsetCommitResponse) {
+			respCh <- resp
+		})
+		require.NoError(t, err)
+		chans = append(chans, respCh)
+	}
+	controllerClient.epochsOkMap = epochsOkMap
+
+	for i, ch := range chans {
+		resp := <-ch
+		require.Equal(t, 1, len(resp.Topics))
+		require.Equal(t, topicName, *resp.Topics[0].Name)
+		require.Equal(t, 1, len(resp.Topics[0].Partitions))
+		require.Equal(t, 3, int(resp.Topics[0].Partitions[0].PartitionIndex))
+		var expectedError int
+		if i%2 == 0 {
+			expectedError = kafkaprotocol.ErrorCodeNone
+		} else {
+			expectedError = kafkaprotocol.ErrorCodeCoordinatorNotAvailable
+		}
+		require.Equal(t, expectedError, int(resp.Topics[0].Partitions[0].ErrorCode))
+	}
+
+	// check that table has been pushed to object store
+	ssTables, _ := getSSTablesFromStore(t, cfg.DataBucketName, objStore)
+	require.Equal(t, 1, len(ssTables))
+	iter, err := ssTables[0].NewIterator(nil, nil)
+	require.NoError(t, err)
+	var kvs []common.KV
+	for {
+		ok, kv, err := iter.Next()
+		require.NoError(t, err)
+		if !ok {
+			break
+		}
+		kvs = append(kvs, kv)
+	}
+	require.Equal(t, numGroups/2, len(kvs))
+
+	var expectedKVs []common.KV
+	for i := 0; i < numGroups; i++ {
+		if i%2 == 1 {
+			continue
+		}
+		groupID := groupIDs[i]
+		partHash, err := parthash.CreateHash([]byte(groupID))
+		require.NoError(t, err)
+		expectedKey := CreateOffsetKey(partHash, topicID, partitionID)
+		expectedValue := make([]byte, 8)
+		binary.BigEndian.PutUint64(expectedValue, uint64(10000+i))
+		expectedKVs = append(expectedKVs, common.KV{Key: expectedKey, Value: expectedValue})
+	}
+	// sort them
+	slices.SortFunc(expectedKVs, func(a, b common.KV) int {
+		return bytes.Compare(a.Key, b.Key)
+	})
+
+	require.Equal(t, expectedKVs, kvs)
+
+	// check called with correct group epochs
+	invocs := controllerClient.getPrePushInvocations()
+	require.Equal(t, 1, len(invocs))
+	require.Equal(t, 0, len(invocs[0].infos))
+	epochInfos := invocs[0].epochInfos
+	require.Equal(t, numGroups, len(epochInfos))
+
+	receivedInfos := map[string]control.GroupEpochInfo{}
+	for _, info := range epochInfos {
+		receivedInfos[info.GroupID] = info
+	}
+	for i := 0; i < numGroups; i++ {
+		groupID := groupIDs[i]
+		received, ok := receivedInfos[groupID]
+		require.True(t, ok)
+		require.Equal(t, groupID, received.GroupID)
+		var expectedEpoch int
+		if i%2 == 0 {
+			expectedEpoch = 23 + i
+		} else {
+			expectedEpoch = 25 + i
+		}
+		require.Equal(t, expectedEpoch, received.GroupEpoch)
+	}
+}
+
+func checkExpectedOffsetCommitKV(t *testing.T, kv common.KV, groupID string, topicID int, partitionID int, committedOffset int) {
+	partHash, err := parthash.CreateHash([]byte(groupID))
+	require.NoError(t, err)
+	expectedKey := CreateOffsetKey(partHash, topicID, partitionID)
+	require.Equalf(t, expectedKey, kv.Key, "expected %v actual %v", expectedKey, kv.Key)
+	committed := binary.BigEndian.Uint64(kv.Value)
+	require.Equal(t, committedOffset, int(committed))
 }
 
 func TestTablePusherHandleProduceBatchSimple(t *testing.T) {
@@ -125,7 +613,7 @@ func TestTablePusherHandleProduceBatchSimple(t *testing.T) {
 	}
 
 	// check getOffsets was called with correct args
-	getOffsetInvocs := controllerClient.getGetOffsetInvocations()
+	getOffsetInvocs := controllerClient.getPrePushInvocations()
 	require.Equal(t, 1, len(getOffsetInvocs))
 	infos := getOffsetInvocs[0].infos
 
@@ -289,7 +777,7 @@ func TestTablePusherHandleProduceBatchMultipleTopicsAndPartitions(t *testing.T) 
 			},
 		},
 	}
-	getOffsetInvs := controllerClient.getGetOffsetInvocations()
+	getOffsetInvs := controllerClient.getPrePushInvocations()
 	require.Equal(t, 1, len(getOffsetInvs))
 	require.Equal(t, expectedGetOffsets, getOffsetInvs[0].infos)
 
@@ -750,7 +1238,7 @@ func TestTablePusherHandleProduceBatchMixtureErrorsAndSuccesses(t *testing.T) {
 			},
 		},
 	}
-	getOffsetInvs := controllerClient.getGetOffsetInvocations()
+	getOffsetInvs := controllerClient.getPrePushInvocations()
 	require.Equal(t, 1, len(getOffsetInvs))
 	require.Equal(t, expectedGetOffsets, getOffsetInvs[0].infos)
 
@@ -1104,11 +1592,12 @@ func createExpectedKey(topicID int, partitionID int, offset int64) ([]byte, erro
 }
 
 type testControllerClient struct {
-	lock                 sync.Mutex
-	registrations        []regL0TableInvocation
-	getOffsetInvocations []getOffsetsInvocation
-	offsets              []offsets.OffsetTopicInfo
-	sequence             int64
+	lock               sync.Mutex
+	registrations      []regL0TableInvocation
+	prePushInvocations []prePushInvocation
+	offsets            []offsets.OffsetTopicInfo
+	epochsOkMap        map[string]bool
+	sequence           int64
 }
 
 type regL0TableInvocation struct {
@@ -1116,8 +1605,9 @@ type regL0TableInvocation struct {
 	regEntry lsm.RegistrationEntry
 }
 
-type getOffsetsInvocation struct {
-	infos []offsets.GetOffsetTopicInfo
+type prePushInvocation struct {
+	infos      []offsets.GetOffsetTopicInfo
+	epochInfos []control.GroupEpochInfo
 }
 
 func (t *testControllerClient) RegisterL0Table(sequence int64, regEntry lsm.RegistrationEntry) error {
@@ -1138,18 +1628,27 @@ func (t *testControllerClient) getRegistrations() []regL0TableInvocation {
 	return copied
 }
 
-func (t *testControllerClient) GetOffsets(infos []offsets.GetOffsetTopicInfo) ([]offsets.OffsetTopicInfo, int64, error) {
+func (t *testControllerClient) PrePush(infos []offsets.GetOffsetTopicInfo, epochInfos []control.GroupEpochInfo) ([]offsets.OffsetTopicInfo, int64,
+	[]bool, error) {
 	t.lock.Lock()
 	defer t.lock.Unlock()
-	t.getOffsetInvocations = append(t.getOffsetInvocations, getOffsetsInvocation{infos: infos})
-	return t.offsets, t.sequence, nil
+	t.prePushInvocations = append(t.prePushInvocations, prePushInvocation{infos: infos, epochInfos: epochInfos})
+	var epochsOk []bool
+	for _, epochInfo := range epochInfos {
+		epochOk, exists := t.epochsOkMap[epochInfo.GroupID]
+		if !exists {
+			panic("expected epochInfo to exist")
+		}
+		epochsOk = append(epochsOk, epochOk)
+	}
+	return t.offsets, t.sequence, epochsOk, nil
 }
 
-func (t *testControllerClient) getGetOffsetInvocations() []getOffsetsInvocation {
+func (t *testControllerClient) getPrePushInvocations() []prePushInvocation {
 	t.lock.Lock()
 	defer t.lock.Unlock()
-	copied := make([]getOffsetsInvocation, len(t.getOffsetInvocations))
-	copy(copied, t.getOffsetInvocations)
+	copied := make([]prePushInvocation, len(t.prePushInvocations))
+	copy(copied, t.prePushInvocations)
 	return copied
 }
 
@@ -1264,4 +1763,33 @@ func TestExtractBatches(t *testing.T) {
 	for i, batch := range batches {
 		require.Equal(t, batch, extracted[i])
 	}
+}
+
+func TestSerializeDeserializeOffsetsCommitRequest(t *testing.T) {
+	req := OffsetCommitRequest{
+		GroupEpoch:     123,
+		RequestVersion: 3,
+		Request: &kafkaprotocol.OffsetCommitRequest{
+			GroupId:  common.StrPtr("group123123"),
+			MemberId: common.StrPtr("member2323"),
+			Topics: []kafkaprotocol.OffsetCommitRequestOffsetCommitRequestTopic{
+				{
+					Name: common.StrPtr("topic13213"),
+					Partitions: []kafkaprotocol.OffsetCommitRequestOffsetCommitRequestPartition{
+						{
+							PartitionIndex:  324,
+							CommittedOffset: 234324,
+						},
+					},
+				},
+			},
+		},
+	}
+	var buff []byte
+	buff = append(buff, 1, 2, 3)
+	buff = req.Serialize(buff)
+	var req2 OffsetCommitRequest
+	off := req2.Deserialize(buff, 3)
+	require.Equal(t, req, req2)
+	require.Equal(t, off, len(buff))
 }

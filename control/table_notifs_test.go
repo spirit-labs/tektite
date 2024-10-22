@@ -22,13 +22,13 @@ func TestSinglePartitionTableNotification(t *testing.T) {
 	defer tearDown(t)
 
 	// register for notifications
-	_, err := cl.RegisterTableListener(0, 3, receiver.memberID, 0)
+	_, err := cl.RegisterTableListener(1000, 3, receiver.memberID, 0)
 	require.NoError(t, err)
 
 	// trigger a notification
 	offsetInfos := []offsets.GetOffsetTopicInfo{
 		{
-			TopicID: 0,
+			TopicID: 1000,
 			PartitionInfos: []offsets.GetOffsetPartitionInfo{
 				{
 					PartitionID: 3,
@@ -46,9 +46,9 @@ func TestSinglePartitionTableNotification(t *testing.T) {
 }
 
 func TestMultiplePartitionTableNotification(t *testing.T) {
-	testMultiplePartitionTableNotification(t, 0, 3)
-	testMultiplePartitionTableNotification(t, 0, 2)
-	testMultiplePartitionTableNotification(t, 1, 1)
+	testMultiplePartitionTableNotification(t, 1000, 3)
+	testMultiplePartitionTableNotification(t, 1000, 2)
+	testMultiplePartitionTableNotification(t, 1001, 1)
 }
 
 func testMultiplePartitionTableNotification(t *testing.T, topicID int, partitionID int) {
@@ -64,7 +64,7 @@ func testMultiplePartitionTableNotification(t *testing.T, topicID int, partition
 
 	offsetInfos := []offsets.GetOffsetTopicInfo{
 		{
-			TopicID: 0,
+			TopicID: 1000,
 			PartitionInfos: []offsets.GetOffsetPartitionInfo{
 				{
 					PartitionID: 3,
@@ -77,7 +77,7 @@ func testMultiplePartitionTableNotification(t *testing.T, topicID int, partition
 			},
 		},
 		{
-			TopicID: 1,
+			TopicID: 1001,
 			PartitionInfos: []offsets.GetOffsetPartitionInfo{
 				{
 					PartitionID: 1,
@@ -101,7 +101,7 @@ func TestRegisterTableListenerReturnsLRO(t *testing.T) {
 	cl, receiver, tearDown := setupAndRegisterReceiver(t)
 	defer tearDown(t)
 
-	lro, err := cl.RegisterTableListener(0, 1, receiver.memberID, 0)
+	lro, err := cl.RegisterTableListener(1000, 1, receiver.memberID, 0)
 	require.NoError(t, err)
 	require.Equal(t, -1, int(lro))
 
@@ -109,7 +109,7 @@ func TestRegisterTableListenerReturnsLRO(t *testing.T) {
 
 	offsetInfos := []offsets.GetOffsetTopicInfo{
 		{
-			TopicID: 0,
+			TopicID: 1000,
 			PartitionInfos: []offsets.GetOffsetPartitionInfo{
 				{
 					PartitionID: 1,
@@ -125,7 +125,7 @@ func TestRegisterTableListenerReturnsLRO(t *testing.T) {
 	notif := receiver.getNotifications()[0]
 	verifyTableRegisteredNotification(t, 0, tableID, writtenOffs, notif)
 
-	lro, err = cl.RegisterTableListener(0, 1, receiver.memberID, 0)
+	lro, err = cl.RegisterTableListener(1000, 1, receiver.memberID, 0)
 	require.NoError(t, err)
 	require.Equal(t, 124, int(lro))
 }
@@ -137,23 +137,23 @@ func TestMultipleRegistrations(t *testing.T) {
 
 	// register for more than one partition
 
-	_, err := cl.RegisterTableListener(0, 3, receiver.memberID, 0)
+	_, err := cl.RegisterTableListener(1000, 3, receiver.memberID, 0)
 	require.NoError(t, err)
 
-	_, err = cl.RegisterTableListener(0, 2, receiver.memberID, 0)
+	_, err = cl.RegisterTableListener(1000, 2, receiver.memberID, 0)
 	require.NoError(t, err)
 
-	_, err = cl.RegisterTableListener(1, 1, receiver.memberID, 0)
+	_, err = cl.RegisterTableListener(1001, 1, receiver.memberID, 0)
 	require.NoError(t, err)
 
-	_, err = cl.RegisterTableListener(1, 0, receiver.memberID, 0)
+	_, err = cl.RegisterTableListener(1001, 0, receiver.memberID, 0)
 	require.NoError(t, err)
 
 	// trigger a notification
 
 	offsetInfos := []offsets.GetOffsetTopicInfo{
 		{
-			TopicID: 0,
+			TopicID: 1000,
 			PartitionInfos: []offsets.GetOffsetPartitionInfo{
 				{
 					PartitionID: 3,
@@ -166,7 +166,7 @@ func TestMultipleRegistrations(t *testing.T) {
 			},
 		},
 		{
-			TopicID: 1,
+			TopicID: 1001,
 			PartitionInfos: []offsets.GetOffsetPartitionInfo{
 				{
 					PartitionID: 1,
@@ -196,7 +196,7 @@ func TestMultipleReceivers(t *testing.T) {
 	defer tearDown(t)
 
 	for _, receiver := range receivers {
-		_, err := cl.RegisterTableListener(0, 3, receiver.memberID, 0)
+		_, err := cl.RegisterTableListener(1000, 3, receiver.memberID, 0)
 		require.NoError(t, err)
 	}
 
@@ -204,7 +204,7 @@ func TestMultipleReceivers(t *testing.T) {
 
 	offsetInfos := []offsets.GetOffsetTopicInfo{
 		{
-			TopicID: 0,
+			TopicID: 1000,
 			PartitionInfos: []offsets.GetOffsetPartitionInfo{
 				{
 					PartitionID: 3,
@@ -217,7 +217,7 @@ func TestMultipleReceivers(t *testing.T) {
 			},
 		},
 		{
-			TopicID: 1,
+			TopicID: 1001,
 			PartitionInfos: []offsets.GetOffsetPartitionInfo{
 				{
 					PartitionID: 1,
@@ -248,14 +248,14 @@ func TestNotRegisteredForPartition(t *testing.T) {
 	defer tearDown(t)
 
 	// register for different partition
-	_, err := cl.RegisterTableListener(0, 1, receiver.memberID, 0)
+	_, err := cl.RegisterTableListener(1000, 1, receiver.memberID, 0)
 	require.NoError(t, err)
 
 	// trigger a notification
 
 	offsetInfos := []offsets.GetOffsetTopicInfo{
 		{
-			TopicID: 0,
+			TopicID: 1000,
 			PartitionInfos: []offsets.GetOffsetPartitionInfo{
 				{
 					PartitionID: 3,
@@ -268,7 +268,7 @@ func TestNotRegisteredForPartition(t *testing.T) {
 			},
 		},
 		{
-			TopicID: 1,
+			TopicID: 1001,
 			PartitionInfos: []offsets.GetOffsetPartitionInfo{
 				{
 					PartitionID: 1,
@@ -292,14 +292,14 @@ func TestMultipleNotifications(t *testing.T) {
 	defer tearDown(t)
 
 	// register for notifications
-	_, err := cl.RegisterTableListener(0, 3, receiver.memberID, 0)
+	_, err := cl.RegisterTableListener(1000, 3, receiver.memberID, 0)
 	require.NoError(t, err)
 
 	numNotifs := 10
 	for i := 0; i < numNotifs; i++ {
 		offsetInfos := []offsets.GetOffsetTopicInfo{
 			{
-				TopicID: 0,
+				TopicID: 1000,
 				PartitionInfos: []offsets.GetOffsetPartitionInfo{
 					{
 						PartitionID: 3,
@@ -312,7 +312,7 @@ func TestMultipleNotifications(t *testing.T) {
 				},
 			},
 			{
-				TopicID: 1,
+				TopicID: 1001,
 				PartitionInfos: []offsets.GetOffsetPartitionInfo{
 					{
 						PartitionID: 1,
@@ -340,12 +340,12 @@ func TestNotificationLeaderVersion(t *testing.T) {
 	defer tearDown(t)
 
 	// register for notifications
-	_, err := cl.RegisterTableListener(0, 3, receiver.memberID, 0)
+	_, err := cl.RegisterTableListener(1000, 3, receiver.memberID, 0)
 	require.NoError(t, err)
 
 	offsetInfos := []offsets.GetOffsetTopicInfo{
 		{
-			TopicID: 0,
+			TopicID: 1000,
 			PartitionInfos: []offsets.GetOffsetPartitionInfo{
 				{
 					PartitionID: 3,
@@ -370,7 +370,7 @@ func TestInvalidateListeners(t *testing.T) {
 	cl, receivers, tearDown := setupAndRegisterReceivers(t, numReceivers)
 	defer tearDown(t)
 	for _, receiver := range receivers {
-		_, err := cl.RegisterTableListener(0, 3, receiver.memberID, 0)
+		_, err := cl.RegisterTableListener(1000, 3, receiver.memberID, 0)
 		require.NoError(t, err)
 	}
 
@@ -379,7 +379,7 @@ func TestInvalidateListeners(t *testing.T) {
 	for i := 0; i < numNotifs; i++ {
 		offsetInfos := []offsets.GetOffsetTopicInfo{
 			{
-				TopicID: 0,
+				TopicID: 1000,
 				PartitionInfos: []offsets.GetOffsetPartitionInfo{
 					{
 						PartitionID: 3,
@@ -392,7 +392,7 @@ func TestInvalidateListeners(t *testing.T) {
 				},
 			},
 			{
-				TopicID: 1,
+				TopicID: 1001,
 				PartitionInfos: []offsets.GetOffsetPartitionInfo{
 					{
 						PartitionID: 1,
@@ -415,13 +415,13 @@ func TestInvalidateListeners(t *testing.T) {
 	}
 
 	// Invalidate the first one by sending next resetSequence
-	_, err := cl.RegisterTableListener(0, 3, receivers[0].memberID, 1)
+	_, err := cl.RegisterTableListener(1000, 3, receivers[0].memberID, 1)
 	require.NoError(t, err)
 
 	// Send another notification
 	offsetInfos := []offsets.GetOffsetTopicInfo{
 		{
-			TopicID: 0,
+			TopicID: 1000,
 			PartitionInfos: []offsets.GetOffsetPartitionInfo{
 				{
 					PartitionID: 3,
@@ -434,7 +434,7 @@ func TestInvalidateListeners(t *testing.T) {
 			},
 		},
 		{
-			TopicID: 1,
+			TopicID: 1001,
 			PartitionInfos: []offsets.GetOffsetPartitionInfo{
 				{
 					PartitionID: 1,
@@ -471,17 +471,17 @@ func TestListenersRemovedOnMembershipChange(t *testing.T) {
 	controllers, _, tearDown := setupControllersWithObjectStore(t, 3, objStore)
 	defer tearDown(t)
 
+	updateMembership(t, 1, 1, controllers, 0, 1, 2)
+
 	var receivers []*notificationReceiver
 	for i := 0; i < numReceivers; i++ {
-		memberID := controllers[i].membershipID
+		memberID := controllers[i].MemberID()
 		receiver := &notificationReceiver{
 			memberID: memberID,
 		}
 		controllers[i].transportServer.RegisterHandler(transport.HandlerIDFetcherTableRegisteredNotification, receiver.receivedNotification)
 		receivers = append(receivers, receiver)
 	}
-
-	updateMembership(t, 1, 1, controllers, 0, 1, 2)
 
 	controller := controllers[0]
 	setupTopics(t, controller)
@@ -490,14 +490,14 @@ func TestListenersRemovedOnMembershipChange(t *testing.T) {
 	require.NoError(t, err)
 
 	for _, receiver := range receivers {
-		_, err = cl.RegisterTableListener(0, 3, receiver.memberID, 0)
+		_, err = cl.RegisterTableListener(1000, 3, receiver.memberID, 0)
 		require.NoError(t, err)
 	}
 
 	// send a notification
 	offsetInfos := []offsets.GetOffsetTopicInfo{
 		{
-			TopicID: 0,
+			TopicID: 1000,
 			PartitionInfos: []offsets.GetOffsetPartitionInfo{
 				{
 					PartitionID: 3,
@@ -524,7 +524,7 @@ func TestListenersRemovedOnMembershipChange(t *testing.T) {
 	// Now remove member 1 from cluster
 
 	newState := createMembership(2, 1, controllers, 0, 2)
-	err = controller.MembershipChanged(newState)
+	err = controller.MembershipChanged(controllers[0].MemberID(), newState)
 	require.NoError(t, err)
 
 	err = cl.Close()
@@ -539,7 +539,7 @@ func TestListenersRemovedOnMembershipChange(t *testing.T) {
 	// Now remove one more
 
 	newState = createMembership(2, 1, controllers, 0)
-	err = controller.MembershipChanged(newState)
+	err = controller.MembershipChanged(controllers[0].MemberID(), newState)
 	require.NoError(t, err)
 
 	err = cl.Close()
@@ -565,7 +565,7 @@ func TestPeriodicNotification(t *testing.T) {
 	receiver := receivers[0]
 
 	// register for notifications
-	_, err := cl.RegisterTableListener(0, 3, receiver.memberID, 0)
+	_, err := cl.RegisterTableListener(1000, 3, receiver.memberID, 0)
 	require.NoError(t, err)
 
 	testutils.WaitUntil(t, func() (bool, error) {
@@ -585,12 +585,12 @@ func TestNotificationWithMultipleTables(t *testing.T) {
 	defer tearDown(t)
 
 	// register for notifications
-	_, err := cl.RegisterTableListener(0, 3, receiver.memberID, 0)
+	_, err := cl.RegisterTableListener(1000, 3, receiver.memberID, 0)
 	require.NoError(t, err)
 
 	offsetInfos := []offsets.GetOffsetTopicInfo{
 		{
-			TopicID: 0,
+			TopicID: 1000,
 			PartitionInfos: []offsets.GetOffsetPartitionInfo{
 				{
 					PartitionID: 3,
@@ -602,7 +602,7 @@ func TestNotificationWithMultipleTables(t *testing.T) {
 
 	numRegs := 10
 	for i := 0; i < numRegs; i++ {
-		_, seq, err := cl.GetOffsets(offsetInfos)
+		_, seq, _, err := cl.PrePush(offsetInfos, nil)
 		require.NoError(t, err)
 		require.Equal(t, i+1, int(seq))
 	}
@@ -648,23 +648,23 @@ func setupAndRegisterReceiversWithLeaderVersionAndConfigSetter(t *testing.T, num
 
 	var receivers []*notificationReceiver
 	for i := 0; i < numReceivers; i++ {
-		memberID := uuid.New().String()
 		receiverAddress := uuid.New().String()
 		receiverServer, err := localTransports.NewLocalServer(receiverAddress)
 		require.NoError(t, err)
+		memberID := int32(i)
 		receiver := &notificationReceiver{
 			memberID: memberID,
 		}
 		receivers = append(receivers, receiver)
 		receiverServer.RegisterHandler(transport.HandlerIDFetcherTableRegisteredNotification, receiver.receivedNotification)
-		membershipData := common.MembershipData{ListenAddress: receiverAddress}
+		membershipData := common.MembershipData{ClusterListenAddress: receiverAddress}
 		membership.Members = append(membership.Members, cluster.MembershipEntry{
 			ID:         memberID,
 			Data:       membershipData.Serialize(nil),
 			UpdateTime: time.Now().UnixMilli(),
 		})
 	}
-	err := controllers[0].MembershipChanged(membership)
+	err := controllers[0].MembershipChanged(0, membership)
 	require.NoError(t, err)
 
 	setupTopics(t, controller)
@@ -700,7 +700,7 @@ func verifyTableRegisteredNotification(t *testing.T, sequence int, tableID sst.S
 }
 
 func triggerTableAddedNotification(t *testing.T, cl Client, offInfos []offsets.GetOffsetTopicInfo) (sst.SSTableID, []offsets.OffsetTopicInfo) {
-	offs, seq, err := cl.GetOffsets(offInfos)
+	offs, seq, _, err := cl.PrePush(offInfos, nil)
 	require.NoError(t, err)
 
 	regEntry := createRegEntry()
@@ -732,7 +732,7 @@ func createRegEntry() lsm.RegistrationEntry {
 type notificationReceiver struct {
 	lock     sync.Mutex
 	received []TablesRegisteredNotification
-	memberID string
+	memberID int32
 }
 
 func (n *notificationReceiver) receivedNotification(_ *transport.ConnectionContext, request []byte, _ []byte,
