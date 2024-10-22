@@ -135,7 +135,8 @@ func (m *Membership) updateState(buff []byte) ([]byte, error) {
 	found := false
 	var newMembers []MembershipEntry
 	changed := false
-	for _, member := range memberShipState.Members {
+	leaderChanged := false
+	for i, member := range memberShipState.Members {
 		if member.Address == m.address {
 			// When we update we preserve position in the slice
 			member.UpdateTime = now
@@ -144,6 +145,10 @@ func (m *Membership) updateState(buff []byte) ([]byte, error) {
 			if now-member.UpdateTime >= m.evicationDuration.Milliseconds() {
 				// member evicted
 				changed = true
+				if i == 0 {
+					// leader evicted
+					leaderChanged = true
+				}
 				continue
 			}
 		}
@@ -156,18 +161,31 @@ func (m *Membership) updateState(buff []byte) ([]byte, error) {
 			UpdateTime: now,
 		})
 		changed = true
+		if len(newMembers) == 1 {
+			// First member
+			leaderChanged = true
+		}
 	}
 	memberShipState.Members = newMembers
 	if changed {
-		// NewmMember joined or member(s) where evicted, so we change the epoch
+		// New member joined or member(s) where evicted, so we increment the cluster version
 		memberShipState.ClusterVersion++
+	}
+	if leaderChanged {
+		// leader changed, so we increment the leader version
+		memberShipState.LeaderVersion++
 	}
 	return json.Marshal(&memberShipState)
 }
 
 type MembershipState struct {
-	ClusterVersion int               // ClusterVersion changes every time member joins or leaves the group
-	Members        []MembershipEntry // The members of the group, we define the first member to be the leader
+	// LeaderVersion increments every time the member at position zero in the Members changes
+	// This member can be considered the leader and hosts the controller
+	LeaderVersion int
+	// ClusterVersion increments every time any member joins or leaves the group
+	ClusterVersion int
+	// The members of the group, we define the first member to be the leader
+	Members []MembershipEntry
 }
 
 type MembershipEntry struct {

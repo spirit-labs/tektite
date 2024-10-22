@@ -4,10 +4,10 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
-	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	"github.com/spirit-labs/tektite/asl/encoding"
 	"github.com/spirit-labs/tektite/common"
+	"github.com/spirit-labs/tektite/kafkaencoding"
 	"github.com/spirit-labs/tektite/kafkaprotocol"
 	"github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/lsm"
@@ -67,32 +67,27 @@ type topicInfoProvider interface {
 type controllerClientFactory func() (ControlClient, error)
 
 type ControlClient interface {
-	GetOffsets(infos []offsets.GetOffsetTopicInfo) ([]int64, error)
-	RegisterL0Table(writtenOffsetInfos []offsets.UpdateWrittenOffsetInfo, regEntry lsm.RegistrationEntry) error
+	GetOffsets(infos []offsets.GetOffsetTopicInfo) ([]offsets.OffsetTopicInfo, int64, error)
+	RegisterL0Table(sequence int64, regEntry lsm.RegistrationEntry) error
 	Close() error
 }
 
 const (
 	objStoreAvailabilityTimeout = 5 * time.Second
-	partitionHashCacheMaxSize   = 100000
 )
 
 var log *logger.TektiteLogger
 
 func init() {
 	var err error
-	log, err = logger.GetLoggerWithLevel("pusher", zapcore.DebugLevel)
+	log, err = logger.GetLoggerWithLevel("pusher", zapcore.InfoLevel)
 	if err != nil {
 		panic(err)
 	}
 }
 
 func NewTablePusher(cfg Conf, topicProvider topicInfoProvider, objStore objstore.Client,
-	clientFactory controllerClientFactory) (*TablePusher, error) {
-	partitionHashes, err := parthash.NewPartitionHashes(partitionHashCacheMaxSize)
-	if err != nil {
-		return nil, err
-	}
+	clientFactory controllerClientFactory, partitionHashes *parthash.PartitionHashes) (*TablePusher, error) {
 	return &TablePusher{
 		cfg:              cfg,
 		topicProvider:    topicProvider,
@@ -103,67 +98,67 @@ func NewTablePusher(cfg Conf, topicProvider topicInfoProvider, objStore objstore
 	}, nil
 }
 
-func (r *TablePusher) Start() error {
-	r.lock.Lock()
-	defer r.lock.Unlock()
-	if r.started {
+func (t *TablePusher) Start() error {
+	t.lock.Lock()
+	defer t.lock.Unlock()
+	if t.started {
 		return nil
 	}
-	r.scheduleWriteTimer(r.cfg.WriteTimeout)
-	r.started = true
+	t.scheduleWriteTimer(t.cfg.WriteTimeout)
+	t.started = true
 	return nil
 }
 
-func (r *TablePusher) Stop() error {
-	r.stopping.Store(true)
-	r.lock.Lock()
-	defer r.lock.Unlock()
-	if !r.started {
+func (t *TablePusher) Stop() error {
+	t.stopping.Store(true)
+	t.lock.Lock()
+	defer t.lock.Unlock()
+	if !t.started {
 		return nil
 	}
-	r.writeTimer.Stop()
-	r.started = false
+	t.writeTimer.Stop()
+	t.started = false
 	return nil
 }
 
-func (r *TablePusher) scheduleWriteTimer(timeout time.Duration) {
-	r.writeTimer = time.AfterFunc(timeout, func() {
-		r.lock.Lock()
-		defer r.lock.Unlock()
-		if !r.started {
+func (t *TablePusher) scheduleWriteTimer(timeout time.Duration) {
+	t.writeTimer = time.AfterFunc(timeout, func() {
+		t.lock.Lock()
+		defer t.lock.Unlock()
+		if !t.started {
 			return
 		}
 		log.Debug("scheduling write on timer")
-		if err := r.write(); err != nil {
+		if err := t.write(); err != nil {
 			// We close the client, so it will be recreated on any retry
-			r.closeClient()
+			t.closeClient()
 			if common.IsUnavailableError(err) {
 				// Temporary unavailability of object store or controller - we will schedule the next timer fire to
 				// be longer as typically write timeout is short and we don't want to spam the logs with lots of errors
 				log.Warnf("table pusher unable to write due to temporary unavailability: %v", err)
-				r.scheduleWriteTimer(r.cfg.AvailabilityRetryInterval)
+				t.scheduleWriteTimer(t.cfg.AvailabilityRetryInterval)
 				return
 			}
 			// Unexpected error
 			log.Errorf("table pusher failed to write: %v", err)
-			r.handleUnexpectedError(err)
+			t.handleUnexpectedError(err)
 			return
 		}
-		r.scheduleWriteTimer(r.cfg.WriteTimeout)
+		t.scheduleWriteTimer(t.cfg.WriteTimeout)
 	})
 }
 
-func (r *TablePusher) closeClient() {
-	if r.controllerClient != nil {
-		if err := r.controllerClient.Close(); err != nil {
+func (t *TablePusher) closeClient() {
+	if t.controllerClient != nil {
+		if err := t.controllerClient.Close(); err != nil {
 			// Ignore
 		}
-		r.controllerClient = nil
+		t.controllerClient = nil
 	}
 }
 
-func (r *TablePusher) callCompletions(err error) {
-	for _, partitions := range r.partitionRecords {
+func (t *TablePusher) callCompletions(err error) {
+	for _, partitions := range t.partitionRecords {
 		for _, entries := range partitions {
 			for _, entry := range entries {
 				entry.completionFunc(err)
@@ -178,7 +173,7 @@ func setPartitionError(errorCode int, errorMsg string, partitionResponse *kafkap
 	cf.CountDown(nil)
 }
 
-func (r *TablePusher) HandleProduceRequest(req *kafkaprotocol.ProduceRequest,
+func (t *TablePusher) HandleProduceRequest(req *kafkaprotocol.ProduceRequest,
 	completionFunc func(resp *kafkaprotocol.ProduceResponse) error) error {
 	var resp kafkaprotocol.ProduceResponse
 	resp.Responses = make([]kafkaprotocol.ProduceResponseTopicProduceResponse, len(req.TopicData))
@@ -193,14 +188,13 @@ func (r *TablePusher) HandleProduceRequest(req *kafkaprotocol.ProduceRequest,
 			log.Errorf("failed to send produce response: %v", err)
 		}
 	})
-	r.lock.Lock()
-	defer r.lock.Unlock()
+	t.lock.Lock()
+	defer t.lock.Unlock()
 	for i, topicData := range req.TopicData {
 		resp.Responses[i].Name = topicData.Name
 		partitionResponses := make([]kafkaprotocol.ProduceResponsePartitionProduceResponse, len(topicData.PartitionData))
 		resp.Responses[i].PartitionResponses = partitionResponses
-		log.Info("getting topic info %s", *topicData.Name)
-		topicInfo, err := r.topicProvider.GetTopicInfo(*topicData.Name)
+		topicInfo, err := t.topicProvider.GetTopicInfo(*topicData.Name)
 		topicExists := true
 		if err != nil {
 			if !common.IsTektiteErrorWithCode(err, common.TopicDoesNotExist) {
@@ -232,7 +226,7 @@ func (r *TablePusher) HandleProduceRequest(req *kafkaprotocol.ProduceRequest,
 				}
 			}
 			log.Debugf("handling records batch for topic: %s partition: %d", *topicData.Name, partitionID)
-			r.handleRecords(topicInfo.ID, partitionID, partitionData.Records, func(err error) {
+			t.handleRecords(topicInfo.ID, partitionID, partitionData.Records, func(err error) {
 				if err != nil {
 					log.Errorf("failed to handle records: %v", err)
 					partitionResponses[j].ErrorCode = kafkaprotocol.ErrorCodeUnknownServerError
@@ -241,167 +235,210 @@ func (r *TablePusher) HandleProduceRequest(req *kafkaprotocol.ProduceRequest,
 			})
 		}
 	}
-	if r.sizeBytes >= r.cfg.BufferMaxSizeBytes {
+	if t.sizeBytes >= t.cfg.BufferMaxSizeBytes {
 		for {
-			if r.stopping.Load() {
+			if t.stopping.Load() {
 				// break out of loop
 				return errors.New("table pusher is stopping")
 			}
-			err := r.write()
+			err := t.write()
 			if err == nil {
 				return nil
 			}
 			// Close the client - it will be recreated on any retry
-			r.closeClient()
+			t.closeClient()
 			if !common.IsUnavailableError(err) {
-				r.handleUnexpectedError(err)
+				t.handleUnexpectedError(err)
 				return err
 			}
 			// Temporary unavailability of object store or controller - we will retry after a delay
 			log.Warnf("unavailability when attempting to write records: %v - will retry after delay", err)
-			time.Sleep(r.cfg.WriteTimeout)
+			time.Sleep(t.cfg.WriteTimeout)
 		}
 	}
 	return nil
 }
 
-func (r *TablePusher) handleRecords(topicID int, partitionID int, records [][]byte, completionFunc func(error)) {
-	topicMap, ok := r.partitionRecords[topicID]
+func (t *TablePusher) handleRecords(topicID int, partitionID int, records [][]byte, completionFunc func(error)) {
+	topicMap, ok := t.partitionRecords[topicID]
 	if !ok {
 		topicMap = make(map[int][]bufferedEntry)
-		r.partitionRecords[topicID] = topicMap
+		t.partitionRecords[topicID] = topicMap
 	}
+	// TODO protocol needs to be fixed so records is just []byte not [][]byte as record batches are concatenated
+	if len(records) > 1 {
+		panic("too many records")
+	}
+	records = extractBatches(records[0])
 	topicMap[partitionID] = append(topicMap[partitionID], bufferedEntry{
 		records:        records,
 		completionFunc: completionFunc,
 	})
 	for _, record := range records {
-		r.sizeBytes += len(record)
+		t.sizeBytes += len(record)
 	}
 }
 
-func (r *TablePusher) handleUnexpectedError(err error) {
+func extractBatches(buff []byte) [][]byte {
+	// Multiple record batches are concatenated together
+	var batches [][]byte
+	for {
+		batchLen := binary.BigEndian.Uint32(buff[8:])
+		batch := buff[:int(batchLen)+12] // 12: First two fields are not included in size
+		batches = append(batches, batch)
+		if int(batchLen)+12 == len(buff) {
+			break
+		}
+		buff = buff[int(batchLen)+12:]
+	}
+	return batches
+}
+
+func (t *TablePusher) handleUnexpectedError(err error) {
 	// unexpected error - call all completions with error, and stop
-	r.callCompletions(err)
-	r.started = false
-	r.stopping.Store(true)
+	t.callCompletions(err)
+	t.started = false
+	t.stopping.Store(true)
 }
 
-func (r *TablePusher) getClient() (ControlClient, error) {
-	if r.controllerClient != nil {
-		return r.controllerClient, nil
+func (t *TablePusher) getClient() (ControlClient, error) {
+	if t.controllerClient != nil {
+		return t.controllerClient, nil
 	}
-	client, err := r.clientFactory()
+	client, err := t.clientFactory()
 	if err != nil {
 		return nil, err
 	}
-	r.controllerClient = client
+	t.controllerClient = client
 	return client, nil
 }
 
-func NumRecords(records []byte) int {
-	return int(binary.BigEndian.Uint32(records[57:]))
+func intCompare(i1, i2 int) int {
+	if i1 < i2 {
+		return -1
+	} else if i1 == i2 {
+		return 0
+	} else {
+		return 1
+	}
 }
 
-func (r *TablePusher) write() error {
-	if len(r.partitionRecords) == 0 {
+func (t *TablePusher) write() error {
+	if len(t.partitionRecords) == 0 {
 		// Nothing to do
 		return nil
 	}
-	client, err := r.getClient()
+	client, err := t.getClient()
 	if err != nil {
 		return err
 	}
 	// First, we request offsets for the batches
-	var getOffSetInfos []offsets.GetOffsetTopicInfo
-	var partitionBatches [][]bufferedEntry
-	for topicID, partitions := range r.partitionRecords {
+	getOffSetInfos := make([]offsets.GetOffsetTopicInfo, 0, len(t.partitionRecords))
+	for topicID, partitions := range t.partitionRecords {
+		var offsetInfo offsets.GetOffsetTopicInfo
+		offsetInfo.TopicID = topicID
+		offsetInfo.PartitionInfos = make([]offsets.GetOffsetPartitionInfo, 0, len(partitions))
 		for partitionID, entries := range partitions {
 			totRecords := 0
 			for _, entry := range entries {
 				for _, batch := range entry.records {
-					totRecords += NumRecords(batch)
+					totRecords += kafkaencoding.NumRecords(batch)
 				}
 			}
-			log.Infof("tot records is %d", totRecords)
-			getOffSetInfos = append(getOffSetInfos, offsets.GetOffsetTopicInfo{
-				TopicID:     topicID,
+			offsetInfo.PartitionInfos = append(offsetInfo.PartitionInfos, offsets.GetOffsetPartitionInfo{
 				PartitionID: partitionID,
 				NumOffsets:  totRecords,
 			})
-			partitionBatches = append(partitionBatches, entries)
 		}
+		getOffSetInfos = append(getOffSetInfos, offsetInfo)
 	}
-	offs, err := client.GetOffsets(getOffSetInfos)
-	if err != nil {
-		return err
-	}
-	log.Infof("obtained offsets: %v", offs)
-	updateWrittenOffsetInfos := make([]offsets.UpdateWrittenOffsetInfo, len(offs))
-	// Create KVs for the batches
-	kvs := make([]common.KV, 0, len(offs))
-	for i, getOffsetInfo := range getOffSetInfos {
-		offset := offs[i]
-		updateWrittenOffsetInfos[i] = offsets.UpdateWrittenOffsetInfo{
-			TopicID:     getOffsetInfo.TopicID,
-			PartitionID: getOffsetInfo.PartitionID,
-			OffsetStart: offset,
-			NumOffsets:  getOffsetInfo.NumOffsets,
-		}
-		batches := partitionBatches[i]
-		for _, entry := range batches {
-			for _, record := range entry.records {
-				/*
-					For each batch there will be one entry in the database.
-					The key is: [partition_hash, offset, version]
-					The value is: the record batch bytes
-
-					The partition hash is created by sha256 hashing the [topic_id, partition_id] and taking the first 16 bytes.
-					This creates an effectively unique key as the probability of collision is extraordinarily remote
-					(secure random UUIDs are created the same way)
-					We use the partition hash instead of the [topic_id, partition_id] as the key prefix for the data in the LSM
-					as partition hashes will be evenly distributed across all possible values. This enables us to direct produce
-					traffic to specific agents in an AZ such that a specific agent handles produces for partitions that whose
-					partition hashes lie in a certain range. Each agent gets a non-overlapping range.
-					This means that when SSTables are registered in L0 of the LSM they will have non overlapping key ranges depending
-					on which agent they came from. The LSM can then parallelize compaction of non overlapping groups of tables
-					thus allowing LSM compaction to scale with number of agents.
-				*/
-				partitionHash, err := r.partitionHashes.GetPartitionHash(getOffsetInfo.TopicID, getOffsetInfo.PartitionID)
-				if err != nil {
-					return err
-				}
-				key := make([]byte, 0, 32)
-				key = append(key, partitionHash...)
-				key = encoding.KeyEncodeInt(key, offset)
-				key = encoding.EncodeVersion(key, 0)
-				kvs = append(kvs, common.KV{
-					Key:   key,
-					Value: record,
+	// The topics and partitions sent to GetOffsets must be ordered - this is because locks are applied for each
+	// offset to be got, and ordering the locks prevents deadlock between multiple pushers requesting offsets from
+	// same partitions.
+	if len(getOffSetInfos) > 1 {
+		slices.SortFunc(getOffSetInfos, func(a, b offsets.GetOffsetTopicInfo) int {
+			return intCompare(a.TopicID, b.TopicID)
+		})
+		for _, topicInfo := range getOffSetInfos {
+			if len(topicInfo.PartitionInfos) > 1 {
+				slices.SortFunc(topicInfo.PartitionInfos, func(a, b offsets.GetOffsetPartitionInfo) int {
+					return intCompare(a.PartitionID, b.PartitionID)
 				})
-				offset += int64(NumRecords(record))
 			}
 		}
 	}
-	// Sort by key - sstables are always in key order
+	offs, seq, err := client.GetOffsets(getOffSetInfos)
+	if err != nil {
+		return err
+	}
+	if len(offs) != len(getOffSetInfos) {
+		panic("invalid offsets returned")
+	}
+	// Create KVs for the batches
+	kvs := make([]common.KV, 0, len(offs))
+	for i, topOffset := range offs {
+		partitionRecs := t.partitionRecords[topOffset.TopicID]
+		for j, partInfo := range topOffset.PartitionInfos {
+			partitionHash, err := t.partitionHashes.GetPartitionHash(topOffset.TopicID, partInfo.PartitionID)
+			if err != nil {
+				return err
+			}
+			// The returned offset is the last offset
+			lastOffset := partInfo.Offset
+			offset := lastOffset - int64(getOffSetInfos[i].PartitionInfos[j].NumOffsets) + 1
+			batches := partitionRecs[partInfo.PartitionID]
+			for _, entry := range batches {
+				for _, record := range entry.records {
+					/*
+						For each batch there will be one entry in the database.
+						The key is: [partition_hash, offset, version]
+						The value is: the record batch bytes
+
+						The partition hash is created by sha256 hashing the [topic_id, partition_id] and taking the first 16 bytes.
+						This creates an effectively unique key as the probability of collision is extraordinarily remote
+						(secure random UUIDs are created the same way)
+						We use the partition hash instead of the [topic_id, partition_id] as the key prefix for the data in the LSM
+						as partition hashes will be evenly distributed across all possible values. This enables us to direct produce
+						traffic to specific agents in an AZ such that a specific agent handles produces for partitions that whose
+						partition hashes lie in a certain range. Each agent gets a non-overlapping range.
+						This means that when SSTables are registered in L0 of the LSM they will have non overlapping key ranges depending
+						on which agent they came from. The LSM can then parallelize compaction of non overlapping groups of tables
+						thus allowing LSM compaction to scale with number of agents.
+					*/
+
+					key := make([]byte, 0, 32)
+					key = append(key, partitionHash...)
+					key = encoding.KeyEncodeInt(key, offset)
+					key = encoding.EncodeVersion(key, 0)
+					// Fill in base offset
+					binary.BigEndian.PutUint64(record, uint64(offset))
+					kvs = append(kvs, common.KV{
+						Key:   key,
+						Value: record,
+					})
+					offset += int64(kafkaencoding.NumRecords(record))
+				}
+			}
+		}
+	}
+	// Sort by key - ssTables are always in key order
 	slices.SortFunc(kvs, func(a, b common.KV) int {
 		return bytes.Compare(a.Key, b.Key)
 	})
 	iter := common.NewKvSliceIterator(kvs)
-	// Build sstable
-	table, smallestKey, largestKey, minVersion, maxVersion, err := sst.BuildSSTable(r.cfg.DataFormat,
-		int(1.1*float64(r.sizeBytes)), len(kvs), iter)
+	// Build ssTable
+	table, smallestKey, largestKey, minVersion, maxVersion, err := sst.BuildSSTable(t.cfg.DataFormat,
+		int(1.1*float64(t.sizeBytes)), len(kvs), iter)
 	if err != nil {
 		return err
 	}
-	tableID := fmt.Sprintf("sst-%s", uuid.New().String())
-	// Push sstable to object store
+	// Push ssTable to object store
+	tableID := sst.CreateSSTableId()
 	tableData := table.Serialize()
-	if err := objstore.PutWithTimeout(r.objStore, r.cfg.DataBucketName, tableID, tableData,
+	if err := objstore.PutWithTimeout(t.objStore, t.cfg.DataBucketName, tableID, tableData,
 		objStoreAvailabilityTimeout); err != nil {
 		return err
 	}
-	log.Debugf("wrote SSTable to object store")
 	// Register table with LSM
 	regEntry := lsm.RegistrationEntry{
 		Level:            0,
@@ -416,14 +453,13 @@ func (r *TablePusher) write() error {
 		TableSize:        uint64(table.SizeBytes()),
 		NumPrefixDeletes: uint32(table.NumPrefixDeletes()),
 	}
-	if err := client.RegisterL0Table(updateWrittenOffsetInfos, regEntry); err != nil {
+	if err := client.RegisterL0Table(seq, regEntry); err != nil {
 		return err
 	}
-	log.Debugf("registered new table with table ID: %v", tableID)
 	// Send back completions
-	r.callCompletions(nil)
+	t.callCompletions(nil)
 	// reset
-	r.partitionRecords = make(map[int]map[int][]bufferedEntry)
-	r.sizeBytes = 0
+	t.partitionRecords = make(map[int]map[int][]bufferedEntry)
+	t.sizeBytes = 0
 	return nil
 }

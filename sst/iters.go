@@ -68,22 +68,18 @@ func (si *SSTableIterator) Current() common.KV {
 func (si *SSTableIterator) Close() {
 }
 
-type tableGetter interface {
-	GetSSTable(tableID SSTableID) (*SSTable, error)
-}
+type TableGetter func(tableID SSTableID) (*SSTable, error)
 
 type LazySSTableIterator struct {
 	tableID  SSTableID
-	getter   tableGetter
+	getter   TableGetter
 	keyStart []byte
-	keyEnd     []byte
-	iter       iteration.Iterator
+	keyEnd   []byte
+	iter     iteration.Iterator
 }
 
-func NewLazySSTableIterator(
-	tableID SSTableID, tableGetter tableGetter,
-	keyStart []byte, keyEnd []byte,
-) (iteration.Iterator, error) {
+func NewLazySSTableIterator(tableID SSTableID, tableGetter TableGetter, keyStart []byte,
+	keyEnd []byte) (iteration.Iterator, error) {
 	it := &LazySSTableIterator{
 		tableID:  tableID,
 		getter:   tableGetter,
@@ -137,16 +133,14 @@ func dumpSST(id SSTableID, sst *SSTable) {
 
 func (l *LazySSTableIterator) getIter() (iteration.Iterator, error) {
 	if l.iter == nil {
-		ssTable, err := l.getter.GetSSTable(l.tableID)
+		ssTable, err := l.getter(l.tableID)
 		if err != nil {
 			return nil, err
 		}
-
 		iter, err := ssTable.NewIterator(l.keyStart, l.keyEnd)
 		if err != nil {
 			return nil, err
 		}
-
 		l.iter = iter
 	}
 	return l.iter, nil

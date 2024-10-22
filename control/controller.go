@@ -16,7 +16,8 @@ import (
 
 /*
 Controller lives on each agent and activates / deactivates depending on whether the agent is the cluster leader as defined
-by being the first member of the cluster state.
+by being the first member of the cluster state. At any one time there is only one controller active on the cluster.
+Controller handles updates and queries to the LSM, offsets, and topic metadata.
 */
 type Controller struct {
 	cfg               Conf
@@ -29,6 +30,7 @@ type Controller struct {
 	offsetsCache      *offsets.Cache
 	topicMetaManager  *topicmeta.Manager
 	currentMembership cluster.MembershipState
+	tableListeners    *tableListeners
 }
 
 func NewController(cfg Conf, objStoreClient objstore.Client, connectionFactory transport.ConnectionFactory,
@@ -38,6 +40,7 @@ func NewController(cfg Conf, objStoreClient objstore.Client, connectionFactory t
 		objStoreClient:    objStoreClient,
 		connectionFactory: connectionFactory,
 		transportServer:   transportServer,
+		tableListeners:    newTableListeners(cfg.TableNotificationInterval, connectionFactory),
 	}
 	return control
 }
@@ -49,14 +52,16 @@ func (c *Controller) Start() error {
 		return nil
 	}
 	// Register the handlers
-	c.transportServer.RegisterHandler(transport.HandlerIDControllerRegisterL0Table, c.handleRegisterL0Request)
+	c.transportServer.RegisterHandler(transport.HandlerIDControllerRegisterL0Table, c.handleRegisterL0Table)
 	c.transportServer.RegisterHandler(transport.HandlerIDControllerApplyChanges, c.handleApplyChanges)
+	c.transportServer.RegisterHandler(transport.HandlerIDControllerRegisterTableListener, c.handleRegisterTableListener)
 	c.transportServer.RegisterHandler(transport.HandlerIDControllerQueryTablesInRange, c.handleQueryTablesInRange)
 	c.transportServer.RegisterHandler(transport.HandlerIDControllerGetOffsets, c.handleGetOffsets)
 	c.transportServer.RegisterHandler(transport.HandlerIDControllerPollForJob, c.handlePollForJob)
 	c.transportServer.RegisterHandler(transport.HandlerIDControllerGetTopicInfo, c.handleGetTopicInfo)
 	c.transportServer.RegisterHandler(transport.HandlerIDControllerCreateTopic, c.handleCreateTopic)
 	c.transportServer.RegisterHandler(transport.HandlerIDControllerDeleteTopic, c.handleDeleteTopic)
+	c.tableListeners.start()
 	c.started = true
 	return nil
 }
@@ -77,6 +82,7 @@ func (c *Controller) Stop() error {
 			return err
 		}
 	}
+	c.tableListeners.stop()
 	c.lsmHolder = nil
 	c.currentMembership = cluster.MembershipState{}
 	c.started = false
@@ -92,6 +98,7 @@ func (c *Controller) MembershipChanged(newState cluster.MembershipState) error {
 		return errors.New("controller not started")
 	}
 	if len(newState.Members) > 0 && newState.Members[0].Address == c.transportServer.Address() {
+		// This controller is activating as leader
 		lsmHolder := NewLsmHolder(c.cfg.ControllerStateUpdaterBucketName, c.cfg.ControllerStateUpdaterKeyPrefix,
 			c.cfg.ControllerMetaDataBucketName, c.cfg.ControllerMetaDataKeyPrefix, c.objStoreClient, c.cfg.LsmConf)
 		if err := lsmHolder.Start(); err != nil {
@@ -116,7 +123,10 @@ func (c *Controller) MembershipChanged(newState cluster.MembershipState) error {
 		}
 		c.offsetsCache = cache
 	} else {
+		// This controller is not leader
 		if c.lsmHolder != nil {
+			// It was leader before - this could happen if this agent was evicted but is still running as a zombie
+			// In which case we need to stop lsm etc
 			if err := c.lsmHolder.Stop(); err != nil {
 				return err
 			}
@@ -136,6 +146,7 @@ func (c *Controller) MembershipChanged(newState cluster.MembershipState) error {
 	if c.topicMetaManager != nil {
 		c.topicMetaManager.MembershipChanged(newState)
 	}
+	c.tableListeners.membershipChanged(&newState)
 	return nil
 }
 
@@ -149,26 +160,29 @@ func (c *Controller) Client() (Client, error) {
 		return nil, common.NewTektiteErrorf(common.Unavailable, "no members in cluster")
 	}
 	return &client{
-		m:              c,
-		address:        c.currentMembership.Members[0].Address,
-		clusterVersion: c.currentMembership.ClusterVersion,
-		connFactory:    c.connectionFactory,
+		m:             c,
+		address:       c.currentMembership.Members[0].Address,
+		leaderVersion: c.currentMembership.LeaderVersion,
+		connFactory:   c.connectionFactory,
 	}, nil
 }
 
-func (c *Controller) handleRegisterL0Request(_ int, request []byte, responseBuff []byte, responseWriter transport.ResponseWriter) error {
-	c.lock.Lock()
-	defer c.lock.Unlock()
+func (c *Controller) handleRegisterL0Table(_ *transport.ConnectionContext, request []byte, responseBuff []byte, responseWriter transport.ResponseWriter) error {
+	c.lock.RLock()
+	defer c.lock.RUnlock()
+	if err := c.checkStarted(); err != nil {
+		return err
+	}
+	if err := c.checkLeader(); err != nil {
+		return err
+	}
 	if err := checkRPCVersion(request); err != nil {
 		return responseWriter(nil, err)
 	}
 	var req RegisterL0Request
 	req.Deserialize(request, 2)
-	if err := c.checkClusterVersion(req.ClusterVersion); err != nil {
+	if err := c.checkLeaderVersion(req.LeaderVersion); err != nil {
 		return responseWriter(nil, err)
-	}
-	if err := c.offsetsCache.UpdateWrittenOffsets(req.OffsetInfos); err != nil {
-		return err
 	}
 	regBatch := lsm.RegistrationBatch{
 		Registrations: []lsm.RegistrationEntry{req.RegEntry},
@@ -177,21 +191,36 @@ func (c *Controller) handleRegisterL0Request(_ int, request []byte, responseBuff
 		if err != nil {
 			return responseWriter(nil, err)
 		}
+		offsetInfos, tableIDs, err := c.offsetsCache.MaybeReleaseOffsets(req.Sequence, req.RegEntry.TableID)
+		if err != nil {
+			return err
+		}
+		if len(tableIDs) > 0 {
+			if err := c.tableListeners.sendTableRegisteredNotification(tableIDs, offsetInfos); err != nil {
+				return err
+			}
+		}
 		// Send back zero byte to represent nil OK response
 		responseBuff = append(responseBuff, 0)
 		return responseWriter(responseBuff, nil)
 	})
 }
 
-func (c *Controller) handleApplyChanges(_ int, request []byte, responseBuff []byte, responseWriter transport.ResponseWriter) error {
-	c.lock.Lock()
-	defer c.lock.Unlock()
+func (c *Controller) handleApplyChanges(_ *transport.ConnectionContext, request []byte, responseBuff []byte, responseWriter transport.ResponseWriter) error {
+	c.lock.RLock()
+	defer c.lock.RUnlock()
+	if err := c.checkStarted(); err != nil {
+		return err
+	}
+	if err := c.checkLeader(); err != nil {
+		return err
+	}
 	if err := checkRPCVersion(request); err != nil {
 		return responseWriter(nil, err)
 	}
 	var req ApplyChangesRequest
 	req.Deserialize(request, 2)
-	if err := c.checkClusterVersion(req.ClusterVersion); err != nil {
+	if err := c.checkLeaderVersion(req.LeaderVersion); err != nil {
 		return responseWriter(nil, err)
 	}
 	return c.lsmHolder.ApplyLsmChanges(req.RegBatch, func(err error) error {
@@ -204,15 +233,50 @@ func (c *Controller) handleApplyChanges(_ int, request []byte, responseBuff []by
 	})
 }
 
-func (c *Controller) handleQueryTablesInRange(_ int, request []byte, responseBuff []byte, responseWriter transport.ResponseWriter) error {
+func (c *Controller) handleRegisterTableListener(_ *transport.ConnectionContext, request []byte, responseBuff []byte, responseWriter transport.ResponseWriter) error {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
+	if err := c.checkStarted(); err != nil {
+		return err
+	}
+	if err := c.checkLeader(); err != nil {
+		return err
+	}
+	if err := checkRPCVersion(request); err != nil {
+		return responseWriter(nil, err)
+	}
+	var req RegisterTableListenerRequest
+	req.Deserialize(request, 2)
+	if err := c.checkLeaderVersion(req.LeaderVersion); err != nil {
+		return responseWriter(nil, err)
+	}
+	lro, err := c.offsetsCache.GetLastReadableOffset(req.TopicID, req.PartitionID)
+	if err != nil {
+		return responseWriter(nil, err)
+	}
+	c.tableListeners.maybeRegisterListenerForPartition(req.Address, req.TopicID, req.PartitionID, req.ResetSequence)
+	resp := RegisterTableListenerResponse{
+		LastReadableOffset: lro,
+	}
+	responseBuff = resp.Serialize(responseBuff)
+	return responseWriter(responseBuff, nil)
+}
+
+func (c *Controller) handleQueryTablesInRange(_ *transport.ConnectionContext, request []byte, responseBuff []byte, responseWriter transport.ResponseWriter) error {
+	c.lock.RLock()
+	defer c.lock.RUnlock()
+	if err := c.checkStarted(); err != nil {
+		return err
+	}
+	if err := c.checkLeader(); err != nil {
+		return err
+	}
 	if err := checkRPCVersion(request); err != nil {
 		return responseWriter(nil, err)
 	}
 	var req QueryTablesInRangeRequest
 	req.Deserialize(request, 2)
-	if err := c.checkClusterVersion(req.ClusterVersion); err != nil {
+	if err := c.checkLeaderVersion(req.LeaderVersion); err != nil {
 		return responseWriter(nil, err)
 	}
 	res, err := c.lsmHolder.QueryTablesInRange(req.KeyStart, req.KeyEnd)
@@ -223,33 +287,48 @@ func (c *Controller) handleQueryTablesInRange(_ int, request []byte, responseBuf
 	return responseWriter(responseBuff, nil)
 }
 
-func (c *Controller) handleGetOffsets(_ int, request []byte, responseBuff []byte, responseWriter transport.ResponseWriter) error {
+func (c *Controller) handleGetOffsets(_ *transport.ConnectionContext, request []byte, responseBuff []byte, responseWriter transport.ResponseWriter) error {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
+	if err := c.checkStarted(); err != nil {
+		return err
+	}
+	if err := c.checkLeader(); err != nil {
+		return err
+	}
 	if err := checkRPCVersion(request); err != nil {
 		return responseWriter(nil, err)
 	}
 	var req GetOffsetsRequest
 	req.Deserialize(request, 2)
-	if err := c.checkClusterVersion(req.ClusterVersion); err != nil {
+	if err := c.checkLeaderVersion(req.LeaderVersion); err != nil {
 		return responseWriter(nil, err)
 	}
-	offs, err := c.offsetsCache.GetOffsets(req.Infos)
+	offs, seq, err := c.offsetsCache.GetOffsets(req.Infos)
 	if err != nil {
 		return responseWriter(nil, err)
 	}
-	resp := GetOffsetsResponse{Offsets: offs}
+	resp := GetOffsetsResponse{
+		Offsets:  offs,
+		Sequence: seq,
+	}
 	responseBuff = resp.Serialize(responseBuff)
 	return responseWriter(responseBuff, nil)
 }
 
-func (c *Controller) handlePollForJob(connectionID int, request []byte, responseBuff []byte, responseWriter transport.ResponseWriter) error {
+func (c *Controller) handlePollForJob(ctx *transport.ConnectionContext, request []byte, responseBuff []byte, responseWriter transport.ResponseWriter) error {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
+	if err := c.checkStarted(); err != nil {
+		return err
+	}
+	if err := c.checkLeader(); err != nil {
+		return err
+	}
 	if err := checkRPCVersion(request); err != nil {
 		return responseWriter(nil, err)
 	}
-	c.lsmHolder.lsmManager.PollForJob(connectionID, func(job *lsm.CompactionJob, err error) {
+	c.lsmHolder.lsmManager.PollForJob(ctx.ConnectionID, func(job *lsm.CompactionJob, err error) {
 		if err != nil {
 			if err := responseWriter(nil, err); err != nil {
 				log.Errorf("failed to write error response %v", err)
@@ -265,15 +344,21 @@ func (c *Controller) handlePollForJob(connectionID int, request []byte, response
 	return nil
 }
 
-func (c *Controller) handleGetTopicInfo(_ int, request []byte, responseBuff []byte, responseWriter transport.ResponseWriter) error {
+func (c *Controller) handleGetTopicInfo(_ *transport.ConnectionContext, request []byte, responseBuff []byte, responseWriter transport.ResponseWriter) error {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
+	if err := c.checkStarted(); err != nil {
+		return err
+	}
+	if err := c.checkLeader(); err != nil {
+		return err
+	}
 	if err := checkRPCVersion(request); err != nil {
 		return responseWriter(nil, err)
 	}
 	var req GetTopicInfoRequest
 	req.Deserialize(request, 2)
-	if err := c.checkClusterVersion(req.ClusterVersion); err != nil {
+	if err := c.checkLeaderVersion(req.LeaderVersion); err != nil {
 		return responseWriter(nil, err)
 	}
 	info, seq, err := c.topicMetaManager.GetTopicInfo(req.TopicName)
@@ -287,15 +372,21 @@ func (c *Controller) handleGetTopicInfo(_ int, request []byte, responseBuff []by
 	return responseWriter(responseBuff, nil)
 }
 
-func (c *Controller) handleCreateTopic(_ int, request []byte, responseBuff []byte, responseWriter transport.ResponseWriter) error {
+func (c *Controller) handleCreateTopic(_ *transport.ConnectionContext, request []byte, responseBuff []byte, responseWriter transport.ResponseWriter) error {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
+	if err := c.checkStarted(); err != nil {
+		return err
+	}
+	if err := c.checkLeader(); err != nil {
+		return err
+	}
 	if err := checkRPCVersion(request); err != nil {
 		return responseWriter(nil, err)
 	}
 	var req CreateTopicRequest
 	req.Deserialize(request, 2)
-	if err := c.checkClusterVersion(req.ClusterVersion); err != nil {
+	if err := c.checkLeaderVersion(req.LeaderVersion); err != nil {
 		return responseWriter(nil, err)
 	}
 	err := c.topicMetaManager.CreateTopic(req.Info)
@@ -305,15 +396,21 @@ func (c *Controller) handleCreateTopic(_ int, request []byte, responseBuff []byt
 	return responseWriter(responseBuff, nil)
 }
 
-func (c *Controller) handleDeleteTopic(_ int, request []byte, responseBuff []byte, responseWriter transport.ResponseWriter) error {
+func (c *Controller) handleDeleteTopic(_ *transport.ConnectionContext, request []byte, responseBuff []byte, responseWriter transport.ResponseWriter) error {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
+	if err := c.checkStarted(); err != nil {
+		return err
+	}
+	if err := c.checkLeader(); err != nil {
+		return err
+	}
 	if err := checkRPCVersion(request); err != nil {
 		return responseWriter(nil, err)
 	}
 	var req DeleteTopicRequest
 	req.Deserialize(request, 2)
-	if err := c.checkClusterVersion(req.ClusterVersion); err != nil {
+	if err := c.checkLeaderVersion(req.LeaderVersion); err != nil {
 		return responseWriter(nil, err)
 	}
 	err := c.topicMetaManager.DeleteTopic(req.TopicName)
@@ -332,12 +429,27 @@ func checkRPCVersion(request []byte) error {
 	return nil
 }
 
-func (c *Controller) checkClusterVersion(clusterVersion int) error {
-	if clusterVersion != c.currentMembership.ClusterVersion {
-		// This will occur when a cluster change occurs and a client created from an older cluster version tries
-		// to perform an operation. We return an unavailable error which will cause the caller to close the connection
+func (c *Controller) checkStarted() error {
+	if !c.started {
+		return errors.New("not started")
+	}
+	return nil
+}
+
+func (c *Controller) checkLeader() error {
+	if c.lsmHolder == nil {
+		return common.NewTektiteErrorf(common.Unavailable, "controller is not leader")
+	}
+	return nil
+}
+
+func (c *Controller) checkLeaderVersion(clusterVersion int) error {
+	if clusterVersion != c.currentMembership.LeaderVersion {
+		// This will occur when a cluster change occurs and a client created from an older leader version tries
+		// to perform an operation.
+		// We return an unavailable error which will cause the caller to close the connection
 		// and create a new one, with the correct version
-		return common.NewTektiteErrorf(common.Unavailable, "controller - cluster version mismatch")
+		return common.NewTektiteErrorf(common.Unavailable, "controller - leader version mismatch")
 	}
 	return nil
 }

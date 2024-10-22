@@ -17,14 +17,14 @@ func CreateKafkaRecordBatch(messages []RawKafkaMessage, offsetStart int64) []byt
 	var firstTimestamp types.Timestamp
 	var timestamp types.Timestamp
 	offset := offsetStart
-	for _, msg := range messages {
+	for i, msg := range messages {
 		var ok bool
 		timestamp = types.Timestamp{Val: msg.Timestamp}
 		if first {
 			firstTimestamp = timestamp
 		}
-		batchBytes, ok = kafkaencoding.AppendToBatch(batchBytes, offset, msg.Key, nil, msg.Value, timestamp,
-			firstTimestamp, offsetStart, math.MaxInt, first)
+		batchBytes, ok = kafkaencoding.AppendToBatch(batchBytes, int64(i), msg.Key, nil, msg.Value, timestamp,
+			firstTimestamp, math.MaxInt, first)
 		if !ok {
 			panic("failed to append")
 		}
@@ -39,8 +39,8 @@ func CreateKafkaRecordBatchWithIncrementingKVs(offsetStart int, numMessages int)
 	for i := offsetStart; i < offsetStart+numMessages; i++ {
 		msgs = append(msgs, RawKafkaMessage{
 			Timestamp: time.Now().UnixMilli(),
-			Key:       []byte(fmt.Sprintf("key%d", i)),
-			Value:     []byte(fmt.Sprintf("val%d", i)),
+			Key:       []byte(fmt.Sprintf("key%09d", i)),
+			Value:     []byte(fmt.Sprintf("val%09d", i)),
 		})
 	}
 	return CreateKafkaRecordBatch(msgs, int64(offsetStart))

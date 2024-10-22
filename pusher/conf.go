@@ -19,7 +19,7 @@ func NewConf() Conf {
 		WriteTimeout:              DefaultWriteTimeout,
 		AvailabilityRetryInterval: DefaultAvailabilityRetryInterval,
 		DataFormat:                DefaultDataFormat,
-		DataBucketName: "tektite-data",
+		DataBucketName:            DefaultDataBucketName,
 	}
 }
 
@@ -32,4 +32,5 @@ const (
 	DefaultAvailabilityRetryInterval = 1 * time.Second
 	DefaultBufferSizeMaxBytes        = 4 * 1024 * 1024
 	DefaultDataFormat                = common.DataFormatV1
+	DefaultDataBucketName            = "tektite-data"
 )

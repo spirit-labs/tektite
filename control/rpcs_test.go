@@ -12,39 +12,8 @@ import (
 
 func TestSerializeDeserializeRegisterL0Request(t *testing.T) {
 	req := RegisterL0Request{
-		ClusterVersion: 4555,
-		OffsetInfos: []offsets.UpdateWrittenOffsetInfo{
-			{
-				TopicID:     1234,
-				PartitionID: 12,
-				OffsetStart: 1001,
-				NumOffsets:  213,
-			},
-			{
-				TopicID:     1234,
-				PartitionID: 0,
-				OffsetStart: 23,
-				NumOffsets:  456,
-			},
-			{
-				TopicID:     1234,
-				PartitionID: 45,
-				OffsetStart: 3453,
-				NumOffsets:  32334,
-			},
-			{
-				TopicID:     234234,
-				PartitionID: 45,
-				OffsetStart: 23423,
-				NumOffsets:  234,
-			},
-			{
-				TopicID:     123,
-				PartitionID: 34534,
-				OffsetStart: 433,
-				NumOffsets:  444,
-			},
-		},
+		LeaderVersion: 4555,
+		Sequence:      345234,
 		RegEntry: lsm.RegistrationEntry{
 			Level:            0,
 			TableID:          sst.SSTableID("sometableid1"),
@@ -70,7 +39,7 @@ func TestSerializeDeserializeRegisterL0Request(t *testing.T) {
 
 func TestSerializeDeserializeApplyChangesRequest(t *testing.T) {
 	req := ApplyChangesRequest{
-		ClusterVersion: 4555,
+		LeaderVersion: 4555,
 		RegBatch: lsm.RegistrationBatch{
 			Compaction: true,
 			JobID:      "job-12345",
@@ -111,30 +80,29 @@ func TestSerializeDeserializeApplyChangesRequest(t *testing.T) {
 
 func TestSerializeDeserializeQueryTablesInRangeRequest(t *testing.T) {
 	req := QueryTablesInRangeRequest{
-		ClusterVersion: 567456,
-		KeyStart:       []byte("keystart1"),
-		KeyEnd:         []byte("keyend1"),
+		LeaderVersion: 567456,
+		KeyStart:      []byte("keystart1"),
+		KeyEnd:        []byte("keyend1"),
 	}
 	testSerializeDeserializeQueryTablesInRangeRequest(t, req)
 
 	// And with nil ranges
 	req = QueryTablesInRangeRequest{
-		ClusterVersion: 456456,
-		KeyStart:       nil,
-		KeyEnd:         []byte("keyend1"),
+		LeaderVersion: 456456,
+		KeyStart:      nil,
+		KeyEnd:        []byte("keyend1"),
 	}
 	testSerializeDeserializeQueryTablesInRangeRequest(t, req)
 
 	req = QueryTablesInRangeRequest{
-		ClusterVersion: 23424,
-		KeyStart:       nil,
-		KeyEnd:         nil,
+		LeaderVersion: 23424,
+		KeyStart:      nil,
+		KeyEnd:        nil,
 	}
 	testSerializeDeserializeQueryTablesInRangeRequest(t, req)
 }
 
 func testSerializeDeserializeQueryTablesInRangeRequest(t *testing.T, req QueryTablesInRangeRequest) {
-
 	var buff []byte
 	buff = append(buff, 1, 2, 3)
 	buff = req.Serialize(buff)
@@ -142,18 +110,64 @@ func testSerializeDeserializeQueryTablesInRangeRequest(t *testing.T, req QueryTa
 	off := req2.Deserialize(buff, 3)
 	require.Equal(t, req, req2)
 	require.Equal(t, off, len(buff))
+}
 
-	// And with null ranges
+func TestSerializeDeserializeRegisterTableListenerRequest(t *testing.T) {
+	req := RegisterTableListenerRequest{
+		LeaderVersion: 567456,
+		TopicID:       123123,
+		PartitionID:   34546,
+		Address:       "some address",
+		ResetSequence: 123456,
+	}
+	var buff []byte
+	buff = append(buff, 1, 2, 3)
+	buff = req.Serialize(buff)
+	var req2 RegisterTableListenerRequest
+	off := req2.Deserialize(buff, 3)
+	require.Equal(t, req, req2)
+	require.Equal(t, off, len(buff))
+}
+
+func TestSerializeDeserializeRegisterTableListenerResponse(t *testing.T) {
+	req := RegisterTableListenerResponse{
+		LastReadableOffset: 234234,
+	}
+	var buff []byte
+	buff = append(buff, 1, 2, 3)
+	buff = req.Serialize(buff)
+	var req2 RegisterTableListenerResponse
+	off := req2.Deserialize(buff, 3)
+	require.Equal(t, req, req2)
+	require.Equal(t, off, len(buff))
 }
 
 func TestSerializeDeserializeGetOffsetsRequest(t *testing.T) {
 	req := GetOffsetsRequest{
-		CacheNum:       123,
-		ClusterVersion: 4536,
+		LeaderVersion: 4536,
 		Infos: []offsets.GetOffsetTopicInfo{
-			{TopicID: 3, PartitionID: 23, NumOffsets: 345},
-			{TopicID: 7, PartitionID: 54, NumOffsets: 45},
-			{TopicID: 0, PartitionID: 2, NumOffsets: 45645},
+
+			{
+				TopicID: 1234,
+				PartitionInfos: []offsets.GetOffsetPartitionInfo{
+					{PartitionID: 23, NumOffsets: 345},
+					{PartitionID: 45, NumOffsets: 455},
+					{PartitionID: 567, NumOffsets: 23},
+				},
+			},
+			{
+				TopicID: 345,
+				PartitionInfos: []offsets.GetOffsetPartitionInfo{
+					{PartitionID: 76, NumOffsets: 2342},
+				},
+			},
+			{
+				TopicID: 45656,
+				PartitionInfos: []offsets.GetOffsetPartitionInfo{
+					{PartitionID: 879, NumOffsets: 12321},
+					{PartitionID: 34, NumOffsets: 4536},
+				},
+			},
 		},
 	}
 	var buff []byte
@@ -166,7 +180,37 @@ func TestSerializeDeserializeGetOffsetsRequest(t *testing.T) {
 }
 
 func TestSerializeDeserializeGetOffsetsResponse(t *testing.T) {
-	resp := GetOffsetsResponse{Offsets: []int64{3423423, 234234, 343453, 456456, 768678, 6789769}}
+	resp := GetOffsetsResponse{
+		Offsets: []offsets.OffsetTopicInfo{
+			{
+				TopicID: 12323,
+				PartitionInfos: []offsets.OffsetPartitionInfo{
+					{
+						PartitionID: 234,
+						Offset:      234234,
+					},
+					{
+						PartitionID: 345,
+						Offset:      3453454,
+					},
+				},
+			},
+			{
+				TopicID: 4356456,
+				PartitionInfos: []offsets.OffsetPartitionInfo{
+					{
+						PartitionID: 678,
+						Offset:      23556,
+					},
+					{
+						PartitionID: 4567,
+						Offset:      3455,
+					},
+				},
+			},
+		},
+		Sequence: 2137632,
+	}
 	var buff []byte
 	buff = append(buff, 1, 2, 3)
 	buff = resp.Serialize(buff)
@@ -178,8 +222,8 @@ func TestSerializeDeserializeGetOffsetsResponse(t *testing.T) {
 
 func TestSerializeDeserializeGetTopicInfoRequest(t *testing.T) {
 	req := GetTopicInfoRequest{
-		ClusterVersion: 123,
-		TopicName:      "some-topic",
+		LeaderVersion: 123,
+		TopicName:     "some-topic",
 	}
 	var buff []byte
 	buff = append(buff, 1, 2, 3)
@@ -211,7 +255,7 @@ func TestSerializeDeserializeGetTopicInfoResponse(t *testing.T) {
 
 func TestSerializeDeserializeCreateTopicRequest(t *testing.T) {
 	req := CreateTopicRequest{
-		ClusterVersion: 123,
+		LeaderVersion: 123,
 		Info: topicmeta.TopicInfo{
 			ID:             23423,
 			Name:           "some-topic",
@@ -230,8 +274,8 @@ func TestSerializeDeserializeCreateTopicRequest(t *testing.T) {
 
 func TestSerializeDeserializeDeleteTopicRequest(t *testing.T) {
 	req := DeleteTopicRequest{
-		ClusterVersion: 123,
-		TopicName:      "some-topic",
+		LeaderVersion: 123,
+		TopicName:     "some-topic",
 	}
 	var buff []byte
 	buff = append(buff, 1, 2, 3)
@@ -239,5 +283,44 @@ func TestSerializeDeserializeDeleteTopicRequest(t *testing.T) {
 	var req2 DeleteTopicRequest
 	off := req2.Deserialize(buff, 3)
 	require.Equal(t, req, req2)
+	require.Equal(t, off, len(buff))
+}
+
+func TestSerializeDeserializeTableRegisteredNotification(t *testing.T) {
+	notif := TablesRegisteredNotification{
+		LeaderVersion: 23,
+		Sequence:      1232343,
+		TableIDs:      []sst.SSTableID{[]byte("some_table_id")},
+		Infos: []offsets.OffsetTopicInfo{
+			{
+				TopicID: 1234,
+				PartitionInfos: []offsets.OffsetPartitionInfo{
+					{
+						PartitionID: 234,
+						Offset:      66788,
+					},
+					{
+						PartitionID: 56756,
+						Offset:      23432,
+					},
+				},
+			},
+			{
+				TopicID: 345435,
+				PartitionInfos: []offsets.OffsetPartitionInfo{
+					{
+						PartitionID: 5465,
+						Offset:      678678,
+					},
+				},
+			},
+		},
+	}
+	var buff []byte
+	buff = append(buff, 1, 2, 3)
+	buff = notif.Serialize(buff)
+	var notif2 TablesRegisteredNotification
+	off := notif2.Deserialize(buff, 3)
+	require.Equal(t, notif, notif2)
 	require.Equal(t, off, len(buff))
 }

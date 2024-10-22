@@ -49,8 +49,8 @@ func SetBatchHeader(batchBytes []byte, firstOffset int64, lastOffset int64, firs
 	binary.BigEndian.PutUint32(batchBytes[57:], uint32(numRecords))
 }
 
-func AppendToBatch(batchBytes []byte, offset int64, key []byte, hdrs []byte, val []byte, timestamp types.Timestamp,
-	firstTimestamp types.Timestamp, firstOffset int64, maxBytes int, first bool) ([]byte, bool) {
+func AppendToBatch(batchBytes []byte, offsetDelta int64, key []byte, hdrs []byte, val []byte, timestamp types.Timestamp,
+	firstTimestamp types.Timestamp, maxBytes int, first bool) ([]byte, bool) {
 	/*
 			length: varint
 		   attributes: int8
@@ -65,7 +65,6 @@ func AppendToBatch(batchBytes []byte, offset int64, key []byte, hdrs []byte, val
 	*/
 
 	timestampDelta := timestamp.Val - firstTimestamp.Val
-	offsetDelta := offset - firstOffset
 	lk := int64(len(key))
 	lv := int64(len(val))
 
@@ -103,4 +102,12 @@ func varintLength(x int64) int {
 		i++
 	}
 	return i + 1
+}
+
+func NumRecords(records []byte) int {
+	return int(binary.BigEndian.Uint32(records[57:]))
+}
+
+func BaseOffset(records []byte) int64 {
+	return int64(binary.BigEndian.Uint64(records))
 }

@@ -18,11 +18,11 @@ import (
 )
 
 func TestClientNoMembersOnCreation(t *testing.T) {
-	managers, tearDown := setupControllers(t, 1)
+	controllers, tearDown := setupControllers(t, 1)
 	defer tearDown(t)
 
 	// There are no members in the cluster at this point
-	_, err := managers[0].Client()
+	_, err := controllers[0].Client()
 	require.Error(t, err)
 	// caller should get an unavailable error so it can retry
 	require.True(t, common.IsTektiteErrorWithCode(err, common.Unavailable))
@@ -30,9 +30,9 @@ func TestClientNoMembersOnCreation(t *testing.T) {
 }
 
 func TestClientWrongClusterVersion(t *testing.T) {
-	controllers, tearDown := setupControllers(t, 1)
+	controllers, tearDown := setupControllers(t, 2)
 	defer tearDown(t)
-	updateMembership(t, 1, controllers, 0)
+	updateMembership(t, 1, 1, controllers, 0)
 
 	keyStart := []byte("key000001")
 	keyEnd := []byte("key000010")
@@ -42,25 +42,52 @@ func TestClientWrongClusterVersion(t *testing.T) {
 	cl, err := controllers[0].Client()
 	require.NoError(t, err)
 
-	// Now update membership again so cluster version increases
-	updateMembership(t, 2, controllers, 0)
+	// Now update membership again so leader changes
+	updateMembership(t, 2, 2, controllers, 0)
 
 	err = cl.ApplyLsmChanges(batch)
 	require.Error(t, err)
 	require.True(t, common.IsTektiteErrorWithCode(err, common.Unavailable))
-	require.Equal(t, "controller - cluster version mismatch", err.Error())
+	require.Equal(t, "controller - leader version mismatch", err.Error())
 
 	_, err = cl.QueryTablesInRange(nil, nil)
 	require.Error(t, err)
 	require.True(t, common.IsTektiteErrorWithCode(err, common.Unavailable))
-	require.Equal(t, "controller - cluster version mismatch", err.Error())
+	require.Equal(t, "controller - leader version mismatch", err.Error())
+}
+
+func TestClientControllerNotLeader(t *testing.T) {
+	controllers, tearDown := setupControllers(t, 2)
+	defer tearDown(t)
+	updateMembership(t, 1, 1, controllers, 0, 1)
+
+	keyStart := []byte("key000001")
+	keyEnd := []byte("key000010")
+	tableID := []byte(uuid.New().String())
+	batch := createBatch(1, tableID, keyStart, keyEnd)
+
+	cl, err := controllers[0].Client()
+	require.NoError(t, err)
+
+	// Now remove node 0 (leader)
+	updateMembership(t, 2, 2, controllers, 1)
+
+	err = cl.ApplyLsmChanges(batch)
+	require.Error(t, err)
+	require.True(t, common.IsTektiteErrorWithCode(err, common.Unavailable))
+	require.Equal(t, "controller is not leader", err.Error())
+
+	_, err = cl.QueryTablesInRange(nil, nil)
+	require.Error(t, err)
+	require.True(t, common.IsTektiteErrorWithCode(err, common.Unavailable))
+	require.Equal(t, "controller is not leader", err.Error())
 }
 
 func TestControllerUseClosedClient(t *testing.T) {
 	controllers, tearDown := setupControllers(t, 1)
 	defer tearDown(t)
 
-	updateMembership(t, 1, controllers, 0)
+	updateMembership(t, 1, 1, controllers, 0)
 
 	cl, err := controllers[0].Client()
 	require.NoError(t, err)
@@ -99,7 +126,7 @@ func TestControllerApplyChanges(t *testing.T) {
 	controllers, tearDown := setupControllers(t, 1)
 	defer tearDown(t)
 
-	updateMembership(t, 1, controllers, 0)
+	updateMembership(t, 1, 1, controllers, 0)
 
 	cl, err := controllers[0].Client()
 	require.NoError(t, err)
@@ -134,11 +161,11 @@ func TestControllerApplyChanges(t *testing.T) {
 	require.Equal(t, tableID, []byte(resTableID))
 }
 
-func TestControllerRegisterL0(t *testing.T) {
+func TestControllerGetOffsetsAndRegisterL0(t *testing.T) {
 	controllers, tearDown := setupControllers(t, 1)
 	defer tearDown(t)
 
-	updateMembership(t, 1, controllers, 0)
+	updateMembership(t, 1, 1, controllers, 0)
 	setupTopics(t, controllers[0])
 
 	cl, err := controllers[0].Client()
@@ -149,25 +176,44 @@ func TestControllerRegisterL0(t *testing.T) {
 	}()
 
 	// First get some offsets
-	offs, err := cl.GetOffsets([]offsets.GetOffsetTopicInfo{
+	offs, seq, err := cl.GetOffsets([]offsets.GetOffsetTopicInfo{
 		{
-			TopicID:     0,
-			PartitionID: 1,
-			NumOffsets:  100,
+			TopicID: 0,
+			PartitionInfos: []offsets.GetOffsetPartitionInfo{
+				{
+					PartitionID: 1,
+					NumOffsets:  100,
+				},
+				{
+					PartitionID: 2,
+					NumOffsets:  150,
+				},
+			},
 		},
 		{
-			TopicID:     0,
-			PartitionID: 2,
-			NumOffsets:  100,
-		},
-		{
-			TopicID:     1,
-			PartitionID: 1,
-			NumOffsets:  100,
+			TopicID: 1,
+			PartitionInfos: []offsets.GetOffsetPartitionInfo{
+				{
+					PartitionID: 1,
+					NumOffsets:  50,
+				},
+			},
 		},
 	})
 	require.NoError(t, err)
-	require.Equal(t, 3, len(offs))
+	require.Equal(t, 2, len(offs))
+	require.Equal(t, 0, offs[0].TopicID)
+	require.Equal(t, 2, len(offs[0].PartitionInfos))
+	require.Equal(t, 1, offs[0].PartitionInfos[0].PartitionID)
+	require.Equal(t, 99, int(offs[0].PartitionInfos[0].Offset))
+	require.Equal(t, 2, offs[0].PartitionInfos[1].PartitionID)
+	require.Equal(t, 149, int(offs[0].PartitionInfos[1].Offset))
+
+	require.Equal(t, 1, offs[1].TopicID)
+	require.Equal(t, 1, len(offs[1].PartitionInfos))
+	require.Equal(t, 1, offs[1].PartitionInfos[0].PartitionID)
+	require.Equal(t, 49, int(offs[1].PartitionInfos[0].Offset))
+	require.Equal(t, 1, int(seq))
 
 	keyStart := []byte("key000001")
 	keyEnd := []byte("key000010")
@@ -183,28 +229,8 @@ func TestControllerRegisterL0(t *testing.T) {
 		NumEntries: 1234,
 		TableSize:  12345567,
 	}
-	writtenOffs := []offsets.UpdateWrittenOffsetInfo{
-		{
-			TopicID:     0,
-			PartitionID: 1,
-			OffsetStart: offs[0],
-			NumOffsets:  100,
-		},
-		{
-			TopicID:     0,
-			PartitionID: 2,
-			OffsetStart: offs[1],
-			NumOffsets:  100,
-		},
-		{
-			TopicID:     1,
-			PartitionID: 1,
-			OffsetStart: offs[2],
-			NumOffsets:  100,
-		},
-	}
 
-	err = cl.RegisterL0Table(writtenOffs, regEntry)
+	err = cl.RegisterL0Table(seq, regEntry)
 	require.NoError(t, err)
 
 	res, err := cl.QueryTablesInRange(keyStart, keyEnd)
@@ -233,9 +259,9 @@ func TestControllerRegisterL0(t *testing.T) {
 
 func TestControllerCreateGetDeleteTopics(t *testing.T) {
 	objStore := dev.NewInMemStore(0)
-	controllers, tearDown := setupControllersWithObjectStore(t, 1, objStore)
+	controllers, _, tearDown := setupControllersWithObjectStore(t, 1, objStore)
 
-	updateMembership(t, 1, controllers, 0)
+	updateMembership(t, 1, 1, controllers, 0)
 
 	cl, err := controllers[0].Client()
 	require.NoError(t, err)
@@ -266,8 +292,8 @@ func TestControllerCreateGetDeleteTopics(t *testing.T) {
 	err = cl.Close()
 	require.NoError(t, err)
 	tearDown(t)
-	controllers, tearDown = setupControllersWithObjectStore(t, 1, objStore)
-	updateMembership(t, 1, controllers, 0)
+	controllers, _, tearDown = setupControllersWithObjectStore(t, 1, objStore)
+	updateMembership(t, 1, 1, controllers, 0)
 	cl, err = controllers[0].Client()
 	require.NoError(t, err)
 
@@ -300,8 +326,8 @@ func TestControllerCreateGetDeleteTopics(t *testing.T) {
 	err = cl.Close()
 	require.NoError(t, err)
 	tearDown(t)
-	controllers, tearDown = setupControllersWithObjectStore(t, 1, objStore)
-	updateMembership(t, 1, controllers, 0)
+	controllers, _, tearDown = setupControllersWithObjectStore(t, 1, objStore)
+	updateMembership(t, 1, 1, controllers, 0)
 	cl, err = controllers[0].Client()
 	require.NoError(t, err)
 
@@ -330,9 +356,9 @@ func TestControllerCreateGetDeleteTopics(t *testing.T) {
 	err = cl.Close()
 	require.NoError(t, err)
 	tearDown(t)
-	controllers, tearDown = setupControllersWithObjectStore(t, 1, objStore)
+	controllers, _, tearDown = setupControllersWithObjectStore(t, 1, objStore)
 	defer tearDown(t)
-	updateMembership(t, 1, controllers, 0)
+	updateMembership(t, 1, 1, controllers, 0)
 	cl, err = controllers[0].Client()
 	require.NoError(t, err)
 	defer func() {
@@ -350,11 +376,17 @@ func TestControllerCreateGetDeleteTopics(t *testing.T) {
 
 func setupControllers(t *testing.T, numMembers int) ([]*Controller, func(t *testing.T)) {
 	objStore := dev.NewInMemStore(0)
-	return setupControllersWithObjectStore(t, numMembers, objStore)
+	controllers, _, tearDown := setupControllersWithObjectStore(t, numMembers, objStore)
+	return controllers, tearDown
 }
 
 func setupControllersWithObjectStore(t *testing.T, numMembers int,
-	objStore objstore.Client) ([]*Controller, func(t *testing.T)) {
+	objStore objstore.Client) ([]*Controller, *transport.LocalTransports, func(t *testing.T)) {
+	return setupControllersWithObjectStoreAndConfigSetter(t, numMembers, objStore, nil)
+}
+
+func setupControllersWithObjectStoreAndConfigSetter(t *testing.T, numMembers int,
+	objStore objstore.Client, configSetter func(conf *Conf)) ([]*Controller, *transport.LocalTransports, func(t *testing.T)) {
 	localTransports := transport.NewLocalTransports()
 	var controllers []*Controller
 	for i := 0; i < numMembers; i++ {
@@ -364,37 +396,56 @@ func setupControllersWithObjectStore(t *testing.T, numMembers int,
 		cfg := NewConf()
 		// Set to a high number as we don't have compaction running and don't want to block L0 adds
 		cfg.LsmConf.L0MaxTablesBeforeBlocking = 10000
+		if configSetter != nil {
+			configSetter(&cfg)
+		}
 		ctrl := NewController(cfg, objStore, localTransports.CreateConnection, transportServer)
 		err = ctrl.Start()
 		require.NoError(t, err)
 		controllers = append(controllers, ctrl)
+		transportServer.RegisterHandler(transport.HandlerIDMetaLocalCacheTopicAdded,
+			func(ctx *transport.ConnectionContext, request []byte, responseBuff []byte,
+				responseWriter transport.ResponseWriter) error {
+				return responseWriter(responseBuff, nil)
+			})
+		transportServer.RegisterHandler(transport.HandlerIDMetaLocalCacheTopicDeleted,
+			func(ctx *transport.ConnectionContext, request []byte, responseBuff []byte,
+				responseWriter transport.ResponseWriter) error {
+				return responseWriter(responseBuff, nil)
+			})
 	}
-	return controllers, func(t *testing.T) {
-		for _, manager := range controllers {
-			err := manager.Stop()
+	return controllers, localTransports, func(t *testing.T) {
+		for _, controller := range controllers {
+			err := controller.Stop()
 			require.NoError(t, err)
 		}
 	}
 }
 
-func updateMembership(t *testing.T, clusterVersion int, managers []*Controller, memberIndexes ...int) []cluster.MembershipEntry {
+func updateMembership(t *testing.T, clusterVersion int, leaderVersion int, controllers []*Controller,
+	memberIndexes ...int) []cluster.MembershipEntry {
+	newState := createMembership(clusterVersion, leaderVersion, controllers, memberIndexes...)
+	for _, mgr := range controllers {
+		err := mgr.MembershipChanged(newState)
+		require.NoError(t, err)
+	}
+	return newState.Members
+}
+
+func createMembership(clusterVersion int, leaderVersion int, controllers []*Controller, memberIndexes ...int) cluster.MembershipState {
 	now := time.Now().UnixMilli()
 	var members []cluster.MembershipEntry
 	for _, memberIndex := range memberIndexes {
 		members = append(members, cluster.MembershipEntry{
-			Address:    managers[memberIndex].transportServer.Address(),
+			Address:    controllers[memberIndex].transportServer.Address(),
 			UpdateTime: now,
 		})
 	}
-	newState := cluster.MembershipState{
+	return cluster.MembershipState{
 		ClusterVersion: clusterVersion,
+		LeaderVersion:  leaderVersion,
 		Members:        members,
 	}
-	for _, mgr := range managers {
-		err := mgr.MembershipChanged(newState)
-		require.NoError(t, err)
-	}
-	return members
 }
 
 func setupTopics(t *testing.T, controller *Controller) {

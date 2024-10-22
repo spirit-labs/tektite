@@ -5,7 +5,6 @@ import (
 	"container/heap"
 	"context"
 	"fmt"
-	"github.com/google/uuid"
 	"github.com/spirit-labs/tektite/asl/encoding"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/objstore"
@@ -22,221 +21,317 @@ import (
 
 func TestOffsetsCacheNotStarted(t *testing.T) {
 	oc := setupCache(t)
-	_, err := oc.GetOffsets([]GetOffsetTopicInfo{{NumOffsets: 10}})
+	_, _, err := oc.GetOffsets([]GetOffsetTopicInfo{{TopicID: 0, PartitionInfos: []GetOffsetPartitionInfo{{NumOffsets: 100}}}})
 	require.Error(t, err)
 	require.Equal(t, "offsets cache not started", err.Error())
 }
 
-// Get an offset with a previous stored non-zero value
+// Get an offset with a previously stored non-zero value
 func TestOffsetsCacheGetSingleAlreadyStoredOffsetNonZero(t *testing.T) {
 	oc := setupAndStartCache(t)
 
-	offs, err := oc.GetOffsets([]GetOffsetTopicInfo{
+	offs, seq, err := oc.GetOffsets([]GetOffsetTopicInfo{
 		{
-			TopicID:     7,
-			PartitionID: 2,
-			NumOffsets:  100,
+			TopicID: 7,
+			PartitionInfos: []GetOffsetPartitionInfo{
+				{
+					PartitionID: 2,
+					NumOffsets:  100,
+				},
+			},
 		},
 	})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(offs))
-	require.Equal(t, 1, int(offs[0]))
+	require.Equal(t, 100, int(offs[0].PartitionInfos[0].Offset))
 
-	offs, err = oc.GetOffsets([]GetOffsetTopicInfo{
-		{
-			TopicID:     7,
-			PartitionID: 2,
-			NumOffsets:  33,
-		},
-	})
-	require.NoError(t, err)
-	require.Equal(t, 1, len(offs))
-	require.Equal(t, 1+100, int(offs[0]))
+	require.Equal(t, 1, int(seq))
 
-	offs, err = oc.GetOffsets([]GetOffsetTopicInfo{
+	offs, seq, err = oc.GetOffsets([]GetOffsetTopicInfo{
 		{
-			TopicID:     7,
-			PartitionID: 2,
-			NumOffsets:  33,
+			TopicID: 7,
+			PartitionInfos: []GetOffsetPartitionInfo{
+				{
+					PartitionID: 2,
+					NumOffsets:  33,
+				},
+			},
 		},
 	})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(offs))
-	require.Equal(t, 1+100+33, int(offs[0]))
+	require.Equal(t, 100+33, int(offs[0].PartitionInfos[0].Offset))
+
+	require.Equal(t, 2, int(seq))
+
+	offs, seq, err = oc.GetOffsets([]GetOffsetTopicInfo{
+		{
+			TopicID: 7,
+			PartitionInfos: []GetOffsetPartitionInfo{
+				{
+					PartitionID: 2,
+					NumOffsets:  33,
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.Equal(t, 1, len(offs))
+	require.Equal(t, 100+33+33, int(offs[0].PartitionInfos[0].Offset))
+
+	require.Equal(t, 3, int(seq))
 }
 
 // Get an offset with a previous stored zero value
 func TestOffsetsCacheGetSingleAlreadyStoredOffsetZero(t *testing.T) {
 	oc := setupAndStartCache(t)
 
-	offsets, err := oc.GetOffsets([]GetOffsetTopicInfo{
+	offsets, _, err := oc.GetOffsets([]GetOffsetTopicInfo{
 		{
-			TopicID:     7,
-			PartitionID: 1,
-			NumOffsets:  100,
+			TopicID: 7,
+			PartitionInfos: []GetOffsetPartitionInfo{
+				{
+					PartitionID: 1,
+					NumOffsets:  100,
+				},
+			},
 		},
 	})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(offsets))
-	require.Equal(t, 3456+1, int(offsets[0]))
+	require.Equal(t, 3556, int(offsets[0].PartitionInfos[0].Offset))
 
-	offsets, err = oc.GetOffsets([]GetOffsetTopicInfo{
+	offsets, _, err = oc.GetOffsets([]GetOffsetTopicInfo{
 		{
-			TopicID:     7,
-			PartitionID: 1,
-			NumOffsets:  33,
+			TopicID: 7,
+			PartitionInfos: []GetOffsetPartitionInfo{
+				{
+					PartitionID: 1,
+					NumOffsets:  33,
+				},
+			},
 		},
 	})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(offsets))
-	require.Equal(t, 3456+1+100, int(offsets[0]))
+	require.Equal(t, 3556+33, int(offsets[0].PartitionInfos[0].Offset))
 
-	offsets, err = oc.GetOffsets([]GetOffsetTopicInfo{
+	offsets, _, err = oc.GetOffsets([]GetOffsetTopicInfo{
 		{
-			TopicID:     7,
-			PartitionID: 1,
-			NumOffsets:  33,
+			TopicID: 7,
+			PartitionInfos: []GetOffsetPartitionInfo{
+				{
+					PartitionID: 1,
+					NumOffsets:  33,
+				},
+			},
 		},
 	})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(offsets))
-	require.Equal(t, 3456+1+100+33, int(offsets[0]))
+	require.Equal(t, 3556+33+33, int(offsets[0].PartitionInfos[0].Offset))
 }
 
 // Get an offset with a previous unstored value
 func TestOffsetsCacheGetSingleNotStored(t *testing.T) {
 	oc := setupAndStartCache(t)
 
-	offsets, err := oc.GetOffsets([]GetOffsetTopicInfo{
+	offsets, _, err := oc.GetOffsets([]GetOffsetTopicInfo{
 		{
-			TopicID:     7,
-			PartitionID: 3,
-			NumOffsets:  100,
+			TopicID: 7,
+			PartitionInfos: []GetOffsetPartitionInfo{
+				{
+					PartitionID: 3,
+					NumOffsets:  100,
+				},
+			},
 		},
 	})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(offsets))
-	require.Equal(t, 0, int(offsets[0]))
+	require.Equal(t, 99, int(offsets[0].PartitionInfos[0].Offset))
 
-	offsets, err = oc.GetOffsets([]GetOffsetTopicInfo{
+	offsets, _, err = oc.GetOffsets([]GetOffsetTopicInfo{
 		{
-			TopicID:     7,
-			PartitionID: 3,
-			NumOffsets:  33,
+			TopicID: 7,
+			PartitionInfos: []GetOffsetPartitionInfo{
+				{
+					PartitionID: 3,
+					NumOffsets:  33,
+				},
+			},
 		},
 	})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(offsets))
-	require.Equal(t, 100, int(offsets[0]))
+	require.Equal(t, 99+33, int(offsets[0].PartitionInfos[0].Offset))
 
-	offsets, err = oc.GetOffsets([]GetOffsetTopicInfo{
+	offsets, _, err = oc.GetOffsets([]GetOffsetTopicInfo{
 		{
-			TopicID:     7,
-			PartitionID: 3,
-			NumOffsets:  33,
+			TopicID: 7,
+			PartitionInfos: []GetOffsetPartitionInfo{
+				{
+					PartitionID: 3,
+					NumOffsets:  33,
+				},
+			},
 		},
 	})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(offsets))
-	require.Equal(t, 100+33, int(offsets[0]))
+	require.Equal(t, 99+33+33, int(offsets[0].PartitionInfos[0].Offset))
 }
 
 func TestOffsetsCacheGetMultiple(t *testing.T) {
 	oc := setupAndStartCache(t)
 
-	offsets, err := oc.GetOffsets([]GetOffsetTopicInfo{
+	/*
+		kvs = append(kvs, createDataEntry(t, 7, 0, 1234))
+		kvs = append(kvs, createDataEntry(t, 7, 1, 3456))
+		kvs = append(kvs, createDataEntry(t, 7, 2, 0))
+		kvs = append(kvs, createDataEntry(t, 8, 0, 5678))
+		kvs = append(kvs, createDataEntry(t, 8, 1, 3456))
+	*/
+
+	offsets, _, err := oc.GetOffsets([]GetOffsetTopicInfo{
 		{
-			TopicID:     7,
-			PartitionID: 0,
-			NumOffsets:  100,
+			TopicID: 7,
+			PartitionInfos: []GetOffsetPartitionInfo{
+				{
+					PartitionID: 0,
+					NumOffsets:  100,
+				},
+				{
+					PartitionID: 1,
+					NumOffsets:  200,
+				},
+				{
+					PartitionID: 2,
+					NumOffsets:  300,
+				},
+				{
+					PartitionID: 3,
+					NumOffsets:  400,
+				},
+			},
 		},
 		{
-			TopicID:     7,
-			PartitionID: 1,
-			NumOffsets:  200,
-		},
-		{
-			TopicID:     7,
-			PartitionID: 2,
-			NumOffsets:  300,
-		},
-		{
-			TopicID:     7,
-			PartitionID: 3,
-			NumOffsets:  400,
-		},
-		{
-			TopicID:     8,
-			PartitionID: 0,
-			NumOffsets:  150,
-		},
-		{
-			TopicID:     8,
-			PartitionID: 1,
-			NumOffsets:  250,
+			TopicID: 8,
+			PartitionInfos: []GetOffsetPartitionInfo{
+				{
+					PartitionID: 0,
+					NumOffsets:  150,
+				},
+				{
+					PartitionID: 1,
+					NumOffsets:  250,
+				},
+			},
 		},
 	})
 	require.NoError(t, err)
-	require.Equal(t, 6, len(offsets))
+	require.Equal(t, 2, len(offsets))
+	require.Equal(t, 7, offsets[0].TopicID)
+	require.Equal(t, 4, len(offsets[0].PartitionInfos))
 
-	require.Equal(t, 1234+1, int(offsets[0]))
-	require.Equal(t, 3456+1, int(offsets[1]))
-	require.Equal(t, 0+1, int(offsets[2]))
-	require.Equal(t, 0, int(offsets[3]))
-	require.Equal(t, 5678+1, int(offsets[4]))
-	require.Equal(t, 3456+1, int(offsets[5]))
+	require.Equal(t, 0, offsets[0].PartitionInfos[0].PartitionID)
+	require.Equal(t, 1234+100, int(offsets[0].PartitionInfos[0].Offset))
 
-	offsets, err = oc.GetOffsets([]GetOffsetTopicInfo{
+	require.Equal(t, 1, offsets[0].PartitionInfos[1].PartitionID)
+	require.Equal(t, 3456+200, int(offsets[0].PartitionInfos[1].Offset))
+
+	require.Equal(t, 2, offsets[0].PartitionInfos[2].PartitionID)
+	require.Equal(t, 300, int(offsets[0].PartitionInfos[2].Offset))
+
+	require.Equal(t, 3, offsets[0].PartitionInfos[3].PartitionID)
+	require.Equal(t, 399, int(offsets[0].PartitionInfos[3].Offset))
+
+	require.Equal(t, 8, offsets[1].TopicID)
+	require.Equal(t, 2, len(offsets[1].PartitionInfos))
+
+	require.Equal(t, 0, offsets[1].PartitionInfos[0].PartitionID)
+	require.Equal(t, 5678+150, int(offsets[1].PartitionInfos[0].Offset))
+
+	require.Equal(t, 1, offsets[1].PartitionInfos[1].PartitionID)
+	require.Equal(t, 3456+250, int(offsets[1].PartitionInfos[1].Offset))
+
+	offsets, _, err = oc.GetOffsets([]GetOffsetTopicInfo{
 		{
-			TopicID:     7,
-			PartitionID: 0,
-			NumOffsets:  100,
+			TopicID: 7,
+			PartitionInfos: []GetOffsetPartitionInfo{
+				{
+					PartitionID: 0,
+					NumOffsets:  110,
+				},
+				{
+					PartitionID: 1,
+					NumOffsets:  220,
+				},
+				{
+					PartitionID: 2,
+					NumOffsets:  330,
+				},
+				{
+					PartitionID: 3,
+					NumOffsets:  440,
+				},
+			},
 		},
 		{
-			TopicID:     7,
-			PartitionID: 1,
-			NumOffsets:  200,
-		},
-		{
-			TopicID:     7,
-			PartitionID: 2,
-			NumOffsets:  300,
-		},
-		{
-			TopicID:     7,
-			PartitionID: 3,
-			NumOffsets:  400,
-		},
-		{
-			TopicID:     8,
-			PartitionID: 0,
-			NumOffsets:  150,
-		},
-		{
-			TopicID:     8,
-			PartitionID: 1,
-			NumOffsets:  250,
+			TopicID: 8,
+			PartitionInfos: []GetOffsetPartitionInfo{
+				{
+					PartitionID: 0,
+					NumOffsets:  155,
+				},
+				{
+					PartitionID: 1,
+					NumOffsets:  255,
+				},
+			},
 		},
 	})
 	require.NoError(t, err)
-	require.Equal(t, 6, len(offsets))
 
-	require.Equal(t, 1234+1+100, int(offsets[0]))
-	require.Equal(t, 3456+1+200, int(offsets[1]))
-	require.Equal(t, 0+1+300, int(offsets[2]))
-	require.Equal(t, 0+400, int(offsets[3]))
-	require.Equal(t, 5678+1+150, int(offsets[4]))
-	require.Equal(t, 3456+1+250, int(offsets[5]))
+	require.NoError(t, err)
+	require.Equal(t, 2, len(offsets))
+	require.Equal(t, 7, offsets[0].TopicID)
+	require.Equal(t, 4, len(offsets[0].PartitionInfos))
+
+	require.Equal(t, 0, offsets[0].PartitionInfos[0].PartitionID)
+	require.Equal(t, 1234+100+110, int(offsets[0].PartitionInfos[0].Offset))
+
+	require.Equal(t, 1, offsets[0].PartitionInfos[1].PartitionID)
+	require.Equal(t, 3456+200+220, int(offsets[0].PartitionInfos[1].Offset))
+
+	require.Equal(t, 2, offsets[0].PartitionInfos[2].PartitionID)
+	require.Equal(t, 300+330, int(offsets[0].PartitionInfos[2].Offset))
+
+	require.Equal(t, 3, offsets[0].PartitionInfos[3].PartitionID)
+	require.Equal(t, 399+440, int(offsets[0].PartitionInfos[3].Offset))
+
+	require.Equal(t, 8, offsets[1].TopicID)
+	require.Equal(t, 2, len(offsets[1].PartitionInfos))
+
+	require.Equal(t, 0, offsets[1].PartitionInfos[0].PartitionID)
+	require.Equal(t, 5678+150+155, int(offsets[1].PartitionInfos[0].Offset))
+
+	require.Equal(t, 1, offsets[1].PartitionInfos[1].PartitionID)
+	require.Equal(t, 3456+250+255, int(offsets[1].PartitionInfos[1].Offset))
 }
 
 func TestOffsetsCacheUnknownTopicID(t *testing.T) {
 	oc := setupAndStartCache(t)
 
-	_, err := oc.GetOffsets([]GetOffsetTopicInfo{
+	_, _, err := oc.GetOffsets([]GetOffsetTopicInfo{
 		{
-			TopicID:     2323,
-			PartitionID: 0,
-			NumOffsets:  1,
+			TopicID: 2323,
+			PartitionInfos: []GetOffsetPartitionInfo{
+				{
+					PartitionID: 0,
+					NumOffsets:  1,
+				},
+			},
 		},
 	})
 	require.Error(t, err)
@@ -246,97 +341,9 @@ func TestOffsetsCacheUnknownTopicID(t *testing.T) {
 func TestOffsetsCacheEmptyInfos(t *testing.T) {
 	oc := setupAndStartCache(t)
 
-	_, err := oc.GetOffsets(nil)
+	_, _, err := oc.GetOffsets(nil)
 	require.Error(t, err)
 	require.Equal(t, "empty infos", err.Error())
-}
-
-func TestOffsetsCacheUpdateWrittenOffsetsSimple(t *testing.T) {
-	oc := setupAndStartCache(t)
-	offs, err := oc.GetOffsets([]GetOffsetTopicInfo{
-		{
-			TopicID:     7,
-			PartitionID: 1,
-			NumOffsets:  100,
-		},
-	})
-	require.NoError(t, err)
-
-	require.Equal(t, 1, len(offs))
-	require.Equal(t, 3456+1, int(offs[0]))
-
-	err = oc.UpdateWrittenOffsets([]UpdateWrittenOffsetInfo{
-		{
-			TopicID:     7,
-			PartitionID: 1,
-			OffsetStart: 3456 + 1,
-			NumOffsets:  100,
-		},
-	})
-	require.NoError(t, err)
-
-	off, err := oc.GetHighestReadableOffset(7, 1)
-	require.NoError(t, err)
-	require.Equal(t, 3457+99, int(off))
-}
-
-func TestOffsetsCacheUpdateMultipleWrittenOffsetsOrdered(t *testing.T) {
-	testOffsetsCacheUpdateMultipleWrittenOffsets(t, true)
-}
-
-func TestOffsetsCacheUpdateMultipleWrittenOffsetsUnordered(t *testing.T) {
-	testOffsetsCacheUpdateMultipleWrittenOffsets(t, false)
-}
-
-func testOffsetsCacheUpdateMultipleWrittenOffsets(t *testing.T, ordered bool) {
-	oc := setupAndStartCache(t)
-
-	numInfos := 5
-	var infos []GetOffsetTopicInfo
-	for i := 0; i < numInfos; i++ {
-		numOffsets := 1 + rand.Intn(100)
-		infos = append(infos, GetOffsetTopicInfo{
-			TopicID:     7,
-			PartitionID: 1,
-			NumOffsets:  numOffsets,
-		})
-	}
-
-	offs, err := oc.GetOffsets(infos)
-	require.NoError(t, err)
-
-	require.Equal(t, numInfos, len(offs))
-	offset := 3456 + 1
-	for i := 0; i < numInfos; i++ {
-		off := offs[i]
-		require.Equal(t, offset, int(off))
-		info := infos[i]
-		offset += int(info.NumOffsets)
-	}
-
-	var writtenOffsets []UpdateWrittenOffsetInfo
-	for i := 0; i < numInfos; i++ {
-		writtenOffsets = append(writtenOffsets, UpdateWrittenOffsetInfo{
-			TopicID:     7,
-			PartitionID: 1,
-			OffsetStart: offs[i],
-			NumOffsets:  infos[i].NumOffsets,
-		})
-	}
-
-	if !ordered {
-		// Shuffle them
-		rand.Shuffle(numInfos, func(i, j int) {
-			writtenOffsets[i], writtenOffsets[j] = writtenOffsets[j], writtenOffsets[i]
-		})
-	}
-
-	err = oc.UpdateWrittenOffsets(writtenOffsets)
-	require.NoError(t, err)
-
-	off, err := oc.GetHighestReadableOffset(7, 1)
-	require.NoError(t, err)
-	require.Equal(t, offs[numInfos-1]+int64(infos[numInfos-1].NumOffsets)-1, off)
 }
 
 func TestMembershipChanged(t *testing.T) {
@@ -344,134 +351,93 @@ func TestMembershipChanged(t *testing.T) {
 
 	infos := []GetOffsetTopicInfo{
 		{
-			TopicID:     7,
-			PartitionID: 1,
-			NumOffsets:  100,
+			TopicID: 7,
+			PartitionInfos: []GetOffsetPartitionInfo{
+				{
+					PartitionID: 1,
+					NumOffsets:  100,
+				},
+				{
+					PartitionID: 2,
+					NumOffsets:  150,
+				},
+			},
 		},
 		{
-			TopicID:     7,
-			PartitionID: 2,
-			NumOffsets:  150,
-		},
-		{
-			TopicID:     8,
-			PartitionID: 1,
-			NumOffsets:  200,
+			TopicID: 8,
+			PartitionInfos: []GetOffsetPartitionInfo{
+				{
+					PartitionID: 1,
+					NumOffsets:  200,
+				},
+			},
 		},
 	}
-	offs, err := oc.GetOffsets(infos)
+	offs, seq, err := oc.GetOffsets(infos)
 	require.NoError(t, err)
 	require.Equal(t, len(infos), len(offs))
 
 	// We haven't updated written offsets yet so should be last written
-	highestReadable, err := oc.GetHighestReadableOffset(7, 1)
+	highestReadable, err := oc.GetLastReadableOffset(7, 1)
 	require.NoError(t, err)
 	require.Equal(t, 3456, int(highestReadable))
 
-	highestReadable, err = oc.GetHighestReadableOffset(7, 2)
+	highestReadable, err = oc.GetLastReadableOffset(7, 2)
 	require.NoError(t, err)
 	require.Equal(t, 0, int(highestReadable))
 
-	highestReadable, err = oc.GetHighestReadableOffset(8, 1)
+	highestReadable, err = oc.GetLastReadableOffset(8, 1)
 	require.NoError(t, err)
 	require.Equal(t, 3456, int(highestReadable))
 
 	// Membership change should trigger reset of highestReadable to be nextOffset - 1
 	oc.MembershipChanged()
 
-	highestReadable, err = oc.GetHighestReadableOffset(7, 1)
+	highestReadable, err = oc.GetLastReadableOffset(7, 1)
 	require.NoError(t, err)
 	require.Equal(t, 3456+100, int(highestReadable))
 
-	highestReadable, err = oc.GetHighestReadableOffset(7, 2)
+	highestReadable, err = oc.GetLastReadableOffset(7, 2)
 	require.NoError(t, err)
 	require.Equal(t, 0+150, int(highestReadable))
 
-	highestReadable, err = oc.GetHighestReadableOffset(8, 1)
+	highestReadable, err = oc.GetLastReadableOffset(8, 1)
 	require.NoError(t, err)
 	require.Equal(t, 3456+200, int(highestReadable))
 
-	// Now any attempt to updateWrittenOffsets below this should fail
-	err = oc.UpdateWrittenOffsets([]UpdateWrittenOffsetInfo{
-		{
-			TopicID:     7,
-			PartitionID: 1,
-			OffsetStart: offs[0],
-			NumOffsets:  100,
-		},
-	})
-	require.Error(t, err)
-	require.Equal(t, "Cannot update written offsets - membership change has occurred", err.Error())
+	// Now any attempt to register with this sequence should not release anything
 
-	err = oc.UpdateWrittenOffsets([]UpdateWrittenOffsetInfo{
-		{
-			TopicID:     7,
-			PartitionID: 2,
-			OffsetStart: offs[1],
-			NumOffsets:  150,
-		},
-	})
+	tableID := sst.SSTableID(sst.CreateSSTableId())
+	offs, tabID, err := oc.MaybeReleaseOffsets(seq, tableID)
 	require.Error(t, err)
-	require.Equal(t, "Cannot update written offsets - membership change has occurred", err.Error())
-
-	err = oc.UpdateWrittenOffsets([]UpdateWrittenOffsetInfo{
-		{
-			TopicID:     8,
-			PartitionID: 1,
-			OffsetStart: offs[2],
-			NumOffsets:  200,
-		},
-	})
-	require.Error(t, err)
-	require.Equal(t, "Cannot update written offsets - membership change has occurred", err.Error())
+	require.Nil(t, offs)
+	require.Nil(t, tabID)
+	require.True(t, common.IsUnavailableError(err))
 
 	// Get new offsets
-	offs, err = oc.GetOffsets(infos)
+	offs, seq, err = oc.GetOffsets(infos)
 	require.NoError(t, err)
 	require.Equal(t, len(infos), len(offs))
 
-	// Updating written offsets should now work
-	err = oc.UpdateWrittenOffsets([]UpdateWrittenOffsetInfo{
-		{
-			TopicID:     7,
-			PartitionID: 1,
-			OffsetStart: offs[0],
-			NumOffsets:  100,
-		},
-	})
+	// Register should now work
+	tableID = sst.SSTableID(sst.CreateSSTableId())
+	releasedOffs, tabIDs, err := oc.MaybeReleaseOffsets(seq, tableID)
 	require.NoError(t, err)
+	require.Equal(t, []sst.SSTableID{tableID}, tabIDs)
+	require.Equal(t, offs, releasedOffs)
 
-	err = oc.UpdateWrittenOffsets([]UpdateWrittenOffsetInfo{
-		{
-			TopicID:     7,
-			PartitionID: 2,
-			OffsetStart: offs[1],
-			NumOffsets:  150,
-		},
-	})
+	// check that last readable was updated
+	highestReadable, err = oc.GetLastReadableOffset(7, 1)
 	require.NoError(t, err)
+	require.Equal(t, offs[0].PartitionInfos[0].Offset, highestReadable)
 
-	err = oc.UpdateWrittenOffsets([]UpdateWrittenOffsetInfo{
-		{
-			TopicID:     8,
-			PartitionID: 1,
-			OffsetStart: offs[2],
-			NumOffsets:  200,
-		},
-	})
+	highestReadable, err = oc.GetLastReadableOffset(7, 2)
 	require.NoError(t, err)
+	require.Equal(t, offs[0].PartitionInfos[1].Offset, highestReadable)
 
-	highestReadable, err = oc.GetHighestReadableOffset(7, 1)
+	highestReadable, err = oc.GetLastReadableOffset(8, 1)
 	require.NoError(t, err)
-	require.Equal(t, offs[0]+100-1, highestReadable)
-
-	highestReadable, err = oc.GetHighestReadableOffset(7, 2)
-	require.NoError(t, err)
-	require.Equal(t, offs[1]+150-1, highestReadable)
-
-	highestReadable, err = oc.GetHighestReadableOffset(8, 1)
-	require.NoError(t, err)
-	require.Equal(t, offs[2]+200-1, highestReadable)
+	require.Equal(t, offs[1].PartitionInfos[0].Offset, highestReadable)
 }
 
 type testTopicMetaProvider struct {
@@ -537,7 +503,7 @@ func setupInitialOffsets(t *testing.T, objStore objstore.Client, dataBucketName 
 	table, _, _, _, _, err := sst.BuildSSTable(common.DataFormatV1,
 		0, 0, iter)
 	require.NoError(t, err)
-	tableID := fmt.Sprintf("sst-%s", uuid.New().String())
+	tableID := sst.CreateSSTableId()
 	// Push sstable to object store
 	tableData := table.Serialize()
 	err = objStore.Put(context.Background(), dataBucketName, tableID, tableData)
@@ -565,34 +531,528 @@ func setupAndStartCache(t *testing.T) *Cache {
 
 func TestWrittenOffsetsHeap(t *testing.T) {
 	// Create a bunch of written offsets
-	numWrittenOffsets := 100
-	var wos []writtenOffset
-	offset := 0
-	for i := 0; i < numWrittenOffsets; i++ {
-		numOffsets := 1 + rand.Intn(1000)
-		wos = append(wos, writtenOffset{
-			offsetStart: int64(offset),
-			numOffsets:  int32(numOffsets),
+	numOffsets := 100
+	var wos []seqHolder
+	var tabIDs []sst.SSTableID
+	for i := 0; i < numOffsets; i++ {
+		tabID := sst.SSTableID([]byte(fmt.Sprintf("table-%d", i)))
+		tabIDs = append(tabIDs, tabID)
+		wos = append(wos, seqHolder{
+			seq:     int64(i),
+			tableID: tabID,
 		})
-		offset += numOffsets
 	}
 	// Shuffle them
-	rand.Shuffle(numWrittenOffsets, func(i, j int) {
+	rand.Shuffle(numOffsets, func(i, j int) {
 		wos[i], wos[j] = wos[j], wos[i]
 	})
 	// Apply them to the heap
-	var woh writtenOffsetHeap
+	var woh seqHeap
 	for _, wo := range wos {
 		heap.Push(&woh, wo)
 	}
 	// Now they should be peekable and poppable in order
-	offset = 0
-	for i := 0; i < numWrittenOffsets; i++ {
+	for i := 0; i < numOffsets; i++ {
 		peeked := woh.Peek()
-		require.Equal(t, offset, int(peeked.offsetStart))
-		require.Greater(t, peeked.numOffsets, int32(0))
-		popped := heap.Pop(&woh).(writtenOffset)
+		require.Equal(t, i, int(peeked.seq))
+		require.Equal(t, tabIDs[i], peeked.tableID)
+		popped := heap.Pop(&woh).(seqHolder)
 		require.Equal(t, peeked, popped)
-		offset += int(peeked.numOffsets)
+	}
+}
+
+func TestMergeInfosNonOverlapping(t *testing.T) {
+
+	infos1 := []OffsetTopicInfo{
+		{
+			TopicID: 23,
+			PartitionInfos: []OffsetPartitionInfo{
+				{
+					PartitionID: 12,
+					Offset:      1234,
+				},
+			},
+		},
+	}
+
+	infos2 := []OffsetTopicInfo{
+		{
+			TopicID: 35,
+			PartitionInfos: []OffsetPartitionInfo{
+				{
+					PartitionID: 45,
+					Offset:      45564,
+				},
+			},
+		},
+	}
+
+	res := mergeTopicInfos(infos1, infos2)
+
+	expected := []OffsetTopicInfo{
+		{
+			TopicID: 23,
+			PartitionInfos: []OffsetPartitionInfo{
+				{
+					PartitionID: 12,
+					Offset:      1234,
+				},
+			},
+		},
+		{
+			TopicID: 35,
+			PartitionInfos: []OffsetPartitionInfo{
+				{
+					PartitionID: 45,
+					Offset:      45564,
+				},
+			},
+		},
+	}
+
+	require.Equal(t, expected, res)
+
+}
+
+func TestMergeInfosSortTopics(t *testing.T) {
+
+	infos1 := []OffsetTopicInfo{
+		{
+			TopicID: 23,
+			PartitionInfos: []OffsetPartitionInfo{
+				{
+					PartitionID: 12,
+					Offset:      1234,
+				},
+			},
+		},
+		{
+			TopicID: 34,
+			PartitionInfos: []OffsetPartitionInfo{
+				{
+					PartitionID: 34,
+					Offset:      123,
+				},
+			},
+		},
+		{
+			TopicID: 56,
+			PartitionInfos: []OffsetPartitionInfo{
+				{
+					PartitionID: 43,
+					Offset:      3455,
+				},
+			},
+		},
+	}
+
+	infos2 := []OffsetTopicInfo{
+		{
+			TopicID: 2,
+			PartitionInfos: []OffsetPartitionInfo{
+				{
+					PartitionID: 345,
+					Offset:      34545,
+				},
+			},
+		},
+		{
+			TopicID: 5,
+			PartitionInfos: []OffsetPartitionInfo{
+				{
+					PartitionID: 3454,
+					Offset:      34535,
+				},
+			},
+		},
+		{
+			TopicID: 23,
+			PartitionInfos: []OffsetPartitionInfo{
+				{
+					PartitionID: 345,
+					Offset:      2344,
+				},
+			},
+		},
+		{
+			TopicID: 27,
+			PartitionInfos: []OffsetPartitionInfo{
+				{
+					PartitionID: 34534,
+					Offset:      345345,
+				},
+			},
+		},
+		{
+			TopicID: 38,
+			PartitionInfos: []OffsetPartitionInfo{
+				{
+					PartitionID: 32423,
+					Offset:      23423,
+				},
+			},
+		},
+		{
+			TopicID: 72,
+			PartitionInfos: []OffsetPartitionInfo{
+				{
+					PartitionID: 3434,
+					Offset:      2342,
+				},
+			},
+		},
+		{
+			TopicID: 99,
+			PartitionInfos: []OffsetPartitionInfo{
+				{
+					PartitionID: 345,
+					Offset:      345345,
+				},
+			},
+		},
+	}
+
+	res := mergeTopicInfos(infos1, infos2)
+
+	expected := []OffsetTopicInfo{
+		{
+			TopicID: 2,
+			PartitionInfos: []OffsetPartitionInfo{
+				{
+					PartitionID: 345,
+					Offset:      34545,
+				},
+			},
+		},
+		{
+			TopicID: 5,
+			PartitionInfos: []OffsetPartitionInfo{
+				{
+					PartitionID: 3454,
+					Offset:      34535,
+				},
+			},
+		},
+		{
+			TopicID: 23,
+			PartitionInfos: []OffsetPartitionInfo{
+				{
+					PartitionID: 12,
+					Offset:      1234,
+				},
+				{
+					PartitionID: 345,
+					Offset:      2344,
+				},
+			},
+		},
+		{
+			TopicID: 27,
+			PartitionInfos: []OffsetPartitionInfo{
+				{
+					PartitionID: 34534,
+					Offset:      345345,
+				},
+			},
+		},
+		{
+			TopicID: 34,
+			PartitionInfos: []OffsetPartitionInfo{
+				{
+					PartitionID: 34,
+					Offset:      123,
+				},
+			},
+		},
+		{
+			TopicID: 38,
+			PartitionInfos: []OffsetPartitionInfo{
+				{
+					PartitionID: 32423,
+					Offset:      23423,
+				},
+			},
+		},
+		{
+			TopicID: 56,
+			PartitionInfos: []OffsetPartitionInfo{
+				{
+					PartitionID: 43,
+					Offset:      3455,
+				},
+			},
+		},
+		{
+			TopicID: 72,
+			PartitionInfos: []OffsetPartitionInfo{
+				{
+					PartitionID: 3434,
+					Offset:      2342,
+				},
+			},
+		},
+		{
+			TopicID: 99,
+			PartitionInfos: []OffsetPartitionInfo{
+				{
+					PartitionID: 345,
+					Offset:      345345,
+				},
+			},
+		},
+	}
+
+	require.Equal(t, expected, res)
+
+}
+
+func TestMergeInfosSortPartitions(t *testing.T) {
+
+	infos1 := []OffsetTopicInfo{
+		{
+			TopicID: 23,
+			PartitionInfos: []OffsetPartitionInfo{
+				{
+					PartitionID: 12,
+					Offset:      1234,
+				},
+				{
+					PartitionID: 34,
+					Offset:      45456,
+				},
+				{
+					PartitionID: 567,
+					Offset:      5675677,
+				},
+			},
+		},
+	}
+
+	infos2 := []OffsetTopicInfo{
+		{
+			TopicID: 23,
+			PartitionInfos: []OffsetPartitionInfo{
+				{
+					PartitionID: 21,
+					Offset:      234324,
+				},
+				{
+					PartitionID: 26,
+					Offset:      4545,
+				},
+				{
+					PartitionID: 37,
+					Offset:      23234,
+				},
+				{
+					PartitionID: 678,
+					Offset:      34555,
+				},
+			},
+		},
+	}
+
+	res := mergeTopicInfos(infos1, infos2)
+
+	expected := []OffsetTopicInfo{
+		{
+			TopicID: 23,
+			PartitionInfos: []OffsetPartitionInfo{
+				{
+					PartitionID: 12,
+					Offset:      1234,
+				},
+				{
+					PartitionID: 21,
+					Offset:      234324,
+				},
+				{
+					PartitionID: 26,
+					Offset:      4545,
+				},
+				{
+					PartitionID: 34,
+					Offset:      45456,
+				},
+				{
+					PartitionID: 37,
+					Offset:      23234,
+				},
+				{
+					PartitionID: 567,
+					Offset:      5675677,
+				},
+				{
+					PartitionID: 678,
+					Offset:      34555,
+				},
+			},
+		},
+	}
+
+	require.Equal(t, expected, res)
+
+}
+
+func TestMergeInfosTakeMaxOffset(t *testing.T) {
+
+	infos1 := []OffsetTopicInfo{
+		{
+			TopicID: 23,
+			PartitionInfos: []OffsetPartitionInfo{
+				{
+					PartitionID: 12,
+					Offset:      23,
+				},
+				{
+					PartitionID: 34,
+					Offset:      56,
+				},
+				{
+					PartitionID: 567,
+					Offset:      2344,
+				},
+			},
+		},
+	}
+
+	infos2 := []OffsetTopicInfo{
+		{
+			TopicID: 23,
+			PartitionInfos: []OffsetPartitionInfo{
+				{
+					PartitionID: 12,
+					Offset:      1234,
+				},
+				{
+					PartitionID: 34,
+					Offset:      45456,
+				},
+				{
+					PartitionID: 567,
+					Offset:      5675677,
+				},
+			},
+		},
+	}
+
+	res := mergeTopicInfos(infos1, infos2)
+
+	expected := []OffsetTopicInfo{
+		{
+			TopicID: 23,
+			PartitionInfos: []OffsetPartitionInfo{
+				{
+					PartitionID: 12,
+					Offset:      1234,
+				},
+				{
+					PartitionID: 34,
+					Offset:      45456,
+				},
+				{
+					PartitionID: 567,
+					Offset:      5675677,
+				},
+			},
+		},
+	}
+
+	require.Equal(t, expected, res)
+
+}
+
+func TestMergeInfosIntoEmpty(t *testing.T) {
+
+	infos := []OffsetTopicInfo{
+		{
+			TopicID: 23,
+			PartitionInfos: []OffsetPartitionInfo{
+				{
+					PartitionID: 12,
+					Offset:      1234,
+				},
+			},
+		},
+		{
+			TopicID: 34,
+			PartitionInfos: []OffsetPartitionInfo{
+				{
+					PartitionID: 34,
+					Offset:      123,
+				},
+			},
+		},
+	}
+	require.Equal(t, infos, mergeTopicInfos(infos, nil))
+	require.Equal(t, infos, mergeTopicInfos(nil, infos))
+
+}
+
+func TestMaybeReleaseOffsetsInOrder(t *testing.T) {
+	testMaybeReleaseOffsets(t, false)
+}
+
+func TestMaybeReleaseOffsetsUnordered(t *testing.T) {
+	testMaybeReleaseOffsets(t, true)
+}
+
+func testMaybeReleaseOffsets(t *testing.T, shuffle bool) {
+	oc, err := NewOffsetsCache(testTopicProvider, nil, nil, "")
+	require.NoError(t, err)
+	err = oc.Start()
+	require.NoError(t, err)
+
+	infos := []OffsetTopicInfo{
+		{
+			TopicID: 7,
+			PartitionInfos: []OffsetPartitionInfo{
+				{
+					PartitionID: 1,
+					Offset:      234,
+				},
+			},
+		},
+	}
+	oc.offsetsMap[1] = infos
+
+	type tabEntry struct {
+		sequence int64
+		tableID  string
+	}
+
+	numTables := 1000
+	var tabEntries []tabEntry
+	for i := 0; i < numTables; i++ {
+		tabID := sst.CreateSSTableId()
+		seq := int64(i + 1)
+		tabEntries = append(tabEntries, tabEntry{
+			sequence: seq,
+			tableID:  tabID,
+		})
+		oc.offsetsMap[seq] = infos
+	}
+
+	toSend := make([]tabEntry, numTables)
+	copy(toSend, tabEntries)
+
+	if shuffle {
+		// shuffle them and test the sad (unordered) path
+		rand.Shuffle(numTables, func(i, j int) {
+			toSend[i], toSend[j] = toSend[j], toSend[i]
+		})
+	}
+
+	var receivedTables []sst.SSTableID
+	for _, entry := range toSend {
+		_, tables, err := oc.MaybeReleaseOffsets(entry.sequence, sst.SSTableID(entry.tableID))
+		require.NoError(t, err)
+		receivedTables = append(receivedTables, tables...)
+	}
+
+	// Make sure they are released in order
+	require.Equal(t, numTables, len(receivedTables))
+	for i, entry := range tabEntries {
+		require.Equal(t, entry.tableID, string(receivedTables[i]))
 	}
 }

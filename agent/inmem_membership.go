@@ -39,7 +39,6 @@ func (i *InMemClusterMemberships) Stop() {
 
 func (i *InMemClusterMemberships) deliverUpdatesLoop() {
 	for update := range i.updatesChan {
-		log.Infof("delivering update")
 		for _, listener := range update.listeners {
 			if err := listener(update.membership); err != nil {
 				log.Errorf("Failed to send membership update: %v", err)
@@ -59,13 +58,15 @@ func (i *InMemClusterMemberships) NewMembership(address string, listener Members
 func (i *InMemClusterMemberships) addMember(address string, listener MembershipListener) {
 	i.lock.Lock()
 	defer i.lock.Unlock()
-	log.Infof("adding member %s", address)
 	i.currentMembership.Members = append(i.currentMembership.Members, cluster.MembershipEntry{
 		Address:    address,
 		UpdateTime: time.Now().UnixMilli(),
 	})
 	i.listeners = append(i.listeners, listener)
 	i.currentMembership.ClusterVersion++
+	if len(i.currentMembership.Members) == 1 {
+		i.currentMembership.LeaderVersion++
+	}
 	i.sendUpdate()
 }
 
@@ -78,6 +79,8 @@ func (i *InMemClusterMemberships) removeMember(address string) {
 		if member.Address != address {
 			newMembers = append(newMembers, member)
 			newListeners = append(newListeners, i.listeners[j])
+		} else if j == 0 {
+			i.currentMembership.LeaderVersion++
 		}
 	}
 	i.currentMembership.Members = newMembers
@@ -88,7 +91,6 @@ func (i *InMemClusterMemberships) removeMember(address string) {
 
 func (i *InMemClusterMemberships) sendUpdate() {
 	listenersCopy := make([]MembershipListener, len(i.listeners))
-	log.Infof("sending update")
 	copy(listenersCopy, i.listeners)
 	i.updatesChan <- updateInfo{
 		membership: i.currentMembership,

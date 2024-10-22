@@ -7,16 +7,19 @@ import (
 	"github.com/spirit-labs/tektite/offsets"
 	"github.com/spirit-labs/tektite/topicmeta"
 	"github.com/spirit-labs/tektite/transport"
+	"sync"
 )
 
 type Client interface {
-	GetOffsets(infos []offsets.GetOffsetTopicInfo) ([]int64, error)
+	GetOffsets(infos []offsets.GetOffsetTopicInfo) ([]offsets.OffsetTopicInfo, int64, error)
 
 	ApplyLsmChanges(regBatch lsm.RegistrationBatch) error
 
-	RegisterL0Table(writtenOffsetInfos []offsets.UpdateWrittenOffsetInfo, regEntry lsm.RegistrationEntry) error
+	RegisterL0Table(sequence int64, regEntry lsm.RegistrationEntry) error
 
 	QueryTablesInRange(keyStart []byte, keyEnd []byte) (lsm.OverlappingTables, error)
+
+	RegisterTableListener(topicID int, partitionID int, address string, resetSequence int64) (int64, error)
 
 	PollForJob() (lsm.CompactionJob, error)
 
@@ -29,52 +32,28 @@ type Client interface {
 	Close() error
 }
 
-// client - note this is not goroutine safe!
 // on error, the caller must close the connection
 type client struct {
-	m              *Controller
-	clusterVersion int
-	address        string
-	conn           transport.Connection
-	connFactory    transport.ConnectionFactory
-	closed         bool
+	m             *Controller
+	lock          sync.RWMutex
+	leaderVersion int
+	address       string
+	conn          transport.Connection
+	connFactory   transport.ConnectionFactory
+	closed        bool
 }
 
 var _ Client = &client{}
 
-func (c *client) getConnection() (transport.Connection, error) {
-	if c.closed {
-		return nil, errors.New("client has been closed")
-	}
-	if c.conn != nil {
-		return c.conn, nil
-	}
-	conn, err := c.connFactory(c.address)
-	if err != nil {
-		return nil, err
-	}
-	c.conn = conn
-	return conn, nil
-}
-
-func (c *client) Close() error {
-	c.address = ""
-	c.closed = true
-	if c.conn != nil {
-		return c.conn.Close()
-	}
-	return nil
-}
-
-func (c *client) RegisterL0Table(writtenOffsetInfos []offsets.UpdateWrittenOffsetInfo, regEntry lsm.RegistrationEntry) error {
+func (c *client) RegisterL0Table(sequence int64, regEntry lsm.RegistrationEntry) error {
 	conn, err := c.getConnection()
 	if err != nil {
 		return err
 	}
 	req := RegisterL0Request{
-		ClusterVersion: c.clusterVersion,
-		OffsetInfos:    writtenOffsetInfos,
-		RegEntry:       regEntry,
+		LeaderVersion: c.leaderVersion,
+		Sequence:      sequence,
+		RegEntry:      regEntry,
 	}
 	request := req.Serialize(createRequestBuffer())
 	_, err = conn.SendRPC(transport.HandlerIDControllerRegisterL0Table, request)
@@ -87,8 +66,8 @@ func (c *client) ApplyLsmChanges(regBatch lsm.RegistrationBatch) error {
 		return err
 	}
 	req := ApplyChangesRequest{
-		ClusterVersion: c.clusterVersion,
-		RegBatch:       regBatch,
+		LeaderVersion: c.leaderVersion,
+		RegBatch:      regBatch,
 	}
 	request := req.Serialize(createRequestBuffer())
 	_, err = conn.SendRPC(transport.HandlerIDControllerApplyChanges, request)
@@ -101,35 +80,58 @@ func (c *client) QueryTablesInRange(keyStart []byte, keyEnd []byte) (lsm.Overlap
 		return nil, err
 	}
 	req := QueryTablesInRangeRequest{
-		ClusterVersion: c.clusterVersion,
-		KeyStart:       keyStart,
-		KeyEnd:         keyEnd,
+		LeaderVersion: c.leaderVersion,
+		KeyStart:      keyStart,
+		KeyEnd:        keyEnd,
 	}
 	request := req.Serialize(createRequestBuffer())
 	respBuff, err := conn.SendRPC(transport.HandlerIDControllerQueryTablesInRange, request)
 	if err != nil {
 		return nil, err
 	}
-	return lsm.DeserializeOverlappingTables(respBuff, 0), nil
+	queryRes, _ := lsm.DeserializeOverlappingTables(respBuff, 0)
+	return queryRes, nil
 }
 
-func (c *client) GetOffsets(infos []offsets.GetOffsetTopicInfo) ([]int64, error) {
+func (c *client) RegisterTableListener(topicID int, partitionID int, address string, resetSequence int64) (int64, error) {
 	conn, err := c.getConnection()
 	if err != nil {
-		return nil, err
+		return 0, err
+	}
+	req := RegisterTableListenerRequest{
+		LeaderVersion: c.leaderVersion,
+		TopicID:       topicID,
+		PartitionID:   partitionID,
+		Address:       address,
+		ResetSequence: resetSequence,
+	}
+	request := req.Serialize(createRequestBuffer())
+	respBuff, err := conn.SendRPC(transport.HandlerIDControllerRegisterTableListener, request)
+	if err != nil {
+		return 0, err
+	}
+	var resp RegisterTableListenerResponse
+	resp.Deserialize(respBuff, 0)
+	return resp.LastReadableOffset, nil
+}
+
+func (c *client) GetOffsets(infos []offsets.GetOffsetTopicInfo) ([]offsets.OffsetTopicInfo, int64, error) {
+	conn, err := c.getConnection()
+	if err != nil {
+		return nil, 0, err
 	}
 	req := GetOffsetsRequest{
-		ClusterVersion: c.clusterVersion,
-		Infos:          infos,
+		LeaderVersion: c.leaderVersion,
+		Infos:         infos,
 	}
 	request := req.Serialize(createRequestBuffer())
 	respBuff, err := conn.SendRPC(transport.HandlerIDControllerGetOffsets, request)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	var resp GetOffsetsResponse
 	resp.Deserialize(respBuff, 0)
-	return resp.Offsets, nil
+	return resp.Offsets, resp.Sequence, nil
 }
 
 func (c *client) PollForJob() (lsm.CompactionJob, error) {
@@ -152,8 +154,8 @@ func (c *client) GetTopicInfo(topicName string) (topicmeta.TopicInfo, int, error
 		return topicmeta.TopicInfo{}, 0, err
 	}
 	req := GetTopicInfoRequest{
-		ClusterVersion: c.clusterVersion,
-		TopicName:      topicName,
+		LeaderVersion: c.leaderVersion,
+		TopicName:     topicName,
 	}
 	buff := req.Serialize(createRequestBuffer())
 	respBuff, err := conn.SendRPC(transport.HandlerIDControllerGetTopicInfo, buff)
@@ -171,8 +173,8 @@ func (c *client) CreateTopic(topicInfo topicmeta.TopicInfo) error {
 		return err
 	}
 	req := CreateTopicRequest{
-		ClusterVersion: c.clusterVersion,
-		Info:           topicInfo,
+		LeaderVersion: c.leaderVersion,
+		Info:          topicInfo,
 	}
 	buff := req.Serialize(createRequestBuffer())
 	_, err = conn.SendRPC(transport.HandlerIDControllerCreateTopic, buff)
@@ -185,12 +187,60 @@ func (c *client) DeleteTopic(topicName string) error {
 		return err
 	}
 	req := DeleteTopicRequest{
-		ClusterVersion: c.clusterVersion,
-		TopicName:      topicName,
+		LeaderVersion: c.leaderVersion,
+		TopicName:     topicName,
 	}
 	buff := req.Serialize(createRequestBuffer())
 	_, err = conn.SendRPC(transport.HandlerIDControllerDeleteTopic, buff)
 	return err
+}
+
+func (c *client) Close() error {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+	c.address = ""
+	c.closed = true
+	if c.conn != nil {
+		return c.conn.Close()
+	}
+	return nil
+}
+
+func (c *client) getConnection() (transport.Connection, error) {
+	conn, err := c.getCachedConnection()
+	if err != nil {
+		return nil, err
+	}
+	if conn != nil {
+		return conn, nil
+	}
+	if err := c.createConnection(); err != nil {
+		return nil, err
+	}
+	return c.conn, nil
+}
+
+func (c *client) getCachedConnection() (transport.Connection, error) {
+	c.lock.RLock()
+	defer c.lock.RUnlock()
+	if c.closed {
+		return nil, errors.New("client has been closed")
+	}
+	return c.conn, nil
+}
+
+func (c *client) createConnection() error {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+	if c.conn != nil {
+		return nil
+	}
+	conn, err := c.connFactory(c.address)
+	if err != nil {
+		return err
+	}
+	c.conn = conn
+	return nil
 }
 
 func createRequestBuffer() []byte {
