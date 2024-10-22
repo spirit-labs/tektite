@@ -179,12 +179,12 @@ func BuildSSTable(format common.DataFormat, buffSizeEstimate int, entriesEstimat
 
 func (s *SSTable) serializedMetdata() []byte {
 	buff := make([]byte, 0, maxMetadataSize)
-	buff = encoding.AppendUint32ToBufferLEAsVarInt(buff, s.maxKeyLength)
-	buff = encoding.AppendUint32ToBufferLEAsVarInt(buff, s.numEntries)
-	buff = encoding.AppendUint32ToBufferLEAsVarInt(buff, s.numDeletes)
-	buff = encoding.AppendUint32ToBufferLEAsVarInt(buff, s.numPrefixDeletes)
-	buff = encoding.AppendUint32ToBufferLEAsVarInt(buff, s.indexOffset)
-	buff = encoding.AppendUint64ToBufferLE(buff, s.creationTime)
+	buff = binary.AppendUvarint(buff, uint64(s.maxKeyLength))
+	buff = binary.AppendUvarint(buff, uint64(s.numEntries))
+	buff = binary.AppendUvarint(buff, uint64(s.numDeletes))
+	buff = binary.AppendUvarint(buff, uint64(s.numPrefixDeletes))
+	buff = binary.AppendUvarint(buff, uint64(s.indexOffset))
+	buff = binary.AppendUvarint(buff, s.creationTime)
 
 	return buff
 }
@@ -203,13 +203,26 @@ func (s *SSTable) Deserialize(buff []byte, offset int) int {
 	offset = int(metadataOffset)
 
 	metadataStartOffset := offset
-
-	s.maxKeyLength, offset = encoding.ReadUint32FromBufferLEVarInt(buff, offset)
-	s.numEntries, offset = encoding.ReadUint32FromBufferLEVarInt(buff, offset)
-	s.numDeletes, offset = encoding.ReadUint32FromBufferLEVarInt(buff, offset)
-	s.numPrefixDeletes, offset = encoding.ReadUint32FromBufferLEVarInt(buff, offset)
-	s.indexOffset, offset = encoding.ReadUint32FromBufferLEVarInt(buff, offset)
-	s.creationTime, offset = encoding.ReadUint64FromBufferLE(buff, offset)
+	var n int
+	var value uint64
+	value, n = binary.Uvarint(buff[offset:])
+	offset += n
+	s.maxKeyLength = uint32(value)
+	value, n = binary.Uvarint(buff[offset:])
+	offset += n
+	s.numEntries = uint32(value)
+	value, n = binary.Uvarint(buff[offset:])
+	offset += n
+	s.numDeletes = uint32(value)
+	value, n = binary.Uvarint(buff[offset:])
+	offset += n
+	s.numPrefixDeletes = uint32(value)
+	value, n = binary.Uvarint(buff[offset:])
+	offset += n
+	s.indexOffset = uint32(value)
+	value, n = binary.Uvarint(buff[offset:])
+	offset += n
+	s.creationTime = value
 
 	metadataSize := offset - metadataStartOffset
 
