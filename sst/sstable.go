@@ -48,8 +48,7 @@ type SSTable struct {
 	//  ╰───────────────────────────────────────────┴──────────╯
 	data []byte
 	// Varint encoded metadata length
-	metadataBinary []byte
-	metadataSize   int
+	metadataSize int
 }
 
 // metadata contains
@@ -223,8 +222,7 @@ func (s *SSTable) Deserialize(buff []byte, offset int) int {
 
 	metadataSize := offset - metadataStartOffset
 
-	s.metadataBinary = buff[len(buff)-metadataSize:]
-	s.data = buff[:len(buff)-metadataSize]
+	s.data = buff
 
 	s.metadataSize = metadataSize
 
