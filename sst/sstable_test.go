@@ -2,14 +2,13 @@ package sst
 
 import (
 	"fmt"
-	"math"
-	"testing"
-	"time"
-
 	"github.com/spirit-labs/tektite/asl/encoding"
 	"github.com/spirit-labs/tektite/common"
 	iteration2 "github.com/spirit-labs/tektite/iteration"
 	"github.com/stretchr/testify/require"
+	"math"
+	"testing"
+	"time"
 )
 
 func TestBuildTable(t *testing.T) {
