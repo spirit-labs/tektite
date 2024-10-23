@@ -149,7 +149,6 @@ func BuildSSTable(format common.DataFormat, buffSizeEstimate int, entriesEstimat
 
 	// Now fill in metadata offset
 	metadataOffset := len(buff)
-
 	if metadataOffset > math.MaxUint32 {
 		return nil, nil, nil, 0, 0, errwrap.New("SSTable too big")
 	}
