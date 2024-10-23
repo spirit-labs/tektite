@@ -4,13 +4,14 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"math"
+	"time"
+
 	"github.com/google/uuid"
 	"github.com/spirit-labs/tektite/asl/encoding"
 	"github.com/spirit-labs/tektite/asl/errwrap"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/iteration"
-	"math"
-	"time"
 )
 
 type SSTableID []byte
@@ -166,22 +167,18 @@ func BuildSSTable(format common.DataFormat, buffSizeEstimate int, entriesEstimat
 		creationTime:     uint64(time.Now().UTC().UnixMilli()),
 	}
 
-	buff, selfTable.metadataSize = selfTable.serializedMetdata(buff)
+	prevBuffLen := len(buff)
+	buff = binary.AppendUvarint(buff, uint64(maxKeyLength))
+	buff = binary.AppendUvarint(buff, uint64(numEntries))
+	buff = binary.AppendUvarint(buff, uint64(numDeletes))
+	buff = binary.AppendUvarint(buff, uint64(numPrefixDeletes))
+	buff = binary.AppendUvarint(buff, uint64(indexOffset))
+	buff = binary.AppendUvarint(buff, selfTable.creationTime)
+
+	selfTable.metadataSize = prevBuffLen - len(buff)
 	selfTable.data = buff
 
 	return selfTable, smallestKey, largestKey, minVersion, maxVersion, nil
-}
-
-func (s *SSTable) serializedMetdata(buff []byte) ([]byte, int) {
-	prevLen := len(buff)
-	buff = binary.AppendUvarint(buff, uint64(s.maxKeyLength))
-	buff = binary.AppendUvarint(buff, uint64(s.numEntries))
-	buff = binary.AppendUvarint(buff, uint64(s.numDeletes))
-	buff = binary.AppendUvarint(buff, uint64(s.numPrefixDeletes))
-	buff = binary.AppendUvarint(buff, uint64(s.indexOffset))
-	buff = binary.AppendUvarint(buff, s.creationTime)
-
-	return buff, prevLen - len(buff)
 }
 
 func (s *SSTable) Serialize() []byte {
