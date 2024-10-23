@@ -70,7 +70,7 @@ func BuildSSTable(format common.DataFormat, buffSizeEstimate int, entriesEstimat
 	}
 
 	indexEntries := make([]indexEntry, 0, entriesEstimate)
-	buff := make([]byte, 0, buffSizeEstimate)
+	buff := make([]byte, 0, buffSizeEstimate+maxMetadataSize)
 
 	// First byte is the format, then 4 bytes (uint32) which is an offset to the metadata section that we will fill in
 	// later
