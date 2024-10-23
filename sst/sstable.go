@@ -46,8 +46,6 @@ type SSTable struct {
 	//  │maxKeyLength bytes                         │ 4 bytes  │
 	//  ╰───────────────────────────────────────────┴──────────╯
 	data []byte
-	// Varint encoded metadata length
-	metadataSize int
 }
 
 // metadata contains
@@ -167,7 +165,6 @@ func BuildSSTable(format common.DataFormat, buffSizeEstimate int, entriesEstimat
 		creationTime:     uint64(time.Now().UTC().UnixMilli()),
 	}
 
-	prevBuffLen := len(buff)
 	buff = binary.AppendUvarint(buff, uint64(maxKeyLength))
 	buff = binary.AppendUvarint(buff, uint64(numEntries))
 	buff = binary.AppendUvarint(buff, uint64(numDeletes))
@@ -175,7 +172,6 @@ func BuildSSTable(format common.DataFormat, buffSizeEstimate int, entriesEstimat
 	buff = binary.AppendUvarint(buff, uint64(indexOffset))
 	buff = binary.AppendUvarint(buff, selfTable.creationTime)
 
-	selfTable.metadataSize = prevBuffLen - len(buff)
 	selfTable.data = buff
 
 	return selfTable, smallestKey, largestKey, minVersion, maxVersion, nil
@@ -192,7 +188,6 @@ func (s *SSTable) Deserialize(buff []byte, offset int) int {
 	metadataOffset, _ = encoding.ReadUint32FromBufferLE(buff, offset)
 	offset = int(metadataOffset)
 
-	metadataStartOffset := offset
 	var n int
 	var value uint64
 	value, n = binary.Uvarint(buff[offset:])
@@ -214,11 +209,7 @@ func (s *SSTable) Deserialize(buff []byte, offset int) int {
 	offset += n
 	s.creationTime = value
 
-	metadataSize := offset - metadataStartOffset
-
 	s.data = buff
-
-	s.metadataSize = metadataSize
 
 	return offset
 }
