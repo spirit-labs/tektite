@@ -2,12 +2,11 @@ package encoding
 
 import (
 	"encoding/binary"
-	"math"
-	"unsafe"
-
 	"github.com/apache/arrow/go/v11/arrow/decimal128"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/types"
+	"math"
+	"unsafe"
 )
 
 var littleEndian = binary.LittleEndian
@@ -83,7 +82,6 @@ func ReadUint64FromBufferLE(buffer []byte, offset int) (uint64, int) {
 }
 
 func ReadUint32FromBufferLE(buffer []byte, offset int) (uint32, int) {
-
 	if IsLittleEndian {
 		// nolint: gosec
 		return *(*uint32)(unsafe.Pointer(&buffer[offset])), offset + 4
