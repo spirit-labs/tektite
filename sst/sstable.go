@@ -168,17 +168,16 @@ func BuildSSTable(format common.DataFormat, buffSizeEstimate int, entriesEstimat
 		numPrefixDeletes: uint32(numPrefixDeletes),
 		indexOffset:      uint32(indexOffset),
 		creationTime:     uint64(time.Now().UTC().UnixMilli()),
-		data:             buff,
 	}
 
-	selfTable.metadataBinary = selfTable.serializedMetdata()
-	selfTable.metadataSize = len(selfTable.metadataBinary)
+	buff, selfTable.metadataSize = selfTable.serializedMetdata(buff)
+	selfTable.data = buff
 
 	return selfTable, smallestKey, largestKey, minVersion, maxVersion, nil
 }
 
-func (s *SSTable) serializedMetdata() []byte {
-	buff := make([]byte, 0, maxMetadataSize)
+func (s *SSTable) serializedMetdata(buff []byte) ([]byte, int) {
+	prevLen := len(buff)
 	buff = binary.AppendUvarint(buff, uint64(s.maxKeyLength))
 	buff = binary.AppendUvarint(buff, uint64(s.numEntries))
 	buff = binary.AppendUvarint(buff, uint64(s.numDeletes))
@@ -186,13 +185,11 @@ func (s *SSTable) serializedMetdata() []byte {
 	buff = binary.AppendUvarint(buff, uint64(s.indexOffset))
 	buff = binary.AppendUvarint(buff, s.creationTime)
 
-	return buff
+	return buff, prevLen - len(buff)
 }
 
 func (s *SSTable) Serialize() []byte {
-	// To avoid copying the data buffer, we put all the meta-data at the end
-
-	return append(s.data, s.metadataBinary...)
+	return s.data
 }
 
 func (s *SSTable) Deserialize(buff []byte, offset int) int {
@@ -235,7 +232,7 @@ func (s *SSTable) Deserialize(buff []byte, offset int) int {
 }
 
 func (s *SSTable) SizeBytes() int {
-	return len(s.data) + s.metadataSize
+	return len(s.data)
 }
 
 func (s *SSTable) NumEntries() int {
