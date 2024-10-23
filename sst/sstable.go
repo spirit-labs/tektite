@@ -3,16 +3,14 @@ package sst
 import (
 	"bytes"
 	"encoding/binary"
-	"math"
-	"time"
-
 	"fmt"
-
 	"github.com/google/uuid"
 	"github.com/spirit-labs/tektite/asl/encoding"
 	"github.com/spirit-labs/tektite/asl/errwrap"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/iteration"
+	"math"
+	"time"
 )
 
 type SSTableID []byte
