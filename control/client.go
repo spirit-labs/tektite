@@ -19,7 +19,7 @@ type Client interface {
 
 	QueryTablesInRange(keyStart []byte, keyEnd []byte) (lsm.OverlappingTables, error)
 
-	RegisterTableListener(topicID int, partitionID int, address string, resetSequence int64) (int64, error)
+	RegisterTableListener(topicID int, partitionID int, memberID string, resetSequence int64) (int64, error)
 
 	PollForJob() (lsm.CompactionJob, error)
 
@@ -93,7 +93,7 @@ func (c *client) QueryTablesInRange(keyStart []byte, keyEnd []byte) (lsm.Overlap
 	return queryRes, nil
 }
 
-func (c *client) RegisterTableListener(topicID int, partitionID int, address string, resetSequence int64) (int64, error) {
+func (c *client) RegisterTableListener(topicID int, partitionID int, memberID string, resetSequence int64) (int64, error) {
 	conn, err := c.getConnection()
 	if err != nil {
 		return 0, err
@@ -102,7 +102,7 @@ func (c *client) RegisterTableListener(topicID int, partitionID int, address str
 		LeaderVersion: c.leaderVersion,
 		TopicID:       topicID,
 		PartitionID:   partitionID,
-		Address:       address,
+		MemberID:       memberID,
 		ResetSequence: resetSequence,
 	}
 	request := req.Serialize(createRequestBuffer())

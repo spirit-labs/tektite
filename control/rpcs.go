@@ -82,7 +82,7 @@ type RegisterTableListenerRequest struct {
 	LeaderVersion int
 	TopicID       int
 	PartitionID   int
-	Address       string
+	MemberID       string
 	ResetSequence int64
 }
 
@@ -90,8 +90,8 @@ func (f *RegisterTableListenerRequest) Serialize(buff []byte) []byte {
 	buff = binary.BigEndian.AppendUint64(buff, uint64(f.LeaderVersion))
 	buff = binary.BigEndian.AppendUint64(buff, uint64(f.TopicID))
 	buff = binary.BigEndian.AppendUint64(buff, uint64(f.PartitionID))
-	buff = binary.BigEndian.AppendUint32(buff, uint32(len(f.Address)))
-	buff = append(buff, f.Address...)
+	buff = binary.BigEndian.AppendUint32(buff, uint32(len(f.MemberID)))
+	buff = append(buff, f.MemberID...)
 	buff = binary.BigEndian.AppendUint64(buff, uint64(f.ResetSequence))
 	return buff
 }
@@ -106,7 +106,7 @@ func (f *RegisterTableListenerRequest) Deserialize(buff []byte, offset int) int 
 	la := int(binary.BigEndian.Uint32(buff[offset:]))
 	offset += 4
 	if la > 0 {
-		f.Address = string(buff[offset : offset+la])
+		f.MemberID = string(buff[offset : offset+la])
 	}
 	offset += la
 	f.ResetSequence = int64(binary.BigEndian.Uint64(buff[offset:]))

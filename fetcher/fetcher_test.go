@@ -1569,8 +1569,8 @@ func TestFetcherResetSequence(t *testing.T) {
 	}
 	require.Equal(t, numBatches-1, fetcher.recentTables.getLastReceivedSequence())
 	require.Equal(t, 0, int(atomic.LoadInt64(&fetcher.resetSequence)))
-	address, resetSequence := controlClient.getAddressAndResetSequence()
-	require.Equal(t, fetcher.address, address)
+	memberID, resetSequence := controlClient.getMemberIDAndResetSequence()
+	require.Equal(t, fetcher.memberID, memberID)
 	require.Equal(t, 0, int(resetSequence))
 
 	// now send notification out of sequence - should cause partition states to be invalidated
@@ -1602,8 +1602,8 @@ func TestFetcherResetSequence(t *testing.T) {
 	// Register again - this should cause controller to be called again
 	sendFetchDefault(t, 0, 0, 0, defaultMaxBytes, defaultMaxBytes, fetcher)
 
-	address, resetSequence = controlClient.getAddressAndResetSequence()
-	require.Equal(t, fetcher.address, address)
+	memberID, resetSequence = controlClient.getMemberIDAndResetSequence()
+	require.Equal(t, fetcher.memberID, memberID)
 	require.Equal(t, 1, int(resetSequence))
 
 	// setup more batches
@@ -1694,8 +1694,8 @@ func TestFetcherInvalidateOnLeaderChange(t *testing.T) {
 	}
 	require.Equal(t, numBatches-1, fetcher.recentTables.getLastReceivedSequence())
 	require.Equal(t, 0, int(atomic.LoadInt64(&fetcher.resetSequence)))
-	address, resetSequence := controlClient.getAddressAndResetSequence()
-	require.Equal(t, fetcher.address, address)
+	memberID, resetSequence := controlClient.getMemberIDAndResetSequence()
+	require.Equal(t, fetcher.memberID, memberID)
 	require.Equal(t, 0, int(resetSequence))
 
 	// now bump leader version
@@ -2213,7 +2213,7 @@ type testControlClient struct {
 	lastReadableOffsets map[int]map[int]int64
 	unavailable         bool
 	unexpectedErr       bool
-	address             string
+	memberID            string
 	resetSequence       int64
 }
 
@@ -2235,7 +2235,7 @@ func (t *testControlClient) setFailWithUnexpectedErr() {
 	t.unexpectedErr = true
 }
 
-func (t *testControlClient) RegisterTableListener(topicID int, partitionID int, address string,
+func (t *testControlClient) RegisterTableListener(topicID int, partitionID int, memberID string,
 	resetSequence int64) (int64, error) {
 	t.lock.Lock()
 	defer t.lock.Unlock()
@@ -2253,7 +2253,7 @@ func (t *testControlClient) RegisterTableListener(topicID int, partitionID int, 
 	if !ok {
 		return 0, errors.Errorf("unknown partition: %d", partitionID)
 	}
-	t.address = address
+	t.memberID = memberID
 	t.resetSequence = resetSequence
 	return off, nil
 }
@@ -2270,10 +2270,10 @@ func (t *testControlClient) QueryTablesInRange(_ []byte, _ []byte) (lsm.Overlapp
 	return t.queryRes, nil
 }
 
-func (t *testControlClient) getAddressAndResetSequence() (string, int64) {
+func (t *testControlClient) getMemberIDAndResetSequence() (string, int64) {
 	t.lock.Lock()
 	defer t.lock.Unlock()
-	return t.address, t.resetSequence
+	return t.memberID, t.resetSequence
 }
 
 func (t *testControlClient) setLastReadableOffset(topicID int, partitionID int, offset int64) {

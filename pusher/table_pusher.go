@@ -265,7 +265,6 @@ func (t *TablePusher) handleRecords(topicID int, partitionID int, records [][]by
 		topicMap = make(map[int][]bufferedEntry)
 		t.partitionRecords[topicID] = topicMap
 	}
-	// TODO protocol needs to be fixed so records is just []byte not [][]byte as record batches are concatenated
 	if len(records) > 1 {
 		panic("too many records")
 	}
