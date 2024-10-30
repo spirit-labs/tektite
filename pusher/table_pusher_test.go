@@ -56,6 +56,11 @@ func TestTablePusherOffsetCommitSingleTopicAndPartitionOK(t *testing.T) {
 	controllerClient := &testControllerClient{
 		sequence: seq,
 	}
+	groupID := uuid.New().String()
+
+	controllerClient.epochsOkMap = map[string]bool{
+		groupID: true,
+	}
 	clientFactory := func() (ControlClient, error) {
 		return controllerClient, nil
 	}
@@ -75,12 +80,6 @@ func TestTablePusherOffsetCommitSingleTopicAndPartitionOK(t *testing.T) {
 	}()
 
 	partitionID := 3
-
-	groupID := uuid.New().String()
-
-	controllerClient.epochsOkMap = map[string]bool{
-		groupID: true,
-	}
 
 	committedOffset := 123213
 	req := kafkaprotocol.OffsetCommitRequest{
@@ -151,6 +150,11 @@ func TestTablePusherOffsetCommitMultipleTopicsAndPartitionsOK(t *testing.T) {
 		return controllerClient, nil
 	}
 
+	groupID := uuid.New().String()
+	controllerClient.epochsOkMap = map[string]bool{
+		groupID: true,
+	}
+
 	numTopics := 10
 	numPartitionsPerTopic := 5
 	topicInfos := map[string]topicmeta.TopicInfo{}
@@ -174,10 +178,6 @@ func TestTablePusherOffsetCommitMultipleTopicsAndPartitionsOK(t *testing.T) {
 		require.NoError(t, err)
 	}()
 
-	groupID := uuid.New().String()
-	controllerClient.epochsOkMap = map[string]bool{
-		groupID: true,
-	}
 	req := kafkaprotocol.OffsetCommitRequest{
 		GroupId:  common.StrPtr(groupID),
 		MemberId: common.StrPtr("member-24242"),
@@ -253,6 +253,17 @@ func TestTablePusherOffsetCommitMultipleGroupsOK(t *testing.T) {
 	controllerClient := &testControllerClient{
 		sequence: seq,
 	}
+
+	numGroups := 10
+	var groupIDs []string
+	epochsOKMap := map[string]bool{}
+	for i := 0; i < numGroups; i++ {
+		groupID := fmt.Sprintf("test-group-%d", i)
+		epochsOKMap[groupID] = true
+		groupIDs = append(groupIDs, groupID)
+	}
+	controllerClient.epochsOkMap = epochsOKMap
+
 	clientFactory := func() (ControlClient, error) {
 		return controllerClient, nil
 	}
@@ -272,16 +283,9 @@ func TestTablePusherOffsetCommitMultipleGroupsOK(t *testing.T) {
 	}()
 
 	partitionID := 3
-	numGroups := 10
-
-	var groupIDs []string
 
 	var chans []chan *kafkaprotocol.OffsetCommitResponse
-	epochsOKMap := map[string]bool{}
-	for i := 0; i < numGroups; i++ {
-		groupID := fmt.Sprintf("test-group-%d", i)
-		epochsOKMap[groupID] = true
-		groupIDs = append(groupIDs, groupID)
+	for i, groupID := range groupIDs {
 		committedOffset := 10000 + i
 		req := kafkaprotocol.OffsetCommitRequest{
 			GroupId:  common.StrPtr(groupID),
@@ -306,7 +310,6 @@ func TestTablePusherOffsetCommitMultipleGroupsOK(t *testing.T) {
 		require.NoError(t, err)
 		chans = append(chans, respCh)
 	}
-	controllerClient.epochsOkMap = epochsOKMap
 
 	for _, ch := range chans {
 		resp := <-ch
@@ -381,6 +384,19 @@ func TestTablePusherOffsetCommitMultipleGroupsInvalidEpochs(t *testing.T) {
 	controllerClient := &testControllerClient{
 		sequence: seq,
 	}
+
+	numGroups := 10
+	var groupIDs []string
+	epochsOKMap := map[string]bool{}
+	for i := 0; i < numGroups; i++ {
+		groupID := fmt.Sprintf("test-group-%d", i)
+		// Every other epoch is OK
+		epochOK := i%2 == 0
+		epochsOKMap[groupID] = epochOK
+		groupIDs = append(groupIDs, groupID)
+	}
+	controllerClient.epochsOkMap = epochsOKMap
+
 	clientFactory := func() (ControlClient, error) {
 		return controllerClient, nil
 	}
@@ -400,18 +416,8 @@ func TestTablePusherOffsetCommitMultipleGroupsInvalidEpochs(t *testing.T) {
 	}()
 
 	partitionID := 3
-	numGroups := 10
-
-	var groupIDs []string
-
 	var chans []chan *kafkaprotocol.OffsetCommitResponse
-	epochsOkMap := map[string]bool{}
-	for i := 0; i < numGroups; i++ {
-		// Every other epoch is OK
-		epochOK := i%2 == 0
-		groupID := fmt.Sprintf("test-group-%d", i)
-		epochsOkMap[groupID] = epochOK
-		groupIDs = append(groupIDs, groupID)
+	for i, groupID := range groupIDs {
 		committedOffset := 10000 + i
 		req := kafkaprotocol.OffsetCommitRequest{
 			GroupId:  common.StrPtr(groupID),
@@ -441,7 +447,6 @@ func TestTablePusherOffsetCommitMultipleGroupsInvalidEpochs(t *testing.T) {
 		require.NoError(t, err)
 		chans = append(chans, respCh)
 	}
-	controllerClient.epochsOkMap = epochsOkMap
 
 	for i, ch := range chans {
 		resp := <-ch
