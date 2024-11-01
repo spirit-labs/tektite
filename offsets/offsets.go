@@ -52,7 +52,7 @@ type Cache struct {
 	started                  bool
 	topicOffsets             map[int][]partitionOffsets
 	topicMetaProvider        topicMetaProvider
-	lsm                      lsmHolder
+	querier                  querier
 	partitionHashes          *parthash.PartitionHashes
 	objStore                 objstore.Client
 	dataBucketName           string
@@ -68,7 +68,8 @@ type Cache struct {
 type topicMetaProvider interface {
 	GetTopicInfoByID(topicID int) (topicmeta.TopicInfo, error)
 }
-type lsmHolder interface {
+
+type querier interface {
 	GetTablesForHighestKeyWithPrefix(prefix []byte) ([]sst.SSTableID, error)
 }
 
@@ -77,7 +78,7 @@ const (
 	unavailabilityRetryDelay = 1 * time.Second
 )
 
-func NewOffsetsCache(topicProvider topicMetaProvider, lsm lsmHolder, objStore objstore.Client, dataBucketName string) (*Cache, error) {
+func NewOffsetsCache(topicProvider topicMetaProvider, lsm querier, objStore objstore.Client, dataBucketName string) (*Cache, error) {
 	// We don't cache as loader only loads once
 	partHashes, err := parthash.NewPartitionHashes(0)
 	if err != nil {
@@ -86,7 +87,7 @@ func NewOffsetsCache(topicProvider topicMetaProvider, lsm lsmHolder, objStore ob
 	return &Cache{
 		topicMetaProvider: topicProvider,
 		topicOffsets:      make(map[int][]partitionOffsets),
-		lsm:               lsm,
+		querier:           lsm,
 		objStore:          objStore,
 		dataBucketName:    dataBucketName,
 		partitionHashes:   partHashes,
@@ -142,9 +143,6 @@ func (o *Cache) Stop() {
 // [topic id, partition id] order to avoid deadlock
 // Note, that the offset number returned is the *last* allocated offset for the partition.
 func (o *Cache) GetOffsets(infos []GetOffsetTopicInfo) ([]OffsetTopicInfo, int64, error) {
-	if len(infos) == 0 {
-		return nil, 0, errors.New("empty infos")
-	}
 	o.lock.RLock()
 	defer o.lock.RUnlock()
 	if !o.started {
@@ -167,7 +165,7 @@ func (o *Cache) getOffsets0(infos []GetOffsetTopicInfo) ([]OffsetTopicInfo, int6
 	// sequence. We need this guarantee so that when we re-order registrations in sequence order we only output
 	// tables with offsets in ascending order.
 	// Note, that infos will always be provided in [topic id, partition id] order - this ensures deadlock is impossible
-	// with concurrent calls to GetOffsets for overlapping sets of partitions
+	// with concurrent calls to PrePush for overlapping sets of partitions
 	var partOffs []*partitionOffsets
 	defer func() {
 		for _, off := range partOffs {
@@ -451,11 +449,12 @@ func (o *Cache) LoadHighestOffsetForPartition(topicID int, partitionID int) (int
 	if err != nil {
 		return 0, err
 	}
-	tables, err := o.lsm.GetTablesForHighestKeyWithPrefix(prefix)
+	tables, err := o.querier.GetTablesForHighestKeyWithPrefix(prefix)
 	if err != nil {
 		return 0, err
 	}
 	for _, tableID := range tables {
+		// TODO instead of going directly to the object store, should we fetch from fetch cache?
 		buff, err := o.getWithRetry(tableID)
 		if err != nil {
 			return 0, err

@@ -33,13 +33,12 @@ func TestNotifications(t *testing.T) {
 	for i := 0; i < numLocalCaches; i++ {
 		localCache := NewLocalCache(controlClientFactory)
 		localCaches = append(localCaches, localCache)
-		memberID := uuid.New().String()
 		address := uuid.New().String()
 		memberData := common.MembershipData{
-			ListenAddress: address,
+			ClusterListenAddress: address,
 		}
 		memberEntries = append(memberEntries, cluster.MembershipEntry{
-			ID:   memberID,
+			ID:   int32(i),
 			Data: memberData.Serialize(nil),
 		})
 		localServer, err := transports.NewLocalServer(address)
@@ -59,7 +58,7 @@ func TestNotifications(t *testing.T) {
 	var infos []TopicInfo
 	for i := 0; i < numTopics; i++ {
 		info := TopicInfo{
-			ID:             i,
+			ID:             1000 + i,
 			Name:           fmt.Sprintf("foo-topic-%d", i),
 			PartitionCount: i + 1,
 			RetentionTime:  time.Duration(i + 10000),
@@ -98,7 +97,7 @@ func TestNotifications(t *testing.T) {
 
 	// Create another topic
 	info := TopicInfo{
-		ID:             numTopics + 5,
+		ID:             1000 + numTopics + 5,
 		Name:           fmt.Sprintf("foo-topic-%d", numTopics),
 		PartitionCount: numTopics + 1,
 		RetentionTime:  time.Duration(numTopics + 10000),
@@ -122,9 +121,9 @@ func TestNotifications(t *testing.T) {
 
 	// Send notifications with invalid sequence
 	var notif TopicNotification
-	notif.Sequence = 23
+	notif.Sequence = 1023
 	notif.Info = TopicInfo{
-		ID:             numTopics + 1,
+		ID:             1000 + numTopics + 1,
 		Name:           fmt.Sprintf("foo-topic-%d", numTopics+1),
 		PartitionCount: numTopics + 1 + 1,
 		RetentionTime:  time.Duration(numTopics + 1 + 10000),

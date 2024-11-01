@@ -1,8 +1,7 @@
-package fetchcache
+package transport
 
 import (
 	log "github.com/spirit-labs/tektite/logger"
-	"github.com/spirit-labs/tektite/transport"
 	"sync"
 	"sync/atomic"
 )
@@ -11,12 +10,12 @@ import (
 type ConnectionCache struct {
 	lock        sync.RWMutex
 	address     string
-	connFactory transport.ConnectionFactory
+	connFactory ConnectionFactory
 	connections []*connectionWrapper
 	pos         int64
 }
 
-func NewConnectionCache(address string, maxConnections int, connFactory transport.ConnectionFactory) *ConnectionCache {
+func NewConnectionCache(address string, maxConnections int, connFactory ConnectionFactory) *ConnectionCache {
 	return &ConnectionCache{
 		address:     address,
 		connections: make([]*connectionWrapper, maxConnections),
@@ -24,7 +23,7 @@ func NewConnectionCache(address string, maxConnections int, connFactory transpor
 	}
 }
 
-func (cc *ConnectionCache) GetConnection() (transport.Connection, error) {
+func (cc *ConnectionCache) GetConnection() (Connection, error) {
 	cl, index := cc.getCachedConnection()
 	if cl != nil {
 		return cl, nil
@@ -94,7 +93,7 @@ func (cc *ConnectionCache) deleteClient(index int) {
 type connectionWrapper struct {
 	cc    *ConnectionCache
 	index int
-	conn  transport.Connection
+	conn  Connection
 }
 
 func (c *connectionWrapper) SendOneway(handlerID int, message []byte) error {

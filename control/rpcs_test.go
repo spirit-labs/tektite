@@ -1,7 +1,6 @@
 package control
 
 import (
-	"github.com/google/uuid"
 	"github.com/spirit-labs/tektite/lsm"
 	"github.com/spirit-labs/tektite/offsets"
 	"github.com/spirit-labs/tektite/sst"
@@ -118,7 +117,7 @@ func TestSerializeDeserializeRegisterTableListenerRequest(t *testing.T) {
 		LeaderVersion: 567456,
 		TopicID:       123123,
 		PartitionID:   34546,
-		MemberID:      uuid.New().String(),
+		MemberID:      2321,
 		ResetSequence: 123456,
 	}
 	var buff []byte
@@ -144,10 +143,9 @@ func TestSerializeDeserializeRegisterTableListenerResponse(t *testing.T) {
 }
 
 func TestSerializeDeserializeGetOffsetsRequest(t *testing.T) {
-	req := GetOffsetsRequest{
+	req := PrePushRequest{
 		LeaderVersion: 4536,
 		Infos: []offsets.GetOffsetTopicInfo{
-
 			{
 				TopicID: 1234,
 				PartitionInfos: []offsets.GetOffsetPartitionInfo{
@@ -170,18 +168,32 @@ func TestSerializeDeserializeGetOffsetsRequest(t *testing.T) {
 				},
 			},
 		},
+		GroupEpochInfos: []GroupEpochInfo{
+			{
+				GroupID:    "consumer-group-1",
+				GroupEpoch: 123213,
+			},
+			{
+				GroupID:    "consumer-group-2",
+				GroupEpoch: 23423,
+			},
+			{
+				GroupID:    "consumer-group-3",
+				GroupEpoch: 34545,
+			},
+		},
 	}
 	var buff []byte
 	buff = append(buff, 1, 2, 3)
 	buff = req.Serialize(buff)
-	var req2 GetOffsetsRequest
+	var req2 PrePushRequest
 	off := req2.Deserialize(buff, 3)
 	require.Equal(t, req, req2)
 	require.Equal(t, off, len(buff))
 }
 
 func TestSerializeDeserializeGetOffsetsResponse(t *testing.T) {
-	resp := GetOffsetsResponse{
+	resp := PrePushResponse{
 		Offsets: []offsets.OffsetTopicInfo{
 			{
 				TopicID: 12323,
@@ -211,11 +223,14 @@ func TestSerializeDeserializeGetOffsetsResponse(t *testing.T) {
 			},
 		},
 		Sequence: 2137632,
+		EpochsOK: []bool{
+			true, false, false, true, false, true, true,
+		},
 	}
 	var buff []byte
 	buff = append(buff, 1, 2, 3)
 	buff = resp.Serialize(buff)
-	var resp2 GetOffsetsResponse
+	var resp2 PrePushResponse
 	off := resp2.Deserialize(buff, 3)
 	require.Equal(t, resp, resp2)
 	require.Equal(t, off, len(buff))
@@ -282,6 +297,35 @@ func TestSerializeDeserializeDeleteTopicRequest(t *testing.T) {
 	buff = append(buff, 1, 2, 3)
 	buff = req.Serialize(buff)
 	var req2 DeleteTopicRequest
+	off := req2.Deserialize(buff, 3)
+	require.Equal(t, req, req2)
+	require.Equal(t, off, len(buff))
+}
+
+func TestSerializeDeserializeGetGroupCoordinatorInfoRequest(t *testing.T) {
+	req := GetGroupCoordinatorInfoRequest{
+		LeaderVersion: 123,
+		GroupID:       "some-group-id",
+	}
+	var buff []byte
+	buff = append(buff, 1, 2, 3)
+	buff = req.Serialize(buff)
+	var req2 GetGroupCoordinatorInfoRequest
+	off := req2.Deserialize(buff, 3)
+	require.Equal(t, req, req2)
+	require.Equal(t, off, len(buff))
+}
+
+func TestSerializeDeserializeGetGroupCoordinatorInfoResponse(t *testing.T) {
+	req := GetGroupCoordinatorInfoResponse{
+		MemberID:   2134,
+		Address:    "some-address-812721",
+		GroupEpoch: 82378248,
+	}
+	var buff []byte
+	buff = append(buff, 1, 2, 3)
+	buff = req.Serialize(buff)
+	var req2 GetGroupCoordinatorInfoResponse
 	off := req2.Deserialize(buff, 3)
 	require.Equal(t, req, req2)
 	require.Equal(t, off, len(buff))

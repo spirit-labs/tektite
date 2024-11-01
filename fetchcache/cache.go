@@ -36,8 +36,8 @@ type Cache struct {
 	transportServer transport.Server
 	cache           *ristretto.Cache
 	consist         *consistent.HashRing
-	connCaches      map[string]*ConnectionCache
-	members         map[string]struct{}
+	connCaches      map[string]*transport.ConnectionCache
+	members         map[int32]cluster.MembershipEntry
 	cfg             Conf
 	stats           CacheStats
 }
@@ -68,8 +68,8 @@ func NewCache(objStore objstore.Client, connFactory transport.ConnectionFactory,
 		objStore:        objStore,
 		connFactory:     connFactory,
 		transportServer: transportServer,
-		connCaches:      make(map[string]*ConnectionCache),
-		members:         make(map[string]struct{}),
+		connCaches:      make(map[string]*transport.ConnectionCache),
+		members:         make(map[int32]cluster.MembershipEntry),
 		cache:           cache,
 		consist:         consistent.NewConsistentHash(cfg.VirtualFactor),
 		cfg:             cfg,
@@ -95,6 +95,10 @@ func NewConf() Conf {
 	}
 }
 
+func (c *Conf) Validate() error {
+	return nil
+}
+
 const (
 	DefaultMaxConnectionsPerAddress = 5
 	DefaultObjStoreCallTimeout      = 5 * time.Second
@@ -117,32 +121,41 @@ func (c *Cache) Stop() {
 	}
 }
 
-func (c *Cache) MembershipChanged(membership cluster.MembershipState) error {
+func (c *Cache) MembershipChanged(_ int32, membership cluster.MembershipState) error {
 	c.lock.Lock()
 	defer c.lock.Unlock()
-	newMembers := make(map[string]struct{}, len(membership.Members))
+	newMembers := make(map[int32]cluster.MembershipEntry, len(membership.Members))
 	for _, member := range membership.Members {
-		newMembers[member.ID] = struct{}{}
+		newMembers[member.ID] = member
 		_, exists := c.members[member.ID]
 		if !exists {
 			// member added
-			var membershipData common.MembershipData
-			membershipData.Deserialize(member.Data, 0)
-			if membershipData.AZInfo == c.cfg.AzInfo {
+			data := extractMembershipData(&member)
+			if data.AZInfo == c.cfg.AzInfo {
 				// Each AZ has it's own cache so we don't have cross AZ calls when looking up in cache
-				c.consist.Add(membershipData.ListenAddress)
+				c.consist.Add(data.ClusterListenAddress)
 			}
 		}
 	}
-	for member := range c.members {
-		_, exists := newMembers[member]
+	for memberID, member := range c.members {
+		_, exists := newMembers[memberID]
 		if !exists {
 			// member removed
-			c.consist.Remove(member)
+			data := extractMembershipData(&member)
+			removed := c.consist.Remove(data.ClusterListenAddress)
+			if !removed {
+				panic("failed to remove member from consistent ring")
+			}
 		}
 	}
 	c.members = newMembers
 	return nil
+}
+
+func extractMembershipData(member *cluster.MembershipEntry) *common.MembershipData {
+	var membershipData common.MembershipData
+	membershipData.Deserialize(member.Data, 0)
+	return &membershipData
 }
 
 func (c *Cache) GetTableBytes(key []byte) ([]byte, error) {
@@ -254,7 +267,7 @@ func (c *Cache) getConnection(address string) (transport.Connection, error) {
 	return connCache.GetConnection()
 }
 
-func (c *Cache) createConnCache(address string) *ConnectionCache {
+func (c *Cache) createConnCache(address string) *transport.ConnectionCache {
 	c.lock.RUnlock()
 	c.lock.Lock()
 	defer func() {
@@ -265,7 +278,7 @@ func (c *Cache) createConnCache(address string) *ConnectionCache {
 	if ok {
 		return connCache
 	}
-	connCache = NewConnectionCache(address, c.cfg.MaxConnectionsPerAddress, c.connFactory)
+	connCache = transport.NewConnectionCache(address, c.cfg.MaxConnectionsPerAddress, c.connFactory)
 	c.connCaches[address] = connCache
 	return connCache
 }

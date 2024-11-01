@@ -7,8 +7,9 @@ import (
 
 func TestSerializeDeserializeMembershipData(t *testing.T) {
 	data := MembershipData{
-		ListenAddress: "some-address",
-		AZInfo:        "az-12345",
+		ClusterListenAddress: "some-address:1234",
+		KafkaListenerAddress: "other-address:5678",
+		AZInfo:               "az-12345",
 	}
 	var buff []byte
 	buff = append(buff, 1, 2, 3)

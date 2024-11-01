@@ -43,6 +43,10 @@ type CompactionWorkerServiceConf struct {
 	SSTablePushRetryDelay time.Duration
 }
 
+func (c *CompactionWorkerServiceConf) Validate() error {
+	return nil
+}
+
 func NewCompactionWorkerServiceConf() CompactionWorkerServiceConf {
 	return CompactionWorkerServiceConf{
 		WorkerCount:           4,

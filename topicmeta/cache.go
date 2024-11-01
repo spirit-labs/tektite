@@ -26,6 +26,7 @@ func NewLocalCache(controlClientFactory ControllerClientFactory) *LocalCache {
 	return &LocalCache{
 		topicInfos:           make(map[string]TopicInfo),
 		controlClientFactory: controlClientFactory,
+		lastSequence:         -1,
 	}
 }
 
@@ -95,7 +96,7 @@ func (l *LocalCache) HandleTopicAdded(_ *transport.ConnectionContext, buff []byt
 	defer l.lock.Unlock()
 	var notif TopicNotification
 	notif.Deserialize(buff, 0)
-	if notif.Sequence > l.lastSequence+1 {
+	if l.lastSequence != -1 && notif.Sequence != l.lastSequence+1 {
 		// Invalidate - we missed a sequence
 		l.topicInfos = map[string]TopicInfo{}
 	} else {

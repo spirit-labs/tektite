@@ -3,7 +3,6 @@ package fetcher
 import (
 	"bytes"
 	"context"
-	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	"github.com/spirit-labs/tektite/asl/encoding"
 	"github.com/spirit-labs/tektite/cluster"
@@ -1647,6 +1646,9 @@ func TestFetcherInvalidateOnLeaderChange(t *testing.T) {
 	fetcher, topicProvider, controlClient, objStore := setupFetcher(t)
 	defer stopFetcher(t, fetcher)
 
+	memberID := int32(23)
+	fetcher.memberID = memberID
+
 	// no data yet
 	topicProvider.infos[defaultTopicName] = topicmeta.TopicInfo{
 		ID:             defaultTopicID,
@@ -1699,7 +1701,7 @@ func TestFetcherInvalidateOnLeaderChange(t *testing.T) {
 	require.Equal(t, 0, int(resetSequence))
 
 	// now bump leader version
-	err := fetcher.MembershipChanged(cluster.MembershipState{
+	err := fetcher.MembershipChanged(0, cluster.MembershipState{
 		LeaderVersion: 2,
 	})
 	require.NoError(t, err)
@@ -1995,17 +1997,16 @@ func setupFetcher(t *testing.T) (*BatchFetcher, *testTopicProvider, *testControl
 		objStore:   objStore,
 	}
 	controlClient := newTestControlClient()
-	controlFactory := func() (ControlClient, error) {
+	controlFactory := func() (control.Client, error) {
 		return controlClient, nil
 	}
 	cfg := NewConf()
 	cfg.DataBucketName = databucketName
-	fetcher, err := NewBatchFetcher(objStore, infoProvider, partHashes, controlFactory, getter.getSSTable,
-		uuid.New().String(), cfg)
+	fetcher, err := NewBatchFetcher(objStore, infoProvider, partHashes, controlFactory, getter.getSSTable, cfg)
 	require.NoError(t, err)
 	err = fetcher.Start()
 	require.NoError(t, err)
-	err = fetcher.MembershipChanged(cluster.MembershipState{
+	err = fetcher.MembershipChanged(0, cluster.MembershipState{
 		LeaderVersion:  1,
 		ClusterVersion: 1,
 	})
@@ -2213,7 +2214,7 @@ type testControlClient struct {
 	lastReadableOffsets map[int]map[int]int64
 	unavailable         bool
 	unexpectedErr       bool
-	memberID            string
+	memberID            int32
 	resetSequence       int64
 }
 
@@ -2235,7 +2236,7 @@ func (t *testControlClient) setFailWithUnexpectedErr() {
 	t.unexpectedErr = true
 }
 
-func (t *testControlClient) RegisterTableListener(topicID int, partitionID int, memberID string,
+func (t *testControlClient) RegisterTableListener(topicID int, partitionID int, memberID int32,
 	resetSequence int64) (int64, error) {
 	t.lock.Lock()
 	defer t.lock.Unlock()
@@ -2270,7 +2271,7 @@ func (t *testControlClient) QueryTablesInRange(_ []byte, _ []byte) (lsm.Overlapp
 	return t.queryRes, nil
 }
 
-func (t *testControlClient) getMemberIDAndResetSequence() (string, int64) {
+func (t *testControlClient) getMemberIDAndResetSequence() (int32, int64) {
 	t.lock.Lock()
 	defer t.lock.Unlock()
 	return t.memberID, t.resetSequence
@@ -2283,6 +2284,39 @@ func (t *testControlClient) setLastReadableOffset(topicID int, partitionID int, 
 		t.lastReadableOffsets[topicID] = partMap
 	}
 	partMap[partitionID] = offset
+}
+
+func (t *testControlClient) PrePush(infos []offsets.GetOffsetTopicInfo, epochInfos []control.GroupEpochInfo) ([]offsets.OffsetTopicInfo, int64, []bool, error) {
+	panic("should not be called")
+}
+
+func (t *testControlClient) ApplyLsmChanges(regBatch lsm.RegistrationBatch) error {
+	panic("should not be called")
+
+}
+
+func (t *testControlClient) RegisterL0Table(sequence int64, regEntry lsm.RegistrationEntry) error {
+	panic("should not be called")
+}
+
+func (t *testControlClient) PollForJob() (lsm.CompactionJob, error) {
+	panic("should not be called")
+}
+
+func (t *testControlClient) GetTopicInfo(topicName string) (topicmeta.TopicInfo, int, error) {
+	panic("should not be called")
+}
+
+func (t *testControlClient) CreateTopic(topicInfo topicmeta.TopicInfo) error {
+	panic("should not be called")
+}
+
+func (t *testControlClient) DeleteTopic(topicName string) error {
+	panic("should not be called")
+}
+
+func (t *testControlClient) GetGroupCoordinatorInfo(groupID string) (memberID int32, address string, groupEpoch int, err error) {
+	panic("should not be called")
 }
 
 func (t *testControlClient) Close() error {

@@ -91,10 +91,17 @@ package kafkaprotocol
 
 import (
     "encoding/binary"
-    "fmt"
     "github.com/pkg/errors"
     "net"
 )
+
+func checkSupportedVersion(apiKey int16, apiVersion int16, minVer int16, maxVer int16) error {
+	if apiVersion < minVer || apiVersion > maxVer {
+        // connection will be closed if version is not supported
+		return errors.Errorf("version %d for apiKey %d is unsupported. supported versions are %d to %d", apiVersion, apiKey, minVer, maxVer)
+	}
+	return nil
+}
 
 func HandleRequestBuffer(apiKey int16, buff []byte, handler RequestHandler, conn net.Conn) error {
     apiVersion := int16(binary.BigEndian.Uint16(buff[2:]))
@@ -112,45 +119,40 @@ func HandleRequestBuffer(apiKey int16, buff []byte, handler RequestHandler, conn
 		}
 		c :=
 			`    case %d:
-        var req %s
-        requestHeaderVersion, responseHeaderVersion := req.HeaderVersions(apiVersion)
-        var requestHeader RequestHeader
-        var offset int
-        if offset, err = requestHeader.Read(requestHeaderVersion, buff); err != nil {
-		    return err
-	    }
-        responseHeader.CorrelationId = requestHeader.CorrelationId
-        if _, err := req.Read(apiVersion, buff[offset:]); err != nil {
-            return err
-        }
-        respFunc := func(resp *%s) error {
-            respHeaderSize, hdrTagSizes := responseHeader.CalcSize(responseHeaderVersion, nil)
-            respSize, tagSizes := resp.CalcSize(apiVersion, nil)
-            totRespSize := respHeaderSize + respSize
-			respBuff := make([]byte, 0, 4 + totRespSize)
-            respBuff = binary.BigEndian.AppendUint32(respBuff, uint32(totRespSize))
-            respBuff = responseHeader.Write(responseHeaderVersion, respBuff, hdrTagSizes)
-            respBuff = resp.Write(apiVersion, respBuff, tagSizes)
-            _, err := conn.Write(respBuff)
-            return err
-        }
- 		minVer, maxVer := req.SupportedApiVersions()
-        if apiVersion < minVer || apiVersion > maxVer {
-			resp := handler.%sErrorResponse(ErrorCodeUnsupportedVersion, fmt.Sprintf("%s", apiVersion, apiKey, minVer, maxVer), &req)
-            err = respFunc(resp)
-		} else {
-            err = handler.Handle%s(&requestHeader, &req, respFunc)   
-        }
+		var req %s
+		requestHeaderVersion, responseHeaderVersion := req.HeaderVersions(apiVersion)
+		var requestHeader RequestHeader
+		var offset int
+		if offset, err = requestHeader.Read(requestHeaderVersion, buff); err != nil {
+			return err
+		}
+		minVer, maxVer := req.SupportedApiVersions()
+		if err := checkSupportedVersion(apiKey, apiVersion, minVer, maxVer); err != nil {
+			return err
+		}
+		if _, err := req.Read(apiVersion, buff[offset:]); err != nil {
+			return err
+		}
+		responseHeader.CorrelationId = requestHeader.CorrelationId
+		err = handler.Handle%s(&requestHeader, &req, func(resp *%s) error {
+			respHeaderSize, hdrTagSizes := responseHeader.CalcSize(responseHeaderVersion, nil)
+			respSize, tagSizes := resp.CalcSize(apiVersion, nil)
+			totRespSize := respHeaderSize + respSize
+			respBuff := make([]byte, 0, 4+totRespSize)
+			respBuff = binary.BigEndian.AppendUint32(respBuff, uint32(totRespSize))
+			respBuff = responseHeader.Write(responseHeaderVersion, respBuff, hdrTagSizes)
+			respBuff = resp.Write(apiVersion, respBuff, tagSizes)
+			_, err := conn.Write(respBuff)
+			return err
+		})
 `
 		messageName := ms.Name
 		responseName := messageName[:len(messageName)-len("Request")] + "Response"
-		sbBufHandler.WriteString(fmt.Sprintf(c, ms.ApiKey, ms.Name, responseName, ms.Name, "version %d for apiKey %d is unsupported. supported versions are %d to %d", ms.Name))
+		sbBufHandler.WriteString(fmt.Sprintf(c, ms.ApiKey, ms.Name, ms.Name, responseName))
 		if !strings.HasSuffix(messageName, "Request") {
 			panic(fmt.Sprintf("not a Request: %s", messageName))
 		}
 		sbReqHandler.WriteString(fmt.Sprintf("    Handle%s(hdr *RequestHeader, req *%s, completionFunc func(resp *%s) error) error\n", messageName,
-			messageName, responseName))
-		sbReqHandler.WriteString(fmt.Sprintf("    %sErrorResponse(errorCode int16, errorMsg string, req *%s) *%s\n", messageName,
 			messageName, responseName))
 	}
 	sbBufHandler.WriteString("    default: return errors.Errorf(\"Unsupported ApiKey: %d\", apiKey)\n")

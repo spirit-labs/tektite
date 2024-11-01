@@ -212,6 +212,11 @@ type PartitionFetchState struct {
 }
 
 func (p *PartitionFetchState) read() (wouldExceedRequestMax bool, wouldExceedPartitionMax bool, err error) {
+	memberID := atomic.LoadInt32(&p.fs.bf.memberID)
+	if memberID == -1 {
+		return false, false,
+			common.NewTektiteErrorf(common.Unavailable, "fetch before fetcher has received cluster state")
+	}
 	var iter iteration.Iterator
 	for {
 		if !p.listening {

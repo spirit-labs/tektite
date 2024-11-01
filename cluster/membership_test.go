@@ -2,7 +2,6 @@ package cluster
 
 import (
 	"fmt"
-	"github.com/google/uuid"
 	"github.com/spirit-labs/tektite/objstore/dev"
 	"github.com/stretchr/testify/require"
 	"math/rand"
@@ -27,11 +26,11 @@ func TestJoinSequential(t *testing.T) {
 		data := []byte(fmt.Sprintf("data-%d", i))
 		receivedState := &membershipReceivedStates{}
 		receivedStates = append(receivedStates, receivedState)
-		membership := NewMembership(createConfig(), uuid.New().String(), data, objStore, receivedState.membershipChanged)
+		membership := NewMembership(createConfig(), data, objStore, receivedState.membershipChanged)
 		err := membership.Start()
 		require.NoError(t, err)
 		memberships = append(memberships, membership)
-		waitForMembers(t, memberships...)
+		waitForMembers2(t, receivedStates...)
 		state, err := membership.GetState()
 		require.NoError(t, err)
 		require.Equal(t, i+1, state.ClusterVersion)
@@ -47,7 +46,15 @@ func TestJoinSequential(t *testing.T) {
 			require.Equal(t, membership2.id, state.Members[i].ID)
 		}
 	}
+	ids := map[int32]struct{}{}
 	for i, receivedState := range receivedStates {
+
+		// check id is unique
+		id := receivedState.getThisID()
+		_, exists := ids[id]
+		require.False(t, exists)
+		ids[id] = struct{}{}
+
 		memShips := receivedState.getMemberships()
 		require.Equal(t, numMembers-i, len(memShips))
 		for j, membership := range memShips {
@@ -61,14 +68,19 @@ func TestJoinSequential(t *testing.T) {
 }
 
 type membershipReceivedStates struct {
-	lock     sync.Mutex
-	received []MembershipState
+	lock           sync.Mutex
+	receivedThisID int32
+	received       []MembershipState
 }
 
-func (m *membershipReceivedStates) membershipChanged(membership MembershipState) error {
+func (m *membershipReceivedStates) membershipChanged(thisID int32, membership MembershipState) error {
 	m.lock.Lock()
 	defer m.lock.Unlock()
 	m.received = append(m.received, membership)
+	if m.receivedThisID != 0 && m.receivedThisID != thisID {
+		panic("received wrong id")
+	}
+	m.receivedThisID = thisID
 	return nil
 }
 
@@ -78,6 +90,12 @@ func (m *membershipReceivedStates) getMemberships() []MembershipState {
 	copied := make([]MembershipState, len(m.received))
 	copy(copied, m.received)
 	return copied
+}
+
+func (m *membershipReceivedStates) getThisID() int32 {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+	return m.receivedThisID
 }
 
 func createConfig() MembershipConf {
@@ -98,19 +116,18 @@ func TestJoinParallel(t *testing.T) {
 		}
 	}()
 	numMembers := 10
+	var receiverStates []*membershipReceivedStates
 	for i := 0; i < numMembers; i++ {
 		data := []byte(fmt.Sprintf("data-%d", i))
-		memberShip := NewMembership(createConfig(), uuid.New().String(), data, objStore, func(state MembershipState) error {
-			return nil
-		})
+		receivedState := &membershipReceivedStates{}
+		receiverStates = append(receiverStates, receivedState)
+		memberShip := NewMembership(createConfig(), data, objStore, receivedState.membershipChanged)
 		err := memberShip.Start()
 		require.NoError(t, err)
-		// Randomize join time a little
-		time.Sleep(time.Duration(rand.Intn(100)) * time.Millisecond)
 		memberships = append(memberships, memberShip)
 	}
 	// Wait for all members to join
-	waitForMembers(t, memberships...)
+	waitForMembers2(t, receiverStates...)
 	for _, membership := range memberships {
 		state, err := membership.GetState()
 		require.NoError(t, err)
@@ -130,27 +147,28 @@ func TestEviction(t *testing.T) {
 		}
 	}()
 	numMembers := 5
+	var receiverStates []*membershipReceivedStates
 	for i := 0; i < numMembers; i++ {
 		data := []byte(fmt.Sprintf("data-%d", i))
 		cfg := createConfig()
 		cfg.EvictionDuration = 1 * time.Second
-		memberShip := NewMembership(cfg, uuid.New().String(), data, objStore, func(state MembershipState) error {
-			return nil
-		})
+		receiverState := &membershipReceivedStates{}
+		receiverStates = append(receiverStates, receiverState)
+		memberShip := NewMembership(cfg, data, objStore, receiverState.membershipChanged)
 		err := memberShip.Start()
 		require.NoError(t, err)
 		memberships = append(memberships, memberShip)
 	}
-	waitForMembers(t, memberships...)
+	waitForMembers2(t, receiverStates...)
 	for i := 0; i < numMembers-1; i++ {
 		index := rand.Intn(len(memberships))
 		stoppedAddress := memberships[index].id
 		// stop it
 		err := memberships[index].Stop()
 		require.NoError(t, err)
-		memberships = append(memberships[:index], memberships[index+1:]...)
+		memberships, receiverStates = removeMembership(index, memberships, receiverStates)
 		// wait to be evicted
-		waitForMembers(t, memberships...)
+		waitForMembers2(t, receiverStates...)
 		for _, membership := range memberships {
 			state, err := membership.GetState()
 			require.NoError(t, err)
@@ -165,6 +183,20 @@ func TestEviction(t *testing.T) {
 	require.Equal(t, 1, len(finalState.Members))
 }
 
+func removeMembership(index int, memberships []*Membership, receiverStates []*membershipReceivedStates) ([]*Membership, []*membershipReceivedStates) {
+	var newMemberships []*Membership
+	newMemberships = append(newMemberships, memberships[:index]...)
+	newMemberships = append(newMemberships, memberships[index+1:]...)
+	memberships = newMemberships
+
+	var newReceiverStates []*membershipReceivedStates
+	newReceiverStates = append(newReceiverStates, receiverStates[:index]...)
+	newReceiverStates = append(newReceiverStates, receiverStates[index+1:]...)
+	receiverStates = newReceiverStates
+
+	return newMemberships, newReceiverStates
+}
+
 func TestLeaderVersionChangedOnEviction(t *testing.T) {
 	t.Parallel()
 	objStore := dev.NewInMemStore(0)
@@ -176,25 +208,26 @@ func TestLeaderVersionChangedOnEviction(t *testing.T) {
 		}
 	}()
 	numMembers := 5
+	var receiverStates []*membershipReceivedStates
 	for i := 0; i < numMembers; i++ {
 		data := []byte(fmt.Sprintf("data-%d", i))
 		cfg := createConfig()
 		cfg.EvictionDuration = 1 * time.Second
-		memberShip := NewMembership(cfg, uuid.New().String(), data, objStore, func(state MembershipState) error {
-			return nil
-		})
+		receivedState := &membershipReceivedStates{}
+		receiverStates = append(receiverStates, receivedState)
+		memberShip := NewMembership(cfg, data, objStore, receivedState.membershipChanged)
 		err := memberShip.Start()
 		require.NoError(t, err)
 		memberships = append(memberships, memberShip)
-		waitForMembers(t, memberships...)
+		waitForMembers2(t, receiverStates...)
 	}
 
 	// evict 0 - should cause leader version to increment
 	err := memberships[0].Stop()
 	require.NoError(t, err)
-	memberships = memberships[1:]
+	memberships, receiverStates = removeMembership(0, memberships, receiverStates)
 	// wait to be evicted
-	waitForMembers(t, memberships...)
+	waitForMembers2(t, receiverStates...)
 	for _, membership := range memberships {
 		state, err := membership.GetState()
 		require.NoError(t, err)
@@ -204,9 +237,9 @@ func TestLeaderVersionChangedOnEviction(t *testing.T) {
 	// evict 1 - not leader so shouldn't cause increment
 	err = memberships[1].Stop()
 	require.NoError(t, err)
-	memberships = append(memberships[0:1], memberships[2:]...)
+	memberships, receiverStates = removeMembership(1, memberships, receiverStates)
 	// wait to be evicted
-	waitForMembers(t, memberships...)
+	waitForMembers2(t, receiverStates...)
 	for _, membership := range memberships {
 		state, err := membership.GetState()
 		require.NoError(t, err)
@@ -216,9 +249,9 @@ func TestLeaderVersionChangedOnEviction(t *testing.T) {
 	// evict 2 - not leader so shouldn't cause increment
 	err = memberships[2].Stop()
 	require.NoError(t, err)
-	memberships = memberships[:2]
+	memberships, receiverStates = removeMembership(2, memberships, receiverStates)
 	// wait to be evicted
-	waitForMembers(t, memberships...)
+	waitForMembers2(t, receiverStates...)
 	for _, membership := range memberships {
 		state, err := membership.GetState()
 		require.NoError(t, err)
@@ -228,9 +261,9 @@ func TestLeaderVersionChangedOnEviction(t *testing.T) {
 	// evict 0 - leader
 	err = memberships[0].Stop()
 	require.NoError(t, err)
-	memberships = memberships[1:]
+	memberships, receiverStates = removeMembership(0, memberships, receiverStates)
 	// wait to be evicted
-	waitForMembers(t, memberships...)
+	waitForMembers2(t, receiverStates...)
 	for _, membership := range memberships {
 		state, err := membership.GetState()
 		require.NoError(t, err)
@@ -238,23 +271,13 @@ func TestLeaderVersionChangedOnEviction(t *testing.T) {
 	}
 }
 
-func waitForMembers(t *testing.T, memberships ...*Membership) {
-	allAddresses := map[string]struct{}{}
-	for _, membership := range memberships {
-		allAddresses[membership.id] = struct{}{}
-	}
+func waitForMembers2(t *testing.T, receivedStates ...*membershipReceivedStates) {
 	start := time.Now()
 	for {
 		ok := true
-		for _, membership := range memberships {
-			state, err := membership.GetState()
-			require.NoError(t, err)
-			if len(state.Members) == len(memberships) {
-				for _, member := range state.Members {
-					_, exists := allAddresses[member.ID]
-					require.True(t, exists)
-				}
-			} else {
+		for _, receivedState := range receivedStates {
+			memberStates := receivedState.getMemberships()
+			if len(memberStates) == 0 || len(memberStates[len(memberStates)-1].Members) != len(receivedStates) {
 				ok = false
 				break
 			}
