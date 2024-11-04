@@ -7,18 +7,19 @@ import (
 )
 
 /*
-GroupCoordinatorController maintains the address of the agent hosting the group coordinator for a particular consumer group
-along with it's leader epoch. The address information is used by the FindCoordinator Kafka API to tell a consumer which
-agent hosts the group coordinator for a consumer group.
-The leader epoch for a group goes up (monotonically but not necessarily consecutive) every time the agent hosting the
-coordinator for the group changes. We actually use the cluster version for this so we don't have to maintain another
-sequence persistently. The group coordinator requests this information when it is created, and when it writes offsets
-to the table pushed the epoch is passed in. When the table pusher then attempts to write the table to S3 it first checks
+CoordinatorController maintains the address of the agent hosting a coordinator (this can be a consumer group
+coordinator or a transaction coordinator), for a particular key along with it's leader epoch. The address information
+is used by the FindCoordinator Kafka API to tell a consumer which agent hosts the group coordinator for a consumer
+group, or the transaction coordinator for a particular transactional id.
+The leader epoch for a coordinator goes up (monotonically but not necessarily consecutive) every time the agent hosting the
+coordinator for the key changes. We actually use the cluster version for this so we don't have to maintain another
+sequence persistently. The coordinator requests this information when it is created, and when it writes data
+to the table pusher the epoch is passed in. When the table pusher then attempts to write the table to S3 it first checks
 it has the latest epoch for any offsets being written in the table, and if not, the offsets write is rejected. This
-allows us to screen out zombie group coordinators from committing offsets after another agent has become coordinator
-for the group.
+allows us to screen out zombie coordinators from committing offsets after another agent has become coordinator
+for the key.
 */
-type GroupCoordinatorController struct {
+type CoordinatorController struct {
 	lock         sync.RWMutex
 	groupLeaders map[string]groupInfo
 	chooseSeq    int64
@@ -32,14 +33,14 @@ type groupInfo struct {
 	leaderEpoch  int
 }
 
-func NewGroupCoordinatorController() *GroupCoordinatorController {
-	return &GroupCoordinatorController{
+func NewGroupCoordinatorController() *CoordinatorController {
+	return &CoordinatorController{
 		groupLeaders: make(map[string]groupInfo),
 		memberGroups: make(map[int32][]string),
 	}
 }
 
-func (m *GroupCoordinatorController) MembershipChanged(membershipState *cluster.MembershipState) {
+func (m *CoordinatorController) MembershipChanged(membershipState *cluster.MembershipState) {
 	m.lock.Lock()
 	defer m.lock.Unlock()
 	newMembersMap := make(map[int32]struct{}, len(membershipState.Members))
@@ -50,7 +51,7 @@ func (m *GroupCoordinatorController) MembershipChanged(membershipState *cluster.
 		for _, member := range m.memberState.Members {
 			_, exists := newMembersMap[member.ID]
 			if !exists {
-				// member has left the cluster - remove it's groups
+				// member has left the cluster - remove it's coordinators
 				// when findController is called again after this cluster membership change, a new info will be created
 				// with a new epoch
 				groups, ok := m.memberGroups[member.ID]
@@ -66,21 +67,21 @@ func (m *GroupCoordinatorController) MembershipChanged(membershipState *cluster.
 	m.memberState = membershipState
 }
 
-func (m *GroupCoordinatorController) ClearMembers() {
+func (m *CoordinatorController) ClearMembers() {
 	m.lock.Lock()
 	defer m.lock.Unlock()
 	m.memberGroups = make(map[int32][]string)
 	m.memberState = nil
 }
 
-func (m *GroupCoordinatorController) CheckGroupEpochs(groupEpochs []GroupEpochInfo) []bool {
+func (m *CoordinatorController) CheckGroupEpochs(groupEpochs []EpochInfo) []bool {
 	res := make([]bool, len(groupEpochs))
 	m.lock.RLock()
 	defer m.lock.RUnlock()
 	for i, info := range groupEpochs {
-		inf, ok := m.groupLeaders[info.GroupID]
+		inf, ok := m.groupLeaders[info.Key]
 		if ok {
-			if inf.leaderEpoch == info.GroupEpoch {
+			if inf.leaderEpoch == info.Epoch {
 				res[i] = true
 			}
 		}
@@ -88,29 +89,29 @@ func (m *GroupCoordinatorController) CheckGroupEpochs(groupEpochs []GroupEpochIn
 	return res
 }
 
-func (m *GroupCoordinatorController) GetGroupCoordinatorInfo(groupID string) (address string, groupEpoch int, err error) {
-	info, ok := m.getInfo(groupID)
+func (m *CoordinatorController) GetGroupCoordinatorInfo(key string) (address string, groupEpoch int, err error) {
+	info, ok := m.getInfo(key)
 	if ok {
 		return info.kafkaAddress, info.leaderEpoch, nil
 	}
-	info, err = m.createInfo(groupID)
+	info, err = m.createInfo(key)
 	if err != nil {
 		return "", 0, err
 	}
 	return info.kafkaAddress, info.leaderEpoch, nil
 }
 
-func (m *GroupCoordinatorController) getInfo(groupID string) (groupInfo, bool) {
+func (m *CoordinatorController) getInfo(key string) (groupInfo, bool) {
 	m.lock.RLock()
 	defer m.lock.RUnlock()
-	info, ok := m.groupLeaders[groupID]
+	info, ok := m.groupLeaders[key]
 	return info, ok
 }
 
-func (m *GroupCoordinatorController) createInfo(groupID string) (groupInfo, error) {
+func (m *CoordinatorController) createInfo(key string) (groupInfo, error) {
 	m.lock.Lock()
 	defer m.lock.Unlock()
-	info, ok := m.groupLeaders[groupID]
+	info, ok := m.groupLeaders[key]
 	if ok {
 		return info, nil
 	}
@@ -133,7 +134,7 @@ func (m *GroupCoordinatorController) createInfo(groupID string) (groupInfo, erro
 		kafkaAddress: memberData.KafkaListenerAddress,
 		leaderEpoch:  m.memberState.ClusterVersion,
 	}
-	m.groupLeaders[groupID] = info
-	m.memberGroups[member.ID] = append(m.memberGroups[member.ID], groupID)
+	m.groupLeaders[key] = info
+	m.memberGroups[member.ID] = append(m.memberGroups[member.ID], key)
 	return info, nil
 }

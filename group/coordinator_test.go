@@ -11,6 +11,7 @@ import (
 	"github.com/spirit-labs/tektite/kafkaprotocol"
 	"github.com/spirit-labs/tektite/lsm"
 	"github.com/spirit-labs/tektite/offsets"
+	"github.com/spirit-labs/tektite/parthash"
 	"github.com/spirit-labs/tektite/pusher"
 	"github.com/spirit-labs/tektite/sst"
 	"github.com/spirit-labs/tektite/topicmeta"
@@ -1607,7 +1608,7 @@ func TestOffsetCommit(t *testing.T) {
 	fp := &fakePusherSink{}
 	transportServer, err := localTransports.NewLocalServer(uuid.New().String())
 	require.NoError(t, err)
-	transportServer.RegisterHandler(transport.HandlerIDTablePusherOffsetCommit, fp.HandleOffsetCommit)
+	transportServer.RegisterHandler(transport.HandlerIDTablePusherDirectWrite, fp.HandleDirectWrite)
 	memberData := common.MembershipData{
 		ClusterListenAddress: transportServer.Address(),
 	}
@@ -1679,6 +1680,7 @@ func TestOffsetCommit(t *testing.T) {
 			},
 		},
 	}
+
 	resp, err := gc.OffsetCommit(&req, 2)
 	require.NoError(t, err)
 
@@ -1701,10 +1703,29 @@ func TestOffsetCommit(t *testing.T) {
 	require.NotNil(t, received)
 
 	require.Equal(t, 1, int(rcpVer))
-	require.Equal(t, 23, received.GroupEpoch)
-	require.Equal(t, 2, int(received.RequestVersion))
 
-	require.Equal(t, &req, received.Request)
+	require.Equal(t, "g."+groupID, received.WriterKey)
+	require.Equal(t, 23, received.WriterEpoch)
+
+	partHash, err := parthash.CreateHash([]byte("g." + groupID))
+	require.NoError(t, err)
+
+	var expectedKVs []common.KV
+	expectedKVs = append(expectedKVs, createExpectedKV(partHash, 1234, 1, 12345))
+	expectedKVs = append(expectedKVs, createExpectedKV(partHash, 1234, 23, 456456))
+	expectedKVs = append(expectedKVs, createExpectedKV(partHash, 2234, 7, 345345))
+
+	require.Equal(t, expectedKVs, received.KVs)
+}
+
+func createExpectedKV(partHash []byte, topicID int, partitionID int, committedOffset int64) common.KV {
+	key := createOffsetKey(partHash, topicID, partitionID)
+	val := make([]byte, 8)
+	binary.BigEndian.PutUint64(val, uint64(committedOffset))
+	return common.KV{
+		Key:   key,
+		Value: val,
+	}
 }
 
 func TestOffsetFetch(t *testing.T) {
@@ -1928,30 +1949,21 @@ func createCoordinatorWithConnFactoryAndCfgSetter(t *testing.T, connFactory tran
 type fakePusherSink struct {
 	lock               sync.Mutex
 	receivedRPCVersion int16
-	received           *pusher.OffsetCommitRequest
+	received           *pusher.DirectWriteRequest
 }
 
-func (f *fakePusherSink) HandleOffsetCommit(_ *transport.ConnectionContext, request []byte, responseBuff []byte, responseWriter transport.ResponseWriter) error {
+func (f *fakePusherSink) HandleDirectWrite(_ *transport.ConnectionContext, request []byte, responseBuff []byte, responseWriter transport.ResponseWriter) error {
 	f.lock.Lock()
 	defer f.lock.Unlock()
 
-	f.received = &pusher.OffsetCommitRequest{}
+	f.received = &pusher.DirectWriteRequest{}
 	f.receivedRPCVersion = int16(binary.BigEndian.Uint16(request))
 	f.received.Deserialize(request, 2)
 
-	var resp kafkaprotocol.OffsetCommitResponse
-	resp.Topics = make([]kafkaprotocol.OffsetCommitResponseOffsetCommitResponseTopic, len(f.received.Request.Topics))
-	for i, topicData := range f.received.Request.Topics {
-		resp.Topics[i].Name = f.received.Request.Topics[i].Name
-		resp.Topics[i].Partitions = make([]kafkaprotocol.OffsetCommitResponseOffsetCommitResponsePartition, len(topicData.Partitions))
-		for j, partData := range topicData.Partitions {
-			resp.Topics[i].Partitions[j].PartitionIndex = partData.PartitionIndex
-		}
-	}
-	return responseWriter(resp.Write(f.received.RequestVersion, responseBuff, nil), nil)
+	return responseWriter(responseBuff, nil)
 }
 
-func (f *fakePusherSink) getReceived() (*pusher.OffsetCommitRequest, int16) {
+func (f *fakePusherSink) getReceived() (*pusher.DirectWriteRequest, int16) {
 	f.lock.Lock()
 	defer f.lock.Unlock()
 	return f.received, f.receivedRPCVersion
@@ -1977,7 +1989,7 @@ type testControlClient struct {
 	queryRes                 lsm.OverlappingTables
 }
 
-func (t *testControlClient) PrePush(infos []offsets.GetOffsetTopicInfo, epochInfos []control.GroupEpochInfo) ([]offsets.OffsetTopicInfo, int64,
+func (t *testControlClient) PrePush(infos []offsets.GetOffsetTopicInfo, epochInfos []control.EpochInfo) ([]offsets.OffsetTopicInfo, int64,
 	[]bool, error) {
 	panic("should not be called")
 }
@@ -2014,7 +2026,7 @@ func (t *testControlClient) DeleteTopic(topicName string) error {
 	panic("should not be called")
 }
 
-func (t *testControlClient) GetGroupCoordinatorInfo(groupID string) (memberID int32, address string, groupEpoch int, err error) {
+func (t *testControlClient) GetCoordinatorInfo(key string) (memberID int32, address string, groupEpoch int, err error) {
 	return t.groupCoordinatorMemberID, t.groupCoordinatorAddress, t.groupEpoch, nil
 }
 

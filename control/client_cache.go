@@ -86,7 +86,7 @@ type clientWrapper struct {
 	client Client
 }
 
-func (c *clientWrapper) PrePush(infos []offsets.GetOffsetTopicInfo, epochInfos []GroupEpochInfo) ([]offsets.OffsetTopicInfo, int64, []bool, error) {
+func (c *clientWrapper) PrePush(infos []offsets.GetOffsetTopicInfo, epochInfos []EpochInfo) ([]offsets.OffsetTopicInfo, int64, []bool, error) {
 	offs, seq, epochsOK, err := c.client.PrePush(infos, epochInfos)
 	if err != nil {
 		c.closeConnection()
@@ -159,8 +159,8 @@ func (c *clientWrapper) DeleteTopic(topicName string) error {
 	return err
 }
 
-func (c *clientWrapper) GetGroupCoordinatorInfo(groupID string) (int32, string, int, error) {
-	memberID, address, groupEpoch, err := c.client.GetGroupCoordinatorInfo(groupID)
+func (c *clientWrapper) GetCoordinatorInfo(groupID string) (int32, string, int, error) {
+	memberID, address, groupEpoch, err := c.client.GetCoordinatorInfo(groupID)
 	if err != nil {
 		c.closeConnection()
 	}

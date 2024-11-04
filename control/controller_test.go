@@ -276,17 +276,17 @@ func TestControllerGroupEpochs(t *testing.T) {
 		groupIDs = append(groupIDs, uuid.New().String())
 	}
 
-	var epochInfos []GroupEpochInfo
+	var epochInfos []EpochInfo
 	for _, groupID := range groupIDs {
-		memberID, address, groupEpoch, err := cl.GetGroupCoordinatorInfo(groupID)
+		memberID, address, groupEpoch, err := cl.GetCoordinatorInfo(groupID)
 		require.NoError(t, err)
 		require.Equal(t, controllers[0].memberID, memberID)
 		require.Equal(t, "kafka-address-0:1234", address)
 		require.Equal(t, 1, groupEpoch)
 
-		epochInfos = append(epochInfos, GroupEpochInfo{
-			GroupID:    groupID,
-			GroupEpoch: 1,
+		epochInfos = append(epochInfos, EpochInfo{
+			Key:   groupID,
+			Epoch: 1,
 		})
 	}
 
@@ -303,7 +303,7 @@ func TestControllerGroupEpochs(t *testing.T) {
 	// Now try with incorrect epoch infos
 	for i := 0; i < len(epochInfos); i++ {
 		if i%2 == 0 {
-			epochInfos[i].GroupEpoch++
+			epochInfos[i].Epoch++
 		}
 	}
 

@@ -19,6 +19,7 @@ import (
 type group struct {
 	gc                      *Coordinator
 	id                      string
+	offsetWriterKey string
 	partHash                []byte
 	lock                    sync.Mutex
 	state                   int
@@ -693,49 +694,80 @@ func fillAllErrorCodesForOffsetFetch(resp *kafkaprotocol.OffsetFetchResponse, er
 	}
 }
 
-func (g *group) offsetCommit(req *kafkaprotocol.OffsetCommitRequest, reqVersion int16) (*kafkaprotocol.OffsetCommitResponse, int) {
+func (g *group) offsetCommit(req *kafkaprotocol.OffsetCommitRequest, resp *kafkaprotocol.OffsetCommitResponse) int {
 	g.lock.Lock()
 	defer g.lock.Unlock()
 	if int(req.GenerationIdOrMemberEpoch) != g.generationID {
-		return nil, kafkaprotocol.ErrorCodeIllegalGeneration
+		return kafkaprotocol.ErrorCodeIllegalGeneration
 	}
 	_, ok := g.members[common.SafeDerefStringPtr(req.MemberId)]
 	if !ok {
-		return nil, kafkaprotocol.ErrorCodeUnknownMemberID
+		return kafkaprotocol.ErrorCodeUnknownMemberID
 	}
 	pusherAddress, ok := g.gc.chooseTablePusherForGroup(g.partHash)
 	if !ok {
 		// No available pushers
 		log.Warnf("cannot commit offsets no members in cluster")
-		return nil, kafkaprotocol.ErrorCodeCoordinatorNotAvailable
+		return kafkaprotocol.ErrorCodeCoordinatorNotAvailable
 	}
 	conn, err := g.gc.getConnection(pusherAddress)
 	if err != nil {
 		log.Warnf("failed to get table pusher connection %v", err)
-		return nil, kafkaprotocol.ErrorCodeCoordinatorNotAvailable
+		return kafkaprotocol.ErrorCodeCoordinatorNotAvailable
 	}
-	var commitReq pusher.OffsetCommitRequest
-	commitReq.RequestVersion = reqVersion
-	commitReq.GroupEpoch = g.groupEpoch
-	commitReq.Request = req
-	buff := commitReq.Serialize(createRequestBuffer())
-	r, err := conn.SendRPC(transport.HandlerIDTablePusherOffsetCommit, buff)
-	if err != nil {
-		if common.IsUnavailableError(err) {
-			log.Warnf("failed to write offsets to table pusher: %v", err)
-			return nil, kafkaprotocol.ErrorCodeCoordinatorNotAvailable
+	// Convert to KV pairs
+	var kvs []common.KV
+	for i, topicData := range req.Topics {
+		foundTopic := false
+		info, err := g.gc.topicProvider.GetTopicInfo(*topicData.Name)
+		if err != nil {
+			log.Errorf("failed to find topic %s", *topicData.Name)
 		} else {
-			log.Errorf("failed to write offsets to table pusher: %v", err)
-			return nil, kafkaprotocol.ErrorCodeUnknownServerError
+			foundTopic = true
+		}
+		for j, partitionData := range topicData.Partitions {
+			if !foundTopic {
+				resp.Topics[i].Partitions[j].ErrorCode = kafkaprotocol.ErrorCodeUnknownTopicOrPartition
+				continue
+			}
+			offset := partitionData.CommittedOffset
+			// key is [partition_hash, topic_id, partition_id] value is [offset]
+			key := createOffsetKey(g.partHash, info.ID, int(partitionData.PartitionIndex))
+			value := make([]byte, 8)
+			binary.BigEndian.PutUint64(value, uint64(offset))
+			kvs = append(kvs, common.KV{
+				Key:   key,
+				Value: value,
+			})
+			log.Debugf("group %s topic %d partition %d committing offset %d", *req.GroupId, info.ID,
+				partitionData.PartitionIndex, offset)
 		}
 	}
-	var commitResp kafkaprotocol.OffsetCommitResponse
-	_, err = commitResp.Read(reqVersion, r)
-	if err != nil {
-		log.Errorf("failed to read commit response from table pusher: %v", err)
-		return nil, kafkaprotocol.ErrorCodeUnknownServerError
+	commitReq := pusher.DirectWriteRequest{
+		WriterKey: g.offsetWriterKey,
+		WriterEpoch: g.groupEpoch,
+		KVs: kvs,
 	}
-	return &commitResp, kafkaprotocol.ErrorCodeNone
+	buff := commitReq.Serialize(createRequestBuffer())
+	_, err = conn.SendRPC(transport.HandlerIDTablePusherDirectWrite, buff)
+	if err != nil {
+		if common.IsUnavailableError(err) {
+			log.Warnf("failed to handle offset commit: %v", err)
+			return kafkaprotocol.ErrorCodeCoordinatorNotAvailable
+		} else {
+			log.Errorf("failed to handle offset commit: %v", err)
+			return kafkaprotocol.ErrorCodeUnknownServerError
+		}
+	}
+	return kafkaprotocol.ErrorCodeNone
+}
+
+func createOffsetKey(partHash []byte, topicID int, partitionID int) []byte {
+	var key []byte
+	key = append(key, partHash...)
+	key = binary.BigEndian.AppendUint64(key, uint64(topicID))
+	key = binary.BigEndian.AppendUint64(key, uint64(partitionID))
+	return key
 }
 
 func createRequestBuffer() []byte {

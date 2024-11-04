@@ -32,7 +32,7 @@ type Controller struct {
 	topicMetaManager           *topicmeta.Manager
 	currentMembership          cluster.MembershipState
 	tableListeners             *tableListeners
-	groupCoordinatorController *GroupCoordinatorController
+	groupCoordinatorController *CoordinatorController
 	memberID                   int32
 }
 
@@ -95,7 +95,7 @@ func (c *Controller) Stop() error {
 	return nil
 }
 
-func (c *Controller) GetGroupCoordinatorController() *GroupCoordinatorController {
+func (c *Controller) GetGroupCoordinatorController() *CoordinatorController {
 	return c.groupCoordinatorController
 }
 
@@ -311,9 +311,9 @@ func (c *Controller) handlePrePush(_ *transport.ConnectionContext, request []byt
 	}
 
 	var epochsOK []bool
-	if len(req.GroupEpochInfos) > 0 {
+	if len(req.EpochInfos) > 0 {
 		// First we check whether the group epochs are valid
-		epochsOK = c.groupCoordinatorController.CheckGroupEpochs(req.GroupEpochInfos)
+		epochsOK = c.groupCoordinatorController.CheckGroupEpochs(req.EpochInfos)
 	}
 
 	// And then we get the offsets

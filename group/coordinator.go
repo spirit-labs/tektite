@@ -1,6 +1,7 @@
 package group
 
 import (
+	"fmt"
 	"github.com/pkg/errors"
 	"github.com/spirit-labs/tektite/cluster"
 	"github.com/spirit-labs/tektite/common"
@@ -141,29 +142,43 @@ func (c *Coordinator) checkStarted() error {
 func (c *Coordinator) HandleFindCoordinatorRequest(req *kafkaprotocol.FindCoordinatorRequest,
 	completionFunc func(resp *kafkaprotocol.FindCoordinatorResponse) error) error {
 	var resp kafkaprotocol.FindCoordinatorResponse
-	memberID, address, err := c.findCoordinator(*req.Key)
-	if err != nil {
-		if common.IsUnavailableError(err) {
-			log.Warnf("failed to find coordinator: %v", err)
-			resp.ErrorCode = kafkaprotocol.ErrorCodeCoordinatorNotAvailable
-			resp.ErrorMessage = common.StrPtr("no coordinator available")
-		} else {
-			log.Errorf("failed to find coordinator: %v", err)
-			resp.ErrorCode = kafkaprotocol.ErrorCodeUnknownServerError
-		}
+	var prefix string
+	if req.KeyType == 0 {
+		// group coordinator
+		prefix = "g."
+	} else if req.KeyType == 1 {
+		// transaction coordinator
+		prefix = "t."
 	} else {
-		host, sPort, err := net.SplitHostPort(address)
-		var port int
-		if err == nil {
-			port, err = strconv.Atoi(sPort)
-		}
+		resp.ErrorCode = kafkaprotocol.ErrorCodeInvalidRequest
+		resp.ErrorMessage = common.StrPtr(fmt.Sprintf("invalid key type %d", req.KeyType))
+	}
+	if resp.ErrorCode == kafkaprotocol.ErrorCodeNone {
+		key := common.SafeDerefStringPtr(req.Key)
+		memberID, address, err := c.findCoordinator(prefix + key)
 		if err != nil {
-			log.Errorf("failed to parse address: %v", err)
-			resp.ErrorCode = kafkaprotocol.ErrorCodeUnknownServerError
+			if common.IsUnavailableError(err) {
+				log.Warnf("failed to find coordinator: %v", err)
+				resp.ErrorCode = kafkaprotocol.ErrorCodeCoordinatorNotAvailable
+				resp.ErrorMessage = common.StrPtr("no coordinator available")
+			} else {
+				log.Errorf("failed to find coordinator: %v", err)
+				resp.ErrorCode = kafkaprotocol.ErrorCodeUnknownServerError
+			}
 		} else {
-			resp.NodeId = memberID
-			resp.Host = &host
-			resp.Port = int32(port)
+			host, sPort, err := net.SplitHostPort(address)
+			var port int
+			if err == nil {
+				port, err = strconv.Atoi(sPort)
+			}
+			if err != nil {
+				log.Errorf("failed to parse address: %v", err)
+				resp.ErrorCode = kafkaprotocol.ErrorCodeUnknownServerError
+			} else {
+				resp.NodeId = memberID
+				resp.Host = &host
+				resp.Port = int32(port)
+			}
 		}
 	}
 	if resp.ErrorCode != kafkaprotocol.ErrorCodeNone {
@@ -173,7 +188,7 @@ func (c *Coordinator) HandleFindCoordinatorRequest(req *kafkaprotocol.FindCoordi
 	return completionFunc(&resp)
 }
 
-func (c *Coordinator) findCoordinator(groupID string) (int32, string, error) {
+func (c *Coordinator) findCoordinator(key string) (int32, string, error) {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
 	if err := c.checkStarted(); err != nil {
@@ -183,7 +198,7 @@ func (c *Coordinator) findCoordinator(groupID string) (int32, string, error) {
 	if err != nil {
 		return 0, "", err
 	}
-	memberID, address, _, err := cl.GetGroupCoordinatorInfo(groupID)
+	memberID, address, _, err := cl.GetCoordinatorInfo(key)
 	return memberID, address, err
 }
 
@@ -254,7 +269,7 @@ func (c *Coordinator) joinGroup(apiVersion int16, groupID string, clientID strin
 			c.sendJoinError(completionFunc, kafkaprotocol.ErrorCodeCoordinatorNotAvailable)
 			return
 		}
-		_, address, groupEpoch, err := cl.GetGroupCoordinatorInfo(groupID)
+		_, address, groupEpoch, err := cl.GetCoordinatorInfo(createCoordinatorKey(groupID))
 		if err != nil {
 			log.Warnf("failed to get coordinator info: %v", err)
 			c.sendJoinError(completionFunc, kafkaprotocol.ErrorCodeCoordinatorNotAvailable)
@@ -368,16 +383,25 @@ func (c *Coordinator) OffsetCommit(req *kafkaprotocol.OffsetCommitRequest, reqVe
 	if err := c.checkStarted(); err != nil {
 		return nil, err
 	}
+	var resp kafkaprotocol.OffsetCommitResponse
+	resp.Topics = make([]kafkaprotocol.OffsetCommitResponseOffsetCommitResponseTopic, len(req.Topics))
+	for i, topicData := range req.Topics {
+		resp.Topics[i].Name = req.Topics[i].Name
+		resp.Topics[i].Partitions = make([]kafkaprotocol.OffsetCommitResponseOffsetCommitResponsePartition, len(topicData.Partitions))
+		for j, partData := range topicData.Partitions {
+			resp.Topics[i].Partitions[j].PartitionIndex = partData.PartitionIndex
+		}
+	}
 	groupID := *req.GroupId
 	g, ok := c.getGroup(groupID)
 	if !ok {
 		return fillAllErrorCodesForOffsetCommit(req, kafkaprotocol.ErrorCodeGroupIDNotFound), nil
 	}
-	resp, errCode := g.offsetCommit(req, reqVersion)
+	errCode := g.offsetCommit(req, &resp)
 	if errCode != kafkaprotocol.ErrorCodeNone {
 		return fillAllErrorCodesForOffsetCommit(req, errCode), nil
 	}
-	return resp, nil
+	return &resp, nil
 }
 
 func (c *Coordinator) OffsetFetch(req *kafkaprotocol.OffsetFetchRequest) (*kafkaprotocol.OffsetFetchResponse, error) {
@@ -445,7 +469,8 @@ func (c *Coordinator) createGroup(groupID string, groupEpoch int) *group {
 	if ok {
 		return g
 	}
-	partHash, err := parthash.CreateHash([]byte(groupID))
+	offsetWriterKey := createCoordinatorKey(groupID)
+	partHash, err := parthash.CreateHash([]byte(offsetWriterKey))
 	if err != nil {
 		panic(err) // doesn't happen
 	}
@@ -454,6 +479,7 @@ func (c *Coordinator) createGroup(groupID string, groupEpoch int) *group {
 		id:                      groupID,
 		groupEpoch:              groupEpoch,
 		partHash:                partHash,
+		offsetWriterKey: offsetWriterKey,
 		state:                   stateEmpty,
 		members:                 map[string]*member{},
 		pendingMemberIDs:        map[string]struct{}{},
@@ -507,6 +533,11 @@ func (c *Coordinator) createConnCache(address string) *transport.ConnectionCache
 	connCache = transport.NewConnectionCache(address, c.cfg.MaxPusherConnectionsPerAddress, c.connFactory)
 	c.connCaches[address] = connCache
 	return connCache
+}
+
+func createCoordinatorKey(groupID string) string {
+	// prefix with 'g.' to disambiguate with transaction coordinator keys
+	return "g." + groupID
 }
 
 const (

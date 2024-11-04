@@ -168,18 +168,18 @@ func TestSerializeDeserializeGetOffsetsRequest(t *testing.T) {
 				},
 			},
 		},
-		GroupEpochInfos: []GroupEpochInfo{
+		EpochInfos: []EpochInfo{
 			{
-				GroupID:    "consumer-group-1",
-				GroupEpoch: 123213,
+				Key:   "consumer-group-1",
+				Epoch: 123213,
 			},
 			{
-				GroupID:    "consumer-group-2",
-				GroupEpoch: 23423,
+				Key:   "consumer-group-2",
+				Epoch: 23423,
 			},
 			{
-				GroupID:    "consumer-group-3",
-				GroupEpoch: 34545,
+				Key:   "consumer-group-3",
+				Epoch: 34545,
 			},
 		},
 	}
