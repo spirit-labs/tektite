@@ -2286,7 +2286,7 @@ func (t *testControlClient) setLastReadableOffset(topicID int, partitionID int, 
 	partMap[partitionID] = offset
 }
 
-func (t *testControlClient) PrePush(infos []offsets.GetOffsetTopicInfo, epochInfos []control.GroupEpochInfo) ([]offsets.OffsetTopicInfo, int64, []bool, error) {
+func (t *testControlClient) PrePush(infos []offsets.GetOffsetTopicInfo, epochInfos []control.EpochInfo) ([]offsets.OffsetTopicInfo, int64, []bool, error) {
 	panic("should not be called")
 }
 
@@ -2315,7 +2315,7 @@ func (t *testControlClient) DeleteTopic(topicName string) error {
 	panic("should not be called")
 }
 
-func (t *testControlClient) GetGroupCoordinatorInfo(groupID string) (memberID int32, address string, groupEpoch int, err error) {
+func (t *testControlClient) GetCoordinatorInfo(key string) (memberID int32, address string, groupEpoch int, err error) {
 	panic("should not be called")
 }
 

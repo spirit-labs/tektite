@@ -92,12 +92,12 @@ func TestGroupCoordinatorCheckEpochs(t *testing.T) {
 	}
 
 	// First create some correct epochs
-	var epochInfos []GroupEpochInfo
+	var epochInfos []EpochInfo
 	for i := 0; i < numGroups; i++ {
 		groupID := fmt.Sprintf("group-%d", i)
-		epochInfos = append(epochInfos, GroupEpochInfo{
-			GroupID:    groupID,
-			GroupEpoch: i + 1,
+		epochInfos = append(epochInfos, EpochInfo{
+			Key:   groupID,
+			Epoch: i + 1,
 		})
 	}
 
@@ -111,9 +111,9 @@ func TestGroupCoordinatorCheckEpochs(t *testing.T) {
 	epochInfos = nil
 	for i := 0; i < numGroups; i++ {
 		groupID := fmt.Sprintf("group-%d", i)
-		epochInfos = append(epochInfos, GroupEpochInfo{
-			GroupID:    groupID,
-			GroupEpoch: i + 2,
+		epochInfos = append(epochInfos, EpochInfo{
+			Key:   groupID,
+			Epoch: i + 2,
 		})
 	}
 
@@ -133,9 +133,9 @@ func TestGroupCoordinatorCheckEpochs(t *testing.T) {
 		} else {
 			epoch = i + 2
 		}
-		epochInfos = append(epochInfos, GroupEpochInfo{
-			GroupID:    groupID,
-			GroupEpoch: epoch,
+		epochInfos = append(epochInfos, EpochInfo{
+			Key:   groupID,
+			Epoch: epoch,
 		})
 	}
 
@@ -156,7 +156,7 @@ func getAddressFromMember(member cluster.MembershipEntry) string {
 	return memberData.KafkaListenerAddress
 }
 
-func applyClusterState(numMembers int, cg *GroupCoordinatorController) *cluster.MembershipState {
+func applyClusterState(numMembers int, cg *CoordinatorController) *cluster.MembershipState {
 	state := cluster.MembershipState{
 		LeaderVersion:  1,
 		ClusterVersion: 1,

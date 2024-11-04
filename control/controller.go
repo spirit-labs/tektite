@@ -32,7 +32,7 @@ type Controller struct {
 	topicMetaManager           *topicmeta.Manager
 	currentMembership          cluster.MembershipState
 	tableListeners             *tableListeners
-	groupCoordinatorController *GroupCoordinatorController
+	groupCoordinatorController *CoordinatorController
 	memberID                   int32
 }
 
@@ -78,24 +78,33 @@ func (c *Controller) Stop() error {
 	if !c.started {
 		return nil
 	}
+	return c.stop()
+}
+
+func (c *Controller) stop() error {
 	if c.lsmHolder != nil {
 		if err := c.lsmHolder.stop(); err != nil {
 			return err
 		}
+		c.lsmHolder = nil
 	}
 	if c.topicMetaManager != nil {
 		if err := c.topicMetaManager.Stop(); err != nil {
 			return err
 		}
+		c.topicMetaManager = nil
+	}
+	if c.offsetsCache != nil {
+		c.offsetsCache.Stop()
+		c.offsetsCache = nil
 	}
 	c.tableListeners.stop()
-	c.lsmHolder = nil
 	c.currentMembership = cluster.MembershipState{}
 	c.started = false
 	return nil
 }
 
-func (c *Controller) GetGroupCoordinatorController() *GroupCoordinatorController {
+func (c *Controller) GetGroupCoordinatorController() *CoordinatorController {
 	return c.groupCoordinatorController
 }
 
@@ -107,46 +116,41 @@ func (c *Controller) MembershipChanged(thisMemberID int32, newState cluster.Memb
 	if !c.started {
 		return errors.New("controller not started")
 	}
-	// This controller is activating as leader
 	if len(newState.Members) > 0 && newState.Members[0].ID == thisMemberID {
-		lsmHolder := NewLsmHolder(c.cfg.ControllerStateUpdaterBucketName, c.cfg.ControllerStateUpdaterKeyPrefix,
-			c.cfg.ControllerMetaDataBucketName, c.cfg.ControllerMetaDataKeyPrefix, c.objStoreClient, c.cfg.LsmConf)
-		if err := lsmHolder.Start(); err != nil {
-			return err
+		// This controller is activating as leader
+		if c.lsmHolder == nil {
+			lsmHolder := NewLsmHolder(c.cfg.ControllerStateUpdaterBucketName, c.cfg.ControllerStateUpdaterKeyPrefix,
+				c.cfg.ControllerMetaDataBucketName, c.cfg.ControllerMetaDataKeyPrefix, c.objStoreClient, c.cfg.LsmConf)
+			if err := lsmHolder.Start(); err != nil {
+				return err
+			}
+			c.lsmHolder = lsmHolder
+			topicMetaManager, err := topicmeta.NewManager(lsmHolder, c.objStoreClient, c.cfg.SSTableBucketName, c.cfg.DataFormat,
+				c.connectionFactory)
+			if err != nil {
+				return err
+			}
+			if err := topicMetaManager.Start(); err != nil {
+				return err
+			}
+			c.topicMetaManager = topicMetaManager
+			cache, err := offsets.NewOffsetsCache(topicMetaManager, lsmHolder, c.objStoreClient, c.cfg.SSTableBucketName)
+			if err != nil {
+				return err
+			}
+			if err := cache.Start(); err != nil {
+				return err
+			}
+			c.offsetsCache = cache
 		}
-		c.lsmHolder = lsmHolder
-		topicMetaManager, err := topicmeta.NewManager(lsmHolder, c.objStoreClient, c.cfg.SSTableBucketName, c.cfg.DataFormat,
-			c.connectionFactory)
-		if err != nil {
-			return err
-		}
-		if err := topicMetaManager.Start(); err != nil {
-			return err
-		}
-		c.topicMetaManager = topicMetaManager
-		cache, err := offsets.NewOffsetsCache(topicMetaManager, lsmHolder, c.objStoreClient, c.cfg.SSTableBucketName)
-		if err != nil {
-			return err
-		}
-		if err := cache.Start(); err != nil {
-			return err
-		}
-		c.offsetsCache = cache
 	} else {
 		// This controller is not leader
 		if c.lsmHolder != nil {
 			// It was leader before - this could happen if this agent was evicted but is still running as a zombie
-			// In which case we need to stop lsm etc
-			if err := c.lsmHolder.Stop(); err != nil {
+			// In which case we need to stop
+			if err := c.stop(); err != nil {
 				return err
 			}
-			c.lsmHolder = nil
-			c.offsetsCache.Stop()
-			c.offsetsCache = nil
-			if err := c.topicMetaManager.Stop(); err != nil {
-				return err
-			}
-			c.topicMetaManager = nil
 		}
 	}
 	c.currentMembership = newState
@@ -194,8 +198,8 @@ func (c *Controller) Client() (Client, error) {
 func (c *Controller) handleRegisterL0Table(_ *transport.ConnectionContext, request []byte, responseBuff []byte, responseWriter transport.ResponseWriter) error {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
-	if err := c.requestChecks(request, responseWriter); err != nil {
-		return err
+	if !c.requestChecks(request, responseWriter) {
+		return nil
 	}
 	var req RegisterL0Request
 	req.Deserialize(request, 2)
@@ -227,8 +231,8 @@ func (c *Controller) handleRegisterL0Table(_ *transport.ConnectionContext, reque
 func (c *Controller) handleApplyChanges(_ *transport.ConnectionContext, request []byte, responseBuff []byte, responseWriter transport.ResponseWriter) error {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
-	if err := c.requestChecks(request, responseWriter); err != nil {
-		return err
+	if !c.requestChecks(request, responseWriter) {
+		return nil
 	}
 	var req ApplyChangesRequest
 	req.Deserialize(request, 2)
@@ -248,8 +252,8 @@ func (c *Controller) handleApplyChanges(_ *transport.ConnectionContext, request 
 func (c *Controller) handleRegisterTableListener(_ *transport.ConnectionContext, request []byte, responseBuff []byte, responseWriter transport.ResponseWriter) error {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
-	if err := c.requestChecks(request, responseWriter); err != nil {
-		return err
+	if !c.requestChecks(request, responseWriter) {
+		return nil
 	}
 	var req RegisterTableListenerRequest
 	req.Deserialize(request, 2)
@@ -282,8 +286,8 @@ func (c *Controller) handleRegisterTableListener(_ *transport.ConnectionContext,
 func (c *Controller) handleQueryTablesInRange(_ *transport.ConnectionContext, request []byte, responseBuff []byte, responseWriter transport.ResponseWriter) error {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
-	if err := c.requestChecks(request, responseWriter); err != nil {
-		return err
+	if !c.requestChecks(request, responseWriter) {
+		return nil
 	}
 	var req QueryTablesInRangeRequest
 	req.Deserialize(request, 2)
@@ -301,8 +305,8 @@ func (c *Controller) handleQueryTablesInRange(_ *transport.ConnectionContext, re
 func (c *Controller) handlePrePush(_ *transport.ConnectionContext, request []byte, responseBuff []byte, responseWriter transport.ResponseWriter) error {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
-	if err := c.requestChecks(request, responseWriter); err != nil {
-		return err
+	if !c.requestChecks(request, responseWriter) {
+		return nil
 	}
 	var req PrePushRequest
 	req.Deserialize(request, 2)
@@ -311,9 +315,9 @@ func (c *Controller) handlePrePush(_ *transport.ConnectionContext, request []byt
 	}
 
 	var epochsOK []bool
-	if len(req.GroupEpochInfos) > 0 {
+	if len(req.EpochInfos) > 0 {
 		// First we check whether the group epochs are valid
-		epochsOK = c.groupCoordinatorController.CheckGroupEpochs(req.GroupEpochInfos)
+		epochsOK = c.groupCoordinatorController.CheckGroupEpochs(req.EpochInfos)
 	}
 
 	// And then we get the offsets
@@ -333,8 +337,8 @@ func (c *Controller) handlePrePush(_ *transport.ConnectionContext, request []byt
 func (c *Controller) handlePollForJob(ctx *transport.ConnectionContext, request []byte, responseBuff []byte, responseWriter transport.ResponseWriter) error {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
-	if err := c.requestChecks(request, responseWriter); err != nil {
-		return err
+	if !c.requestChecks(request, responseWriter) {
+		return nil
 	}
 	c.lsmHolder.lsmManager.PollForJob(ctx.ConnectionID, func(job *lsm.CompactionJob, err error) {
 		if err != nil {
@@ -355,8 +359,8 @@ func (c *Controller) handlePollForJob(ctx *transport.ConnectionContext, request 
 func (c *Controller) handleGetTopicInfo(_ *transport.ConnectionContext, request []byte, responseBuff []byte, responseWriter transport.ResponseWriter) error {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
-	if err := c.requestChecks(request, responseWriter); err != nil {
-		return err
+	if !c.requestChecks(request, responseWriter) {
+		return nil
 	}
 	var req GetTopicInfoRequest
 	req.Deserialize(request, 2)
@@ -377,8 +381,8 @@ func (c *Controller) handleGetTopicInfo(_ *transport.ConnectionContext, request 
 func (c *Controller) handleCreateTopic(_ *transport.ConnectionContext, request []byte, responseBuff []byte, responseWriter transport.ResponseWriter) error {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
-	if err := c.requestChecks(request, responseWriter); err != nil {
-		return err
+	if !c.requestChecks(request, responseWriter) {
+		return nil
 	}
 	var req CreateTopicRequest
 	req.Deserialize(request, 2)
@@ -395,8 +399,8 @@ func (c *Controller) handleCreateTopic(_ *transport.ConnectionContext, request [
 func (c *Controller) handleDeleteTopic(_ *transport.ConnectionContext, request []byte, responseBuff []byte, responseWriter transport.ResponseWriter) error {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
-	if err := c.requestChecks(request, responseWriter); err != nil {
-		return err
+	if !c.requestChecks(request, responseWriter) {
+		return nil
 	}
 	var req DeleteTopicRequest
 	req.Deserialize(request, 2)
@@ -414,8 +418,8 @@ func (c *Controller) handleGetGroupCoordinatorInfo(_ *transport.ConnectionContex
 	responseWriter transport.ResponseWriter) error {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
-	if err := c.requestChecks(request, responseWriter); err != nil {
-		return err
+	if !c.requestChecks(request, responseWriter) {
+		return nil
 	}
 	var req GetGroupCoordinatorInfoRequest
 	req.Deserialize(request, 2)
@@ -434,7 +438,7 @@ func (c *Controller) handleGetGroupCoordinatorInfo(_ *transport.ConnectionContex
 	return responseWriter(responseBuff, nil)
 }
 
-func (c *Controller) requestChecks(request []byte, responseWriter transport.ResponseWriter) error {
+func (c *Controller) requestChecks(request []byte, responseWriter transport.ResponseWriter) bool {
 	var err error
 	err = c.checkStarted()
 	if err == nil {
@@ -442,11 +446,15 @@ func (c *Controller) requestChecks(request []byte, responseWriter transport.Resp
 		if err == nil {
 			err = checkRPCVersion(request)
 			if err == nil {
-				return nil
+				return true
 			}
 		}
 	}
-	return responseWriter(nil, err)
+	log.Errorf("cannot handle controller request: %v", err)
+	if err := responseWriter(nil, err); err != nil {
+		log.Errorf("failed to write error response %v", err)
+	}
+	return false
 }
 
 func checkRPCVersion(request []byte) error {
@@ -460,7 +468,7 @@ func checkRPCVersion(request []byte) error {
 
 func (c *Controller) checkStarted() error {
 	if !c.started {
-		return errors.New("not started")
+		return common.NewTektiteErrorf(common.Unavailable, "controller is not started")
 	}
 	return nil
 }

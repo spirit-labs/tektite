@@ -11,7 +11,7 @@ import (
 )
 
 type Client interface {
-	PrePush(infos []offsets.GetOffsetTopicInfo, epochInfos []GroupEpochInfo) ([]offsets.OffsetTopicInfo, int64,
+	PrePush(infos []offsets.GetOffsetTopicInfo, epochInfos []EpochInfo) ([]offsets.OffsetTopicInfo, int64,
 		[]bool, error)
 
 	ApplyLsmChanges(regBatch lsm.RegistrationBatch) error
@@ -30,7 +30,7 @@ type Client interface {
 
 	DeleteTopic(topicName string) error
 
-	GetGroupCoordinatorInfo(groupID string) (memberID int32, address string, groupEpoch int, err error)
+	GetCoordinatorInfo(key string) (memberID int32, address string, groupEpoch int, err error)
 
 	Close() error
 }
@@ -118,16 +118,16 @@ func (c *client) RegisterTableListener(topicID int, partitionID int, memberID in
 	return resp.LastReadableOffset, nil
 }
 
-func (c *client) PrePush(infos []offsets.GetOffsetTopicInfo, epochInfos []GroupEpochInfo) ([]offsets.OffsetTopicInfo,
+func (c *client) PrePush(infos []offsets.GetOffsetTopicInfo, epochInfos []EpochInfo) ([]offsets.OffsetTopicInfo,
 	int64, []bool, error) {
 	conn, err := c.getConnection()
 	if err != nil {
 		return nil, 0, nil, err
 	}
 	req := PrePushRequest{
-		LeaderVersion:   c.leaderVersion,
-		Infos:           infos,
-		GroupEpochInfos: epochInfos,
+		LeaderVersion: c.leaderVersion,
+		Infos:         infos,
+		EpochInfos:    epochInfos,
 	}
 	request := req.Serialize(createRequestBuffer())
 	respBuff, err := conn.SendRPC(transport.HandlerIDControllerGetOffsets, request)
@@ -200,7 +200,7 @@ func (c *client) DeleteTopic(topicName string) error {
 	return err
 }
 
-func (c *client) GetGroupCoordinatorInfo(groupID string) (int32, string, int, error) {
+func (c *client) GetCoordinatorInfo(groupID string) (int32, string, int, error) {
 	conn, err := c.getConnection()
 	if err != nil {
 		return 0, "", 0, err
