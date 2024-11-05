@@ -3,7 +3,6 @@ package group
 import (
 	"bytes"
 	"encoding/binary"
-	"errors"
 	"fmt"
 	"github.com/google/uuid"
 	"github.com/spirit-labs/tektite/common"
@@ -11,7 +10,6 @@ import (
 	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/pusher"
 	"github.com/spirit-labs/tektite/transport"
-	"math"
 	"sync"
 	"time"
 )
@@ -704,17 +702,6 @@ func (g *group) offsetCommit(req *kafkaprotocol.OffsetCommitRequest, resp *kafka
 	if !ok {
 		return kafkaprotocol.ErrorCodeUnknownMemberID
 	}
-	pusherAddress, ok := g.gc.chooseTablePusherForGroup(g.partHash)
-	if !ok {
-		// No available pushers
-		log.Warnf("cannot commit offsets no members in cluster")
-		return kafkaprotocol.ErrorCodeCoordinatorNotAvailable
-	}
-	conn, err := g.gc.getConnection(pusherAddress)
-	if err != nil {
-		log.Warnf("failed to get table pusher connection %v", err)
-		return kafkaprotocol.ErrorCodeCoordinatorNotAvailable
-	}
 	// Convert to KV pairs
 	var kvs []common.KV
 	for i, topicData := range req.Topics {
@@ -749,6 +736,17 @@ func (g *group) offsetCommit(req *kafkaprotocol.OffsetCommitRequest, resp *kafka
 		KVs: kvs,
 	}
 	buff := commitReq.Serialize(createRequestBuffer())
+	pusherAddress, ok := pusher.ChooseTablePusherForGroup(g.partHash, g.gc.membership.Members)
+	if !ok {
+		// No available pushers
+		log.Warnf("cannot commit offsets as no members in cluster")
+		return kafkaprotocol.ErrorCodeCoordinatorNotAvailable
+	}
+	conn, err := g.gc.getConnection(pusherAddress)
+	if err != nil {
+		log.Warnf("failed to get table pusher connection %v", err)
+		return kafkaprotocol.ErrorCodeCoordinatorNotAvailable
+	}
 	_, err = conn.SendRPC(transport.HandlerIDTablePusherDirectWrite, buff)
 	if err != nil {
 		if common.IsUnavailableError(err) {
@@ -791,31 +789,31 @@ func (g *group) loadOffset(topicID int, partitionID int) (int64, error) {
 		// no stored offset
 		return -1, nil
 	}
-	if len(queryRes) == 1 {
-		nonOverlapping := queryRes[0]
-		if len(nonOverlapping) == 1 {
-			res := nonOverlapping[0]
-			tableID := res.ID
-			sstTable, err := g.gc.tableGetter(tableID)
-			if err != nil {
-				return 0, err
-			}
-			iter, err := sstTable.NewIterator(key, keyEnd)
-			if err != nil {
-				return 0, err
-			}
-			ok, kv, err := iter.Next()
-			if err != nil {
-				return 0, err
-			}
-			if !ok {
-				return -1, nil
-			}
-			offset := int64(binary.BigEndian.Uint64(kv.Value))
-			return offset, nil
-		}
+	// We take the first one as that's most recent
+	nonOverlapping := queryRes[0]
+	res := nonOverlapping[0]
+	tableID := res.ID
+	sstTable, err := g.gc.tableGetter(tableID)
+	if err != nil {
+		return 0, err
 	}
-	return 0, errors.New("must be one query result returned")
+	iter, err := sstTable.NewIterator(key, keyEnd)
+	if err != nil {
+		return 0, err
+	}
+	ok, kv, err := iter.Next()
+	if err != nil {
+		return 0, err
+	}
+	if !ok {
+		return -1, nil
+	}
+	if len(kv.Value) == 0 {
+		// tombstone
+		return -1, nil
+	}
+	offset := int64(binary.BigEndian.Uint64(kv.Value))
+	return offset, nil
 }
 
 func (g *group) offsetFetch(req *kafkaprotocol.OffsetFetchRequest, resp *kafkaprotocol.OffsetFetchResponse) {
@@ -865,16 +863,4 @@ func (g *group) stop() {
 
 func generateMemberID(clientID string) string {
 	return fmt.Sprintf("%s-%s", clientID, uuid.New().String())
-}
-
-// CalcMemberForHash - we consider hash as a big endian number and distribute it's range evenly and consecutively across
-// n members. This works as n is always much smaller than math.MaxUint32
-func CalcMemberForHash(hash []byte, n int) int {
-	top32bits := binary.BigEndian.Uint32(hash)
-	res := int(uint64(top32bits) * uint64(n) / uint64(math.MaxUint32))
-	// edge case where top32bits = math.MaxUint32:
-	if res == n {
-		res = n - 1
-	}
-	return res
 }

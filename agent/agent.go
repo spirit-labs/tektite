@@ -95,18 +95,19 @@ func NewAgentWithFactories(cfg Conf, objStore objstore.Client, connectionFactory
 		return nil, err
 	}
 	agent.partitionHashes = partitionHashes
-	tablePusher, err := pusher.NewTablePusher(cfg.PusherConf, topicMetaCache, objStore, clientFactory, partitionHashes)
-	if err != nil {
-		return nil, err
-	}
-	agent.tablePusher = tablePusher
-	transportServer.RegisterHandler(transport.HandlerIDTablePusherDirectWrite, tablePusher.HandleDirectWrite)
 	fetchCache, err := fetchcache.NewCache(objStore, connectionFactory, transportServer, cfg.FetchCacheConf)
 	if err != nil {
 		return nil, err
 	}
 	agent.fetchCache = fetchCache
 	getter := &fetchCacheGetter{fetchCache: fetchCache}
+	agent.controller.SetTableGetter(getter.get)
+	tablePusher, err := pusher.NewTablePusher(cfg.PusherConf, topicMetaCache, objStore, clientFactory, getter.get, partitionHashes)
+	if err != nil {
+		return nil, err
+	}
+	agent.tablePusher = tablePusher
+	transportServer.RegisterHandler(transport.HandlerIDTablePusherDirectWrite, tablePusher.HandleDirectWrite)
 	bf, err := fetcher.NewBatchFetcher(objStore, topicMetaCache, partitionHashes, agent.controller.Client, getter.get,
 		cfg.FetcherConf)
 	if err != nil {

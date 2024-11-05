@@ -11,6 +11,7 @@ type Conf struct {
 	BufferMaxSizeBytes        int
 	DataFormat                common.DataFormat
 	DataBucketName            string
+	OffsetSnapshotInterval time.Duration
 }
 
 func NewConf() Conf {
@@ -20,6 +21,7 @@ func NewConf() Conf {
 		AvailabilityRetryInterval: DefaultAvailabilityRetryInterval,
 		DataFormat:                DefaultDataFormat,
 		DataBucketName:            DefaultDataBucketName,
+		OffsetSnapshotInterval: DefaultOffsetSnapshotInterval,
 	}
 }
 
@@ -33,4 +35,5 @@ const (
 	DefaultBufferSizeMaxBytes        = 4 * 1024 * 1024
 	DefaultDataFormat                = common.DataFormatV1
 	DefaultDataBucketName            = "tektite-data"
+	DefaultOffsetSnapshotInterval = 5 * time.Second
 )

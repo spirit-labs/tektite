@@ -449,11 +449,15 @@ func (o *Cache) LoadHighestOffsetForPartition(topicID int, partitionID int) (int
 	if err != nil {
 		return 0, err
 	}
+	var key []byte
+	key = append(key, prefix...)
+	prefix = append(prefix, common.EntryTypeTopicData)
 	tables, err := o.querier.GetTablesForHighestKeyWithPrefix(prefix)
 	if err != nil {
 		return 0, err
 	}
-	for _, tableID := range tables {
+	if len(tables) > 0 {
+		tableID := tables[0] // first one is most recent
 		// TODO instead of going directly to the object store, should we fetch from fetch cache?
 		buff, err := o.getWithRetry(tableID)
 		if err != nil {
@@ -478,7 +482,7 @@ func (o *Cache) LoadHighestOffsetForPartition(topicID int, partitionID int) (int
 				break
 			}
 			if bytes.Equal(prefix, kv.Key[:len(prefix)]) {
-				baseOffset, _ := encoding.KeyDecodeInt(kv.Key, 16)
+				baseOffset, _ := encoding.KeyDecodeInt(kv.Key, 17)
 				numRecords := binary.BigEndian.Uint32(kv.Value[57:])
 				offset = baseOffset + int64(numRecords) - 1
 			} else {

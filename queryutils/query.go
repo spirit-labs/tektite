@@ -17,7 +17,7 @@ func CreateIteratorForKeyRange(keyStart []byte, keyEnd []byte, querier Querier, 
 		return nil, err
 	}
 	if len(ids) == 0 {
-		return nil, nil
+		return iteration.EmptyIterator{}, nil
 	}
 	var iters []iteration.Iterator
 	for _, nonOverLapIDs := range ids {

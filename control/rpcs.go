@@ -124,9 +124,9 @@ func (g *RegisterTableListenerResponse) Deserialize(buff []byte, offset int) int
 }
 
 type PrePushRequest struct {
-	LeaderVersion   int
-	Infos      []offsets.GetOffsetTopicInfo
-	EpochInfos []EpochInfo
+	LeaderVersion int
+	Infos         []offsets.GetOffsetTopicInfo
+	EpochInfos    []EpochInfo
 }
 
 type EpochInfo struct {
@@ -356,7 +356,7 @@ func (g *GetGroupCoordinatorInfoRequest) Deserialize(buff []byte, offset int) in
 }
 
 type GetGroupCoordinatorInfoResponse struct {
-	MemberID int32
+	MemberID   int32
 	Address    string
 	GroupEpoch int
 }
@@ -443,5 +443,40 @@ func (r *TablesRegisteredNotification) Deserialize(buff []byte, offset int) int 
 			offset += 8
 		}
 	}
+	return offset
+}
+
+type GenerateSequenceRequest struct {
+	LeaderVersion int
+	SequenceName  string
+}
+
+func (g *GenerateSequenceRequest) Serialize(buff []byte) []byte {
+	buff = binary.BigEndian.AppendUint64(buff, uint64(g.LeaderVersion))
+	buff = binary.BigEndian.AppendUint32(buff, uint32(len(g.SequenceName)))
+	return append(buff, []byte(g.SequenceName)...)
+}
+
+func (g *GenerateSequenceRequest) Deserialize(buff []byte, offset int) int {
+	g.LeaderVersion = int(binary.BigEndian.Uint64(buff[offset:]))
+	offset += 8
+	ln := int(binary.BigEndian.Uint32(buff[offset:]))
+	offset += 4
+	g.SequenceName = string(buff[offset : offset+ln])
+	offset += ln
+	return offset
+}
+
+type GenerateSequenceResponse struct {
+	Sequence int64
+}
+
+func (g *GenerateSequenceResponse) Serialize(buff []byte) []byte {
+	return binary.BigEndian.AppendUint64(buff, uint64(g.Sequence))
+}
+
+func (g *GenerateSequenceResponse) Deserialize(buff []byte, offset int) int {
+	g.Sequence = int64(binary.BigEndian.Uint64(buff[offset:]))
+	offset += 8
 	return offset
 }

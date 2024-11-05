@@ -32,6 +32,8 @@ type Client interface {
 
 	GetCoordinatorInfo(key string) (memberID int32, address string, groupEpoch int, err error)
 
+	GenerateSequence(sequenceName string) (int64, error)
+
 	Close() error
 }
 
@@ -217,6 +219,25 @@ func (c *client) GetCoordinatorInfo(groupID string) (int32, string, int, error) 
 	var resp GetGroupCoordinatorInfoResponse
 	resp.Deserialize(respBuff, 0)
 	return resp.MemberID, resp.Address, resp.GroupEpoch, nil
+}
+
+func (c *client) GenerateSequence(sequenceName string) (int64, error) {
+	conn, err := c.getConnection()
+	if err != nil {
+		return 0, err
+	}
+	req := GenerateSequenceRequest{
+		LeaderVersion: c.leaderVersion,
+		SequenceName:  sequenceName,
+	}
+	buff := req.Serialize(createRequestBuffer())
+	respBuff, err := conn.SendRPC(transport.HandlerIDControllerGenerateSequence, buff)
+	if err != nil {
+		return 0, err
+	}
+	var resp GenerateSequenceResponse
+	resp.Deserialize(respBuff, 0)
+	return resp.Sequence, nil
 }
 
 func (c *client) Close() error {

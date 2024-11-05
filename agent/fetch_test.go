@@ -83,7 +83,6 @@ func TestFetchSimple(t *testing.T) {
 	require.Equal(t, 1, len(receivedBatches))
 
 	require.Equal(t, batch, receivedBatches[0])
-
 }
 
 func TestFetchSingleSenderAndFetcherShortWriteTimeout(t *testing.T) {

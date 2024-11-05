@@ -2030,6 +2030,10 @@ func (t *testControlClient) GetCoordinatorInfo(key string) (memberID int32, addr
 	return t.groupCoordinatorMemberID, t.groupCoordinatorAddress, t.groupEpoch, nil
 }
 
+func (t *testControlClient) GenerateSequence(sequenceName string) (int64, error) {
+	panic("should not be called")
+}
+
 func (t *testControlClient) Close() error {
 	panic("should not be called")
 }
@@ -2068,9 +2072,9 @@ func (t *testTableGetter) getTable(tableID sst.SSTableID) (*sst.SSTable, error) 
 
 func TestCalcMemberForHash(t *testing.T) {
 	h := []byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
-	require.Equal(t, 0, CalcMemberForHash(h, 10))
+	require.Equal(t, 0, pusher.CalcMemberForHash(h, 10))
 	h = []byte{255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255}
-	require.Equal(t, 9, CalcMemberForHash(h, 10))
+	require.Equal(t, 9, pusher.CalcMemberForHash(h, 10))
 	h = []byte{255, 255, 255, 254, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255}
-	require.Equal(t, 9, CalcMemberForHash(h, 10))
+	require.Equal(t, 9, pusher.CalcMemberForHash(h, 10))
 }

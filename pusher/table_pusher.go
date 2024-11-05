@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/pkg/errors"
 	"github.com/spirit-labs/tektite/asl/encoding"
+	"github.com/spirit-labs/tektite/cluster"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/control"
 	"github.com/spirit-labs/tektite/kafkaencoding"
@@ -15,10 +16,12 @@ import (
 	"github.com/spirit-labs/tektite/objstore"
 	"github.com/spirit-labs/tektite/offsets"
 	"github.com/spirit-labs/tektite/parthash"
+	"github.com/spirit-labs/tektite/queryutils"
 	"github.com/spirit-labs/tektite/sst"
 	"github.com/spirit-labs/tektite/topicmeta"
 	"github.com/spirit-labs/tektite/transport"
 	"go.uber.org/zap/zapcore"
+	"math"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -50,20 +53,22 @@ type TablePusher struct {
 	started              bool
 	stopping             atomic.Bool
 	controllerClient     ControlClient
-	partitionRecords     map[int]map[int][]bufferedEntry
+	tableGetter          sst.TableGetter
+	partitionRecords     map[int]map[int][]bufferedRecords
+	produceCompletions   []func(error)
 	directKVs            map[string][]common.KV
+	offsetSnapshotKvs    []common.KV
 	directCompletions    map[string][]func(error)
 	directWriterEpochs   map[string]int
 	numDirectKVsToCommit int
 	partitionHashes      *parthash.PartitionHashes
 	writeTimer           *time.Timer
+	offsetSnapshotTimer  *time.Timer
 	sizeBytes            int
+	producerSeqs         map[int]map[int]map[int]*sequenceInfo
 }
 
-type bufferedEntry struct {
-	records        [][]byte
-	completionFunc func(error)
-}
+type bufferedRecords [][]byte
 
 type topicInfoProvider interface {
 	GetTopicInfo(topicName string) (topicmeta.TopicInfo, error)
@@ -75,11 +80,13 @@ type ControlClient interface {
 	PrePush(infos []offsets.GetOffsetTopicInfo, epochInfos []control.EpochInfo) ([]offsets.OffsetTopicInfo, int64,
 		[]bool, error)
 	RegisterL0Table(sequence int64, regEntry lsm.RegistrationEntry) error
+	QueryTablesInRange(keyStart []byte, keyEnd []byte) (lsm.OverlappingTables, error)
 	Close() error
 }
 
 const (
 	objStoreAvailabilityTimeout = 5 * time.Second
+	offsetSnapshotFormatVersion = 1
 )
 
 var log *logger.TektiteLogger
@@ -93,17 +100,19 @@ func init() {
 }
 
 func NewTablePusher(cfg Conf, topicProvider topicInfoProvider, objStore objstore.Client,
-	clientFactory controllerClientFactory, partitionHashes *parthash.PartitionHashes) (*TablePusher, error) {
+	clientFactory controllerClientFactory, tableGetter sst.TableGetter, partitionHashes *parthash.PartitionHashes) (*TablePusher, error) {
 	return &TablePusher{
 		cfg:                cfg,
 		topicProvider:      topicProvider,
 		objStore:           objStore,
 		clientFactory:      clientFactory,
+		tableGetter:        tableGetter,
 		partitionHashes:    partitionHashes,
-		partitionRecords:   map[int]map[int][]bufferedEntry{},
+		partitionRecords:   map[int]map[int][]bufferedRecords{},
 		directWriterEpochs: map[string]int{},
 		directKVs:          map[string][]common.KV{},
 		directCompletions:  map[string][]func(error){},
+		producerSeqs:       map[int]map[int]map[int]*sequenceInfo{},
 	}, nil
 }
 
@@ -114,6 +123,7 @@ func (t *TablePusher) Start() error {
 		return nil
 	}
 	t.scheduleWriteTimer(t.cfg.WriteTimeout)
+	t.scheduleOffsetSnapshotTimer(t.cfg.OffsetSnapshotInterval)
 	t.started = true
 	return nil
 }
@@ -126,6 +136,7 @@ func (t *TablePusher) Stop() error {
 		return nil
 	}
 	t.writeTimer.Stop()
+	t.offsetSnapshotTimer.Stop()
 	t.started = false
 	return nil
 }
@@ -157,6 +168,20 @@ func (t *TablePusher) scheduleWriteTimer(timeout time.Duration) {
 	})
 }
 
+func (t *TablePusher) scheduleOffsetSnapshotTimer(timeout time.Duration) {
+	t.offsetSnapshotTimer = time.AfterFunc(timeout, func() {
+		t.lock.Lock()
+		defer t.lock.Unlock()
+		if !t.started {
+			return
+		}
+		if err := t.maybeSnapshotSequences(); err != nil {
+			log.Errorf("failed to snapshot sequences: %v", err)
+		}
+		t.scheduleWriteTimer(t.cfg.WriteTimeout)
+	})
+}
+
 func (t *TablePusher) closeClient() {
 	if t.controllerClient != nil {
 		if err := t.controllerClient.Close(); err != nil {
@@ -167,12 +192,8 @@ func (t *TablePusher) closeClient() {
 }
 
 func (t *TablePusher) callCompletions(err error) {
-	for _, partitions := range t.partitionRecords {
-		for _, entries := range partitions {
-			for _, entry := range entries {
-				entry.completionFunc(err)
-			}
-		}
+	for _, completionFunc := range t.produceCompletions {
+		completionFunc(err)
 	}
 	for _, offsetCompletions := range t.directCompletions {
 		for _, completionFunc := range offsetCompletions {
@@ -181,10 +202,9 @@ func (t *TablePusher) callCompletions(err error) {
 	}
 }
 
-func setPartitionError(errorCode int, errorMsg string, partitionResponse *kafkaprotocol.ProduceResponsePartitionProduceResponse, cf *common.CountDownFuture) {
+func setPartitionError(errorCode int, errorMsg string, partitionResponse *kafkaprotocol.ProduceResponsePartitionProduceResponse) {
 	partitionResponse.ErrorCode = int16(errorCode)
 	partitionResponse.ErrorMessage = &errorMsg
-	cf.CountDown(nil)
 }
 
 func (t *TablePusher) HandleProduceRequest(req *kafkaprotocol.ProduceRequest,
@@ -195,15 +215,9 @@ func (t *TablePusher) HandleProduceRequest(req *kafkaprotocol.ProduceRequest,
 	for _, topicData := range req.TopicData {
 		toComplete += len(topicData.PartitionData)
 	}
-	// Note, the CountDownFuture provides a memory barrier so different goroutines can safely write into the ProduceResponse
-	// (they never write into the same array indexes and the arrays are created before ingesting)
-	cf := common.NewCountDownFuture(toComplete, func(_ error) {
-		if err := completionFunc(&resp); err != nil {
-			log.Errorf("failed to send produce response: %v", err)
-		}
-	})
 	t.lock.Lock()
 	defer t.lock.Unlock()
+	recordsAdded := false
 	for i, topicData := range req.TopicData {
 		resp.Responses[i].Name = topicData.Name
 		partitionResponses := make([]kafkaprotocol.ProduceResponsePartitionProduceResponse, len(topicData.PartitionData))
@@ -216,38 +230,89 @@ func (t *TablePusher) HandleProduceRequest(req *kafkaprotocol.ProduceRequest,
 			}
 			topicExists = false
 		}
+		var topicMap map[int][]bufferedRecords
 	partitions:
 		for j, partitionData := range topicData.PartitionData {
 			partitionResponses[j].Index = partitionData.Index
 			partitionID := int(partitionData.Index)
 			if !topicExists {
 				setPartitionError(kafkaprotocol.ErrorCodeUnknownTopicOrPartition,
-					fmt.Sprintf("unknown topic: %s", *topicData.Name), &partitionResponses[j], cf)
+					fmt.Sprintf("unknown topic: %s", *topicData.Name), &partitionResponses[j])
 				continue partitions
 			}
 			if partitionID < 0 || partitionID >= topicInfo.PartitionCount {
 				setPartitionError(kafkaprotocol.ErrorCodeUnknownTopicOrPartition,
 					fmt.Sprintf("unknown partition: %d for topic: %s", partitionID, *topicData.Name),
-					&partitionResponses[j], cf)
+					&partitionResponses[j])
 				continue partitions
 			}
 			for _, records := range partitionData.Records {
 				magic := records[16]
 				if magic != 2 {
 					setPartitionError(kafkaprotocol.ErrorCodeUnsupportedForMessageFormat,
-						"unsupported message format", &partitionResponses[j], cf)
+						"unsupported message format", &partitionResponses[j])
 					continue partitions
 				}
 			}
 			log.Debugf("handling records batch for topic: %s partition: %d", *topicData.Name, partitionID)
-			t.handleRecords(topicInfo.ID, partitionID, partitionData.Records, func(err error) {
+
+			if len(partitionData.Records) > 1 {
+				panic("too many records")
+			}
+			recordBatches := extractBatches(partitionData.Records[0])
+			for _, records := range recordBatches {
+				dupRes, err := t.checkDuplicates(records, topicInfo.ID, partitionID)
 				if err != nil {
-					log.Errorf("failed to handle records: %v", err)
-					partitionResponses[j].ErrorCode = kafkaprotocol.ErrorCodeUnknownServerError
+					log.Errorf("failed to check duplicate records: %v", err)
+					setPartitionError(kafkaprotocol.ErrorCodeUnknownServerError, err.Error(), &partitionResponses[j])
+					continue partitions
 				}
-				cf.CountDown(nil)
-			})
+				if dupRes == 0 {
+					// OK
+					if topicMap == nil {
+						var ok bool
+						topicMap, ok = t.partitionRecords[topicInfo.ID]
+						if !ok {
+							topicMap = make(map[int][]bufferedRecords)
+							t.partitionRecords[topicInfo.ID] = topicMap
+						}
+					}
+					topicMap[partitionID] = append(topicMap[partitionID], [][]byte{records})
+					t.sizeBytes += len(records)
+					recordsAdded = true
+				} else if dupRes == -1 {
+					// duplicate
+					setPartitionError(kafkaprotocol.ErrorCodeDuplicateSequenceNumber,
+						fmt.Sprintf("duplicate records for topic %s partition %d", *topicData.Name, partitionID), &partitionResponses[j])
+					continue partitions
+				} else {
+					// gap
+					setPartitionError(kafkaprotocol.ErrorCodeOutOfOrderSequenceNumber,
+						fmt.Sprintf("out of order records for topic %s partition %d", *topicData.Name, partitionID), &partitionResponses[j])
+					continue partitions
+				}
+			}
 		}
+	}
+	if recordsAdded {
+		// Add a completion that will be called when all records have been written
+		t.produceCompletions = append(t.produceCompletions, func(err error) {
+			if err != nil {
+				if common.IsUnavailableError(err) {
+					log.Warnf("failed to handle records: %v", err)
+					fillAllErrors(&resp, kafkaprotocol.ErrorCodeLeaderNotAvailable, err.Error())
+				} else {
+					log.Errorf("failed to handle records: %v", err)
+					fillAllErrors(&resp, kafkaprotocol.ErrorCodeUnknownServerError, err.Error())
+				}
+			}
+			if err := completionFunc(&resp); err != nil {
+				log.Errorf("failed to send produce response: %v", err)
+			}
+		})
+	} else {
+		// All partitions errored - no records were added - send response now
+		return completionFunc(&resp)
 	}
 	if t.sizeBytes >= t.cfg.BufferMaxSizeBytes {
 		for {
@@ -271,6 +336,15 @@ func (t *TablePusher) HandleProduceRequest(req *kafkaprotocol.ProduceRequest,
 		}
 	}
 	return nil
+}
+
+func fillAllErrors(resp *kafkaprotocol.ProduceResponse, errCode int, errMsg string) {
+	for i := 0; i < len(resp.Responses); i++ {
+		for j := 0; j < len(resp.Responses[i].PartitionResponses); j++ {
+			resp.Responses[i].PartitionResponses[j].ErrorCode = int16(errCode)
+			resp.Responses[i].PartitionResponses[j].ErrorMessage = &errMsg
+		}
+	}
 }
 
 func (t *TablePusher) HandleDirectWrite(_ *transport.ConnectionContext, request []byte, responseBuff []byte, responseWriter transport.ResponseWriter) error {
@@ -348,25 +422,6 @@ func CreateOffsetKey(partHash []byte, topicID int, partitionID int) []byte {
 	return key
 }
 
-func (t *TablePusher) handleRecords(topicID int, partitionID int, records [][]byte, completionFunc func(error)) {
-	topicMap, ok := t.partitionRecords[topicID]
-	if !ok {
-		topicMap = make(map[int][]bufferedEntry)
-		t.partitionRecords[topicID] = topicMap
-	}
-	if len(records) > 1 {
-		panic("too many records")
-	}
-	records = extractBatches(records[0])
-	topicMap[partitionID] = append(topicMap[partitionID], bufferedEntry{
-		records:        records,
-		completionFunc: completionFunc,
-	})
-	for _, record := range records {
-		t.sizeBytes += len(record)
-	}
-}
-
 func extractBatches(buff []byte) [][]byte {
 	// Multiple record batches are concatenated together
 	var batches [][]byte
@@ -430,7 +485,7 @@ func (t *TablePusher) write() error {
 		for partitionID, entries := range partitions {
 			totRecords := 0
 			for _, entry := range entries {
-				for _, batch := range entry.records {
+				for _, batch := range entry {
 					totRecords += kafkaencoding.NumRecords(batch)
 				}
 			}
@@ -491,6 +546,9 @@ func (t *TablePusher) write() error {
 	for _, offsetKVs := range t.directKVs {
 		kvs = append(kvs, offsetKVs...)
 	}
+	// Add any offset snapshots
+	kvs = append(kvs, t.offsetSnapshotKvs...)
+	// Prepare the data KVs
 	for i, topOffset := range offs {
 		partitionRecs := t.partitionRecords[topOffset.TopicID]
 		for j, partInfo := range topOffset.PartitionInfos {
@@ -503,34 +561,37 @@ func (t *TablePusher) write() error {
 			offset := lastOffset - int64(getOffSetInfos[i].PartitionInfos[j].NumOffsets) + 1
 			batches := partitionRecs[partInfo.PartitionID]
 			for _, entry := range batches {
-				for _, record := range entry.records {
+				for _, records := range entry {
 					/*
-						For each batch there will be one entry in the database.
-						The key is: [partition_hash, offset, version]
-						The value is: the record batch bytes
-						The partition hash is created by sha256 hashing the [topic_id, partition_id] and taking the first 16 bytes.
-						This creates an effectively unique key as the probability of collision is extraordinarily remote
-						(secure random UUIDs are created the same way)
-						We use the partition hash instead of the [topic_id, partition_id] as the key prefix for the data in the LSM
-						as partition hashes will be evenly distributed across all possible values. This enables us to direct produce
-						traffic to specific agents in an AZ such that a specific agent handles produces for partitions that whose
-						partition hashes lie in a certain range. Each agent gets a non-overlapping range.
-						This means that when SSTables are registered in L0 of the LSM they will have non overlapping key ranges depending
-						on which agent they came from. The LSM can then parallelize compaction of non overlapping groups of tables
-						thus allowing LSM compaction to scale with number of agents.
+							For each batch there will be one entry in the database.
+							The key is: [partition_hash, entry_type, offset, version]
+							entry_type is byte representing the type of the entry - it's 0 for partition data, 1 for
+						    sequence snapshot.
+							The value is: the record batch bytes
+							The partition hash is created by sha256 hashing the [topic_id, partition_id] and taking the first 16 bytes.
+							This creates an effectively unique key as the probability of collision is extraordinarily remote
+							(secure random UUIDs are created the same way)
+							We use the partition hash instead of the [topic_id, partition_id] as the key prefix for the data in the LSM
+							as partition hashes will be evenly distributed across all possible values. This enables us to direct produce
+							traffic to specific agents in an AZ such that a specific agent handles produces for partitions that whose
+							partition hashes lie in a certain range. Each agent gets a non-overlapping range.
+							This means that when SSTables are registered in L0 of the LSM they will have non overlapping key ranges depending
+							on which agent they came from. The LSM can then parallelize compaction of non overlapping groups of tables
+							thus allowing LSM compaction to scale with number of agents.
 					*/
 
-					key := make([]byte, 0, 32)
+					key := make([]byte, 0, 33)
 					key = append(key, partitionHash...)
+					key = append(key, common.EntryTypeTopicData)
 					key = encoding.KeyEncodeInt(key, offset)
 					key = encoding.EncodeVersion(key, 0)
 					// Fill in base offset
-					binary.BigEndian.PutUint64(record, uint64(offset))
+					binary.BigEndian.PutUint64(records, uint64(offset))
 					kvs = append(kvs, common.KV{
 						Key:   key,
-						Value: record,
+						Value: records,
 					})
-					offset += int64(kafkaencoding.NumRecords(record))
+					offset += int64(kafkaencoding.NumRecords(records))
 				}
 			}
 		}
@@ -578,7 +639,8 @@ func (t *TablePusher) write() error {
 }
 
 func (t *TablePusher) reset() {
-	t.partitionRecords = make(map[int]map[int][]bufferedEntry)
+	t.partitionRecords = make(map[int]map[int][]bufferedRecords)
+	t.produceCompletions = t.produceCompletions[:0]
 	if t.numDirectKVsToCommit > 0 {
 		t.directKVs = map[string][]common.KV{}
 		t.directCompletions = map[string][]func(error){}
@@ -586,6 +648,210 @@ func (t *TablePusher) reset() {
 		t.numDirectKVsToCommit = 0
 	}
 	t.sizeBytes = 0
+}
+
+type sequenceInfo struct {
+	expectedSequence int32
+	offset           int64
+	dirty            bool
+}
+
+func (t *TablePusher) checkDuplicates(batch []byte, topicID int, partitionID int) (int, error) {
+	producerID := int(kafkaencoding.ProducerID(batch))
+	if producerID == -1 {
+		// No producer id - not idempotent producer
+		return 0, nil
+	}
+	baseOffset := kafkaencoding.BaseOffset(batch)
+	baseSequence := kafkaencoding.BaseSequence(batch)
+	lastOffsetDelta := kafkaencoding.LastOffsetDelta(batch)
+	return t.checkOffset(producerID, topicID, partitionID, baseOffset, baseSequence, lastOffsetDelta)
+}
+
+// sequence is the last sequence in the batch
+func (t *TablePusher) checkOffset(producerID int, topicID int, partitionID int, baseOffset int64, baseSequence int32, lastOffsetDelta int32) (int, error) {
+	producerMap, ok := t.producerSeqs[producerID]
+	if !ok {
+		producerMap = map[int]map[int]*sequenceInfo{}
+		t.producerSeqs[producerID] = producerMap
+	}
+	topicMap, ok := producerMap[topicID]
+	if !ok {
+		topicMap = map[int]*sequenceInfo{}
+		producerMap[topicID] = topicMap
+	}
+	offInfo, ok := topicMap[partitionID]
+	if !ok {
+		// load the sequence from the database
+		seq, err := t.loadExpectedSequence(producerID, topicID, partitionID)
+		if err != nil {
+			return 0, err
+		}
+		offInfo = &sequenceInfo{
+			expectedSequence: seq,
+		}
+		topicMap[partitionID] = offInfo
+	}
+	if baseSequence == offInfo.expectedSequence {
+		// OK
+		newExpected := int64(offInfo.expectedSequence) + int64(lastOffsetDelta) + 1
+		// wrap to zero
+		offInfo.expectedSequence = int32(newExpected % (1 + math.MaxInt32))
+		offInfo.offset = baseOffset
+		offInfo.dirty = true
+		return 0, nil
+	} else if baseSequence < offInfo.expectedSequence {
+		// duplicate
+		log.Warnf("duplicate - producer %d got sequence %d was expecting %d", producerID, baseSequence, offInfo.expectedSequence)
+		return -1, nil
+	} else {
+		// gap
+		log.Warnf("gap - producer %d got sequence %d was expecting %d", producerID, baseSequence, offInfo.expectedSequence)
+		return 1, nil
+	}
+}
+
+func (t *TablePusher) loadExpectedSequence(producerID int, topicID int, partitionID int) (int32, error) {
+	// First we lookup any snapshot
+	key, err := t.createSequenceSnapshotKey(producerID, topicID, partitionID)
+	if err != nil {
+		return 0, err
+	}
+	val, err := t.getLatestValueWithKey(key)
+	if err != nil {
+		return 0, err
+	}
+	var offset int64
+	if len(val) > 0 {
+		version := binary.BigEndian.Uint16(val)
+		if version != offsetSnapshotFormatVersion {
+			return 0, errors.New("invalid offsetSnapshot format version")
+		}
+		offset = int64(binary.BigEndian.Uint64(val[2:]))
+		offset, _ = encoding.KeyDecodeInt(val, 2)
+	}
+	// Now we need to scan through and find latest sequence for the producer starting at the snapshotted offset
+	partHash, err := t.partitionHashes.GetPartitionHash(topicID, partitionID)
+	if err != nil {
+		return 0, err
+	}
+	prefix := common.ByteSliceCopy(partHash)
+	prefix = append(prefix, common.EntryTypeTopicData)
+	prefix = encoding.KeyEncodeInt(prefix, offset)
+	controlClient, err := t.getClient()
+	if err != nil {
+		return 0, err
+	}
+	iter, err := queryutils.CreateIteratorForKeyRange(prefix, nil, controlClient, t.tableGetter)
+	if err != nil {
+		return 0, err
+	}
+	if iter == nil {
+		return 0, nil
+	}
+	var sequence int32
+	for {
+		ok, kv, err := iter.Next()
+		if err != nil {
+			return 0, err
+		}
+		if !ok {
+			break
+		}
+		if bytes.Equal(prefix, kv.Key[:len(prefix)]) {
+			recordProducerID := int(kafkaencoding.ProducerID(kv.Value))
+			if producerID == recordProducerID {
+				baseSequence := kafkaencoding.BaseSequence(kv.Value)
+				lastOffsetDelta := kafkaencoding.LastOffsetDelta(kv.Value)
+				seq := int64(baseSequence) + int64(lastOffsetDelta) + 1
+				seq = seq % (math.MaxInt32 + 1) // wrap it
+				sequence = int32(seq)
+			}
+		} else {
+			break
+		}
+	}
+	return sequence, nil
+}
+
+func (t *TablePusher) maybeSnapshotSequences() error {
+	var kvs []common.KV
+	for producerID, producerMap := range t.producerSeqs {
+		for topicID, topicMap := range producerMap {
+			for partitionID, seqInfo := range topicMap {
+				if seqInfo.dirty {
+					key, err := t.createSequenceSnapshotKey(producerID, topicID, partitionID)
+					if err != nil {
+						return err
+					}
+					value := make([]byte, 0, 10)
+					value = binary.BigEndian.AppendUint16(value, uint16(offsetSnapshotFormatVersion))
+					// We store the offset - this lets us index back into the actual data so we can
+					// load latest sequence after the snapshot
+					value = binary.BigEndian.AppendUint64(value, uint64(seqInfo.offset))
+					kvs = append(kvs, common.KV{
+						Key:   key,
+						Value: value,
+					})
+					seqInfo.dirty = false
+				}
+			}
+		}
+	}
+	t.offsetSnapshotKvs = append(t.offsetSnapshotKvs, kvs...)
+	return nil
+}
+
+func (t *TablePusher) createSequenceSnapshotKey(producerID int, topicID int, partitionID int) ([]byte, error) {
+	partHash, err := t.partitionHashes.GetPartitionHash(topicID, partitionID)
+	if err != nil {
+		return nil, err
+	}
+	key := make([]byte, 25)
+	copy(key, partHash)
+	key[16] = common.EntryTypeOffsetSnapshot
+	binary.BigEndian.PutUint64(key[17:], uint64(producerID))
+	return key, nil
+}
+
+func (t *TablePusher) getLatestValueWithKey(key []byte) ([]byte, error) {
+	keyEnd := common.IncBigEndianBytes(key)
+	controlClient, err := t.getClient()
+	if err != nil {
+		return nil, err
+	}
+	queryRes, err := controlClient.QueryTablesInRange(key, keyEnd)
+	if err != nil {
+		return nil, err
+	}
+	if len(queryRes) == 0 {
+		// no stored txinfo
+		return nil, nil
+	}
+	// We take the first one as that's the most recent
+	nonOverlapping := queryRes[0]
+	res := nonOverlapping[0]
+	tableID := res.ID
+	sstTable, err := t.tableGetter(tableID)
+	if err != nil {
+		return nil, err
+	}
+	iter, err := sstTable.NewIterator(key, keyEnd)
+	if err != nil {
+		return nil, err
+	}
+	ok, kv, err := iter.Next()
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, nil
+	}
+	if len(kv.Value) == 0 {
+		// tombstone
+		return nil, nil
+	}
+	return kv.Value, nil
 }
 
 type DirectWriteRequest struct {
@@ -633,4 +899,27 @@ func (o *DirectWriteRequest) Deserialize(buff []byte, offset int) int {
 		}
 	}
 	return offset
+}
+
+func ChooseTablePusherForGroup(partHash []byte, members []cluster.MembershipEntry) (string, bool) {
+	if len(members) == 0 {
+		return "", false
+	}
+	memberID := CalcMemberForHash(partHash, len(members))
+	data := members[memberID].Data
+	var memberData common.MembershipData
+	memberData.Deserialize(data, 0)
+	return memberData.ClusterListenAddress, true
+}
+
+// CalcMemberForHash - we consider hash as a big endian number and distribute it's range evenly and consecutively across
+// n members. This works as n is always much smaller than math.MaxUint32
+func CalcMemberForHash(hash []byte, n int) int {
+	top32bits := binary.BigEndian.Uint32(hash)
+	res := int(uint64(top32bits) * uint64(n) / uint64(math.MaxUint32))
+	// edge case where top32bits = math.MaxUint32:
+	if res == n {
+		res = n - 1
+	}
+	return res
 }

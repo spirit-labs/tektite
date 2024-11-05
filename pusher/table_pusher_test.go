@@ -3,6 +3,7 @@ package pusher
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"github.com/spirit-labs/tektite/asl/encoding"
@@ -66,7 +67,8 @@ func TestTablePusherWriteDirectSingleWriter(t *testing.T) {
 
 	partHashes, err := parthash.NewPartitionHashes(100)
 	require.NoError(t, err)
-	pusher, err := NewTablePusher(cfg, topicProvider, objStore, clientFactory, partHashes)
+	tableGetter := &testTableGetter{}
+	pusher, err := NewTablePusher(cfg, topicProvider, objStore, clientFactory, tableGetter.getTable, partHashes)
 	require.NoError(t, err)
 	err = pusher.Start()
 	require.NoError(t, err)
@@ -131,7 +133,7 @@ func TestTablePusherWriteDirectSingleWriter(t *testing.T) {
 	require.Equal(t, writerKey, epochInfo.Key)
 }
 
-func TestTablePusherOffsetCommitMultipleWritersOK(t *testing.T) {
+func TestTablePusherDirectWriteMultipleWritersOK(t *testing.T) {
 	cfg := NewConf()
 	cfg.DataBucketName = "test-data-bucket"
 	cfg.WriteTimeout = 1 * time.Millisecond // So it pushes straightaway
@@ -158,7 +160,8 @@ func TestTablePusherOffsetCommitMultipleWritersOK(t *testing.T) {
 	topicProvider := &simpleTopicInfoProvider{}
 	partHashes, err := parthash.NewPartitionHashes(100)
 	require.NoError(t, err)
-	pusher, err := NewTablePusher(cfg, topicProvider, objStore, clientFactory, partHashes)
+	tableGetter := &testTableGetter{}
+	pusher, err := NewTablePusher(cfg, topicProvider, objStore, clientFactory, tableGetter.getTable, partHashes)
 	require.NoError(t, err)
 	err = pusher.Start()
 	require.NoError(t, err)
@@ -237,7 +240,7 @@ func TestTablePusherOffsetCommitMultipleWritersOK(t *testing.T) {
 	}
 }
 
-func TestTablePusherOffsetCommitMultipleGroupsInvalidEpochs(t *testing.T) {
+func TestTablePusherDirectWriteMultipleGroupsInvalidEpochs(t *testing.T) {
 	cfg := NewConf()
 	cfg.DataBucketName = "test-data-bucket"
 	cfg.WriteTimeout = 1 * time.Millisecond // So it pushes straightaway
@@ -266,7 +269,8 @@ func TestTablePusherOffsetCommitMultipleGroupsInvalidEpochs(t *testing.T) {
 	topicProvider := &simpleTopicInfoProvider{}
 	partHashes, err := parthash.NewPartitionHashes(100)
 	require.NoError(t, err)
-	pusher, err := NewTablePusher(cfg, topicProvider, objStore, clientFactory, partHashes)
+	tableGetter := &testTableGetter{}
+	pusher, err := NewTablePusher(cfg, topicProvider, objStore, clientFactory, tableGetter.getTable, partHashes)
 	require.NoError(t, err)
 	err = pusher.Start()
 	require.NoError(t, err)
@@ -383,7 +387,8 @@ func TestTablePusherHandleProduceBatchSimple(t *testing.T) {
 	}}
 	partHashes, err := parthash.NewPartitionHashes(100)
 	require.NoError(t, err)
-	pusher, err := NewTablePusher(cfg, topicProvider, objStore, clientFactory, partHashes)
+	tableGetter := &testTableGetter{}
+	pusher, err := NewTablePusher(cfg, topicProvider, objStore, clientFactory, tableGetter.getTable, partHashes)
 	require.NoError(t, err)
 	err = pusher.Start()
 	require.NoError(t, err)
@@ -509,7 +514,8 @@ func TestTablePusherHandleProduceBatchMultipleTopicsAndPartitions(t *testing.T) 
 	}}
 	partHashes, err := parthash.NewPartitionHashes(100)
 	require.NoError(t, err)
-	pusher, err := NewTablePusher(cfg, topicProvider, objStore, clientFactory, partHashes)
+	tableGetter := &testTableGetter{}
+	pusher, err := NewTablePusher(cfg, topicProvider, objStore, clientFactory, tableGetter.getTable, partHashes)
 	require.NoError(t, err)
 
 	err = pusher.Start()
@@ -712,7 +718,8 @@ func TestTablePusherPushWhenBufferIsFull(t *testing.T) {
 
 	partHashes, err := parthash.NewPartitionHashes(100)
 	require.NoError(t, err)
-	pusher, err := NewTablePusher(cfg, topicProvider, objStore, clientFactory, partHashes)
+	tableGetter := &testTableGetter{}
+	pusher, err := NewTablePusher(cfg, topicProvider, objStore, clientFactory, tableGetter.getTable, partHashes)
 	require.NoError(t, err)
 
 	err = pusher.Start()
@@ -831,7 +838,8 @@ func TestTablePusherPushWhenTimeoutIsExceeded(t *testing.T) {
 
 	partHashes, err := parthash.NewPartitionHashes(100)
 	require.NoError(t, err)
-	pusher, err := NewTablePusher(cfg, topicProvider, objStore, clientFactory, partHashes)
+	tableGetter := &testTableGetter{}
+	pusher, err := NewTablePusher(cfg, topicProvider, objStore, clientFactory, tableGetter.getTable, partHashes)
 	require.NoError(t, err)
 
 	start := time.Now()
@@ -938,7 +946,8 @@ func TestTablePusherHandleProduceBatchMixtureErrorsAndSuccesses(t *testing.T) {
 	}}
 	partHashes, err := parthash.NewPartitionHashes(100)
 	require.NoError(t, err)
-	pusher, err := NewTablePusher(cfg, topicProvider, objStore, clientFactory, partHashes)
+	tableGetter := &testTableGetter{}
+	pusher, err := NewTablePusher(cfg, topicProvider, objStore, clientFactory, tableGetter.getTable, partHashes)
 	require.NoError(t, err)
 
 	err = pusher.Start()
@@ -1160,7 +1169,8 @@ func TestTablePusherUnexpectedError(t *testing.T) {
 	}}
 	partHashes, err := parthash.NewPartitionHashes(100)
 	require.NoError(t, err)
-	pusher, err := NewTablePusher(cfg, topicProvider, objStore, clientFactory, partHashes)
+	tableGetter := &testTableGetter{}
+	pusher, err := NewTablePusher(cfg, topicProvider, objStore, clientFactory, tableGetter.getTable, partHashes)
 	require.NoError(t, err)
 	err = pusher.Start()
 	require.NoError(t, err)
@@ -1204,7 +1214,7 @@ func TestTablePusherUnexpectedError(t *testing.T) {
 	require.NoError(t, err)
 
 	expected := [][]expectedErr{
-		{{errCode: kafkaprotocol.ErrorCodeUnknownServerError}},
+		{{errCode: kafkaprotocol.ErrorCodeUnknownServerError, errMsg: "some random error"}},
 	}
 	checkResponseErrors(t, respCh, expected)
 
@@ -1246,7 +1256,9 @@ func TestTablePusherTemporaryUnavailability(t *testing.T) {
 	}}
 	partHashes, err := parthash.NewPartitionHashes(100)
 	require.NoError(t, err)
-	pusher, err := NewTablePusher(cfg, topicProvider, objStore, clientFactory, partHashes)
+	tableGetter := &testTableGetter{}
+
+	pusher, err := NewTablePusher(cfg, topicProvider, objStore, clientFactory, tableGetter.getTable, partHashes)
 	require.NoError(t, err)
 	err = pusher.Start()
 	require.NoError(t, err)
@@ -1343,6 +1355,319 @@ func TestTablePusherTemporaryUnavailability(t *testing.T) {
 	require.Equal(t, 1, len(receivedRegs))
 }
 
+func TestTablePusherIdempotentProducer(t *testing.T) {
+	pusher, _, _ := setupTablePusherForIdempotentProducer(t)
+	defer func() {
+		err := pusher.Stop()
+		require.NoError(t, err)
+	}()
+
+	for i := 0; i < 10; i++ {
+
+		producerID := i + 123
+
+		// First batch should be sent without error
+		sendBatchWithDedup(t, pusher, producerID, 0, 999, kafkaprotocol.ErrorCodeNone)
+
+		sendBatchWithDedup(t, pusher, producerID, 0, 999, kafkaprotocol.ErrorCodeDuplicateSequenceNumber)
+
+		sendBatchWithDedup(t, pusher, producerID, 1000, 333, kafkaprotocol.ErrorCodeNone)
+
+		sendBatchWithDedup(t, pusher, producerID, 1000, 333, kafkaprotocol.ErrorCodeDuplicateSequenceNumber)
+
+		sendBatchWithDedup(t, pusher, producerID, 1001, 333, kafkaprotocol.ErrorCodeDuplicateSequenceNumber)
+
+		sendBatchWithDedup(t, pusher, producerID, 1334, 500, kafkaprotocol.ErrorCodeNone)
+
+		sendBatchWithDedup(t, pusher, producerID, 1836, 500, kafkaprotocol.ErrorCodeOutOfOrderSequenceNumber)
+
+		sendBatchWithDedup(t, pusher, producerID, 2000, 500, kafkaprotocol.ErrorCodeOutOfOrderSequenceNumber)
+
+		sendBatchWithDedup(t, pusher, producerID, 1835, 500, kafkaprotocol.ErrorCodeNone)
+	}
+
+}
+
+func setupStoredDataAndSnapshot(t *testing.T, producerID int, baseSequence int, numRecords int,
+	tableGetter *mapTableGetter, controllerClient *testControllerClient) {
+	offsetStart := baseSequence
+	//offsetStart := math.MaxInt32 - 99 - 10
+	kv := createSequenceSnapshotKV(t, 1234, 12, producerID, offsetStart)
+	setupTableWithOffsetSnapshot(t, []common.KV{kv}, tableGetter, controllerClient)
+
+	// create some data with this offset
+	batch := testutils.CreateKafkaRecordBatchWithIncrementingKVs(offsetStart, 10)
+	binary.BigEndian.PutUint64(batch[43:], uint64(producerID))
+	binary.BigEndian.PutUint32(batch[23:], uint32(numRecords-1)) // lastOffsetDelta
+	binary.BigEndian.PutUint32(batch[53:], uint32(baseSequence)) // baseSequence
+
+	partHash, err := parthash.CreatePartitionHash(1234, 12)
+	require.NoError(t, err)
+	key := common.ByteSliceCopy(partHash)
+	key = append(key, common.EntryTypeTopicData)
+	key = encoding.KeyEncodeInt(key, int64(offsetStart))
+	key = encoding.EncodeVersion(key, 0)
+
+	kvs := []common.KV{{Key: key, Value: batch}}
+	iter := common.NewKvSliceIterator(kvs)
+	table, _, _, _, _, err := sst.BuildSSTable(common.DataFormatV1, 0, 0, iter)
+	require.NoError(t, err)
+	tableID := sst.CreateSSTableId()
+	tableGetter.tables[tableID] = table
+	controllerClient.queryRes = []lsm.NonOverlappingTables{
+		[]lsm.QueryTableInfo{
+			{
+				ID: []byte(tableID),
+			},
+		},
+	}
+}
+
+func TestTablePusherIdempotentProducerSequenceWrap1(t *testing.T) {
+	producerID := 123
+	pusher, tableGetter, controllerClient := setupTablePusherForIdempotentProducer(t)
+	defer func() {
+		err := pusher.Stop()
+		require.NoError(t, err)
+	}()
+
+	// Set up an initial batch with 10 records such that next expected sequence is setup to be math.MaxInt32 - 99
+	setupStoredDataAndSnapshot(t, producerID, math.MaxInt32-99-10, 10, tableGetter, controllerClient)
+
+	// Send a batch whose last sequence is exactly int32 max value
+	sendBatchWithDedup(t, pusher, producerID, math.MaxInt32-99, 99, kafkaprotocol.ErrorCodeNone)
+
+	// Next batch sequence should wrap to zero
+	sendBatchWithDedup(t, pusher, producerID, 0, 99, kafkaprotocol.ErrorCodeNone)
+
+	sendBatchWithDedup(t, pusher, producerID, 100, 99, kafkaprotocol.ErrorCodeNone)
+}
+
+func TestTablePusherIdempotentProducerSequenceWrap2(t *testing.T) {
+	producerID := 123
+	pusher, tableGetter, controllerClient := setupTablePusherForIdempotentProducer(t)
+	defer func() {
+		err := pusher.Stop()
+		require.NoError(t, err)
+	}()
+
+	// Set up an initial batch with 10 records such that next expected sequence is setup to be math.MaxInt32 - 99
+	setupStoredDataAndSnapshot(t, producerID, math.MaxInt32-99-10, 10, tableGetter, controllerClient)
+
+	// Send a batch whose last sequence would take it over int32 max value
+	sendBatchWithDedup(t, pusher, producerID, math.MaxInt32-99, 149, kafkaprotocol.ErrorCodeNone)
+
+	// Next batch sequence should wrap to 50
+	sendBatchWithDedup(t, pusher, producerID, 50, 99, kafkaprotocol.ErrorCodeNone)
+
+	sendBatchWithDedup(t, pusher, producerID, 150, 99, kafkaprotocol.ErrorCodeNone)
+}
+
+func TestTablePusherLoadSequenceFromSnapshotAndData(t *testing.T) {
+	producerID := 123
+	pusher, tableGetter, controllerClient := setupTablePusherForIdempotentProducer(t)
+	defer func() {
+		err := pusher.Stop()
+		require.NoError(t, err)
+	}()
+
+	// Set up an initial batch with 10 records such that next expected sequence is setup to be 110
+	setupStoredDataAndSnapshot(t, producerID, 100, 10, tableGetter, controllerClient)
+
+	sendBatchWithDedup(t, pusher, producerID, 110, 9, kafkaprotocol.ErrorCodeNone)
+
+	sendBatchWithDedup(t, pusher, producerID, 120, 19, kafkaprotocol.ErrorCodeNone)
+
+	sendBatchWithDedup(t, pusher, producerID, 140, 19, kafkaprotocol.ErrorCodeNone)
+}
+
+func TestTablePusherStoreOffsetSnapshot(t *testing.T) {
+	pusher, _, _ := setupTablePusherForIdempotentProducerWithConfigSetter(t, func(cfg *Conf) {
+		// Set timeout higher so we snapshot before writing
+		cfg.WriteTimeout = 2 * time.Second
+		// Set snapshot interval lower
+		cfg.OffsetSnapshotInterval = 1 * time.Second
+	})
+	defer func() {
+		err := pusher.Stop()
+		require.NoError(t, err)
+	}()
+
+	// Send some data with different producers
+	var chans []chan *kafkaprotocol.ProduceResponse
+	numProducers := 10
+	for i := 0; i < numProducers; i++ {
+		ch := sendBatchWithDedupReturnChannel(t, pusher, i, 0, 9, kafkaprotocol.ErrorCodeNone)
+		chans = append(chans, ch)
+		ch = sendBatchWithDedupReturnChannel(t, pusher, i, 10, 9, kafkaprotocol.ErrorCodeNone)
+		chans = append(chans, ch)
+	}
+
+	// Wait to be written
+	for _, ch := range chans {
+		resp := <-ch
+		require.Equal(t, kafkaprotocol.ErrorCodeNone, int(resp.Responses[0].PartitionResponses[0].ErrorCode))
+	}
+
+	// Check table written
+	ssTables, _ := getSSTablesFromStore(t, pusher.cfg.DataBucketName, pusher.objStore)
+
+	require.Equal(t, 1, len(ssTables))
+
+	partHash, err := parthash.CreatePartitionHash(1234, 12)
+	require.NoError(t, err)
+
+	for i := 0; i < numProducers; i++ {
+		key := make([]byte, 25)
+		copy(key, partHash)
+		key[16] = common.EntryTypeOffsetSnapshot
+		binary.BigEndian.PutUint64(key[17:], uint64(i))
+
+		iter, err := ssTables[0].NewIterator(key, common.IncBigEndianBytes(key))
+		require.NoError(t, err)
+		var receivedKVs []common.KV
+
+		for {
+			ok, kv, err := iter.Next()
+			require.NoError(t, err)
+			if !ok {
+				break
+			}
+			receivedKVs = append(receivedKVs, kv)
+		}
+
+		require.Equal(t, 1, len(receivedKVs))
+
+		// value should be the offset
+		kv := receivedKVs[0]
+		require.Equal(t, 10, len(kv.Value))
+		require.Equal(t, offsetSnapshotFormatVersion, int(binary.BigEndian.Uint16(kv.Value)))
+		offset := binary.BigEndian.Uint64(kv.Value[2:])
+		require.Equal(t, 10, int(offset))
+	}
+}
+
+func setupTablePusherForIdempotentProducer(t *testing.T) (*TablePusher, *mapTableGetter, *testControllerClient) {
+	return setupTablePusherForIdempotentProducerWithConfigSetter(t, nil)
+}
+
+func setupTablePusherForIdempotentProducerWithConfigSetter(t *testing.T, cfgSetter func(conf *Conf)) (*TablePusher, *mapTableGetter, *testControllerClient) {
+
+	cfg := NewConf()
+	cfg.DataBucketName = "test-data-bucket"
+	cfg.WriteTimeout = 1 * time.Millisecond // So it pushes straightaway
+
+	if cfgSetter != nil {
+		cfgSetter(&cfg)
+	}
+
+	objStore := dev.NewInMemStore(0)
+	topicID := 1234
+	seq := int64(23)
+	numRecordsInBatch := 10
+
+	controllerClient := &testControllerClient{
+		sequence: seq,
+		offsets: []offsets.OffsetTopicInfo{
+			{
+				TopicID: topicID,
+				PartitionInfos: []offsets.OffsetPartitionInfo{
+					{
+						PartitionID: 12,
+						Offset:      int64(numRecordsInBatch - 1),
+					},
+				},
+			},
+		},
+	}
+	clientFactory := func() (ControlClient, error) {
+		return controllerClient, nil
+	}
+	topicProvider := &simpleTopicInfoProvider{infos: map[string]topicmeta.TopicInfo{
+		"topic1": {ID: topicID, PartitionCount: 20},
+	}}
+	partHashes, err := parthash.NewPartitionHashes(100)
+	require.NoError(t, err)
+	tableGetter := &mapTableGetter{
+		tables: map[string]*sst.SSTable{},
+	}
+
+	pusher, err := NewTablePusher(cfg, topicProvider, objStore, clientFactory, tableGetter.getTable, partHashes)
+	require.NoError(t, err)
+	err = pusher.Start()
+	require.NoError(t, err)
+
+	return pusher, tableGetter, controllerClient
+}
+
+func setupTableWithOffsetSnapshot(t *testing.T, kvs []common.KV, tg *mapTableGetter, cc *testControllerClient) {
+	iter := common.NewKvSliceIterator(kvs)
+	table, _, _, _, _, err := sst.BuildSSTable(common.DataFormatV1, 0, 0, iter)
+	require.NoError(t, err)
+	tableID := sst.CreateSSTableId()
+	tg.tables[tableID] = table
+	cc.queryResOffsetSnapshot = []lsm.NonOverlappingTables{
+		[]lsm.QueryTableInfo{
+			{
+				ID: []byte(tableID),
+			},
+		},
+	}
+}
+
+func createSequenceSnapshotKV(t *testing.T, topicID int, partitionID int, producerID int, baseOffset int) common.KV {
+	partHash, err := parthash.CreatePartitionHash(topicID, partitionID)
+	require.NoError(t, err)
+	key := make([]byte, 25)
+	copy(key, partHash)
+	key[16] = common.EntryTypeOffsetSnapshot
+	binary.BigEndian.PutUint64(key[17:], uint64(producerID))
+	value := make([]byte, 0, 6)
+	value = binary.BigEndian.AppendUint16(value, uint16(offsetSnapshotFormatVersion))
+	value = encoding.KeyEncodeInt(value, int64(baseOffset))
+	return common.KV{Key: key, Value: value}
+}
+
+func sendBatchWithDedup(t *testing.T, pusher *TablePusher, producerID int, baseSequence int, offsetDelta int, expectedErr int) {
+	ch := sendBatchWithDedupReturnChannel(t, pusher, producerID, baseSequence, offsetDelta, expectedErr)
+	resp := <-ch
+	require.Equal(t, expectedErr, int(resp.Responses[0].PartitionResponses[0].ErrorCode))
+}
+
+func sendBatchWithDedupReturnChannel(t *testing.T, pusher *TablePusher, producerID int, baseSequence int, offsetDelta int, expectedErr int) chan *kafkaprotocol.ProduceResponse {
+	recordBatch := testutils.CreateKafkaRecordBatchWithIncrementingKVs(baseSequence, offsetDelta)
+
+	binary.BigEndian.PutUint32(recordBatch[23:], uint32(offsetDelta)) // lastOffsetDelta
+	binary.BigEndian.PutUint64(recordBatch[43:], uint64(producerID))
+	binary.BigEndian.PutUint32(recordBatch[53:], uint32(baseSequence))
+
+	req := kafkaprotocol.ProduceRequest{
+		TransactionalId: nil,
+		Acks:            -1,
+		TimeoutMs:       1234,
+		TopicData: []kafkaprotocol.ProduceRequestTopicProduceData{
+			{
+				Name: common.StrPtr("topic1"),
+				PartitionData: []kafkaprotocol.ProduceRequestPartitionProduceData{
+					{
+						Index: 12,
+						Records: [][]byte{
+							recordBatch,
+						},
+					},
+				},
+			},
+		},
+	}
+	respCh := make(chan *kafkaprotocol.ProduceResponse, 1)
+	err := pusher.HandleProduceRequest(&req, func(resp *kafkaprotocol.ProduceResponse) error {
+		respCh <- resp
+		return nil
+	})
+	require.NoError(t, err)
+	return respCh
+}
+
 func checkNoPartitionResponseErrors(t *testing.T, respCh chan *kafkaprotocol.ProduceResponse, req *kafkaprotocol.ProduceRequest) {
 	resp := <-respCh
 	require.NotNil(t, resp)
@@ -1409,18 +1734,21 @@ func createExpectedKey(topicID int, partitionID int, offset int64) ([]byte, erro
 	if err != nil {
 		return nil, err
 	}
+	key = append(key, common.EntryTypeTopicData)
 	key = encoding.KeyEncodeInt(key, offset)
 	key = encoding.EncodeVersion(key, 0)
 	return key, nil
 }
 
 type testControllerClient struct {
-	lock               sync.Mutex
-	registrations      []regL0TableInvocation
-	prePushInvocations []prePushInvocation
-	offsets            []offsets.OffsetTopicInfo
-	epochsOkMap        map[string]bool
-	sequence           int64
+	lock                   sync.Mutex
+	registrations          []regL0TableInvocation
+	prePushInvocations     []prePushInvocation
+	offsets                []offsets.OffsetTopicInfo
+	epochsOkMap            map[string]bool
+	sequence               int64
+	queryRes               lsm.OverlappingTables
+	queryResOffsetSnapshot lsm.OverlappingTables
 }
 
 type regL0TableInvocation struct {
@@ -1441,6 +1769,15 @@ func (t *testControllerClient) RegisterL0Table(sequence int64, regEntry lsm.Regi
 		regEntry: regEntry,
 	})
 	return nil
+}
+
+func (t *testControllerClient) QueryTablesInRange(keyStart []byte, keyEnd []byte) (lsm.OverlappingTables, error) {
+	t.lock.Lock()
+	defer t.lock.Unlock()
+	if len(keyStart) > 16 && keyStart[16] == common.EntryTypeOffsetSnapshot {
+		return t.queryResOffsetSnapshot, nil
+	}
+	return t.queryRes, nil
 }
 
 func (t *testControllerClient) getRegistrations() []regL0TableInvocation {
@@ -1614,4 +1951,24 @@ func TestSerializeDeserializeDirectWriteRequest(t *testing.T) {
 	off := req2.Deserialize(buff, 3)
 	require.Equal(t, req, req2)
 	require.Equal(t, off, len(buff))
+}
+
+type testTableGetter struct {
+	table *sst.SSTable
+}
+
+func (t *testTableGetter) getTable(tableID sst.SSTableID) (*sst.SSTable, error) {
+	return t.table, nil
+}
+
+type mapTableGetter struct {
+	tables map[string]*sst.SSTable
+}
+
+func (t *mapTableGetter) getTable(tableID sst.SSTableID) (*sst.SSTable, error) {
+	table, ok := t.tables[string(tableID)]
+	if !ok {
+		return nil, errors.New("cannot find table")
+	}
+	return table, nil
 }
