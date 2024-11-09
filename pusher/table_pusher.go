@@ -274,6 +274,8 @@ func (t *TablePusher) HandleProduceRequest(req *kafkaprotocol.ProduceRequest,
 }
 
 func (t *TablePusher) HandleDirectWrite(_ *transport.ConnectionContext, request []byte, responseBuff []byte, responseWriter transport.ResponseWriter) error {
+	t.lock.Lock()
+	defer t.lock.Unlock()
 	if err := checkRPCVersion(request); err != nil {
 		return err
 	}
