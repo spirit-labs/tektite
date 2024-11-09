@@ -28,12 +28,12 @@ import (
 /*
 TablePusher handles produce requests and buffers batches internally. After a timeout, or if buffer gets full it starts
 the process of writing batches to permanent storage.
-It handles committing of offsets - these are also buffered and written in the same table as any produced data.
+It also allows direct writing of KVs - these are also buffered and written in the same table as any produced data.
 The write process involves:
 * Requesting offsets for each topic partition that needs to be written - these come from the controller which
-caches them in memory. In the same call (PrePush) group epochs for any offsets to be committed are also passed in and
-verified. The return of PrePush contains the offsets (if any) and whether each group epoch was OK or not.
-* If group epochs were not valid, then any committed offsets for invalid epochs do not get written in the table.
+caches them in memory. In the same call (PrePush) epochs for any kvs to be committed are also passed in and
+verified. The return of PrePush contains the offsets (if any) and whether each epoch was OK or not.
+* If epochs were not valid, then any KVs for invalid epochs do not get written in the table.
 * Building the record batches and committed offsets into an SSTable. The table contains one entry per record batch, and
 one entry for each committed partition.
 * Writing the SSTable to object storage
@@ -42,22 +42,22 @@ one entry for each committed partition.
 commit responses.
 */
 type TablePusher struct {
-	lock               sync.Mutex
-	cfg                Conf
-	topicProvider      topicInfoProvider
-	objStore           objstore.Client
-	clientFactory      controllerClientFactory
-	started            bool
-	stopping           atomic.Bool
-	controllerClient   ControlClient
-	partitionRecords   map[int]map[int][]bufferedEntry
-	offsetKVs          map[string][]common.KV
-	offsetCompletions  map[string][]func(error)
-	groupEpochInfos    map[string]int
-	numOffsetsToCommit int
-	partitionHashes    *parthash.PartitionHashes
-	writeTimer         *time.Timer
-	sizeBytes          int
+	lock                 sync.Mutex
+	cfg                  Conf
+	topicProvider        topicInfoProvider
+	objStore             objstore.Client
+	clientFactory        controllerClientFactory
+	started              bool
+	stopping             atomic.Bool
+	controllerClient     ControlClient
+	partitionRecords     map[int]map[int][]bufferedEntry
+	directKVs            map[string][]common.KV
+	directCompletions    map[string][]func(error)
+	directWriterEpochs   map[string]int
+	numDirectKVsToCommit int
+	partitionHashes      *parthash.PartitionHashes
+	writeTimer           *time.Timer
+	sizeBytes            int
 }
 
 type bufferedEntry struct {
@@ -72,7 +72,7 @@ type topicInfoProvider interface {
 type controllerClientFactory func() (ControlClient, error)
 
 type ControlClient interface {
-	PrePush(infos []offsets.GetOffsetTopicInfo, epochInfos []control.GroupEpochInfo) ([]offsets.OffsetTopicInfo, int64,
+	PrePush(infos []offsets.GetOffsetTopicInfo, epochInfos []control.EpochInfo) ([]offsets.OffsetTopicInfo, int64,
 		[]bool, error)
 	RegisterL0Table(sequence int64, regEntry lsm.RegistrationEntry) error
 	Close() error
@@ -95,15 +95,15 @@ func init() {
 func NewTablePusher(cfg Conf, topicProvider topicInfoProvider, objStore objstore.Client,
 	clientFactory controllerClientFactory, partitionHashes *parthash.PartitionHashes) (*TablePusher, error) {
 	return &TablePusher{
-		cfg:               cfg,
-		topicProvider:     topicProvider,
-		objStore:          objStore,
-		clientFactory:     clientFactory,
-		partitionHashes:   partitionHashes,
-		partitionRecords:  map[int]map[int][]bufferedEntry{},
-		groupEpochInfos:   map[string]int{},
-		offsetKVs:         map[string][]common.KV{},
-		offsetCompletions: map[string][]func(error){},
+		cfg:                cfg,
+		topicProvider:      topicProvider,
+		objStore:           objStore,
+		clientFactory:      clientFactory,
+		partitionHashes:    partitionHashes,
+		partitionRecords:   map[int]map[int][]bufferedEntry{},
+		directWriterEpochs: map[string]int{},
+		directKVs:          map[string][]common.KV{},
+		directCompletions:  map[string][]func(error){},
 	}, nil
 }
 
@@ -174,7 +174,7 @@ func (t *TablePusher) callCompletions(err error) {
 			}
 		}
 	}
-	for _, offsetCompletions := range t.offsetCompletions {
+	for _, offsetCompletions := range t.directCompletions {
 		for _, completionFunc := range offsetCompletions {
 			completionFunc(err)
 		}
@@ -273,91 +273,42 @@ func (t *TablePusher) HandleProduceRequest(req *kafkaprotocol.ProduceRequest,
 	return nil
 }
 
-func (t *TablePusher) HandleOffsetCommit(_ *transport.ConnectionContext, request []byte, responseBuff []byte, responseWriter transport.ResponseWriter) error {
+func (t *TablePusher) HandleDirectWrite(_ *transport.ConnectionContext, request []byte, responseBuff []byte, responseWriter transport.ResponseWriter) error {
+	t.lock.Lock()
+	defer t.lock.Unlock()
 	if err := checkRPCVersion(request); err != nil {
 		return err
 	}
-	var req OffsetCommitRequest
+	var req DirectWriteRequest
 	req.Deserialize(request, 2)
-	return t.handleOffsetCommit0(req.Request, req.GroupEpoch, func(resp *kafkaprotocol.OffsetCommitResponse) {
-		responseBuff = resp.Write(req.RequestVersion, responseBuff, nil)
-		if err := responseWriter(responseBuff, nil); err != nil {
-			log.Errorf("failed to write offset commit: %v", err)
+	t.addDirectKVs(&req, func(err error) {
+		if err := responseWriter(responseBuff, err); err != nil {
+			log.Errorf("failed to write response: %v", err)
 		}
-	})
-}
-
-func (t *TablePusher) handleOffsetCommit0(req *kafkaprotocol.OffsetCommitRequest, groupEpoch int,
-	completionFunc func(resp *kafkaprotocol.OffsetCommitResponse)) error {
-	t.lock.Lock()
-	defer t.lock.Unlock()
-	var resp kafkaprotocol.OffsetCommitResponse
-	resp.Topics = make([]kafkaprotocol.OffsetCommitResponseOffsetCommitResponseTopic, len(req.Topics))
-	for i, topicData := range req.Topics {
-		resp.Topics[i].Name = req.Topics[i].Name
-		resp.Topics[i].Partitions = make([]kafkaprotocol.OffsetCommitResponseOffsetCommitResponsePartition, len(topicData.Partitions))
-		for j, partData := range topicData.Partitions {
-			resp.Topics[i].Partitions[j].PartitionIndex = partData.PartitionIndex
-		}
-	}
-	groupID := *req.GroupId
-	lastEpoch, ok := t.groupEpochInfos[groupID]
-	if ok && groupEpoch != lastEpoch {
-		log.Warnf("rejecting offset commit from group %s as epoch is invalid", groupID)
-		fillInErrorCodesForOffsetCommitResponse(&resp, kafkaprotocol.ErrorCodeCoordinatorNotAvailable)
-		completionFunc(&resp)
-		return nil
-	}
-	if !ok {
-		t.groupEpochInfos[groupID] = groupEpoch
-	}
-	partHash, err := parthash.CreateHash([]byte(groupID))
-	if err != nil {
-		panic(err) // won't happen
-	}
-	// Convert to KV pairs
-	var kvs []common.KV
-	for i, topicData := range req.Topics {
-		foundTopic := false
-		info, err := t.topicProvider.GetTopicInfo(*topicData.Name)
-		if err != nil {
-			log.Errorf("failed to find topic %s", *topicData.Name)
-		} else {
-			foundTopic = true
-		}
-		for j, partitionData := range topicData.Partitions {
-			if !foundTopic {
-				resp.Topics[i].Partitions[j].ErrorCode = kafkaprotocol.ErrorCodeUnknownTopicOrPartition
-				continue
-			}
-			offset := partitionData.CommittedOffset
-			// key is [partition_hash, topic_id, partition_id] value is [offset]
-			key := CreateOffsetKey(partHash, info.ID, int(partitionData.PartitionIndex))
-			value := make([]byte, 8)
-			binary.BigEndian.PutUint64(value, uint64(offset))
-			kvs = append(kvs, common.KV{
-				Key:   key,
-				Value: value,
-			})
-			t.numOffsetsToCommit++
-			log.Debugf("group %s topic %d partition %d committing offset %d", *req.GroupId, info.ID,
-				partitionData.PartitionIndex, offset)
-		}
-	}
-	t.offsetKVs[groupID] = append(t.offsetKVs[groupID], kvs...)
-	t.offsetCompletions[groupID] = append(t.offsetCompletions[groupID], func(err error) {
-		if err != nil {
-			if common.IsUnavailableError(err) {
-				log.Warnf("failed to handle offset commit: %v", err)
-				fillInErrorCodesForOffsetCommitResponse(&resp, kafkaprotocol.ErrorCodeCoordinatorNotAvailable)
-			} else {
-				log.Errorf("failed to handle offset commit: %v", err)
-				fillInErrorCodesForOffsetCommitResponse(&resp, kafkaprotocol.ErrorCodeUnknownServerError)
-			}
-		}
-		completionFunc(&resp)
 	})
 	return nil
+}
+
+func (t *TablePusher) AddDirectKVs(req *DirectWriteRequest, completionFunc func(err error)) {
+	t.lock.Lock()
+	defer t.lock.Unlock()
+	t.addDirectKVs(req, completionFunc)
+}
+
+func (t *TablePusher) addDirectKVs(req *DirectWriteRequest, completionFunc func(err error)) {
+	lastEpoch, ok := t.directWriterEpochs[req.WriterKey]
+	if ok && req.WriterEpoch != lastEpoch {
+		msg := fmt.Sprintf("table pusher rejecting direct write from key %s as epoch is invalid", req.WriterKey)
+		log.Warn(msg)
+		completionFunc(common.NewTektiteErrorf(common.Unavailable, msg))
+		return
+	}
+	if !ok {
+		t.directWriterEpochs[req.WriterKey] = req.WriterEpoch
+	}
+	t.directKVs[req.WriterKey] = append(t.directKVs[req.WriterKey], req.KVs...)
+	t.directCompletions[req.WriterKey] = append(t.directCompletions[req.WriterKey], completionFunc)
+	t.numDirectKVsToCommit += len(req.KVs)
 }
 
 func checkRPCVersion(request []byte) error {
@@ -369,32 +320,24 @@ func checkRPCVersion(request []byte) error {
 	return nil
 }
 
-func fillInErrorCodesForOffsetCommitResponse(resp *kafkaprotocol.OffsetCommitResponse, errorCode int) {
-	for i, topicData := range resp.Topics {
-		for j := range topicData.Partitions {
-			resp.Topics[i].Partitions[j].ErrorCode = int16(errorCode)
-		}
-	}
-}
-
-func (t *TablePusher) failOffsetCommits(groupID string) {
-	log.Warnf("attempt to commit offsets for invalid group epoch for consumer group %s - will be ignored", groupID)
-	completions, ok := t.offsetCompletions[groupID]
+func (t *TablePusher) failDirectWrites(writerKey string) {
+	log.Warnf("attempt to write data for invalid group epoch for writer key %s - will be ignored", writerKey)
+	completions, ok := t.directCompletions[writerKey]
 	if !ok {
-		panic("not found offset completions")
+		panic("not found direct completions")
 	}
-	kvs, ok := t.offsetKVs[groupID]
+	kvs, ok := t.directKVs[writerKey]
 	if !ok {
-		panic("not found offset kvs")
+		panic("not found direct kvs")
 	}
 	for _, completion := range completions {
-		err := common.NewTektiteErrorf(common.Unavailable, "unable to commit offsets for group %s as epoch is invalid",
-			groupID)
+		err := common.NewTektiteErrorf(common.Unavailable, "unable to commit direct writes for key %s as epoch is invalid",
+			writerKey)
 		completion(err)
 	}
-	delete(t.offsetKVs, groupID)
-	delete(t.offsetCompletions, groupID)
-	t.numOffsetsToCommit -= len(kvs)
+	delete(t.directKVs, writerKey)
+	delete(t.directCompletions, writerKey)
+	t.numDirectKVsToCommit -= len(kvs)
 }
 
 func CreateOffsetKey(partHash []byte, topicID int, partitionID int) []byte {
@@ -470,7 +413,7 @@ func intCompare(i1, i2 int) int {
 }
 
 func (t *TablePusher) write() error {
-	if len(t.partitionRecords) == 0 && t.numOffsetsToCommit == 0 {
+	if len(t.partitionRecords) == 0 && t.numDirectKVsToCommit == 0 {
 		// Nothing to do
 		return nil
 	}
@@ -514,11 +457,11 @@ func (t *TablePusher) write() error {
 		}
 	}
 	// Prepare the epoch infos
-	groupEpochInfos := make([]control.GroupEpochInfo, 0, len(t.groupEpochInfos))
-	for groupID, epoch := range t.groupEpochInfos {
-		groupEpochInfos = append(groupEpochInfos, control.GroupEpochInfo{
-			GroupID:    groupID,
-			GroupEpoch: epoch,
+	groupEpochInfos := make([]control.EpochInfo, 0, len(t.directWriterEpochs))
+	for groupID, epoch := range t.directWriterEpochs {
+		groupEpochInfos = append(groupEpochInfos, control.EpochInfo{
+			Key:   groupID,
+			Epoch: epoch,
 		})
 	}
 	// Now make the prePush call - this gets any offsets for topic data to be written and also provides epochs for
@@ -531,21 +474,21 @@ func (t *TablePusher) write() error {
 	if len(offs) != len(getOffSetInfos) {
 		panic("invalid offsets returned")
 	}
-	if len(epochsOK) != len(t.groupEpochInfos) {
+	if len(epochsOK) != len(t.directWriterEpochs) {
 		panic("invalid epochs ok returned")
 	}
 	for i, ok := range epochsOK {
 		if !ok {
 			// If invalid epochs for any committed offsets are returned we fail the offset commits for that groupID
 			// and they are not included in the table that is pushed
-			groupID := groupEpochInfos[i].GroupID
-			t.failOffsetCommits(groupID)
+			groupID := groupEpochInfos[i].Key
+			t.failDirectWrites(groupID)
 		}
 	}
 	// Create KVs for the batches
-	kvs := make([]common.KV, 0, len(offs)+t.numOffsetsToCommit)
+	kvs := make([]common.KV, 0, len(offs)+t.numDirectKVsToCommit)
 	// Add any offsets to commit
-	for _, offsetKVs := range t.offsetKVs {
+	for _, offsetKVs := range t.directKVs {
 		kvs = append(kvs, offsetKVs...)
 	}
 	for i, topOffset := range offs {
@@ -636,37 +579,58 @@ func (t *TablePusher) write() error {
 
 func (t *TablePusher) reset() {
 	t.partitionRecords = make(map[int]map[int][]bufferedEntry)
-	if t.numOffsetsToCommit > 0 {
-		t.offsetKVs = map[string][]common.KV{}
-		t.offsetCompletions = map[string][]func(error){}
-		t.groupEpochInfos = make(map[string]int)
-		t.numOffsetsToCommit = 0
+	if t.numDirectKVsToCommit > 0 {
+		t.directKVs = map[string][]common.KV{}
+		t.directCompletions = map[string][]func(error){}
+		t.directWriterEpochs = make(map[string]int)
+		t.numDirectKVsToCommit = 0
 	}
 	t.sizeBytes = 0
 }
 
-type OffsetCommitRequest struct {
-	GroupEpoch     int
-	RequestVersion int16
-	Request        *kafkaprotocol.OffsetCommitRequest
+type DirectWriteRequest struct {
+	WriterKey   string
+	WriterEpoch int
+	KVs         []common.KV
 }
 
-func (o *OffsetCommitRequest) Serialize(buff []byte) []byte {
-	buff = binary.BigEndian.AppendUint64(buff, uint64(o.GroupEpoch))
-	buff = binary.BigEndian.AppendUint16(buff, uint16(o.RequestVersion))
-	return o.Request.Write(o.RequestVersion, buff, nil)
-}
-
-func (o *OffsetCommitRequest) Deserialize(buff []byte, offset int) int {
-	o.GroupEpoch = int(binary.BigEndian.Uint64(buff[offset:]))
-	offset += 8
-	o.RequestVersion = int16(binary.BigEndian.Uint16(buff[offset:]))
-	offset += 2
-	o.Request = &kafkaprotocol.OffsetCommitRequest{}
-	br, err := o.Request.Read(o.RequestVersion, buff[offset:])
-	if err != nil {
-		panic(err)
+func (o *DirectWriteRequest) Serialize(buff []byte) []byte {
+	buff = binary.BigEndian.AppendUint32(buff, uint32(len(o.WriterKey)))
+	buff = append(buff, o.WriterKey...)
+	buff = binary.BigEndian.AppendUint64(buff, uint64(o.WriterEpoch))
+	buff = binary.BigEndian.AppendUint32(buff, uint32(len(o.KVs)))
+	for _, kv := range o.KVs {
+		buff = binary.BigEndian.AppendUint32(buff, uint32(len(kv.Key)))
+		buff = append(buff, kv.Key...)
+		buff = binary.BigEndian.AppendUint32(buff, uint32(len(kv.Value)))
+		buff = append(buff, kv.Value...)
 	}
-	offset += br
+	return buff
+}
+
+func (o *DirectWriteRequest) Deserialize(buff []byte, offset int) int {
+	ln := int(binary.BigEndian.Uint32(buff[offset:]))
+	offset += 4
+	o.WriterKey = string(buff[offset : offset+ln])
+	offset += ln
+	o.WriterEpoch = int(binary.BigEndian.Uint64(buff[offset:]))
+	offset += 8
+	ln = int(binary.BigEndian.Uint32(buff[offset:]))
+	offset += 4
+	o.KVs = make([]common.KV, ln)
+	for i := 0; i < ln; i++ {
+		lk := int(binary.BigEndian.Uint32(buff[offset:]))
+		offset += 4
+		key := buff[offset : offset+lk]
+		offset += lk
+		lv := int(binary.BigEndian.Uint32(buff[offset:]))
+		offset += 4
+		value := buff[offset : offset+lv]
+		offset += lv
+		o.KVs[i] = common.KV{
+			Key:   key,
+			Value: value,
+		}
+	}
 	return offset
 }

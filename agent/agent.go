@@ -100,7 +100,7 @@ func NewAgentWithFactories(cfg Conf, objStore objstore.Client, connectionFactory
 		return nil, err
 	}
 	agent.tablePusher = tablePusher
-	transportServer.RegisterHandler(transport.HandlerIDTablePusherOffsetCommit, tablePusher.HandleOffsetCommit)
+	transportServer.RegisterHandler(transport.HandlerIDTablePusherDirectWrite, tablePusher.HandleDirectWrite)
 	fetchCache, err := fetchcache.NewCache(objStore, connectionFactory, transportServer, cfg.FetchCacheConf)
 	if err != nil {
 		return nil, err

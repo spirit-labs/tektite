@@ -1,7 +1,6 @@
 package common
 
 import (
-	"fmt"
 	"unsafe"
 )
 
@@ -17,7 +16,7 @@ func StrPtr(s string) *string {
 
 func SafeDerefStringPtr(s *string) string {
 	if s == nil {
-		return fmt.Sprintf("string ptr is nil")
+		return ""
 	}
 	return *s
 }
