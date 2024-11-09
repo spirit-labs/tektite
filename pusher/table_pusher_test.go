@@ -98,7 +98,7 @@ func TestTablePusherWriteDirectSingleWriter(t *testing.T) {
 	}
 
 	respCh := make(chan error, 1)
-	pusher.addDirectKVs(&req, func(err error) {
+	pusher.AddDirectKVs(&req, func(err error) {
 		respCh <- err
 	})
 	err = <-respCh
@@ -189,7 +189,7 @@ func TestTablePusherOffsetCommitMultipleWritersOK(t *testing.T) {
 		}
 
 		respCh := make(chan error, 1)
-		pusher.addDirectKVs(&req, func(err error) {
+		pusher.AddDirectKVs(&req, func(err error) {
 			respCh <- err
 		})
 		chans = append(chans, respCh)
@@ -299,7 +299,7 @@ func TestTablePusherOffsetCommitMultipleGroupsInvalidEpochs(t *testing.T) {
 		}
 
 		respCh := make(chan error, 1)
-		pusher.addDirectKVs(&req, func(err error) {
+		pusher.AddDirectKVs(&req, func(err error) {
 			respCh <- err
 		})
 		chans = append(chans, respCh)

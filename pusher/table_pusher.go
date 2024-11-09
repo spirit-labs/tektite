@@ -287,6 +287,12 @@ func (t *TablePusher) HandleDirectWrite(_ *transport.ConnectionContext, request 
 	return nil
 }
 
+func (t *TablePusher) AddDirectKVs(req *DirectWriteRequest, completionFunc func(err error)) {
+	t.lock.Lock()
+	defer t.lock.Unlock()
+	t.addDirectKVs(req, completionFunc)
+}
+
 func (t *TablePusher) addDirectKVs(req *DirectWriteRequest, completionFunc func(err error)) {
 	lastEpoch, ok := t.directWriterEpochs[req.WriterKey]
 	if ok && req.WriterEpoch != lastEpoch {
