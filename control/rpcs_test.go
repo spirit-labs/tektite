@@ -369,3 +369,30 @@ func TestSerializeDeserializeTableRegisteredNotification(t *testing.T) {
 	require.Equal(t, notif, notif2)
 	require.Equal(t, off, len(buff))
 }
+
+func TestGenerateSequenceRequest(t *testing.T) {
+	req := GenerateSequenceRequest{
+		LeaderVersion: 1232,
+		SequenceName:  "some_sequence_name",
+	}
+	var buff []byte
+	buff = append(buff, 1, 2, 3)
+	buff = req.Serialize(buff)
+	var req2 GenerateSequenceRequest
+	off := req2.Deserialize(buff, 3)
+	require.Equal(t, req, req2)
+	require.Equal(t, off, len(buff))
+}
+
+func TestGenerateSequenceResponse(t *testing.T) {
+	req := GenerateSequenceResponse{
+		Sequence: 2342134124,
+	}
+	var buff []byte
+	buff = append(buff, 1, 2, 3)
+	buff = req.Serialize(buff)
+	var req2 GenerateSequenceResponse
+	off := req2.Deserialize(buff, 3)
+	require.Equal(t, req, req2)
+	require.Equal(t, off, len(buff))
+}

@@ -3,6 +3,7 @@
 package testutils
 
 import (
+	"encoding/binary"
 	"fmt"
 	"github.com/spirit-labs/tektite/kafkaencoding"
 	"github.com/spirit-labs/tektite/types"
@@ -31,6 +32,9 @@ func CreateKafkaRecordBatch(messages []RawKafkaMessage, offsetStart int64) []byt
 		first = false
 	}
 	kafkaencoding.SetBatchHeader(batchBytes, offsetStart, offset, firstTimestamp, timestamp, len(messages), crc32.NewIEEE())
+	// Set producer id to -1 (no idempotent producer)
+	minusOne := int64(-1)
+	binary.BigEndian.PutUint64(batchBytes[43:], uint64(minusOne))
 	return batchBytes
 }
 

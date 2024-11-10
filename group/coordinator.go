@@ -121,17 +121,6 @@ func (c *Coordinator) MembershipChanged(_ int32, memberState cluster.MembershipS
 	return nil
 }
 
-func (c *Coordinator) chooseTablePusherForGroup(partHash []byte) (string, bool) {
-	if len(c.membership.Members) == 0 {
-		return "", false
-	}
-	memberID := CalcMemberForHash(partHash, len(c.membership.Members))
-	data := c.membership.Members[memberID].Data
-	var memberData common.MembershipData
-	memberData.Deserialize(data, 0)
-	return memberData.ClusterListenAddress, true
-}
-
 func (c *Coordinator) checkStarted() error {
 	if !c.started {
 		return errors.New("coordinator is not started")

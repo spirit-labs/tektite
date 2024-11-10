@@ -2024,6 +2024,7 @@ func setupTable(t *testing.T, batchInfos []partitionBatchInfo, objStore objstore
 		require.NoError(t, err)
 		key := make([]byte, 0, 24)
 		key = append(key, prefix...)
+		key = append(key, common.EntryTypeTopicData)
 		key = encoding.KeyEncodeInt(key, info.offsetStart)
 		key = encoding.EncodeVersion(key, 0)
 		batch := testutils.CreateKafkaRecordBatchWithIncrementingKVs(int(info.offsetStart), info.numRecords)
@@ -2316,6 +2317,10 @@ func (t *testControlClient) DeleteTopic(topicName string) error {
 }
 
 func (t *testControlClient) GetCoordinatorInfo(key string) (memberID int32, address string, groupEpoch int, err error) {
+	panic("should not be called")
+}
+
+func (t *testControlClient) GenerateSequence(sequenceName string) (int64, error) {
 	panic("should not be called")
 }
 

@@ -111,3 +111,15 @@ func NumRecords(records []byte) int {
 func BaseOffset(records []byte) int64 {
 	return int64(binary.BigEndian.Uint64(records))
 }
+
+func ProducerID(records []byte) int64 {
+	return int64(binary.BigEndian.Uint64(records[43:]))
+}
+
+func BaseSequence(records []byte) int32 {
+	return int32(binary.BigEndian.Uint32(records[53:]))
+}
+
+func LastOffsetDelta(records []byte) int32 {
+	return int32(binary.BigEndian.Uint32(records[23:]))
+}

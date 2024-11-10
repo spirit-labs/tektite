@@ -8,6 +8,7 @@ import (
 	"github.com/spirit-labs/tektite/kafkaprotocol"
 	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/lsm"
+	"github.com/spirit-labs/tektite/queryutils"
 	"github.com/spirit-labs/tektite/sst"
 	"math"
 	"sync"
@@ -252,11 +253,7 @@ func (p *PartitionFetchState) read() (wouldExceedRequestMax bool, wouldExceedPar
 				return false, false, err
 			}
 			keyStart, keyEnd := p.createKeyStartAndEnd(p.fetchOffset, lastReadableOffset)
-			ids, err := cl.QueryTablesInRange(keyStart, keyEnd)
-			if err != nil {
-				return false, false, err
-			}
-			iter, err = p.createIteratorForKeyRange(ids, keyStart, keyEnd)
+			iter, err = queryutils.CreateIteratorForKeyRange(keyStart, keyEnd, cl, p.fs.bf.tableGetter)
 			if err != nil {
 				return false, false, err
 			}
@@ -298,11 +295,13 @@ func (p *PartitionFetchState) read() (wouldExceedRequestMax bool, wouldExceedPar
 }
 
 func (p *PartitionFetchState) createKeyStartAndEnd(fetchOffset int64, lro int64) ([]byte, []byte) {
-	keyStart := make([]byte, 0, 24)
+	keyStart := make([]byte, 0, 25)
 	keyStart = append(keyStart, p.partitionHash...)
+	keyStart = append(keyStart, common.EntryTypeTopicData)
 	keyStart = encoding.KeyEncodeInt(keyStart, fetchOffset)
-	keyEnd := make([]byte, 0, 24)
+	keyEnd := make([]byte, 0, 25)
 	keyEnd = append(keyEnd, p.partitionHash...)
+	keyEnd = append(keyEnd, common.EntryTypeTopicData)
 	keyEnd = encoding.KeyEncodeInt(keyEnd, lro+1)
 	return keyStart, keyEnd
 }
@@ -350,11 +349,13 @@ func (p *PartitionFetchState) createIteratorFromTabIDs(tableIDs []*sst.SSTableID
 	if len(tableIDs) == 0 {
 		return &iteration.EmptyIterator{}, nil
 	}
-	keyStart := make([]byte, 0, 24)
+	keyStart := make([]byte, 0, 25)
 	keyStart = append(keyStart, p.partitionHash...)
+	keyStart = append(keyStart, common.EntryTypeTopicData)
 	keyStart = encoding.KeyEncodeInt(keyStart, fromOffset)
-	keyEnd := make([]byte, 0, 24)
+	keyEnd := make([]byte, 0, 25)
 	keyEnd = append(keyEnd, p.partitionHash...)
+	keyEnd = append(keyEnd, common.EntryTypeTopicData)
 	keyEnd = encoding.KeyEncodeInt(keyEnd, lastReadableOffset+1)
 	var iter iteration.Iterator
 	if len(tableIDs) > 1 {

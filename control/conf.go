@@ -15,6 +15,7 @@ type Conf struct {
 	DataFormat common.DataFormat
 	TableNotificationInterval time.Duration
 	LsmConf                          lsm.Conf
+	SequencesBlockSize int
 }
 
 func NewConf() Conf {
@@ -27,6 +28,7 @@ func NewConf() Conf {
 		DataFormat: common.DataFormatV1,
 		TableNotificationInterval: 5 * time.Second,
 		LsmConf:                          lsm.NewConf(),
+		SequencesBlockSize: 100,
 	}
 }
 

@@ -10,9 +10,12 @@ import (
 	"github.com/spirit-labs/tektite/lsm"
 	"github.com/spirit-labs/tektite/objstore"
 	"github.com/spirit-labs/tektite/offsets"
+	"github.com/spirit-labs/tektite/sst"
 	"github.com/spirit-labs/tektite/topicmeta"
 	"github.com/spirit-labs/tektite/transport"
 	"sync"
+	"sync/atomic"
+	"time"
 )
 
 /*
@@ -24,6 +27,7 @@ type Controller struct {
 	cfg                        Conf
 	lock                       sync.RWMutex
 	started                    bool
+	stopping                   atomic.Bool
 	objStoreClient             objstore.Client
 	connectionFactory          transport.ConnectionFactory
 	transportServer            transport.Server
@@ -33,6 +37,8 @@ type Controller struct {
 	currentMembership          cluster.MembershipState
 	tableListeners             *tableListeners
 	groupCoordinatorController *CoordinatorController
+	tableGetter                sst.TableGetter
+	sequences                  *Sequences
 	memberID                   int32
 }
 
@@ -49,6 +55,11 @@ func NewController(cfg Conf, objStoreClient objstore.Client, connectionFactory t
 	}
 	return control
 }
+
+const (
+	objStoreCallTimeout      = 5 * time.Second
+	unavailabilityRetryDelay = 1 * time.Second
+)
 
 func (c *Controller) Start() error {
 	c.lock.Lock()
@@ -67,18 +78,24 @@ func (c *Controller) Start() error {
 	c.transportServer.RegisterHandler(transport.HandlerIDControllerCreateTopic, c.handleCreateTopic)
 	c.transportServer.RegisterHandler(transport.HandlerIDControllerDeleteTopic, c.handleDeleteTopic)
 	c.transportServer.RegisterHandler(transport.HandlerIDControllerGetGroupCoordinatorInfo, c.handleGetGroupCoordinatorInfo)
+	c.transportServer.RegisterHandler(transport.HandlerIDControllerGenerateSequence, c.handleGenerateSequenceRequest)
 	c.tableListeners.start()
 	c.started = true
 	return nil
 }
 
 func (c *Controller) Stop() error {
+	c.stopping.Store(true)
 	c.lock.Lock()
 	defer c.lock.Unlock()
 	if !c.started {
 		return nil
 	}
 	return c.stop()
+}
+
+func (c *Controller) SetTableGetter(getter sst.TableGetter) {
+	c.tableGetter = getter
 }
 
 func (c *Controller) stop() error {
@@ -99,6 +116,10 @@ func (c *Controller) stop() error {
 		c.offsetsCache = nil
 	}
 	c.tableListeners.stop()
+	if c.sequences != nil {
+		c.sequences.Stop()
+		c.sequences = nil
+	}
 	c.currentMembership = cluster.MembershipState{}
 	c.started = false
 	return nil
@@ -142,6 +163,8 @@ func (c *Controller) MembershipChanged(thisMemberID int32, newState cluster.Memb
 				return err
 			}
 			c.offsetsCache = cache
+			c.sequences = NewSequences(lsmHolder, c.tableGetter, c.objStoreClient, c.cfg.SSTableBucketName,
+				c.cfg.DataFormat, int64(c.cfg.SequencesBlockSize))
 		}
 	} else {
 		// This controller is not leader
@@ -434,6 +457,28 @@ func (c *Controller) handleGetGroupCoordinatorInfo(_ *transport.ConnectionContex
 		Address:    address,
 		GroupEpoch: groupEpoch,
 	}
+	responseBuff = resp.Serialize(responseBuff)
+	return responseWriter(responseBuff, nil)
+}
+
+func (c *Controller) handleGenerateSequenceRequest(_ *transport.ConnectionContext, request []byte, responseBuff []byte,
+	responseWriter transport.ResponseWriter) error {
+	c.lock.RLock()
+	defer c.lock.RUnlock()
+	if !c.requestChecks(request, responseWriter) {
+		return nil
+	}
+	var req GenerateSequenceRequest
+	req.Deserialize(request, 2)
+	if err := c.checkLeaderVersion(req.LeaderVersion); err != nil {
+		return responseWriter(nil, err)
+	}
+	seq, err := c.sequences.GenerateSequence(req.SequenceName)
+	if err != nil {
+		return responseWriter(nil, err)
+	}
+	var resp GenerateSequenceResponse
+	resp.Sequence = seq
 	responseBuff = resp.Serialize(responseBuff)
 	return responseWriter(responseBuff, nil)
 }

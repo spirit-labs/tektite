@@ -167,6 +167,14 @@ func (c *clientWrapper) GetCoordinatorInfo(groupID string) (int32, string, int, 
 	return memberID, address, groupEpoch, err
 }
 
+func (c *clientWrapper) GenerateSequence(sequenceName string) (int64, error) {
+	seq, err := c.client.GenerateSequence(sequenceName)
+	if err != nil {
+		c.closeConnection()
+	}
+	return seq, err
+}
+
 func (c *clientWrapper) closeConnection() {
 	// always close connection on error
 	if err := c.Close(); err != nil {

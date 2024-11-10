@@ -472,7 +472,10 @@ func createDataEntry(t *testing.T, topicID int, partitionID int, offset int) com
 	require.NoError(t, err)
 	prefix, err := partHashes.GetPartitionHash(topicID, partitionID)
 	require.NoError(t, err)
-	key := encoding.KeyEncodeInt(prefix, int64(offset))
+	var key []byte
+	key = append(key, prefix...)
+	key = append(key, common.EntryTypeTopicData)
+	key = encoding.KeyEncodeInt(key, int64(offset))
 	key = encoding.EncodeVersion(key, 0)
 	recordBatch := testutils.CreateKafkaRecordBatchWithIncrementingKVs(offset, 1)
 	return common.KV{

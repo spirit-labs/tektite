@@ -435,6 +435,31 @@ func TestControllerCreateGetDeleteTopics(t *testing.T) {
 	}
 }
 
+func TestControllerGenerateSequence(t *testing.T) {
+	controllers, tearDown := setupControllers(t, 1)
+	defer tearDown(t)
+
+	updateMembership(t, 1, 1, controllers, 0)
+	setupTopics(t, controllers[0])
+
+	cl, err := controllers[0].Client()
+	require.NoError(t, err)
+	defer func() {
+		err := cl.Close()
+		require.NoError(t, err)
+	}()
+
+	numSequences := 10
+	numVals := 200
+	for i := 0; i < numVals; i++ {
+		for j := 0; j < numSequences; j++ {
+			seq, err := cl.GenerateSequence(fmt.Sprintf("test-sequence%d", j))
+			require.NoError(t, err)
+			require.Equal(t, i, int(seq))
+		}
+	}
+}
+
 func setupControllers(t *testing.T, numMembers int) ([]*Controller, func(t *testing.T)) {
 	objStore := dev.NewInMemStore(0)
 	controllers, _, tearDown := setupControllersWithObjectStore(t, numMembers, objStore)

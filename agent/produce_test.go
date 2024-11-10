@@ -441,8 +441,9 @@ func verifyBatchesWritten(t *testing.T, topicID int, partitionID int, offsetStar
 	require.NoError(t, err)
 	prefix, err := partHashes.GetPartitionHash(topicID, partitionID)
 	require.NoError(t, err)
-
-	keyStart := encoding.KeyEncodeInt(common.ByteSliceCopy(prefix), int64(offsetStart))
+	keyStart := append(common.ByteSliceCopy(prefix), common.EntryTypeTopicData)
+	keyStart = encoding.KeyEncodeInt(keyStart, int64(offsetStart))
+	keyStart = append(keyStart, common.EntryTypeTopicData)
 	keyEnd := common.IncBigEndianBytes(prefix)
 
 	ids, err := controllerCl.QueryTablesInRange(keyStart, keyEnd)
@@ -477,7 +478,8 @@ func verifyBatchesWritten(t *testing.T, topicID int, partitionID int, offsetStar
 		ok, kv, err := mi.Next()
 		require.NoError(t, err)
 		require.True(t, ok)
-		expectedKey := encoding.KeyEncodeInt(common.ByteSliceCopy(prefix), int64(expectedOffset))
+		expectedKey := append(common.ByteSliceCopy(prefix), common.EntryTypeTopicData)
+		expectedKey = encoding.KeyEncodeInt(expectedKey, int64(expectedOffset))
 		expectedKey = encoding.EncodeVersion(expectedKey, 0)
 		require.Equal(t, kv.Key, expectedKey)
 		recordBatch := kv.Value
