@@ -17,7 +17,7 @@ import (
 type group struct {
 	gc                      *Coordinator
 	id                      string
-	offsetWriterKey string
+	offsetWriterKey         string
 	partHash                []byte
 	lock                    sync.Mutex
 	state                   int
@@ -692,7 +692,7 @@ func fillAllErrorCodesForOffsetFetch(resp *kafkaprotocol.OffsetFetchResponse, er
 	}
 }
 
-func (g *group) offsetCommit(req *kafkaprotocol.OffsetCommitRequest, resp *kafkaprotocol.OffsetCommitResponse) int {
+func (g *group) offsetCommit(transactional bool, req *kafkaprotocol.OffsetCommitRequest, resp *kafkaprotocol.OffsetCommitResponse) int {
 	g.lock.Lock()
 	defer g.lock.Unlock()
 	if int(req.GenerationIdOrMemberEpoch) != g.generationID {
@@ -719,7 +719,15 @@ func (g *group) offsetCommit(req *kafkaprotocol.OffsetCommitRequest, resp *kafka
 			}
 			offset := partitionData.CommittedOffset
 			// key is [partition_hash, topic_id, partition_id] value is [offset]
-			key := createOffsetKey(g.partHash, info.ID, int(partitionData.PartitionIndex))
+			// TODO for transactional we also need to store the producer id and producer epoch
+			// and we need to verify that the producer epoch for a group hasn't gone backwards (?)
+			var offsetKeyType byte
+			if transactional {
+				offsetKeyType = offsetKeyTransactional
+			} else {
+				offsetKeyType = offsetKeyPublic
+			}
+			key := createOffsetKey(g.partHash, offsetKeyType, info.ID, int(partitionData.PartitionIndex))
 			value := make([]byte, 8)
 			binary.BigEndian.PutUint64(value, uint64(offset))
 			kvs = append(kvs, common.KV{
@@ -731,12 +739,12 @@ func (g *group) offsetCommit(req *kafkaprotocol.OffsetCommitRequest, resp *kafka
 		}
 	}
 	commitReq := pusher.DirectWriteRequest{
-		WriterKey: g.offsetWriterKey,
+		WriterKey:   g.offsetWriterKey,
 		WriterEpoch: g.groupEpoch,
-		KVs: kvs,
+		KVs:         kvs,
 	}
 	buff := commitReq.Serialize(createRequestBuffer())
-	pusherAddress, ok := pusher.ChooseTablePusherForGroup(g.partHash, g.gc.membership.Members)
+	pusherAddress, ok := pusher.ChooseTablePusherForHash(g.partHash, g.gc.membership.Members)
 	if !ok {
 		// No available pushers
 		log.Warnf("cannot commit offsets as no members in cluster")
@@ -760,9 +768,15 @@ func (g *group) offsetCommit(req *kafkaprotocol.OffsetCommitRequest, resp *kafka
 	return kafkaprotocol.ErrorCodeNone
 }
 
-func createOffsetKey(partHash []byte, topicID int, partitionID int) []byte {
+const (
+	offsetKeyPublic        = byte(1)
+	offsetKeyTransactional = byte(2)
+)
+
+func createOffsetKey(partHash []byte, offsetKeyType byte, topicID int, partitionID int) []byte {
 	var key []byte
 	key = append(key, partHash...)
+	key = append(key, offsetKeyType)
 	key = binary.BigEndian.AppendUint64(key, uint64(topicID))
 	key = binary.BigEndian.AppendUint64(key, uint64(partitionID))
 	return key
@@ -775,7 +789,7 @@ func createRequestBuffer() []byte {
 }
 
 func (g *group) loadOffset(topicID int, partitionID int) (int64, error) {
-	key := pusher.CreateOffsetKey(g.partHash, topicID, partitionID)
+	key := createOffsetKey(g.partHash, offsetKeyPublic, topicID, partitionID)
 	cl, err := g.gc.clientCache.GetClient()
 	if err != nil {
 		return 0, err

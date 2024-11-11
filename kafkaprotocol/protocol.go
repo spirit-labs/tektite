@@ -1,21 +1,25 @@
 package kafkaprotocol
 
 const (
-	APIKeyProduce          = 0
-	APIKeyFetch            = 1
-	APIKeyListOffsets      = 2
-	APIKeyMetadata         = 3
-	APIKeyOffsetCommit     = 8
-	APIKeyOffsetFetch      = 9
-	APIKeyFindCoordinator  = 10
-	ApiKeyJoinGroup        = 11
-	ApiKeyHeartbeat        = 12
-	ApiKeyLeaveGroup       = 13
-	ApiKeySyncGroup        = 14
-	APIKeySaslHandshake    = 17
-	APIKeyAPIVersions      = 18
-	APIKeyInitProducerId   = 22
-	APIKeySaslAuthenticate = 36
+	APIKeyProduce            = 0
+	APIKeyFetch              = 1
+	APIKeyListOffsets        = 2
+	APIKeyMetadata           = 3
+	APIKeyOffsetCommit       = 8
+	APIKeyOffsetFetch        = 9
+	APIKeyFindCoordinator    = 10
+	ApiKeyJoinGroup          = 11
+	ApiKeyHeartbeat          = 12
+	ApiKeyLeaveGroup         = 13
+	ApiKeySyncGroup          = 14
+	APIKeySaslHandshake      = 17
+	APIKeyAPIVersions        = 18
+	APIKeyInitProducerId     = 22
+	APIKeyAddPartitionsToTxn = 24
+	APIKeyAddOffsetsToTxn    = 25
+	APIKeyEndTxn             = 26
+	APIKeyTxnOffsetCommit    = 28
+	APIKeySaslAuthenticate   = 36
 )
 
 const (
@@ -59,7 +63,7 @@ const (
 	ErrorCodeTopicAlreadyExists                 = 36
 	ErrorCodeInvalidPartitions                  = 37
 	ErrorCodeInvalidReplicationFactor           = 38
-	ErrorCodeInvalidReplicaAssignment          = 39
+	ErrorCodeInvalidReplicaAssignment           = 39
 	ErrorCodeInvalidConfig                      = 40
 	ErrorCodeNotController                      = 41
 	ErrorCodeInvalidRequest                     = 42
@@ -110,6 +114,13 @@ var SupportedAPIVersions = []ApiVersionsResponseApiVersion{
 	{ApiKey: APIKeySaslHandshake, MinVersion: 0, MaxVersion: 1},
 	{ApiKey: APIKeyInitProducerId, MinVersion: 0, MaxVersion: 0},
 	{ApiKey: APIKeySaslAuthenticate, MinVersion: 0, MaxVersion: 1},
+	/*
+		Transactions are currently incomplete
+		{ApiKey: APIKeyAddPartitionsToTxn, MinVersion: 3, MaxVersion: 3},
+		{ApiKey: APIKeyAddOffsetsToTxn, MinVersion: 3, MaxVersion: 3},
+		{ApiKey: APIKeyEndTxn, MinVersion: 3, MaxVersion: 3},
+		{ApiKey: APIKeyTxnOffsetCommit, MinVersion: 3, MaxVersion: 3},
+	*/
 }
 
 type Records struct {

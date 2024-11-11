@@ -255,7 +255,6 @@ func (t *TablePusher) HandleProduceRequest(req *kafkaprotocol.ProduceRequest,
 				}
 			}
 			log.Debugf("handling records batch for topic: %s partition: %d", *topicData.Name, partitionID)
-
 			if len(partitionData.Records) > 1 {
 				panic("too many records")
 			}
@@ -347,7 +346,40 @@ func fillAllErrors(resp *kafkaprotocol.ProduceResponse, errCode int, errMsg stri
 	}
 }
 
-func (t *TablePusher) HandleDirectWrite(_ *transport.ConnectionContext, request []byte, responseBuff []byte, responseWriter transport.ResponseWriter) error {
+func (t *TablePusher) HandleDirectProduceRequest(_ *transport.ConnectionContext, request []byte, responseBuff []byte, responseWriter transport.ResponseWriter) error {
+	if err := checkRPCVersion(request); err != nil {
+		return err
+	}
+	var req DirectProduceRequest
+	req.Deserialize(request, 2)
+	t.handleDirectProduce(&req, func(err error) {
+		if err := responseWriter(responseBuff, err); err != nil {
+			log.Errorf("failed to write response: %v", err)
+		}
+	})
+	return nil
+}
+
+// handleDirectProduce is for producing topic data (which requires offsets to be generated) internally without
+// having to go through a Kafka produce request. One use is for writing transaction markers.
+func (t *TablePusher) handleDirectProduce(req *DirectProduceRequest, completionFunc func(error)) {
+	t.lock.Lock()
+	defer t.lock.Unlock()
+	for _, topicReq := range req.TopicProduceRequests {
+		topicMap, ok := t.partitionRecords[topicReq.TopicID]
+		if !ok {
+			topicMap = make(map[int][]bufferedRecords)
+			t.partitionRecords[topicReq.TopicID] = topicMap
+		}
+		for _, partReq := range topicReq.PartitionProduceRequests {
+			topicMap[partReq.PartitionID] = append(topicMap[partReq.PartitionID], [][]byte{partReq.Batch})
+			t.sizeBytes += len(partReq.Batch)
+		}
+	}
+	t.produceCompletions = append(t.produceCompletions, completionFunc)
+}
+
+func (t *TablePusher) HandleDirectWriteRequest(_ *transport.ConnectionContext, request []byte, responseBuff []byte, responseWriter transport.ResponseWriter) error {
 	t.lock.Lock()
 	defer t.lock.Unlock()
 	if err := checkRPCVersion(request); err != nil {
@@ -412,14 +444,6 @@ func (t *TablePusher) failDirectWrites(writerKey string) {
 	delete(t.directKVs, writerKey)
 	delete(t.directCompletions, writerKey)
 	t.numDirectKVsToCommit -= len(kvs)
-}
-
-func CreateOffsetKey(partHash []byte, topicID int, partitionID int) []byte {
-	var key []byte
-	key = append(key, partHash...)
-	key = binary.BigEndian.AppendUint64(key, uint64(topicID))
-	key = binary.BigEndian.AppendUint64(key, uint64(partitionID))
-	return key
 }
 
 func extractBatches(buff []byte) [][]byte {
@@ -854,54 +878,7 @@ func (t *TablePusher) getLatestValueWithKey(key []byte) ([]byte, error) {
 	return kv.Value, nil
 }
 
-type DirectWriteRequest struct {
-	WriterKey   string
-	WriterEpoch int
-	KVs         []common.KV
-}
-
-func (o *DirectWriteRequest) Serialize(buff []byte) []byte {
-	buff = binary.BigEndian.AppendUint32(buff, uint32(len(o.WriterKey)))
-	buff = append(buff, o.WriterKey...)
-	buff = binary.BigEndian.AppendUint64(buff, uint64(o.WriterEpoch))
-	buff = binary.BigEndian.AppendUint32(buff, uint32(len(o.KVs)))
-	for _, kv := range o.KVs {
-		buff = binary.BigEndian.AppendUint32(buff, uint32(len(kv.Key)))
-		buff = append(buff, kv.Key...)
-		buff = binary.BigEndian.AppendUint32(buff, uint32(len(kv.Value)))
-		buff = append(buff, kv.Value...)
-	}
-	return buff
-}
-
-func (o *DirectWriteRequest) Deserialize(buff []byte, offset int) int {
-	ln := int(binary.BigEndian.Uint32(buff[offset:]))
-	offset += 4
-	o.WriterKey = string(buff[offset : offset+ln])
-	offset += ln
-	o.WriterEpoch = int(binary.BigEndian.Uint64(buff[offset:]))
-	offset += 8
-	ln = int(binary.BigEndian.Uint32(buff[offset:]))
-	offset += 4
-	o.KVs = make([]common.KV, ln)
-	for i := 0; i < ln; i++ {
-		lk := int(binary.BigEndian.Uint32(buff[offset:]))
-		offset += 4
-		key := buff[offset : offset+lk]
-		offset += lk
-		lv := int(binary.BigEndian.Uint32(buff[offset:]))
-		offset += 4
-		value := buff[offset : offset+lv]
-		offset += lv
-		o.KVs[i] = common.KV{
-			Key:   key,
-			Value: value,
-		}
-	}
-	return offset
-}
-
-func ChooseTablePusherForGroup(partHash []byte, members []cluster.MembershipEntry) (string, bool) {
+func ChooseTablePusherForHash(partHash []byte, members []cluster.MembershipEntry) (string, bool) {
 	if len(members) == 0 {
 		return "", false
 	}

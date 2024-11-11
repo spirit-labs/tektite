@@ -1600,7 +1600,6 @@ func TestSessionTimeoutWhenActive(t *testing.T) {
 }
 
 func TestOffsetCommit(t *testing.T) {
-
 	localTransports := transport.NewLocalTransports()
 	gc, controlClient, topicProvider, _ := createCoordinatorWithConnFactoryAndCfgSetter(t, localTransports.CreateConnection, nil)
 	defer stopCoordinator(t, gc)
@@ -1681,7 +1680,7 @@ func TestOffsetCommit(t *testing.T) {
 		},
 	}
 
-	resp, err := gc.OffsetCommit(&req, 2)
+	resp, err := gc.OffsetCommit(&req)
 	require.NoError(t, err)
 
 	require.Equal(t, 2, len(resp.Topics))
@@ -1719,7 +1718,7 @@ func TestOffsetCommit(t *testing.T) {
 }
 
 func createExpectedKV(partHash []byte, topicID int, partitionID int, committedOffset int64) common.KV {
-	key := createOffsetKey(partHash, topicID, partitionID)
+	key := createOffsetKey(partHash, offsetKeyPublic, topicID, partitionID)
 	val := make([]byte, 8)
 	binary.BigEndian.PutUint64(val, uint64(committedOffset))
 	return common.KV{
@@ -1862,7 +1861,7 @@ func createOffsetsKvs(t *testing.T, infos []createOffsetsInfo, partHash []byte) 
 		for _, partitionData := range topicData.partInfos {
 			offset := partitionData.committedOffset
 			// key is [partition_hash, topic_id, partition_id] value is [offset]
-			key := pusher.CreateOffsetKey(partHash, topicData.topicID, partitionData.partitionID)
+			key := createOffsetKey(partHash, offsetKeyPublic, topicData.topicID, partitionData.partitionID)
 			value := make([]byte, 8)
 			binary.BigEndian.PutUint64(value, uint64(offset))
 			kvs = append(kvs, common.KV{

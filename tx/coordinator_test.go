@@ -25,14 +25,20 @@ func TestInitProducerNoTransactionalID(t *testing.T) {
 	cfg := NewConf()
 	producerID := int64(23)
 	controlClient := &testControlClient{seq: producerID}
+	clientFactory := func() (control.Client, error) {
+		return controlClient, nil
+	}
 	tableGetter := &testTableGetter{}
 	localTransports := transport.NewLocalTransports()
-	coordinator := NewCoordinator(cfg, controlClient, tableGetter.getTable, localTransports.CreateConnection)
+	partHashes, err := parthash.NewPartitionHashes(0)
+	require.NoError(t, err)
+	topicProvider := &testTopicInfoProvider{infos: map[string]topicmeta.TopicInfo{}}
+	coordinator := NewCoordinator(cfg, clientFactory, tableGetter.getTable, localTransports.CreateConnection,
+		topicProvider, partHashes)
 	numRequests := 100
 	for i := 0; i < numRequests; i++ {
 		req := &kafkaprotocol.InitProducerIdRequest{}
-		resp, err := coordinator.HandleInitProducerID(req)
-		require.NoError(t, err)
+		resp := coordinator.HandleInitProducerID(req)
 		require.Equal(t, kafkaprotocol.ErrorCodeNone, int(resp.ErrorCode))
 		require.Equal(t, producerID, resp.ProducerId)
 		require.Equal(t, 0, int(resp.ProducerEpoch))
@@ -60,10 +66,17 @@ func testInitProducerError(t *testing.T, injectError error, expectedErrCode int)
 		coordinatorAddress:  "some-address",
 		coordinatorEpoch:    writerEpoch,
 	}
+	clientFactory := func() (control.Client, error) {
+		return controlClient, nil
+	}
 
 	tableGetter := &testTableGetter{}
 	localTransports := transport.NewLocalTransports()
-	coordinator := NewCoordinator(cfg, controlClient, tableGetter.getTable, localTransports.CreateConnection)
+	topicProvider := &testTopicInfoProvider{infos: map[string]topicmeta.TopicInfo{}}
+	partHashes, err := parthash.NewPartitionHashes(0)
+	require.NoError(t, err)
+	coordinator := NewCoordinator(cfg, clientFactory, tableGetter.getTable, localTransports.CreateConnection,
+		topicProvider, partHashes)
 
 	fp := &fakePusherSink{}
 	transportServer, err := localTransports.NewLocalServer(uuid.New().String())
@@ -92,8 +105,7 @@ func testInitProducerError(t *testing.T, injectError error, expectedErrCode int)
 	req := &kafkaprotocol.InitProducerIdRequest{
 		TransactionalId: common.StrPtr(transactionalID),
 	}
-	resp, err := coordinator.HandleInitProducerID(req)
-	require.NoError(t, err)
+	resp := coordinator.HandleInitProducerID(req)
 	require.Equal(t, expectedErrCode, int(resp.ErrorCode))
 }
 
@@ -107,10 +119,16 @@ func TestInitProducerWithTransactionalID(t *testing.T) {
 		coordinatorAddress:  "some-address",
 		coordinatorEpoch:    writerEpoch,
 	}
+	clientFactory := func() (control.Client, error) {
+		return controlClient, nil
+	}
 
 	tableGetter := &testTableGetter{}
 	localTransports := transport.NewLocalTransports()
-	coordinator := NewCoordinator(cfg, controlClient, tableGetter.getTable, localTransports.CreateConnection)
+	topicProvider := &testTopicInfoProvider{infos: map[string]topicmeta.TopicInfo{}}
+	partHashes, err := parthash.NewPartitionHashes(0)
+	coordinator := NewCoordinator(cfg, clientFactory, tableGetter.getTable, localTransports.CreateConnection,
+		topicProvider, partHashes)
 
 	fp := &fakePusherSink{}
 	transportServer, err := localTransports.NewLocalServer(uuid.New().String())
@@ -140,7 +158,7 @@ func TestInitProducerWithTransactionalID(t *testing.T) {
 		req := &kafkaprotocol.InitProducerIdRequest{
 			TransactionalId: common.StrPtr(transactionalID),
 		}
-		resp, err := coordinator.HandleInitProducerID(req)
+		resp := coordinator.HandleInitProducerID(req)
 		require.NoError(t, err)
 		require.Equal(t, kafkaprotocol.ErrorCodeNone, int(resp.ErrorCode))
 		require.Equal(t, producerID, resp.ProducerId)
@@ -291,4 +309,17 @@ func (f *fakePusherSink) getReceived() (*pusher.DirectWriteRequest, int16) {
 	f.lock.Lock()
 	defer f.lock.Unlock()
 	return f.received, f.receivedRPCVersion
+}
+
+type testTopicInfoProvider struct {
+	infos map[string]topicmeta.TopicInfo
+}
+
+func (t *testTopicInfoProvider) GetTopicInfo(topicName string) (topicmeta.TopicInfo, error) {
+	info, ok := t.infos[topicName]
+	if !ok {
+		return topicmeta.TopicInfo{}, common.NewTektiteErrorf(common.TopicDoesNotExist,
+			"unknown topic: %s", topicName)
+	}
+	return info, nil
 }

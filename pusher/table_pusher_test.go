@@ -356,6 +356,176 @@ func TestTablePusherDirectWriteMultipleGroupsInvalidEpochs(t *testing.T) {
 	}
 }
 
+func TestTablePusherHandleDirectProduce(t *testing.T) {
+	cfg := NewConf()
+	cfg.DataBucketName = "test-data-bucket"
+	cfg.WriteTimeout = 1 * time.Millisecond // So it pushes straightaway
+	objStore := dev.NewInMemStore(0)
+	topicID1 := 1234
+	topicID2 := 2234
+	seq := int64(23)
+	numRecordsInBatch := 10
+
+	controllerClient := &testControllerClient{
+		sequence: seq,
+		offsets: []offsets.OffsetTopicInfo{
+			{
+				TopicID: topicID1,
+				PartitionInfos: []offsets.OffsetPartitionInfo{
+					{
+						PartitionID: 12,
+						Offset:      int64(numRecordsInBatch - 1),
+					},
+					{
+						PartitionID: 13,
+						Offset:      int64(numRecordsInBatch - 1),
+					},
+				},
+			},
+			{
+				TopicID: topicID2,
+				PartitionInfos: []offsets.OffsetPartitionInfo{
+					{
+						PartitionID: 9,
+						Offset:      int64(numRecordsInBatch - 1),
+					},
+					{
+						PartitionID: 7,
+						Offset:      int64(numRecordsInBatch - 1),
+					},
+				},
+			},
+		},
+	}
+	clientFactory := func() (ControlClient, error) {
+		return controllerClient, nil
+	}
+	topicProvider := &simpleTopicInfoProvider{infos: map[string]topicmeta.TopicInfo{
+		"topic1": {ID: topicID1, PartitionCount: 20},
+		"topic2": {ID: topicID2, PartitionCount: 20},
+	}}
+	partHashes, err := parthash.NewPartitionHashes(100)
+	require.NoError(t, err)
+	tableGetter := &testTableGetter{}
+	pusher, err := NewTablePusher(cfg, topicProvider, objStore, clientFactory, tableGetter.getTable, partHashes)
+	require.NoError(t, err)
+	err = pusher.Start()
+	require.NoError(t, err)
+	defer func() {
+		err := pusher.Stop()
+		require.NoError(t, err)
+	}()
+
+	recordBatch1 := testutils.CreateKafkaRecordBatchWithIncrementingKVs(0, numRecordsInBatch)
+	recordBatch2 := testutils.CreateKafkaRecordBatchWithIncrementingKVs(0, numRecordsInBatch)
+	recordBatch3 := testutils.CreateKafkaRecordBatchWithIncrementingKVs(0, numRecordsInBatch)
+	recordBatch4 := testutils.CreateKafkaRecordBatchWithIncrementingKVs(0, numRecordsInBatch)
+
+	req := DirectProduceRequest{
+		TopicProduceRequests: []TopicProduceRequest{
+			{
+				TopicID: topicID1,
+				PartitionProduceRequests: []PartitionProduceRequest{
+					{
+						PartitionID: 12,
+						Batch:       recordBatch1,
+					},
+					{
+						PartitionID: 13,
+						Batch:       recordBatch2,
+					},
+				},
+			},
+			{
+				TopicID: topicID2,
+				PartitionProduceRequests: []PartitionProduceRequest{
+					{
+						PartitionID: 9,
+						Batch:       recordBatch3,
+					},
+					{
+						PartitionID: 7,
+						Batch:       recordBatch4,
+					},
+				},
+			},
+		},
+	}
+	respCh := make(chan error, 1)
+	pusher.handleDirectProduce(&req, func(err error) {
+		respCh <- err
+	})
+	err = <-respCh
+	require.NoError(t, err)
+
+	// check that table has been pushed to object store
+
+	ssTables, objects := getSSTablesFromStore(t, cfg.DataBucketName, objStore)
+	require.Equal(t, 1, len(ssTables))
+	iter, err := ssTables[0].NewIterator(nil, nil)
+	require.NoError(t, err)
+	var batches [][]byte
+	for {
+		ok, kv, err := iter.Next()
+		require.NoError(t, err)
+		if !ok {
+			break
+		}
+		batches = append(batches, kv.Value)
+	}
+	// Should be in topic, partition order
+	require.Equal(t, 4, len(batches))
+	require.Equal(t, recordBatch1, batches[0])
+	require.Equal(t, recordBatch2, batches[1])
+	require.Equal(t, recordBatch4, batches[2])
+	require.Equal(t, recordBatch3, batches[3])
+
+	// check getOffsets was called with correct args
+	getOffsetInvocs := controllerClient.getPrePushInvocations()
+	require.Equal(t, 1, len(getOffsetInvocs))
+	infos := getOffsetInvocs[0].infos
+
+	expectedInfos := []offsets.GetOffsetTopicInfo{
+		{
+			TopicID: topicID1,
+			PartitionInfos: []offsets.GetOffsetPartitionInfo{
+				{
+					PartitionID: 12,
+					NumOffsets:  numRecordsInBatch,
+				},
+				{
+					PartitionID: 13,
+					NumOffsets:  numRecordsInBatch,
+				},
+			},
+		},
+		{
+			TopicID: topicID2,
+			PartitionInfos: []offsets.GetOffsetPartitionInfo{
+				{
+					PartitionID: 7,
+					NumOffsets:  numRecordsInBatch,
+				},
+				{
+					PartitionID: 9,
+					NumOffsets:  numRecordsInBatch,
+				},
+			},
+		},
+	}
+
+	require.Equal(t, expectedInfos, infos)
+
+	// check that table has been registered with LSM, and correct sequence provided
+
+	receivedRegs := controllerClient.getRegistrations()
+	require.Equal(t, 1, len(receivedRegs))
+
+	reg := receivedRegs[0].regEntry
+	require.Equal(t, []byte(objects[0].Key), []byte(reg.TableID))
+	require.Equal(t, seq, receivedRegs[0].seq)
+}
+
 func TestTablePusherHandleProduceBatchSimple(t *testing.T) {
 	cfg := NewConf()
 	cfg.DataBucketName = "test-data-bucket"
@@ -1923,34 +2093,6 @@ func TestExtractBatches(t *testing.T) {
 	for i, batch := range batches {
 		require.Equal(t, batch, extracted[i])
 	}
-}
-
-func TestSerializeDeserializeDirectWriteRequest(t *testing.T) {
-	req := DirectWriteRequest{
-		WriterKey:   "g.mygoup123123",
-		WriterEpoch: 123,
-		KVs: []common.KV{
-			{
-				Key:   []byte("key-1234"),
-				Value: []byte("value-1234"),
-			},
-			{
-				Key:   []byte("key-3434"),
-				Value: []byte("value-3434"),
-			},
-			{
-				Key:   []byte("key-56767"),
-				Value: []byte("value-56767"),
-			},
-		},
-	}
-	var buff []byte
-	buff = append(buff, 1, 2, 3)
-	buff = req.Serialize(buff)
-	var req2 DirectWriteRequest
-	off := req2.Deserialize(buff, 3)
-	require.Equal(t, req, req2)
-	require.Equal(t, off, len(buff))
 }
 
 type testTableGetter struct {

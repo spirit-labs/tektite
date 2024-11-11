@@ -298,3 +298,23 @@ func (t *testKafkaHandler) SaslHandshakeRequestErrorResponse(errorCode int16, er
 	//TODO implement me
 	panic("implement me")
 }
+
+func (t *testKafkaHandler) HandleAddOffsetsToTxnRequest(hdr *kafkaprotocol.RequestHeader, req *kafkaprotocol.AddOffsetsToTxnRequest, completionFunc func(resp *kafkaprotocol.AddOffsetsToTxnResponse) error) error {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (t *testKafkaHandler) HandleAddPartitionsToTxnRequest(hdr *kafkaprotocol.RequestHeader, req *kafkaprotocol.AddPartitionsToTxnRequest, completionFunc func(resp *kafkaprotocol.AddPartitionsToTxnResponse) error) error {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (t *testKafkaHandler) HandleTxnOffsetCommitRequest(hdr *kafkaprotocol.RequestHeader, req *kafkaprotocol.TxnOffsetCommitRequest, completionFunc func(resp *kafkaprotocol.TxnOffsetCommitResponse) error) error {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (t *testKafkaHandler) HandleEndTxnRequest(hdr *kafkaprotocol.RequestHeader, req *kafkaprotocol.EndTxnRequest, completionFunc func(resp *kafkaprotocol.EndTxnResponse) error) error {
+	//TODO implement me
+	panic("implement me")
+}
