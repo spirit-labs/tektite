@@ -1169,6 +1169,6 @@ func (g *group) loadOffset(topicInfo *TopicInfo, partitionID int32) (int64, bool
 		return 0, false, nil
 	}
 	offset, _ := encoding2.ReadUint64FromBufferLE(curr.Value, 1)
-	log.Debugf("group:%d topic:%d partition:%d loaded committed offset:%d", g.id, topicID, partitionID, offset)
+	log.Debugf("group:%s topic:%d partition:%d loaded committed offset:%d", g.id, topicID, partitionID, offset)
 	return int64(offset), true, nil
 }

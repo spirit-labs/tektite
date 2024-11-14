@@ -258,7 +258,7 @@ func (p *PartitionRecentTables) handleTableRegisteredNotification(notification *
 			}
 		}
 	}
-	for fs, _ := range fetchStates {
+	for fs := range fetchStates {
 		fs.readAsync()
 	}
 	return nil

@@ -45,6 +45,14 @@ var included = []string{
 	"SaslAuthenticateResponse",
 	"SaslHandshakeRequest",
 	"SaslHandshakeResponse",
+	"AddOffsetsToTxnRequest",
+	"AddOffsetsToTxnResponse",
+	"AddPartitionsToTxnRequest",
+	"AddPartitionsToTxnResponse",
+	"TxnOffsetCommitRequest",
+	"TxnOffsetCommitResponse",
+	"EndTxnRequest",
+	"EndTxnResponse",
 }
 
 func Generate(specDir string, outDir string) error {
@@ -387,7 +395,8 @@ func generateSupportedApiVersions(ms *MessageSpec, gc *genContext) error {
 	gc.writeF("func (m *%s) SupportedApiVersions() (int16, int16) {\n", ms.Name)
 	minVer, maxVer, ok := supportedVersions(int16(ms.ApiKey))
 	if !ok {
-		return errors.Errorf("No SupportedAPIVersions entry for ApiKey: %d", ms.ApiKey)
+		minVer = -1
+		maxVer = -1
 	}
 	gc.writeF("    return %d, %d\n", minVer, maxVer)
 	gc.write("}\n")

@@ -183,7 +183,7 @@ func (p *partitionReceiver) ReceiveBatch(batch *evbatch.Batch, execCtx StreamExe
 	} else {
 		expected := seqMap[forwardingProcID]
 		if seq < expected {
-			log.Warnf("node %d received duplicate forwarded batch, will be ignored. processor id %d partition %d forwarding processor id %d sequence %d expected sequence %d version %d",
+			log.Warnf("received duplicate forwarded batch, will be ignored. processor id %d partition %d forwarding processor id %d sequence %d expected sequence %d version %d",
 				execCtx.Processor().ID(), execCtx.PartitionID(), forwardingProcID, seq, expected, execCtx.WriteVersion())
 			return nil, nil
 		}

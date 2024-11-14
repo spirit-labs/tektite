@@ -17,4 +17,5 @@ const (
 	HandlerIDFetchCacheGetTableBytes
 	HandlerIDFetcherTableRegisteredNotification
 	HandlerIDTablePusherDirectWrite
+	HandlerIDTablePusherDirectProduce
 )

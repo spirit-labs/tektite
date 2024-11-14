@@ -366,7 +366,11 @@ func (c *Coordinator) leaveGroup(groupID string, leaveInfos []MemberLeaveInfo) i
 	return g.Leave(leaveInfos)
 }
 
-func (c *Coordinator) OffsetCommit(req *kafkaprotocol.OffsetCommitRequest, reqVersion int16) (*kafkaprotocol.OffsetCommitResponse, error) {
+func (c *Coordinator) OffsetCommit(req *kafkaprotocol.OffsetCommitRequest) (*kafkaprotocol.OffsetCommitResponse, error) {
+	return c.offsetCommit(false, req)
+}
+
+func (c *Coordinator) offsetCommit(transactional bool, req *kafkaprotocol.OffsetCommitRequest) (*kafkaprotocol.OffsetCommitResponse, error) {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
 	if err := c.checkStarted(); err != nil {
@@ -386,11 +390,56 @@ func (c *Coordinator) OffsetCommit(req *kafkaprotocol.OffsetCommitRequest, reqVe
 	if !ok {
 		return fillAllErrorCodesForOffsetCommit(req, kafkaprotocol.ErrorCodeGroupIDNotFound), nil
 	}
-	errCode := g.offsetCommit(req, &resp)
+	errCode := g.offsetCommit(transactional, req, &resp)
 	if errCode != kafkaprotocol.ErrorCodeNone {
 		return fillAllErrorCodesForOffsetCommit(req, errCode), nil
 	}
 	return &resp, nil
+}
+
+func (c *Coordinator) OffsetCommitTransactional(req *kafkaprotocol.TxnOffsetCommitRequest) (*kafkaprotocol.TxnOffsetCommitResponse, error) {
+	ocr := &kafkaprotocol.OffsetCommitRequest{
+		GroupId:                   req.GroupId,
+		GenerationIdOrMemberEpoch: req.GenerationId,
+		MemberId:                  req.MemberId,
+		GroupInstanceId:           req.GroupInstanceId,
+		Topics:                    make([]kafkaprotocol.OffsetCommitRequestOffsetCommitRequestTopic, len(req.Topics)),
+	}
+	for i, topicData := range req.Topics {
+		ocr.Topics[i] = kafkaprotocol.OffsetCommitRequestOffsetCommitRequestTopic{
+			Name:       topicData.Name,
+			Partitions: make([]kafkaprotocol.OffsetCommitRequestOffsetCommitRequestPartition, len(topicData.Partitions)),
+		}
+		for j, partitionData := range topicData.Partitions {
+			ocr.Topics[i].Partitions[j] = kafkaprotocol.OffsetCommitRequestOffsetCommitRequestPartition{
+				PartitionIndex:  partitionData.PartitionIndex,
+				CommittedOffset: partitionData.CommittedOffset,
+			}
+		}
+	}
+	resp, err := c.offsetCommit(true, ocr)
+	if err != nil {
+		return nil, err
+	}
+	tResp := &kafkaprotocol.TxnOffsetCommitResponse{
+		Topics: make([]kafkaprotocol.TxnOffsetCommitResponseTxnOffsetCommitResponseTopic, len(resp.Topics)),
+	}
+	for i, topicData := range resp.Topics {
+		tResp.Topics[i] = kafkaprotocol.TxnOffsetCommitResponseTxnOffsetCommitResponseTopic{
+			Name:       topicData.Name,
+			Partitions: make([]kafkaprotocol.TxnOffsetCommitResponseTxnOffsetCommitResponsePartition, len(topicData.Partitions)),
+		}
+		for j, partitionData := range topicData.Partitions {
+			tResp.Topics[i].Partitions[j] = kafkaprotocol.TxnOffsetCommitResponseTxnOffsetCommitResponsePartition{
+				PartitionIndex: partitionData.PartitionIndex,
+			}
+		}
+	}
+	return tResp, nil
+}
+
+func (c *Coordinator) CompleteTx(groupID string, pid int64, abort bool) error {
+	return nil
 }
 
 func (c *Coordinator) OffsetFetch(req *kafkaprotocol.OffsetFetchRequest) (*kafkaprotocol.OffsetFetchResponse, error) {
@@ -468,7 +517,7 @@ func (c *Coordinator) createGroup(groupID string, groupEpoch int) *group {
 		id:                      groupID,
 		groupEpoch:              groupEpoch,
 		partHash:                partHash,
-		offsetWriterKey: offsetWriterKey,
+		offsetWriterKey:         offsetWriterKey,
 		state:                   stateEmpty,
 		members:                 map[string]*member{},
 		pendingMemberIDs:        map[string]struct{}{},

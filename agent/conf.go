@@ -9,6 +9,7 @@ import (
 	"github.com/spirit-labs/tektite/group"
 	"github.com/spirit-labs/tektite/lsm"
 	"github.com/spirit-labs/tektite/pusher"
+	"github.com/spirit-labs/tektite/tx"
 )
 
 type Conf struct {
@@ -21,6 +22,7 @@ type Conf struct {
 	FetcherConf             fetcher.Conf
 	FetchCacheConf          fetchcache.Conf
 	GroupCoordinatorConf    group.Conf
+	TxCoordinatorConf tx.Conf
 }
 
 func NewConf() Conf {
@@ -32,6 +34,7 @@ func NewConf() Conf {
 		FetcherConf:             fetcher.NewConf(),
 		FetchCacheConf:          fetchcache.NewConf(),
 		GroupCoordinatorConf:    group.NewConf(),
+		TxCoordinatorConf:       tx.NewConf(),
 	}
 }
 
@@ -63,7 +66,9 @@ func (c *Conf) Validate() error {
 	if err := c.GroupCoordinatorConf.Validate(); err != nil {
 		return err
 	}
-
+	if err := c.TxCoordinatorConf.Validate(); err != nil {
+		return err
+	}
 	return nil
 }
 

@@ -16,6 +16,7 @@ import (
 	"github.com/spirit-labs/tektite/sst"
 	"github.com/spirit-labs/tektite/topicmeta"
 	"github.com/spirit-labs/tektite/transport"
+	"github.com/spirit-labs/tektite/tx"
 	"sync"
 	"sync/atomic"
 )
@@ -34,6 +35,7 @@ type Agent struct {
 	partitionHashes          *parthash.PartitionHashes
 	fetchCache               *fetchcache.Cache
 	groupCoordinator         *group.Coordinator
+	txCoordinator            *tx.Coordinator
 	manifold                 *membershipChangedManifold
 }
 
@@ -107,7 +109,8 @@ func NewAgentWithFactories(cfg Conf, objStore objstore.Client, connectionFactory
 		return nil, err
 	}
 	agent.tablePusher = tablePusher
-	transportServer.RegisterHandler(transport.HandlerIDTablePusherDirectWrite, tablePusher.HandleDirectWrite)
+	transportServer.RegisterHandler(transport.HandlerIDTablePusherDirectWrite, tablePusher.HandleDirectWriteRequest)
+	transportServer.RegisterHandler(transport.HandlerIDTablePusherDirectProduce, tablePusher.HandleDirectProduceRequest)
 	bf, err := fetcher.NewBatchFetcher(objStore, topicMetaCache, partitionHashes, agent.controller.Client, getter.get,
 		cfg.FetcherConf)
 	if err != nil {
@@ -115,16 +118,18 @@ func NewAgentWithFactories(cfg Conf, objStore objstore.Client, connectionFactory
 	}
 	transportServer.RegisterHandler(transport.HandlerIDFetcherTableRegisteredNotification, bf.HandleTableRegisteredNotification)
 	agent.batchFetcher = bf
-	coordinator, err := group.NewCoordinator(cfg.GroupCoordinatorConf, cfg.KafkaListenerConfig.Address, topicMetaCache,
+	groupCoord, err := group.NewCoordinator(cfg.GroupCoordinatorConf, cfg.KafkaListenerConfig.Address, topicMetaCache,
 		agent.controller.Client, connectionFactory, getter.get)
 	if err != nil {
 		return nil, err
 	}
-	agent.groupCoordinator = coordinator
+	agent.groupCoordinator = groupCoord
+	agent.txCoordinator = tx.NewCoordinator(cfg.TxCoordinatorConf, agent.controller.Client, getter.get, connectionFactory,
+		topicMetaCache, partitionHashes)
 	agent.kafkaServer = kafkaserver2.NewKafkaServer(cfg.KafkaListenerConfig.Address,
 		cfg.KafkaListenerConfig.TLSConfig, cfg.KafkaListenerConfig.AuthenticationType, agent.newKafkaHandler)
 	agent.manifold = &membershipChangedManifold{listeners: []MembershipListener{agent.controller.MembershipChanged,
-		bf.MembershipChanged, fetchCache.MembershipChanged, coordinator.MembershipChanged}}
+		bf.MembershipChanged, fetchCache.MembershipChanged, groupCoord.MembershipChanged}}
 	agent.membership = clusterMembershipFactory(membershipData.Serialize(nil), agent.manifold.membershipChanged)
 	agent.transportServer = transportServer
 	clFactory := func() (lsm.ControllerClient, error) {
@@ -157,6 +162,9 @@ func (a *Agent) Start() error {
 	if err := a.groupCoordinator.Start(); err != nil {
 		return err
 	}
+	if err := a.txCoordinator.Start(); err != nil {
+		return err
+	}
 	if err := a.kafkaServer.Start(); err != nil {
 		return err
 	}
@@ -180,6 +188,9 @@ func (a *Agent) Stop() error {
 		return err
 	}
 	if err := a.kafkaServer.Stop(); err != nil {
+		return err
+	}
+	if err := a.txCoordinator.Stop(); err != nil {
 		return err
 	}
 	if err := a.groupCoordinator.Stop(); err != nil {
