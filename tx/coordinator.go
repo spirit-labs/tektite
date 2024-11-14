@@ -204,7 +204,7 @@ func (c *Coordinator) handleInitProducerID(req *kafkaprotocol.InitProducerIdRequ
 	}
 	if req.TransactionalId == nil {
 		// The producer is idempotent but not configured for transactions - just generate a pid and return it
-		pid, err := c.generatePidWithRetry()
+		pid, err := c.generatePid()
 		if err != nil {
 			return err
 		}
@@ -232,7 +232,7 @@ func (c *Coordinator) handleInitProducerID(req *kafkaprotocol.InitProducerIdRequ
 
 	if storedState == nil {
 		// First time transactionalID was used or no transactional id - generate a pid
-		pid, err := c.generatePidWithRetry()
+		pid, err := c.generatePid()
 		if err != nil {
 			return err
 		}
@@ -324,14 +324,13 @@ func createRequestBuffer() []byte {
 	return buff
 }
 
-func (c *Coordinator) generatePidWithRetry() (int64, error) {
+func (c *Coordinator) generatePid() (int64, error) {
 	cl, err := c.controlClientCache.GetClient()
 	if err != nil {
 		return 0, err
 	}
 	pid, err := cl.GenerateSequence(producerIDSequenceName)
 	if err != nil {
-		// FIXME - retry on unavailable
 		return 0, err
 	}
 	return pid, nil
@@ -359,7 +358,7 @@ func (c *Coordinator) loadTxInfo(transactionalID string) (*txStoredState, error)
 	return info, nil
 }
 
-// FIXME combine with other similar methods (e.g. in table pusher, but do a search for all usage of QueryTablesInRange)
+// TODO combine with other similar methods (e.g. in table pusher, but do a search for all usage of QueryTablesInRange)
 func (c *Coordinator) getLatestValueWithKey(key []byte) ([]byte, error) {
 	keyEnd := common.IncBigEndianBytes(key)
 	cl, err := c.controlClientCache.GetClient()
