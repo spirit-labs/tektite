@@ -303,7 +303,7 @@ func (f *PartitionFetcher) Fetch(fetchOffset int64, minBytes int, maxBytes int, 
 	// We will wait.
 	if f.waiter != nil {
 		// Already have a waiter - send an error on it
-		f.waiter.complFunc(nil, 0, KafkaProtocolError{ErrorCode: kafkaprotocol.ErrorCodeUnknownServerError})
+		f.waiter.complFunc(nil, 0, &kafkaencoding.KafkaError{ErrorCode: kafkaprotocol.ErrorCodeUnknownServerError})
 		f.waiter = nil
 	}
 	return &Waiter{
@@ -334,15 +334,6 @@ func (f *PartitionFetcher) completeWaiter(w *Waiter) {
 	f.lock.Lock()
 	defer f.lock.Unlock()
 	w.complFunc(w.records, f.lastCachedOffset, nil)
-}
-
-type KafkaProtocolError struct {
-	ErrorCode int16
-	Message   string
-}
-
-func (kpe KafkaProtocolError) Error() string {
-	return fmt.Sprintf("KafkaProtocolError ErrCode:%d %s", kpe.ErrorCode, kpe.Message)
 }
 
 func (f *PartitionFetcher) fetchFromStore(fetchOffset int64, maxBytes int) ([]byte, error) {

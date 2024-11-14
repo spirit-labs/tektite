@@ -63,7 +63,7 @@ const (
 	objStoreCallTimeout             = 5 * time.Second
 	unavailabilityRetryDelay        = 1 * time.Second
 	topicMetadataVersion     uint16 = 1
-	topicIDSequenceBase             = 1000
+	TopicIDSequenceBase             = 1000
 )
 
 func (m *Manager) Start() error {
@@ -90,30 +90,43 @@ func (m *Manager) Stop() error {
 	return nil
 }
 
-func (m *Manager) GetTopicInfoByID(topicID int) (TopicInfo, error) {
+func (m *Manager) GetTopicInfoByID(topicID int) (TopicInfo, bool, error) {
 	m.lock.RLock()
 	defer m.lock.RUnlock()
 	if !m.started {
-		return TopicInfo{}, errors.New("topicmeta manager not started")
+		return TopicInfo{}, false, errors.New("topicmeta manager not started")
 	}
 	info, ok := m.topicInfosByID[topicID]
 	if !ok {
-		return TopicInfo{}, common.NewTektiteErrorf(common.TopicDoesNotExist, "unknown topic id: %d", topicID)
+		return TopicInfo{}, false, nil
 	}
-	return *info, nil
+	return *info, true, nil
 }
 
-func (m *Manager) GetTopicInfo(topicName string) (TopicInfo, int, error) {
+func (m *Manager) GetAllTopicInfos() ([]TopicInfo, error) {
 	m.lock.RLock()
 	defer m.lock.RUnlock()
 	if !m.started {
-		return TopicInfo{}, 0, errors.New("topicmeta manager not started")
+		return nil, errors.New("topicmeta manager not started")
+	}
+	allInfos := make([]TopicInfo, 0, len(m.topicInfosByID))
+	for _, info := range m.topicInfosByID {
+		allInfos = append(allInfos, *info)
+	}
+	return allInfos, nil
+}
+
+func (m *Manager) GetTopicInfo(topicName string) (TopicInfo, int, bool, error) {
+	m.lock.RLock()
+	defer m.lock.RUnlock()
+	if !m.started {
+		return TopicInfo{}, 0, false, errors.New("topicmeta manager not started")
 	}
 	info, ok := m.topicInfosByName[topicName]
 	if !ok {
-		return TopicInfo{}, 0, common.NewTektiteErrorf(common.TopicDoesNotExist, "unknown topic: %s", topicName)
+		return TopicInfo{}, 0, false, nil
 	}
-	return *info, int(m.topicIDSequence), nil
+	return *info, int(m.topicIDSequence), true, nil
 }
 
 func (m *Manager) CreateTopic(topicInfo TopicInfo) error {
@@ -194,7 +207,7 @@ func (m *Manager) loadAllTopicsFromStorage() ([]TopicInfo, error) {
 		return nil, err
 	}
 	if mi == nil {
-		m.topicIDSequence = topicIDSequenceBase
+		m.topicIDSequence = TopicIDSequenceBase
 		return nil, nil
 	}
 	defer mi.Close()
@@ -218,7 +231,7 @@ func (m *Manager) loadAllTopicsFromStorage() ([]TopicInfo, error) {
 	if len(allTopics) > 0 {
 		m.topicIDSequence = int64(allTopics[len(allTopics)-1].ID + 1)
 	} else {
-		m.topicIDSequence = topicIDSequenceBase
+		m.topicIDSequence = TopicIDSequenceBase
 	}
 	return allTopics, nil
 }
@@ -298,6 +311,7 @@ func (m *Manager) putWithRetry(key string, value []byte) error {
 }
 
 func createPrefix() []byte {
+	// Note, the prefix here is 16 bytes, the first 8 bytes of which is the common.TopicMetadataSlabID
 	// All table prefixes must be 16 bytes to avoid collisions with partition hashes used for data
 	prefix := make([]byte, 16)
 	binary.BigEndian.PutUint64(prefix, common.TopicMetadataSlabID)

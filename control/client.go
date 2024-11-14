@@ -11,8 +11,10 @@ import (
 )
 
 type Client interface {
-	PrePush(infos []offsets.GetOffsetTopicInfo, epochInfos []EpochInfo) ([]offsets.OffsetTopicInfo, int64,
+	PrePush(infos []offsets.GenerateOffsetTopicInfo, epochInfos []EpochInfo) ([]offsets.OffsetTopicInfo, int64,
 		[]bool, error)
+
+	GetOffsetInfos(infos []offsets.GetOffsetTopicInfo) ([]offsets.OffsetTopicInfo, error)
 
 	ApplyLsmChanges(regBatch lsm.RegistrationBatch) error
 
@@ -24,7 +26,9 @@ type Client interface {
 
 	PollForJob() (lsm.CompactionJob, error)
 
-	GetTopicInfo(topicName string) (topicmeta.TopicInfo, int, error)
+	GetTopicInfo(topicName string) (topicmeta.TopicInfo, int, bool, error)
+
+	GetAllTopicInfos() ([]topicmeta.TopicInfo, error)
 
 	CreateTopic(topicInfo topicmeta.TopicInfo) error
 
@@ -120,7 +124,7 @@ func (c *client) RegisterTableListener(topicID int, partitionID int, memberID in
 	return resp.LastReadableOffset, nil
 }
 
-func (c *client) PrePush(infos []offsets.GetOffsetTopicInfo, epochInfos []EpochInfo) ([]offsets.OffsetTopicInfo,
+func (c *client) PrePush(infos []offsets.GenerateOffsetTopicInfo, epochInfos []EpochInfo) ([]offsets.OffsetTopicInfo,
 	int64, []bool, error) {
 	conn, err := c.getConnection()
 	if err != nil {
@@ -132,13 +136,32 @@ func (c *client) PrePush(infos []offsets.GetOffsetTopicInfo, epochInfos []EpochI
 		EpochInfos:    epochInfos,
 	}
 	request := req.Serialize(createRequestBuffer())
-	respBuff, err := conn.SendRPC(transport.HandlerIDControllerGetOffsets, request)
+	respBuff, err := conn.SendRPC(transport.HandlerIDControllerPrepush, request)
 	if err != nil {
 		return nil, 0, nil, err
 	}
 	var resp PrePushResponse
 	resp.Deserialize(respBuff, 0)
 	return resp.Offsets, resp.Sequence, resp.EpochsOK, nil
+}
+
+func (c *client) GetOffsetInfos(infos []offsets.GetOffsetTopicInfo) ([]offsets.OffsetTopicInfo, error) {
+	conn, err := c.getConnection()
+	if err != nil {
+		return nil, err
+	}
+	req := GetOffsetInfoRequest{
+		LeaderVersion:       c.leaderVersion,
+		GetOffsetTopicInfos: infos,
+	}
+	request := req.Serialize(createRequestBuffer())
+	respBuff, err := conn.SendRPC(transport.HandlerIDControllerGetOffsetInfo, request)
+	if err != nil {
+		return nil, err
+	}
+	var resp GetOffsetInfoResponse
+	resp.Deserialize(respBuff, 0)
+	return resp.OffsetInfos, nil
 }
 
 func (c *client) PollForJob() (lsm.CompactionJob, error) {
@@ -155,10 +178,10 @@ func (c *client) PollForJob() (lsm.CompactionJob, error) {
 	return job, nil
 }
 
-func (c *client) GetTopicInfo(topicName string) (topicmeta.TopicInfo, int, error) {
+func (c *client) GetTopicInfo(topicName string) (topicmeta.TopicInfo, int, bool, error) {
 	conn, err := c.getConnection()
 	if err != nil {
-		return topicmeta.TopicInfo{}, 0, err
+		return topicmeta.TopicInfo{}, 0, false, err
 	}
 	req := GetTopicInfoRequest{
 		LeaderVersion: c.leaderVersion,
@@ -167,11 +190,29 @@ func (c *client) GetTopicInfo(topicName string) (topicmeta.TopicInfo, int, error
 	buff := req.Serialize(createRequestBuffer())
 	respBuff, err := conn.SendRPC(transport.HandlerIDControllerGetTopicInfo, buff)
 	if err != nil {
-		return topicmeta.TopicInfo{}, 0, err
+		return topicmeta.TopicInfo{}, 0, false, err
 	}
 	var resp GetTopicInfoResponse
 	resp.Deserialize(respBuff, 0)
-	return resp.Info, resp.Sequence, nil
+	return resp.Info, resp.Sequence, resp.Exists, nil
+}
+
+func (c *client) GetAllTopicInfos() ([]topicmeta.TopicInfo, error) {
+	conn, err := c.getConnection()
+	if err != nil {
+		return nil, err
+	}
+	req := GetAllTopicInfosRequest{
+		LeaderVersion: c.leaderVersion,
+	}
+	buff := req.Serialize(createRequestBuffer())
+	respBuff, err := conn.SendRPC(transport.HandlerIDControllerGetAllTopicInfos, buff)
+	if err != nil {
+		return nil, err
+	}
+	var resp GetAllTopicInfosResponse
+	resp.Deserialize(respBuff, 0)
+	return resp.TopicInfos, nil
 }
 
 func (c *client) CreateTopic(topicInfo topicmeta.TopicInfo) error {
@@ -246,7 +287,10 @@ func (c *client) Close() error {
 	c.address = ""
 	c.closed = true
 	if c.conn != nil {
-		return c.conn.Close()
+		if err := c.conn.Close(); err != nil {
+			return err
+		}
+		c.conn = nil
 	}
 	return nil
 }

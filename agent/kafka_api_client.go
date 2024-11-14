@@ -11,21 +11,28 @@ import (
 
 type KafkaApiClient struct {
 	sockClient *sockserver.SocketClient
+	clientID string
 }
 
 func NewKafkaApiClient() (*KafkaApiClient, error) {
+	return NewKafkaApiClientWithClientID("some-client-id")
+}
+
+func NewKafkaApiClientWithClientID(clientID string) (*KafkaApiClient, error) {
 	sockClient, err := sockserver.NewSocketClient(nil)
 	if err != nil {
 		return nil, err
 	}
 	return &KafkaApiClient{
 		sockClient: sockClient,
+		clientID: clientID,
 	}, nil
 }
 
 func (k *KafkaApiClient) NewConnection(address string) (*KafkaApiConnection, error) {
 	kc := &KafkaApiConnection{
 		respHandlers: make(map[int32]respHolder),
+		cl: k,
 	}
 	socketConnection, err := k.sockClient.CreateConnection(address, kc.responseHandler)
 	if err != nil {
@@ -37,6 +44,7 @@ func (k *KafkaApiClient) NewConnection(address string) (*KafkaApiConnection, err
 
 type KafkaApiConnection struct {
 	lock             sync.Mutex
+	cl *KafkaApiClient
 	correlationIDSeq int32
 	respHandlers     map[int32]respHolder
 	sockConnection   *sockserver.SocketConnection
@@ -70,7 +78,7 @@ func (k *KafkaApiConnection) createRequestAndRegisterHandler(req KafkaProtocolRe
 	hdr.CorrelationId = k.correlationIDSeq
 	hdr.RequestApiKey = apiKey
 	hdr.RequestApiVersion = apiVersion
-	hdr.ClientId = common.StrPtr("some-client-id")
+	hdr.ClientId = common.StrPtr(k.cl.clientID)
 	requestHeaderVersion, responseHeaderVersion := req.HeaderVersions(apiVersion)
 	buff := hdr.Write(requestHeaderVersion, nil, nil)
 	buff = req.Write(apiVersion, buff, nil)

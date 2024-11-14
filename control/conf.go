@@ -16,6 +16,7 @@ type Conf struct {
 	TableNotificationInterval time.Duration
 	LsmConf                          lsm.Conf
 	SequencesBlockSize int
+	AzInfo                   string
 }
 
 func NewConf() Conf {

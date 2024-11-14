@@ -35,7 +35,7 @@ type Coordinator struct {
 }
 
 type topicInfoProvider interface {
-	GetTopicInfo(topicName string) (topicmeta.TopicInfo, error)
+	GetTopicInfo(topicName string) (topicmeta.TopicInfo, bool, error)
 }
 
 type Conf struct {
@@ -46,7 +46,6 @@ type Conf struct {
 	InitialJoinDelay               time.Duration
 	NewMemberJoinTimeout           time.Duration
 	MaxPusherConnectionsPerAddress int
-	MaxControllerConnections       int
 }
 
 func NewConf() Conf {
@@ -58,7 +57,6 @@ func NewConf() Conf {
 		InitialJoinDelay:               DefaultInitialJoinDelay,
 		NewMemberJoinTimeout:           DefaultNewMemberJoinTimeout,
 		MaxPusherConnectionsPerAddress: DefaultMaxPusherConnectionsPerAddresss,
-		MaxControllerConnections:       DefaultMaxControllerConnections,
 	}
 }
 
@@ -72,19 +70,18 @@ const (
 	DefaultInitialJoinDelay                = 3 * time.Second
 	DefaultNewMemberJoinTimeout            = 5 * time.Minute
 	DefaultMaxPusherConnectionsPerAddresss = 10
-	DefaultMaxControllerConnections        = 10
 	DeafultDefaultRebalanceTimeout         = 5 * time.Minute
 	DefaultDefaultSessionTimeout           = 45 * time.Second
 )
 
-func NewCoordinator(cfg Conf, kafkaAddress string, topicProvider topicInfoProvider, controlFactory control.ClientFactory,
+func NewCoordinator(cfg Conf, kafkaAddress string, topicProvider topicInfoProvider, controlClientCache *control.ClientCache,
 	connFactory transport.ConnectionFactory, tableGetter sst.TableGetter) (*Coordinator, error) {
 	return &Coordinator{
 		cfg:           cfg,
 		kafkaAddress:  kafkaAddress,
 		groups:        map[string]*group{},
 		topicProvider: topicProvider,
-		clientCache:   control.NewClientCache(cfg.MaxPusherConnectionsPerAddress, controlFactory),
+		clientCache:   controlClientCache,
 		connFactory:   connFactory,
 		tableGetter:   tableGetter,
 		connCaches:    map[string]*transport.ConnectionCache{},

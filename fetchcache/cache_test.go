@@ -35,7 +35,7 @@ func TestCacheSingleNode(t *testing.T) {
 
 	membershipData := common.MembershipData{
 		ClusterListenAddress: transportServer.Address(),
-		AZInfo:               cfg.AzInfo,
+		Location:             cfg.AzInfo,
 	}
 	err = cache.MembershipChanged(0, cluster.MembershipState{
 		ClusterVersion: 1,
@@ -117,7 +117,7 @@ func TestCacheMultipleNodes(t *testing.T) {
 		cache.Start()
 		membershipData := common.MembershipData{
 			ClusterListenAddress: transportServer.Address(),
-			AZInfo:               cfg.AzInfo,
+			Location:             cfg.AzInfo,
 		}
 		members = append(members, cluster.MembershipEntry{
 			ID:   int32(i),
@@ -248,7 +248,7 @@ func TestMultipleAZs(t *testing.T) {
 			cache.Start()
 			membershipData := common.MembershipData{
 				ClusterListenAddress: transportServer.Address(),
-				AZInfo:               az,
+				Location:             az,
 			}
 			members = append(members, cluster.MembershipEntry{
 				ID:   memberID,

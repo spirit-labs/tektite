@@ -7,20 +7,21 @@ import (
 	"github.com/spirit-labs/tektite/common"
 	log "github.com/spirit-labs/tektite/logger"
 	"net"
+	"strings"
 	"sync"
 	"time"
 )
 
 type SocketConnection struct {
-	lock                  sync.Mutex
-	conn                  net.Conn
-	closeWaitGroup        sync.WaitGroup
+	lock            sync.Mutex
+	conn            net.Conn
+	closeWaitGroup  sync.WaitGroup
 	responseHandler func([]byte) error
 }
 
 const (
 	writeTimeout = 5 * time.Second
-	dialTimeout = 5 * time.Second
+	dialTimeout  = 5 * time.Second
 )
 
 func (s *SocketConnection) start() {
@@ -29,7 +30,12 @@ func (s *SocketConnection) start() {
 		defer s.readPanicHandler()
 		defer s.closeWaitGroup.Done()
 		if err := ReadMessage(s.conn, s.responseHandler); err != nil {
-			log.Errorf("failed to read response message: %v", err)
+			if strings.Contains(err.Error(), "use of closed network connection") {
+				// Normal on connection close
+				log.Debugf("SocketConnection: failed to read response message: %v", err)
+			} else {
+				log.Errorf("SocketConnection: failed to read response message: %v", err)
+			}
 		}
 	}()
 }
@@ -60,7 +66,7 @@ func (s *SocketConnection) sendMessage(request []byte) error {
 	// Set a write deadline so the write doesn't block for a long time in case the other side of the TCP connection
 	// disappears
 	if err := s.conn.SetWriteDeadline(time.Now().Add(writeTimeout)); err != nil {
-		return  err
+		return err
 	}
 	_, err := s.conn.Write(buff)
 	if err != nil {
@@ -133,10 +139,9 @@ func (s *SocketClient) CreateConnection(address string, responseHandler func([]b
 		return nil, err
 	}
 	sc := &SocketConnection{
-		conn:             netConn,
+		conn:            netConn,
 		responseHandler: responseHandler,
 	}
 	sc.start()
 	return sc, nil
 }
-

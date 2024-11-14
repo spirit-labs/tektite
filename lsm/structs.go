@@ -95,15 +95,15 @@ func (re *RegistrationEntry) Deserialize(buff []byte, offset int) int {
 	re.Level = int(lev)
 	var l uint32
 	l, offset = encoding.ReadUint32FromBufferLE(buff, offset)
-	re.TableID = buff[offset : offset+int(l)]
+	re.TableID = common.ByteSliceCopy(buff[offset : offset+int(l)])
 	offset += int(l)
 	re.MinVersion, offset = encoding.ReadUint64FromBufferLE(buff, offset)
 	re.MaxVersion, offset = encoding.ReadUint64FromBufferLE(buff, offset)
 	l, offset = encoding.ReadUint32FromBufferLE(buff, offset)
-	re.KeyStart = buff[offset : offset+int(l)]
+	re.KeyStart = common.ByteSliceCopy(buff[offset : offset+int(l)])
 	offset += int(l)
 	l, offset = encoding.ReadUint32FromBufferLE(buff, offset)
-	re.KeyEnd = buff[offset : offset+int(l)]
+	re.KeyEnd = common.ByteSliceCopy(buff[offset : offset+int(l)])
 	offset += int(l)
 	re.DeleteRatio, offset = encoding.ReadFloat64FromBufferLE(buff, offset)
 	re.AddedTime, offset = encoding.ReadUint64FromBufferLE(buff, offset)

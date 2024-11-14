@@ -5,7 +5,7 @@ import "encoding/binary"
 type MembershipData struct {
 	ClusterListenAddress string
 	KafkaListenerAddress string
-	AZInfo               string
+	Location             string
 }
 
 func (g *MembershipData) Serialize(buff []byte) []byte {
@@ -13,8 +13,8 @@ func (g *MembershipData) Serialize(buff []byte) []byte {
 	buff = append(buff, g.ClusterListenAddress...)
 	buff = binary.BigEndian.AppendUint32(buff, uint32(len(g.KafkaListenerAddress)))
 	buff = append(buff, g.KafkaListenerAddress...)
-	buff = binary.BigEndian.AppendUint32(buff, uint32(len(g.AZInfo)))
-	buff = append(buff, g.AZInfo...)
+	buff = binary.BigEndian.AppendUint32(buff, uint32(len(g.Location)))
+	buff = append(buff, g.Location...)
 	return buff
 }
 
@@ -29,7 +29,7 @@ func (g *MembershipData) Deserialize(buff []byte, offset int) int {
 	offset += ln
 	ln = int(binary.BigEndian.Uint32(buff[offset:]))
 	offset += 4
-	g.AZInfo = string(buff[offset : offset+ln])
+	g.Location = string(buff[offset : offset+ln])
 	offset += ln
 	return offset
 }

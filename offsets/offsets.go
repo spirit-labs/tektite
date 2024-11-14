@@ -23,7 +23,7 @@ import (
 Cache caches next available and least readable offset for a topic partition in memory. It also re-orders table
 registrations by offset, so tables notifications are always released by the controller in offset order.
 Before an agent can write topic data to object storage it must first obtain partition offsets for the data it's writing.
-It does this by calliong GetOffsets to request offsets for the partitions in the ssTable it wants to write. The offsets
+It does this by calliong GenerateOffsets to request offsets for the partitions in the ssTable it wants to write. The offsets
 cache allocates offsets while locking each partition being requested. It then returns the offsets along with a sequence
 number. Requests to get offsets are always ordered by [topic_id, partition_id] so deadlock cannot occur between
 concurrent requests for overlapping sets of partitions.
@@ -34,7 +34,7 @@ with the LSM it's possible that two different agents who are writing for the sam
 containing later offsets before earlier offsets. If we made all offsets immediately readable then a consumer could
 read the later offsets (Kafka consumers tolerate gaps in offsets), thus skipping the data for the earlier offsets.
 To prevent this behaviour, when an SStable is registered after pushing to object storage the caller also provides the
-sequence number that was returned in the call to GetOffsets, we know that sequence is in offset order. A min heap
+sequence number that was returned in the call to GenerateOffsets, we know that sequence is in offset order. A min heap
 is maintained which then re-orders the registrations by sequence, and we pop entries from the heap as long as sequence
 is contiguous, and maintain lastReadableOffset from the last entry popped.
 
@@ -66,7 +66,7 @@ type Cache struct {
 }
 
 type topicMetaProvider interface {
-	GetTopicInfoByID(topicID int) (topicmeta.TopicInfo, error)
+	GetTopicInfoByID(topicID int) (topicmeta.TopicInfo, bool, error)
 }
 
 type querier interface {
@@ -95,14 +95,19 @@ func NewOffsetsCache(topicProvider topicMetaProvider, lsm querier, objStore objs
 	}, nil
 }
 
-type GetOffsetTopicInfo struct {
+type GenerateOffsetTopicInfo struct {
 	TopicID        int
-	PartitionInfos []GetOffsetPartitionInfo
+	PartitionInfos []GenerateOffsetPartitionInfo
 }
 
-type GetOffsetPartitionInfo struct {
+type GenerateOffsetPartitionInfo struct {
 	PartitionID int
 	NumOffsets  int
+}
+
+type GetOffsetTopicInfo struct {
+	TopicID      int
+	PartitionIDs []int
 }
 
 type LastReadableOffsetUpdatedTopicInfo struct {
@@ -125,41 +130,41 @@ type OffsetPartitionInfo struct {
 	Offset      int64
 }
 
-func (o *Cache) Start() error {
-	o.lock.Lock()
-	defer o.lock.Unlock()
-	if o.started {
+func (c *Cache) Start() error {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+	if c.started {
 		return nil
 	}
-	o.started = true
+	c.started = true
 	return nil
 }
 
-func (o *Cache) Stop() {
-	o.stopping.Store(true)
+func (c *Cache) Stop() {
+	c.stopping.Store(true)
 }
 
-// GetOffsets returns offsets for the provided GetOffsetTopicInfo instances. infos must be provided in
+// GenerateOffsets generates offsets for the provided GenerateOffsetTopicInfo instances. infos must be provided in
 // [topic id, partition id] order to avoid deadlock
 // Note, that the offset number returned is the *last* allocated offset for the partition.
-func (o *Cache) GetOffsets(infos []GetOffsetTopicInfo) ([]OffsetTopicInfo, int64, error) {
-	o.lock.RLock()
-	defer o.lock.RUnlock()
-	if !o.started {
+func (c *Cache) GenerateOffsets(infos []GenerateOffsetTopicInfo) ([]OffsetTopicInfo, int64, error) {
+	c.lock.RLock()
+	defer c.lock.RUnlock()
+	if !c.started {
 		return nil, 0, errors.New("offsets cache not started")
 	}
-	res, seq, err := o.getOffsets0(infos)
+	res, seq, err := c.generateOffsets0(infos)
 	if err != nil {
 		return nil, 0, err
 	}
 	// reorderLock must be taken after partition locks have been unlocked, to avoid deadlock
-	o.reorderLock.Lock()
-	defer o.reorderLock.Unlock()
-	o.offsetsMap[seq] = res
+	c.reorderLock.Lock()
+	defer c.reorderLock.Unlock()
+	c.offsetsMap[seq] = res
 	return res, seq, nil
 }
 
-func (o *Cache) getOffsets0(infos []GetOffsetTopicInfo) ([]OffsetTopicInfo, int64, error) {
+func (c *Cache) generateOffsets0(infos []GenerateOffsetTopicInfo) ([]OffsetTopicInfo, int64, error) {
 	// First we gather all the partition offsets, and obtain all the locks before we get any offsets. This is
 	// essential to ensure that all offsets got for a particular sequence are higher than offsets got for a lower
 	// sequence. We need this guarantee so that when we re-order registrations in sequence order we only output
@@ -173,9 +178,12 @@ func (o *Cache) getOffsets0(infos []GetOffsetTopicInfo) ([]OffsetTopicInfo, int6
 		}
 	}()
 	for _, topicInfo := range infos {
-		topicOffsets, err := o.getTopicOffsets(topicInfo.TopicID)
+		topicOffsets, exists, err := c.getTopicOffsets(topicInfo.TopicID)
 		if err != nil {
 			return nil, 0, err
+		}
+		if !exists {
+			return nil, 0, common.NewTektiteErrorf(common.TopicDoesNotExist, "generate offsets: unknown topic: %d", topicInfo.TopicID)
 		}
 		for _, partitionInfo := range topicInfo.PartitionInfos {
 			if partitionInfo.NumOffsets < 1 {
@@ -191,7 +199,7 @@ func (o *Cache) getOffsets0(infos []GetOffsetTopicInfo) ([]OffsetTopicInfo, int6
 		}
 	}
 	// Get a sequence value
-	seq := atomic.AddInt64(&o.offsetsSeq, 1)
+	seq := atomic.AddInt64(&c.offsetsSeq, 1)
 	// Now we can get the actual offsets
 	offInfos := make([]OffsetTopicInfo, len(infos))
 	index := 0
@@ -203,7 +211,7 @@ func (o *Cache) getOffsets0(infos []GetOffsetTopicInfo) ([]OffsetTopicInfo, int6
 		for j, partitionInfo := range topicInfo.PartitionInfos {
 			partOff := partOffs[index]
 			index++
-			offset, err := partOff.getNextOffset(partitionInfo.NumOffsets, topicInfo.TopicID, partitionInfo.PartitionID, o)
+			offset, err := partOff.getNextOffset(partitionInfo.NumOffsets, topicInfo.TopicID, partitionInfo.PartitionID, c)
 			if err != nil {
 				return nil, 0, err
 			}
@@ -217,66 +225,76 @@ func (o *Cache) getOffsets0(infos []GetOffsetTopicInfo) ([]OffsetTopicInfo, int6
 	return offInfos, seq, nil
 }
 
-func (o *Cache) GetLastReadableOffset(topicID int, partitionID int) (int64, error) {
-	o.lock.RLock()
-	defer o.lock.RUnlock()
-	if !o.started {
-		return 0, errors.New("offsets cache not started")
+func (c *Cache) GetLastReadableOffset(topicID int, partitionID int) (int64, bool, error) {
+	c.lock.RLock()
+	defer c.lock.RUnlock()
+	if !c.started {
+		return 0, false, errors.New("offsets cache not started")
 	}
-	offs, err := o.getTopicOffsets(topicID)
+	offs, exists, err := c.getTopicOffsets(topicID)
 	if err != nil {
-		return 0, err
+		return 0, false, err
+	}
+	if !exists {
+		return 0, false, nil
 	}
 	if err := checkPartitionOffsetInRange(partitionID, len(offs)); err != nil {
-		return 0, err
+		return 0, false, err
 	}
-	return offs[partitionID].getLastReadableOffset(topicID, partitionID, o)
+	off, err := offs[partitionID].getLastReadableOffset(topicID, partitionID, c)
+	if err != nil {
+		return 0, false, err
+	}
+	return off, true, nil
 }
 
-func (o *Cache) MembershipChanged() {
-	o.lock.Lock()
-	defer o.lock.Unlock()
-	if !o.started {
+func (c *Cache) MembershipChanged() {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+	if !c.started {
 		return
 	}
 	// membership has changed so it's possible an agent has failed and it might have gotten offsets which will never
 	// have a table registered for. in this case we tell each offset that membership changed so they can update
 	// their last readable, and we also set lowestAcceptable offset to be last offset sequence + 1so we can reject any
 	// attempts to release offsets for sequences below this.
-	seq := atomic.LoadInt64(&o.offsetsSeq)
-	atomic.StoreInt64(&o.lowestAcceptableSequence, seq+1)
-	for _, offsets := range o.topicOffsets {
+	seq := atomic.LoadInt64(&c.offsetsSeq)
+	atomic.StoreInt64(&c.lowestAcceptableSequence, seq+1)
+	for _, offsets := range c.topicOffsets {
 		for i := 0; i < len(offsets); i++ {
 			offsets[i].clusterVersionChanged()
 		}
 	}
-	o.reorderLock.Lock()
-	defer o.reorderLock.Unlock()
+	c.reorderLock.Lock()
+	defer c.reorderLock.Unlock()
 	// reset any unordered tables waiting to be released
-	o.offsetsMap = map[int64][]OffsetTopicInfo{}
-	o.offsHeap = nil
-	o.lastReleasedSequence = seq
+	c.offsetsMap = map[int64][]OffsetTopicInfo{}
+	c.offsHeap = nil
+	c.lastReleasedSequence = seq
 }
 
-func (o *Cache) loadTopicInfo(topicID int) ([]partitionOffsets, error) {
+func (c *Cache) loadTopicInfo(topicID int) ([]partitionOffsets, bool, error) {
 	// Upgrade the lock
-	o.lock.RUnlock()
-	o.lock.Lock()
+	c.lock.RUnlock()
+	c.lock.Lock()
 	defer func() {
-		o.lock.Unlock()
-		o.lock.RLock()
+		c.lock.Unlock()
+		c.lock.RLock()
 	}()
-	offsets, ok := o.topicOffsets[topicID]
+	offsets, ok := c.topicOffsets[topicID]
 	if ok {
-		return offsets, nil
+		return offsets, true, nil
 	}
-	info, err := o.topicMetaProvider.GetTopicInfoByID(topicID)
+	info, exists, err := c.topicMetaProvider.GetTopicInfoByID(topicID)
 	if err != nil {
-		return nil, err
+		return nil, false, err
+	}
+	if !exists {
+		return nil, false, nil
 	}
 	offsets = make([]partitionOffsets, info.PartitionCount)
-	o.topicOffsets[topicID] = offsets
-	return offsets, nil
+	c.topicOffsets[topicID] = offsets
+	return offsets, true, nil
 }
 
 func checkPartitionOffsetInRange(partitionID int, numPartitions int) error {
@@ -286,59 +304,63 @@ func checkPartitionOffsetInRange(partitionID int, numPartitions int) error {
 	return nil
 }
 
-func (o *Cache) getTopicOffsets(topicID int) ([]partitionOffsets, error) {
-	offsets, ok := o.topicOffsets[topicID]
+func (c *Cache) getTopicOffsets(topicID int) ([]partitionOffsets, bool, error) {
+	offsets, ok := c.topicOffsets[topicID]
 	if !ok {
 		var err error
-		offsets, err = o.loadTopicInfo(topicID)
+		var exists bool
+		offsets, exists, err = c.loadTopicInfo(topicID)
 		if err != nil {
-			return nil, err
+			return nil, false, err
+		}
+		if !exists {
+			return nil, false, nil
 		}
 	}
-	return offsets, nil
+	return offsets, true, nil
 }
 
-func (o *Cache) MaybeReleaseOffsets(sequence int64, sstableID sst.SSTableID) ([]OffsetTopicInfo, []sst.SSTableID, error) {
-	o.lock.RLock()
-	defer o.lock.RUnlock()
-	if !o.started {
+func (c *Cache) MaybeReleaseOffsets(sequence int64, sstableID sst.SSTableID) ([]OffsetTopicInfo, []sst.SSTableID, error) {
+	c.lock.RLock()
+	defer c.lock.RUnlock()
+	if !c.started {
 		return nil, nil, errors.New("offsets cache not started")
 	}
-	lowestAcceptable := atomic.LoadInt64(&o.lowestAcceptableSequence)
+	lowestAcceptable := atomic.LoadInt64(&c.lowestAcceptableSequence)
 	if sequence < lowestAcceptable {
 		// attempt to release offsets came in for a sequence that was gotten before membership change
 		return nil, nil, common.NewTektiteErrorf(common.Unavailable, "cannot release offsets - membership change has occurred")
 	}
-	o.reorderLock.Lock()
-	defer o.reorderLock.Unlock()
+	c.reorderLock.Lock()
+	defer c.reorderLock.Unlock()
 	var infos []OffsetTopicInfo
 	var tableIDs []sst.SSTableID
-	if sequence == o.lastReleasedSequence+1 && len(o.offsHeap) == 0 {
+	if sequence == c.lastReleasedSequence+1 && len(c.offsHeap) == 0 {
 		// happy path - avoid heap
 		var ok bool
-		infos, ok = o.offsetsMap[sequence]
+		infos, ok = c.offsetsMap[sequence]
 		if !ok {
 			panic("cannot find offsets in map")
 		}
-		delete(o.offsetsMap, sequence)
-		o.lastReleasedSequence = sequence
+		delete(c.offsetsMap, sequence)
+		c.lastReleasedSequence = sequence
 		tableIDs = []sst.SSTableID{sstableID}
 	} else {
-		heap.Push(&o.offsHeap, seqHolder{
+		heap.Push(&c.offsHeap, seqHolder{
 			seq:     sequence,
 			tableID: sstableID,
 		})
 		// We pop sequences as long as sequence is contiguous and ascending
-		for len(o.offsHeap) > 0 {
-			top := o.offsHeap.Peek()
-			if top.seq == o.lastReleasedSequence+1 {
-				heap.Pop(&o.offsHeap)
-				infs, ok := o.offsetsMap[top.seq]
+		for len(c.offsHeap) > 0 {
+			top := c.offsHeap.Peek()
+			if top.seq == c.lastReleasedSequence+1 {
+				heap.Pop(&c.offsHeap)
+				infs, ok := c.offsetsMap[top.seq]
 				if !ok {
 					panic("cannot find offsets in map")
 				}
-				delete(o.offsetsMap, top.seq)
-				o.lastReleasedSequence = top.seq
+				delete(c.offsetsMap, top.seq)
+				c.lastReleasedSequence = top.seq
 				if infos == nil {
 					infos = infs
 				} else {
@@ -350,20 +372,24 @@ func (o *Cache) MaybeReleaseOffsets(sequence int64, sstableID sst.SSTableID) ([]
 			}
 		}
 	}
-	if err := o.updateLastReadable(infos); err != nil {
+	if err := c.updateLastReadable(infos); err != nil {
 		return nil, nil, err
 	}
 	return infos, tableIDs, nil
 }
 
-func (o *Cache) updateLastReadable(infos []OffsetTopicInfo) error {
+func (c *Cache) updateLastReadable(infos []OffsetTopicInfo) error {
 	for _, topicInfo := range infos {
-		offs, err := o.getTopicOffsets(topicInfo.TopicID)
+		offs, exists, err := c.getTopicOffsets(topicInfo.TopicID)
 		if err != nil {
 			return err
 		}
-		for _, partInfo := range topicInfo.PartitionInfos {
-			offs[partInfo.PartitionID].setLastReadableOffset(partInfo.Offset)
+		if !exists {
+			log.Warnf("updateLastReadable - unknown topic id %d", topicInfo.TopicID)
+		} else {
+			for _, partInfo := range topicInfo.PartitionInfos {
+				offs[partInfo.PartitionID].setLastReadableOffset(partInfo.Offset)
+			}
 		}
 	}
 	return nil
@@ -444,22 +470,22 @@ func mergePartitionInfos(offs1 []OffsetPartitionInfo, offs2 []OffsetPartitionInf
 	return infos3
 }
 
-func (o *Cache) LoadHighestOffsetForPartition(topicID int, partitionID int) (int64, error) {
-	prefix, err := o.partitionHashes.GetPartitionHash(topicID, partitionID)
+func (c *Cache) LoadHighestOffsetForPartition(topicID int, partitionID int) (int64, error) {
+	prefix, err := c.partitionHashes.GetPartitionHash(topicID, partitionID)
 	if err != nil {
 		return 0, err
 	}
 	var key []byte
 	key = append(key, prefix...)
 	prefix = append(prefix, common.EntryTypeTopicData)
-	tables, err := o.querier.GetTablesForHighestKeyWithPrefix(prefix)
+	tables, err := c.querier.GetTablesForHighestKeyWithPrefix(prefix)
 	if err != nil {
 		return 0, err
 	}
 	if len(tables) > 0 {
 		tableID := tables[0] // first one is most recent
 		// TODO instead of going directly to the object store, should we fetch from fetch cache?
-		buff, err := o.getWithRetry(tableID)
+		buff, err := c.getWithRetry(tableID)
 		if err != nil {
 			return 0, err
 		}
@@ -494,13 +520,13 @@ func (o *Cache) LoadHighestOffsetForPartition(topicID int, partitionID int) (int
 	return -1, nil
 }
 
-func (o *Cache) getWithRetry(tableID sst.SSTableID) ([]byte, error) {
+func (c *Cache) getWithRetry(tableID sst.SSTableID) ([]byte, error) {
 	for {
-		buff, err := objstore.GetWithTimeout(o.objStore, o.dataBucketName, string(tableID), objectStoreCallTimeout)
+		buff, err := objstore.GetWithTimeout(c.objStore, c.dataBucketName, string(tableID), objectStoreCallTimeout)
 		if err == nil {
 			return buff, nil
 		}
-		if o.stopping.Load() {
+		if c.stopping.Load() {
 			return nil, errors.New("offset loader is stopping")
 		}
 		if common.IsUnavailableError(err) {
@@ -508,6 +534,20 @@ func (o *Cache) getWithRetry(tableID sst.SSTableID) ([]byte, error) {
 			time.Sleep(unavailabilityRetryDelay)
 		}
 	}
+}
+
+// SetLastReadableOffset used in tests only
+func (c *Cache) SetLastReadableOffset(topicID int, partitionID int, offset int64) {
+	c.lock.RLock()
+	defer c.lock.RUnlock()
+	pos, ok, err := c.getTopicOffsets(topicID)
+	if err != nil {
+		panic(err)
+	}
+	if !ok {
+		return
+	}
+	pos[partitionID].forceSetLastReadableOffset(offset)
 }
 
 type partitionOffsets struct {
@@ -560,6 +600,13 @@ func (p *partitionOffsets) setLastReadableOffset(offset int64) {
 	p.lock.Lock()
 	defer p.lock.Unlock()
 	p.lastReadableOffset = offset
+}
+
+func (p *partitionOffsets) forceSetLastReadableOffset(offset int64) {
+	p.lock.Lock()
+	defer p.lock.Unlock()
+	p.lastReadableOffset = offset
+	p.loaded = true
 }
 
 type seqHolder struct {

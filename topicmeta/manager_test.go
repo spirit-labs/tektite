@@ -23,12 +23,12 @@ func TestManager(t *testing.T) {
 	numTopics := 100
 	var infos []TopicInfo
 
-	expectedSeq := topicIDSequenceBase
+	expectedSeq := TopicIDSequenceBase
 	for i := 0; i < numTopics; i++ {
 		topicName := fmt.Sprintf("topic-%03d", i)
-		_, _, err := mgr.GetTopicInfo(topicName)
-		require.Error(t, err)
-		require.True(t, common.IsTektiteErrorWithCode(err, common.TopicDoesNotExist))
+		_, _, exists, err := mgr.GetTopicInfo(topicName)
+		require.NoError(t, err)
+		require.False(t, exists)
 		info := TopicInfo{
 			Name:           topicName,
 			ID:             expectedSeq,
@@ -37,8 +37,9 @@ func TestManager(t *testing.T) {
 		}
 		err = mgr.CreateTopic(info)
 		require.NoError(t, err)
-		received, seq, err := mgr.GetTopicInfo(topicName)
+		received, seq, exists, err := mgr.GetTopicInfo(topicName)
 		require.NoError(t, err)
+		require.True(t, exists)
 		require.Equal(t, info, received)
 		expectedSeq++
 		require.Equal(t, expectedSeq, seq)
@@ -55,8 +56,9 @@ func TestManager(t *testing.T) {
 
 	// Topics should still be there
 	for _, info := range infos {
-		received, _, err := mgr.GetTopicInfo(info.Name)
+		received, _, exists, err := mgr.GetTopicInfo(info.Name)
 		require.NoError(t, err)
+		require.True(t, exists)
 		require.Equal(t, info, received)
 	}
 
@@ -65,16 +67,17 @@ func TestManager(t *testing.T) {
 		info := infos[i]
 		err = mgr.DeleteTopic(info.Name)
 		require.NoError(t, err)
-		_, _, err := mgr.GetTopicInfo(info.Name)
-		require.Error(t, err)
-		require.True(t, common.IsTektiteErrorWithCode(err, common.TopicDoesNotExist))
+		_, _, exists, err := mgr.GetTopicInfo(info.Name)
+		require.NoError(t, err)
+		require.False(t, exists)
 	}
 
 	// Rest should still be there
 	for i := len(infos) / 2; i < len(infos); i++ {
 		info := infos[i]
-		received, _, err := mgr.GetTopicInfo(info.Name)
+		received, _, exists, err := mgr.GetTopicInfo(info.Name)
 		require.NoError(t, err)
+		require.True(t, exists)
 		require.Equal(t, info, received)
 	}
 
@@ -87,12 +90,13 @@ func TestManager(t *testing.T) {
 	require.NoError(t, err)
 
 	for i, info := range infos {
-		received, _, err := mgr.GetTopicInfo(info.Name)
+		received, _, exists, err := mgr.GetTopicInfo(info.Name)
 		if i < len(infos)/2 {
-			require.Error(t, err)
-			require.True(t, common.IsTektiteErrorWithCode(err, common.TopicDoesNotExist))
+			require.NoError(t, err)
+			require.False(t, exists)
 		} else {
 			require.NoError(t, err)
+			require.True(t, exists)
 			require.Equal(t, info, received)
 		}
 	}
@@ -102,9 +106,9 @@ func TestManager(t *testing.T) {
 		info := infos[i]
 		err = mgr.DeleteTopic(info.Name)
 		require.NoError(t, err)
-		_, _, err := mgr.GetTopicInfo(info.Name)
-		require.Error(t, err)
-		require.True(t, common.IsTektiteErrorWithCode(err, common.TopicDoesNotExist))
+		_, _, exists, err := mgr.GetTopicInfo(info.Name)
+		require.NoError(t, err)
+		require.False(t, exists)
 	}
 
 	// Restart again
@@ -117,9 +121,9 @@ func TestManager(t *testing.T) {
 
 	// Should be none
 	for _, info := range infos {
-		_, _, err := mgr.GetTopicInfo(info.Name)
-		require.Error(t, err)
-		require.True(t, common.IsTektiteErrorWithCode(err, common.TopicDoesNotExist))
+		_, _, exists, err := mgr.GetTopicInfo(info.Name)
+		require.NoError(t, err)
+		require.False(t, exists)
 	}
 }
 
@@ -133,7 +137,7 @@ func TestGetTopicInfoSequence(t *testing.T) {
 	require.NoError(t, err)
 
 	numTopics := 100
-	expectedSeq := topicIDSequenceBase
+	expectedSeq := TopicIDSequenceBase
 	for i := 0; i < numTopics; i++ {
 		topicName := fmt.Sprintf("topic-%03d", i)
 		info := TopicInfo{
@@ -144,8 +148,9 @@ func TestGetTopicInfoSequence(t *testing.T) {
 		}
 		err = mgr.CreateTopic(info)
 		require.NoError(t, err)
-		received, seq, err := mgr.GetTopicInfo(topicName)
+		received, seq, exists, err := mgr.GetTopicInfo(topicName)
 		require.NoError(t, err)
+		require.True(t, exists)
 		require.Equal(t, info, received)
 		expectedSeq++
 		require.Equal(t, expectedSeq, seq)
@@ -157,8 +162,9 @@ func TestGetTopicInfoSequence(t *testing.T) {
 	expectedSeq++
 
 	topicName = fmt.Sprintf("topic-%03d", 0)
-	_, seq, err := mgr.GetTopicInfo(topicName)
+	_, seq, exists, err := mgr.GetTopicInfo(topicName)
 	require.NoError(t, err)
+	require.True(t, exists)
 	require.Equal(t, expectedSeq, seq)
 }
 
@@ -173,7 +179,7 @@ func TestGetTopicInfoSequencePersisted(t *testing.T) {
 
 	numTopics := 10
 	var infos []TopicInfo
-	expectedSeq := topicIDSequenceBase
+	expectedSeq := TopicIDSequenceBase
 	for i := 0; i < numTopics; i++ {
 		topicName := fmt.Sprintf("topic-%03d", i)
 		info := TopicInfo{
@@ -184,8 +190,9 @@ func TestGetTopicInfoSequencePersisted(t *testing.T) {
 		}
 		err = mgr.CreateTopic(info)
 		require.NoError(t, err)
-		received, seq, err := mgr.GetTopicInfo(topicName)
+		received, seq, exists, err := mgr.GetTopicInfo(topicName)
 		require.NoError(t, err)
+		require.True(t, exists)
 		require.Equal(t, info, received)
 		expectedSeq++
 		require.Equal(t, expectedSeq, seq)
@@ -202,8 +209,9 @@ func TestGetTopicInfoSequencePersisted(t *testing.T) {
 
 	for i := 0; i < numTopics; i++ {
 		topicName := fmt.Sprintf("topic-%03d", i)
-		received, seq, err := mgr.GetTopicInfo(topicName)
+		received, seq, exists, err := mgr.GetTopicInfo(topicName)
 		require.NoError(t, err)
+		require.True(t, exists)
 		require.Equal(t, infos[i], received)
 		require.Equal(t, expectedSeq, seq)
 	}
@@ -219,8 +227,9 @@ func TestGetTopicInfoSequencePersisted(t *testing.T) {
 		}
 		err = mgr.CreateTopic(info)
 		require.NoError(t, err)
-		received, seq, err := mgr.GetTopicInfo(topicName)
+		received, seq, exists, err := mgr.GetTopicInfo(topicName)
 		require.NoError(t, err)
+		require.True(t, exists)
 		require.Equal(t, info, received)
 		expectedSeq++
 		require.Equal(t, expectedSeq, seq)
@@ -237,8 +246,9 @@ func TestGetTopicInfoSequencePersisted(t *testing.T) {
 
 	for i := 0; i < numTopics*2; i++ {
 		topicName := fmt.Sprintf("topic-%03d", i)
-		received, seq, err := mgr.GetTopicInfo(topicName)
+		received, seq, exists, err := mgr.GetTopicInfo(topicName)
 		require.NoError(t, err)
+		require.True(t, exists)
 		require.Equal(t, infos[i], received)
 		require.Equal(t, expectedSeq, seq)
 	}

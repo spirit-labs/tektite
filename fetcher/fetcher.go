@@ -37,38 +37,37 @@ controller and lastReadableOffset is updated it sends a notification to all agen
 the cache of ids in PartitionRecentTables.
 */
 type BatchFetcher struct {
-	objStore        objstore.Client
-	topicProvider   topicInfoProvider
-	partitionHashes *parthash.PartitionHashes
-	controlFactory  control.ClientFactory
-	tableGetter     sst.TableGetter
-	recentTables    PartitionRecentTables
-	controlClients  *control.ClientCache
-	dataBucketName  string
-	readExecs       []readExecutor
-	localCache      *LocalSSTCache
-	execAssignPos   int64
-	resetSequence   int64
-	memberID int32
+	objStore           objstore.Client
+	topicProvider      topicInfoProvider
+	partitionHashes    *parthash.PartitionHashes
+	controlFactory     control.ClientFactory
+	tableGetter        sst.TableGetter
+	recentTables       PartitionRecentTables
+	controlClientCache *control.ClientCache
+	dataBucketName     string
+	readExecs          []readExecutor
+	localCache         *LocalSSTCache
+	execAssignPos      int64
+	resetSequence      int64
+	memberID           int32
 }
 
 func NewBatchFetcher(objStore objstore.Client, topicProvider topicInfoProvider, partitionHashes *parthash.PartitionHashes,
-	controlFactory control.ClientFactory, tableGetter sst.TableGetter, cfg Conf) (*BatchFetcher, error) {
+	controlClientCache *control.ClientCache, tableGetter sst.TableGetter, cfg Conf) (*BatchFetcher, error) {
 	localCache, err := NewLocalSSTCache(cfg.LocalCacheNumEntries, cfg.LocalCacheMaxBytes)
 	if err != nil {
 		return nil, err
 	}
 	bf := &BatchFetcher{
-		objStore:        objStore,
-		topicProvider:   topicProvider,
-		partitionHashes: partitionHashes,
-		controlFactory:  controlFactory,
-		tableGetter:     tableGetter,
-		controlClients:  control.NewClientCache(cfg.MaxControllerConnections, controlFactory),
-		readExecs:       make([]readExecutor, cfg.NumReadExecutors),
-		localCache:      localCache,
-		dataBucketName:  cfg.DataBucketName,
-		memberID: -1,
+		objStore:           objStore,
+		topicProvider:      topicProvider,
+		partitionHashes:    partitionHashes,
+		controlClientCache: controlClientCache,
+		tableGetter:        tableGetter,
+		readExecs:          make([]readExecutor, cfg.NumReadExecutors),
+		localCache:         localCache,
+		dataBucketName:     cfg.DataBucketName,
+		memberID:           -1,
 	}
 	bf.recentTables = CreatePartitionRecentTables(cfg.MaxCachedTablesPerPartition, bf)
 	return bf, nil
@@ -76,7 +75,6 @@ func NewBatchFetcher(objStore objstore.Client, topicProvider topicInfoProvider, 
 
 type Conf struct {
 	DataBucketName              string
-	MaxControllerConnections    int
 	MaxCachedTablesPerPartition int
 	NumReadExecutors            int
 	LocalCacheNumEntries        int
@@ -86,7 +84,6 @@ type Conf struct {
 func NewConf() Conf {
 	return Conf{
 		DataBucketName:              DefaultDataBucketName,
-		MaxControllerConnections:    DefaultMaxControllerConnections,
 		MaxCachedTablesPerPartition: DefaultMaxCachedTablesPerPartition,
 		NumReadExecutors:            DefaultNumReadExecutors,
 		LocalCacheNumEntries:        DefaultLocalCacheNumEntries,
@@ -100,7 +97,6 @@ func (c *Conf) Validate() error {
 
 const (
 	DefaultDataBucketName              = "tektite-data"
-	DefaultMaxControllerConnections    = 10
 	DefaultMaxCachedTablesPerPartition = 100
 	DefaultNumReadExecutors            = 8
 	DefaultLocalCacheNumEntries        = 10
@@ -109,7 +105,7 @@ const (
 )
 
 type topicInfoProvider interface {
-	GetTopicInfo(topicName string) (topicmeta.TopicInfo, error)
+	GetTopicInfo(topicName string) (topicmeta.TopicInfo, bool, error)
 }
 
 func (b *BatchFetcher) Start() error {
@@ -124,7 +120,6 @@ func (b *BatchFetcher) Stop() error {
 	for i := 0; i < len(b.readExecs); i++ {
 		b.readExecs[i].stop()
 	}
-	b.controlClients.Close()
 	return nil
 }
 
@@ -169,7 +164,7 @@ func (b *BatchFetcher) getTableFromCache(tableID sst.SSTableID) (*sst.SSTable, e
 }
 
 func (b *BatchFetcher) getClient() (control.Client, error) {
-	return b.controlClients.GetClient()
+	return b.controlClientCache.GetClient()
 }
 
 func (b *BatchFetcher) MembershipChanged(thisMemberID int32, membership cluster.MembershipState) error {
@@ -179,8 +174,19 @@ func (b *BatchFetcher) MembershipChanged(thisMemberID int32, membership cluster.
 }
 
 type readExecutor struct {
-	ch     chan *FetchState
-	stopWG sync.WaitGroup
+	lock    sync.Mutex
+	stopped bool
+	ch      chan *FetchState
+	stopWG  sync.WaitGroup
+}
+
+func (r *readExecutor) execFetchState(fs *FetchState) {
+	r.lock.Lock()
+	defer r.lock.Unlock()
+	if r.stopped {
+		return
+	}
+	r.ch <- fs
 }
 
 func (r *readExecutor) start() {
@@ -189,8 +195,15 @@ func (r *readExecutor) start() {
 }
 
 func (r *readExecutor) stop() {
-	close(r.ch)
+	r.closeChannel()
 	r.stopWG.Wait()
+}
+
+func (r *readExecutor) closeChannel() {
+	r.lock.Lock()
+	defer r.lock.Unlock()
+	close(r.ch)
+	r.stopped = true
 }
 
 func (r *readExecutor) loop() {

@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"github.com/spirit-labs/tektite/asl/encoding"
-	"github.com/spirit-labs/tektite/asl/errwrap"
 	"github.com/spirit-labs/tektite/cluster"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/control"
@@ -39,15 +38,15 @@ type Coordinator struct {
 }
 
 type topicInfoProvider interface {
-	GetTopicInfo(topicName string) (topicmeta.TopicInfo, error)
+	GetTopicInfo(topicName string) (topicmeta.TopicInfo, bool, error)
 }
 
-func NewCoordinator(cfg Conf, controlFactory control.ClientFactory, tableGetter sst.TableGetter,
+func NewCoordinator(cfg Conf, controlClientCache *control.ClientCache, tableGetter sst.TableGetter,
 	connFactory transport.ConnectionFactory, topicProvider topicInfoProvider,
 	partHashes *parthash.PartitionHashes) *Coordinator {
 	return &Coordinator{
 		cfg:                cfg,
-		controlClientCache: control.NewClientCache(cfg.MaxPusherConnectionsPerAddress, controlFactory),
+		controlClientCache: controlClientCache,
 		tableGetter:        tableGetter,
 		connFactory:        connFactory,
 		topicProvider:      topicProvider,
@@ -95,14 +94,14 @@ func (c *Coordinator) MembershipChanged(_ int32, memberState cluster.MembershipS
 func (c *Coordinator) HandleInitProducerID(req *kafkaprotocol.InitProducerIdRequest) *kafkaprotocol.InitProducerIdResponse {
 	resp := &kafkaprotocol.InitProducerIdResponse{}
 	err := c.handleInitProducerID(req, resp)
-	resp.ErrorCode = errorCodeForErrror(err)
+	resp.ErrorCode = kafkaencoding.ErrorCodeForError(err, kafkaprotocol.ErrorCodeCoordinatorNotAvailable)
 	return resp
 }
 
 func (c *Coordinator) HandleAddPartitionsToTxn(req *kafkaprotocol.AddPartitionsToTxnRequest) *kafkaprotocol.AddPartitionsToTxnResponse {
 	resp := &kafkaprotocol.AddPartitionsToTxnResponse{}
 	err := c.handleAddPartitionsToTxn(req, resp)
-	resp.ErrorCode = errorCodeForErrror(err)
+	resp.ErrorCode = kafkaencoding.ErrorCodeForError(err, kafkaprotocol.ErrorCodeCoordinatorNotAvailable)
 	return resp
 }
 
@@ -116,12 +115,26 @@ func (c *Coordinator) handleAddPartitionsToTxn(req *kafkaprotocol.AddPartitionsT
 	// FIXME - in case of error of later adds need to make sure previous adds weren't added!
 	for _, topic := range req.V3AndBelowTopics {
 		topicName := common.SafeDerefStringPtr(topic.Name)
-		topicInfo, err := c.topicProvider.GetTopicInfo(topicName)
+		topicInfo, exists, err := c.topicProvider.GetTopicInfo(topicName)
 		if err != nil {
-			log.Warnf("failed to find topic %s: %v", topicName, err)
-			return &kafkaError{
-				errorCode: kafkaprotocol.ErrorCodeUnknownTopicOrPartition,
-				errorMsg:  fmt.Sprintf("unknown topic: %s", topicName),
+			if common.IsUnavailableError(err) {
+				// Send back topic does not exist so client retries
+				log.Warnf("failed to find topic %s: %v", topicName, err)
+				return &kafkaencoding.KafkaError{
+					ErrorCode: kafkaprotocol.ErrorCodeUnknownTopicOrPartition,
+					ErrorMsg:  fmt.Sprintf("unknown topic: %s", topicName),
+				}
+			} else {
+				log.Errorf("failed to find topic %s: %v", topicName, err)
+				return &kafkaencoding.KafkaError{
+					ErrorCode: kafkaprotocol.ErrorCodeUnknownServerError,
+				}
+			}
+		}
+		if !exists {
+			return &kafkaencoding.KafkaError{
+				ErrorCode: kafkaprotocol.ErrorCodeUnknownTopicOrPartition,
+				ErrorMsg:  fmt.Sprintf("unknown topic: %s", topicName),
 			}
 		}
 		topicID := int64(topicInfo.ID)
@@ -137,7 +150,7 @@ func (c *Coordinator) handleAddPartitionsToTxn(req *kafkaprotocol.AddPartitionsT
 func (c *Coordinator) HandleAddOffsetsToTxn(req *kafkaprotocol.AddOffsetsToTxnRequest) *kafkaprotocol.AddOffsetsToTxnResponse {
 	resp := &kafkaprotocol.AddOffsetsToTxnResponse{}
 	err := c.handleAddOffsetsToTxn(req, resp)
-	resp.ErrorCode = errorCodeForErrror(err)
+	resp.ErrorCode = kafkaencoding.ErrorCodeForError(err, kafkaprotocol.ErrorCodeNone)
 	return resp
 }
 
@@ -158,15 +171,15 @@ func (c *Coordinator) handleAddOffsetsToTxn(req *kafkaprotocol.AddOffsetsToTxnRe
 func (c *Coordinator) getTxInfo(producerID int64, producerEpoch int16) (*txInfo, error) {
 	info, ok := c.txInfos[producerID]
 	if !ok {
-		return nil, &kafkaError{
-			errorCode: kafkaprotocol.ErrorCodeInvalidProducerIDMapping,
-			errorMsg:  "unknown producer ID",
+		return nil, &kafkaencoding.KafkaError{
+			ErrorCode: kafkaprotocol.ErrorCodeInvalidProducerIDMapping,
+			ErrorMsg:  "unknown producer ID",
 		}
 	}
 	if info.storedState.producerEpoch != producerEpoch {
-		return nil, &kafkaError{
-			errorCode: kafkaprotocol.ErrorCodeInvalidProducerEpoch,
-			errorMsg:  "invalid producer epoch",
+		return nil, &kafkaencoding.KafkaError{
+			ErrorCode: kafkaprotocol.ErrorCodeInvalidProducerEpoch,
+			ErrorMsg:  "invalid producer epoch",
 		}
 	}
 	return info, nil
@@ -177,7 +190,7 @@ func (c *Coordinator) HandleEndTxn(req *kafkaprotocol.EndTxnRequest) *kafkaproto
 	defer c.lock.RUnlock()
 	resp := &kafkaprotocol.EndTxnResponse{}
 	err := c.handleEndTxn(req, resp)
-	errCode := errorCodeForErrror(err)
+	errCode := kafkaencoding.ErrorCodeForError(err, kafkaprotocol.ErrorCodeCoordinatorNotAvailable)
 	resp.ErrorCode = errCode
 	return resp
 }
@@ -197,9 +210,9 @@ func (c *Coordinator) handleInitProducerID(req *kafkaprotocol.InitProducerIdRequ
 	defer c.lock.RUnlock()
 	if req.ProducerId == -1 && req.ProducerEpoch != -1 {
 		// Compatibility with Kafka broker
-		return &kafkaError{
-			errorCode: kafkaprotocol.ErrorCodeInvalidRequest,
-			errorMsg:  "producerId == -1 but epoch is specified",
+		return &kafkaencoding.KafkaError{
+			ErrorCode: kafkaprotocol.ErrorCodeInvalidRequest,
+			ErrorMsg:  "producerId == -1 but epoch is specified",
 		}
 	}
 	if req.TransactionalId == nil {
@@ -215,9 +228,9 @@ func (c *Coordinator) handleInitProducerID(req *kafkaprotocol.InitProducerIdRequ
 	transactionalID := common.SafeDerefStringPtr(req.TransactionalId)
 	if transactionalID == "" {
 		// Compatibility with Kafka broker
-		return &kafkaError{
-			errorCode: kafkaprotocol.ErrorCodeInvalidRequest,
-			errorMsg:  "transactionalID not specified",
+		return &kafkaencoding.KafkaError{
+			ErrorCode: kafkaprotocol.ErrorCodeInvalidRequest,
+			ErrorMsg:  "transactionalID not specified",
 		}
 	}
 
@@ -290,32 +303,6 @@ func (c *Coordinator) addTxInfo(info *txInfo) {
 		c.lock.RLock()
 	}()
 	c.txInfos[info.storedState.pid] = info
-}
-
-func errorCodeForErrror(err error) int16 {
-	if err == nil {
-		return int16(kafkaprotocol.ErrorCodeNone)
-	}
-	var kerr kafkaError
-	if errwrap.As(err, &kerr) {
-		log.Warn(err)
-		return int16(kerr.errorCode)
-	} else if common.IsUnavailableError(err) {
-		log.Warn(err)
-		return int16(kafkaprotocol.ErrorCodeCoordinatorNotAvailable)
-	} else {
-		log.Error(err)
-		return int16(kafkaprotocol.ErrorCodeUnknownServerError)
-	}
-}
-
-type kafkaError struct {
-	errorCode int
-	errorMsg  string
-}
-
-func (k kafkaError) Error() string {
-	return k.errorMsg
 }
 
 func createRequestBuffer() []byte {
@@ -456,9 +443,9 @@ func (t *txInfo) addPartition(topicID int64, partitionID int32) error {
 	parts := t.storedState.partitions[topicID]
 	for _, partID := range parts {
 		if partID == partitionID {
-			return &kafkaError{
-				errorCode: kafkaprotocol.ErrorCodeInvalidTxnState,
-				errorMsg:  "topic partition is already added to transaction",
+			return &kafkaencoding.KafkaError{
+				ErrorCode: kafkaprotocol.ErrorCodeInvalidTxnState,
+				ErrorMsg:  "topic partition is already added to transaction",
 			}
 		}
 	}
@@ -474,9 +461,9 @@ func (t *txInfo) addConsumerGroup(groupID string) error {
 	}
 	for _, group := range t.storedState.consumerGroups {
 		if group == groupID {
-			return &kafkaError{
-				errorCode: kafkaprotocol.ErrorCodeInvalidTxnState,
-				errorMsg:  fmt.Sprintf("consumer group %s is already added to transaction", groupID),
+			return &kafkaencoding.KafkaError{
+				ErrorCode: kafkaprotocol.ErrorCodeInvalidTxnState,
+				ErrorMsg:  fmt.Sprintf("consumer group %s is already added to transaction", groupID),
 			}
 		}
 	}
@@ -489,9 +476,9 @@ func (t *txInfo) checkState() error {
 		t.storedState.status = txStatusBegin
 	}
 	if t.storedState.status != txStatusBegin {
-		return &kafkaError{
-			errorCode: kafkaprotocol.ErrorCodeInvalidTxnState,
-			errorMsg:  fmt.Sprintf("cannot add partition to transaction in state %d", t.storedState.status),
+		return &kafkaencoding.KafkaError{
+			ErrorCode: kafkaprotocol.ErrorCodeInvalidTxnState,
+			ErrorMsg:  fmt.Sprintf("cannot add partition to transaction in state %d", t.storedState.status),
 		}
 	}
 	return nil
@@ -501,9 +488,9 @@ func (t *txInfo) endTx(commit bool) error {
 	t.lock.Lock()
 	defer t.lock.Unlock()
 	if t.storedState.status != txStatusBegin {
-		return &kafkaError{
-			errorCode: kafkaprotocol.ErrorCodeInvalidTxnState,
-			errorMsg:  fmt.Sprintf("cannot end transaction as not in begin state %d", t.storedState.status),
+		return &kafkaencoding.KafkaError{
+			ErrorCode: kafkaprotocol.ErrorCodeInvalidTxnState,
+			ErrorMsg:  fmt.Sprintf("cannot end transaction as not in begin state %d", t.storedState.status),
 		}
 	}
 	// copy so we don't change status on error
@@ -585,9 +572,9 @@ func (t *txInfo) sendTransactionMarkers() error {
 			if !ok {
 				// No available pushers
 				log.Warnf("cannot commit transaction as no members in cluster")
-				return &kafkaError{
-					errorCode: kafkaprotocol.ErrorCodeCoordinatorNotAvailable,
-					errorMsg:  "cannot commit transaction as no members in cluster",
+				return &kafkaencoding.KafkaError{
+					ErrorCode: kafkaprotocol.ErrorCodeCoordinatorNotAvailable,
+					ErrorMsg:  "cannot commit transaction as no members in cluster",
 				}
 			}
 			batches, ok := pusherBatches[pusherAddress]
@@ -627,9 +614,9 @@ func (t *txInfo) sendTransactionMarkers() error {
 	for pusherAddress, req := range requests {
 		conn, err := t.c.getConnection(pusherAddress)
 		if err != nil {
-			return &kafkaError{
-				errorCode: kafkaprotocol.ErrorCodeCoordinatorNotAvailable,
-				errorMsg:  fmt.Sprintf("failed to get table pusher connection %v", err),
+			return &kafkaencoding.KafkaError{
+				ErrorCode: kafkaprotocol.ErrorCodeCoordinatorNotAvailable,
+				ErrorMsg:  fmt.Sprintf("failed to get table pusher connection %v", err),
 			}
 		}
 		buff := req.Serialize(createRequestBuffer())
@@ -637,14 +624,14 @@ func (t *txInfo) sendTransactionMarkers() error {
 		if err != nil {
 			if common.IsUnavailableError(err) {
 				log.Warnf("failed to handle offset commit: %v", err)
-				return &kafkaError{
-					errorCode: kafkaprotocol.ErrorCodeCoordinatorNotAvailable,
-					errorMsg:  fmt.Sprintf("failed to handle transaction marker write: %v", err),
+				return &kafkaencoding.KafkaError{
+					ErrorCode: kafkaprotocol.ErrorCodeCoordinatorNotAvailable,
+					ErrorMsg:  fmt.Sprintf("failed to handle transaction marker write: %v", err),
 				}
 			} else {
 				log.Errorf("failed to handle offset commit: %v", err)
-				return &kafkaError{
-					errorCode: kafkaprotocol.ErrorCodeUnknownServerError,
+				return &kafkaencoding.KafkaError{
+					ErrorCode: kafkaprotocol.ErrorCodeUnknownServerError,
 				}
 			}
 		}
@@ -653,7 +640,9 @@ func (t *txInfo) sendTransactionMarkers() error {
 }
 
 func (t *txInfo) store() error {
-	key := encoding.EncodeVersion(t.partHash, 0)
+	key := make([]byte, 0, 16)
+	key = append(key, t.partHash...)
+	key = encoding.EncodeVersion(key, 0)
 	value := make([]byte, 0, 32)
 	value = binary.BigEndian.AppendUint16(value, transactionMetadataVersion)
 	value = t.storedState.Serialize(value)
@@ -667,8 +656,8 @@ func (t *txInfo) sendDirectWrite(kvs []common.KV) error {
 	pusherAddress, ok := pusher.ChooseTablePusherForHash(t.partHash, t.c.membership.Members)
 	if !ok {
 		// No available pushers
-		return &kafkaError{errorCode: kafkaprotocol.ErrorCodeCoordinatorNotAvailable,
-			errorMsg: "cannot store transaction as no members in cluster"}
+		return &kafkaencoding.KafkaError{ErrorCode: kafkaprotocol.ErrorCodeCoordinatorNotAvailable,
+			ErrorMsg: "cannot store transaction as no members in cluster"}
 	}
 	pusherReq := pusher.DirectWriteRequest{
 		WriterKey:   t.key,

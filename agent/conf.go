@@ -22,7 +22,8 @@ type Conf struct {
 	FetcherConf             fetcher.Conf
 	FetchCacheConf          fetchcache.Conf
 	GroupCoordinatorConf    group.Conf
-	TxCoordinatorConf tx.Conf
+	TxCoordinatorConf       tx.Conf
+	MaxControllerClients    int
 }
 
 func NewConf() Conf {
@@ -35,8 +36,11 @@ func NewConf() Conf {
 		FetchCacheConf:          fetchcache.NewConf(),
 		GroupCoordinatorConf:    group.NewConf(),
 		TxCoordinatorConf:       tx.NewConf(),
+		MaxControllerClients:    DefaultMaxControllerClients,
 	}
 }
+
+const DefaultMaxControllerClients = 10
 
 func (c *Conf) Validate() error {
 	if err := c.ClusterListenerConfig.Validate(); err != nil {

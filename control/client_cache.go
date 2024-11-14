@@ -15,6 +15,7 @@ type ClientCache struct {
 	clientFactory ClientFactory
 	clients       []*clientWrapper
 	pos           int64
+	injectedError error
 }
 
 type ClientFactory func() (Client, error)
@@ -24,6 +25,12 @@ func NewClientCache(maxClients int, clientFactory ClientFactory) *ClientCache {
 		clients:       make([]*clientWrapper, maxClients),
 		clientFactory: clientFactory,
 	}
+}
+
+func (cc *ClientCache) SetInjectedError(err error) {
+	cc.lock.Lock()
+	defer cc.lock.Unlock()
+	cc.injectedError = err
 }
 
 func (cc *ClientCache) GetClient() (Client, error) {
@@ -54,9 +61,10 @@ func (cc *ClientCache) createClient(index int) (*clientWrapper, error) {
 		return nil, err
 	}
 	cl = &clientWrapper{
-		cc:     cc,
-		index:  index,
-		client: cli,
+		cc:            cc,
+		index:         index,
+		client:        cli,
+		injectedError: cc.injectedError,
 	}
 	cc.clients[index] = cl
 	return cl, nil
@@ -81,12 +89,16 @@ func (cc *ClientCache) Close() {
 }
 
 type clientWrapper struct {
-	cc     *ClientCache
-	index  int
-	client Client
+	cc            *ClientCache
+	index         int
+	client        Client
+	injectedError error
 }
 
-func (c *clientWrapper) PrePush(infos []offsets.GetOffsetTopicInfo, epochInfos []EpochInfo) ([]offsets.OffsetTopicInfo, int64, []bool, error) {
+func (c *clientWrapper) PrePush(infos []offsets.GenerateOffsetTopicInfo, epochInfos []EpochInfo) ([]offsets.OffsetTopicInfo, int64, []bool, error) {
+	if c.injectedError != nil {
+		return nil, 0, []bool{}, c.injectedError
+	}
 	offs, seq, epochsOK, err := c.client.PrePush(infos, epochInfos)
 	if err != nil {
 		c.closeConnection()
@@ -95,6 +107,9 @@ func (c *clientWrapper) PrePush(infos []offsets.GetOffsetTopicInfo, epochInfos [
 }
 
 func (c *clientWrapper) ApplyLsmChanges(regBatch lsm.RegistrationBatch) error {
+	if c.injectedError != nil {
+		return c.injectedError
+	}
 	err := c.ApplyLsmChanges(regBatch)
 	if err != nil {
 		c.closeConnection()
@@ -103,6 +118,9 @@ func (c *clientWrapper) ApplyLsmChanges(regBatch lsm.RegistrationBatch) error {
 }
 
 func (c *clientWrapper) RegisterL0Table(sequence int64, regEntry lsm.RegistrationEntry) error {
+	if c.injectedError != nil {
+		return c.injectedError
+	}
 	err := c.RegisterL0Table(sequence, regEntry)
 	if err != nil {
 		c.closeConnection()
@@ -112,6 +130,9 @@ func (c *clientWrapper) RegisterL0Table(sequence int64, regEntry lsm.Registratio
 
 func (c *clientWrapper) RegisterTableListener(topicID int, partitionID int, memberID int32,
 	resetSequence int64) (int64, error) {
+	if c.injectedError != nil {
+		return 0, c.injectedError
+	}
 	lro, err := c.client.RegisterTableListener(topicID, partitionID, memberID, resetSequence)
 	if err != nil {
 		c.closeConnection()
@@ -119,7 +140,21 @@ func (c *clientWrapper) RegisterTableListener(topicID int, partitionID int, memb
 	return lro, err
 }
 
+func (c *clientWrapper) GetOffsetInfos(infos []offsets.GetOffsetTopicInfo) ([]offsets.OffsetTopicInfo, error) {
+	if c.injectedError != nil {
+		return nil, c.injectedError
+	}
+	res, err := c.client.GetOffsetInfos(infos)
+	if err != nil {
+		c.closeConnection()
+	}
+	return res, err
+}
+
 func (c *clientWrapper) QueryTablesInRange(keyStart []byte, keyEnd []byte) (lsm.OverlappingTables, error) {
+	if c.injectedError != nil {
+		return nil, c.injectedError
+	}
 	queryRes, err := c.client.QueryTablesInRange(keyStart, keyEnd)
 	if err != nil {
 		c.closeConnection()
@@ -128,6 +163,9 @@ func (c *clientWrapper) QueryTablesInRange(keyStart []byte, keyEnd []byte) (lsm.
 }
 
 func (c *clientWrapper) PollForJob() (lsm.CompactionJob, error) {
+	if c.injectedError != nil {
+		return lsm.CompactionJob{}, c.injectedError
+	}
 	job, err := c.client.PollForJob()
 	if err != nil {
 		c.closeConnection()
@@ -135,15 +173,32 @@ func (c *clientWrapper) PollForJob() (lsm.CompactionJob, error) {
 	return job, err
 }
 
-func (c *clientWrapper) GetTopicInfo(topicName string) (topicmeta.TopicInfo, int, error) {
-	topicInfo, seq, err := c.client.GetTopicInfo(topicName)
+func (c *clientWrapper) GetAllTopicInfos() ([]topicmeta.TopicInfo, error) {
+	if c.injectedError != nil {
+		return nil, c.injectedError
+	}
+	topicInfos, err := c.client.GetAllTopicInfos()
 	if err != nil {
 		c.closeConnection()
 	}
-	return topicInfo, seq, err
+	return topicInfos, err
+}
+
+func (c *clientWrapper) GetTopicInfo(topicName string) (topicmeta.TopicInfo, int, bool, error) {
+	if c.injectedError != nil {
+		return topicmeta.TopicInfo{}, 0, false, c.injectedError
+	}
+	topicInfo, seq, exists, err := c.client.GetTopicInfo(topicName)
+	if err != nil {
+		c.closeConnection()
+	}
+	return topicInfo, seq, exists, err
 }
 
 func (c *clientWrapper) CreateTopic(topicInfo topicmeta.TopicInfo) error {
+	if c.injectedError != nil {
+		return c.injectedError
+	}
 	err := c.client.CreateTopic(topicInfo)
 	if err != nil {
 		c.closeConnection()
@@ -152,6 +207,9 @@ func (c *clientWrapper) CreateTopic(topicInfo topicmeta.TopicInfo) error {
 }
 
 func (c *clientWrapper) DeleteTopic(topicName string) error {
+	if c.injectedError != nil {
+		return c.injectedError
+	}
 	err := c.client.DeleteTopic(topicName)
 	if err != nil {
 		c.closeConnection()
@@ -160,6 +218,9 @@ func (c *clientWrapper) DeleteTopic(topicName string) error {
 }
 
 func (c *clientWrapper) GetCoordinatorInfo(groupID string) (int32, string, int, error) {
+	if c.injectedError != nil {
+		return 0, "", 0, c.injectedError
+	}
 	memberID, address, groupEpoch, err := c.client.GetCoordinatorInfo(groupID)
 	if err != nil {
 		c.closeConnection()
@@ -168,6 +229,9 @@ func (c *clientWrapper) GetCoordinatorInfo(groupID string) (int32, string, int, 
 }
 
 func (c *clientWrapper) GenerateSequence(sequenceName string) (int64, error) {
+	if c.injectedError != nil {
+		return 0, c.injectedError
+	}
 	seq, err := c.client.GenerateSequence(sequenceName)
 	if err != nil {
 		c.closeConnection()

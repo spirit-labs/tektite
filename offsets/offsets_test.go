@@ -21,7 +21,7 @@ import (
 
 func TestOffsetsCacheNotStarted(t *testing.T) {
 	oc := setupCache(t)
-	_, _, err := oc.GetOffsets([]GetOffsetTopicInfo{{TopicID: 0, PartitionInfos: []GetOffsetPartitionInfo{{NumOffsets: 100}}}})
+	_, _, err := oc.GenerateOffsets([]GenerateOffsetTopicInfo{{TopicID: 0, PartitionInfos: []GenerateOffsetPartitionInfo{{NumOffsets: 100}}}})
 	require.Error(t, err)
 	require.Equal(t, "offsets cache not started", err.Error())
 }
@@ -30,10 +30,10 @@ func TestOffsetsCacheNotStarted(t *testing.T) {
 func TestOffsetsCacheGetSingleAlreadyStoredOffsetNonZero(t *testing.T) {
 	oc := setupAndStartCache(t)
 
-	offs, seq, err := oc.GetOffsets([]GetOffsetTopicInfo{
+	offs, seq, err := oc.GenerateOffsets([]GenerateOffsetTopicInfo{
 		{
 			TopicID: 7,
-			PartitionInfos: []GetOffsetPartitionInfo{
+			PartitionInfos: []GenerateOffsetPartitionInfo{
 				{
 					PartitionID: 2,
 					NumOffsets:  100,
@@ -47,10 +47,10 @@ func TestOffsetsCacheGetSingleAlreadyStoredOffsetNonZero(t *testing.T) {
 
 	require.Equal(t, 1, int(seq))
 
-	offs, seq, err = oc.GetOffsets([]GetOffsetTopicInfo{
+	offs, seq, err = oc.GenerateOffsets([]GenerateOffsetTopicInfo{
 		{
 			TopicID: 7,
-			PartitionInfos: []GetOffsetPartitionInfo{
+			PartitionInfos: []GenerateOffsetPartitionInfo{
 				{
 					PartitionID: 2,
 					NumOffsets:  33,
@@ -64,10 +64,10 @@ func TestOffsetsCacheGetSingleAlreadyStoredOffsetNonZero(t *testing.T) {
 
 	require.Equal(t, 2, int(seq))
 
-	offs, seq, err = oc.GetOffsets([]GetOffsetTopicInfo{
+	offs, seq, err = oc.GenerateOffsets([]GenerateOffsetTopicInfo{
 		{
 			TopicID: 7,
-			PartitionInfos: []GetOffsetPartitionInfo{
+			PartitionInfos: []GenerateOffsetPartitionInfo{
 				{
 					PartitionID: 2,
 					NumOffsets:  33,
@@ -86,10 +86,10 @@ func TestOffsetsCacheGetSingleAlreadyStoredOffsetNonZero(t *testing.T) {
 func TestOffsetsCacheGetSingleAlreadyStoredOffsetZero(t *testing.T) {
 	oc := setupAndStartCache(t)
 
-	offsets, _, err := oc.GetOffsets([]GetOffsetTopicInfo{
+	offsets, _, err := oc.GenerateOffsets([]GenerateOffsetTopicInfo{
 		{
 			TopicID: 7,
-			PartitionInfos: []GetOffsetPartitionInfo{
+			PartitionInfos: []GenerateOffsetPartitionInfo{
 				{
 					PartitionID: 1,
 					NumOffsets:  100,
@@ -101,10 +101,10 @@ func TestOffsetsCacheGetSingleAlreadyStoredOffsetZero(t *testing.T) {
 	require.Equal(t, 1, len(offsets))
 	require.Equal(t, 3556, int(offsets[0].PartitionInfos[0].Offset))
 
-	offsets, _, err = oc.GetOffsets([]GetOffsetTopicInfo{
+	offsets, _, err = oc.GenerateOffsets([]GenerateOffsetTopicInfo{
 		{
 			TopicID: 7,
-			PartitionInfos: []GetOffsetPartitionInfo{
+			PartitionInfos: []GenerateOffsetPartitionInfo{
 				{
 					PartitionID: 1,
 					NumOffsets:  33,
@@ -116,10 +116,10 @@ func TestOffsetsCacheGetSingleAlreadyStoredOffsetZero(t *testing.T) {
 	require.Equal(t, 1, len(offsets))
 	require.Equal(t, 3556+33, int(offsets[0].PartitionInfos[0].Offset))
 
-	offsets, _, err = oc.GetOffsets([]GetOffsetTopicInfo{
+	offsets, _, err = oc.GenerateOffsets([]GenerateOffsetTopicInfo{
 		{
 			TopicID: 7,
-			PartitionInfos: []GetOffsetPartitionInfo{
+			PartitionInfos: []GenerateOffsetPartitionInfo{
 				{
 					PartitionID: 1,
 					NumOffsets:  33,
@@ -136,10 +136,10 @@ func TestOffsetsCacheGetSingleAlreadyStoredOffsetZero(t *testing.T) {
 func TestOffsetsCacheGetSingleNotStored(t *testing.T) {
 	oc := setupAndStartCache(t)
 
-	offsets, _, err := oc.GetOffsets([]GetOffsetTopicInfo{
+	offsets, _, err := oc.GenerateOffsets([]GenerateOffsetTopicInfo{
 		{
 			TopicID: 7,
-			PartitionInfos: []GetOffsetPartitionInfo{
+			PartitionInfos: []GenerateOffsetPartitionInfo{
 				{
 					PartitionID: 3,
 					NumOffsets:  100,
@@ -151,10 +151,10 @@ func TestOffsetsCacheGetSingleNotStored(t *testing.T) {
 	require.Equal(t, 1, len(offsets))
 	require.Equal(t, 99, int(offsets[0].PartitionInfos[0].Offset))
 
-	offsets, _, err = oc.GetOffsets([]GetOffsetTopicInfo{
+	offsets, _, err = oc.GenerateOffsets([]GenerateOffsetTopicInfo{
 		{
 			TopicID: 7,
-			PartitionInfos: []GetOffsetPartitionInfo{
+			PartitionInfos: []GenerateOffsetPartitionInfo{
 				{
 					PartitionID: 3,
 					NumOffsets:  33,
@@ -166,10 +166,10 @@ func TestOffsetsCacheGetSingleNotStored(t *testing.T) {
 	require.Equal(t, 1, len(offsets))
 	require.Equal(t, 99+33, int(offsets[0].PartitionInfos[0].Offset))
 
-	offsets, _, err = oc.GetOffsets([]GetOffsetTopicInfo{
+	offsets, _, err = oc.GenerateOffsets([]GenerateOffsetTopicInfo{
 		{
 			TopicID: 7,
-			PartitionInfos: []GetOffsetPartitionInfo{
+			PartitionInfos: []GenerateOffsetPartitionInfo{
 				{
 					PartitionID: 3,
 					NumOffsets:  33,
@@ -193,10 +193,10 @@ func TestOffsetsCacheGetMultiple(t *testing.T) {
 		kvs = append(kvs, createDataEntry(t, 8, 1, 3456))
 	*/
 
-	offsets, _, err := oc.GetOffsets([]GetOffsetTopicInfo{
+	offsets, _, err := oc.GenerateOffsets([]GenerateOffsetTopicInfo{
 		{
 			TopicID: 7,
-			PartitionInfos: []GetOffsetPartitionInfo{
+			PartitionInfos: []GenerateOffsetPartitionInfo{
 				{
 					PartitionID: 0,
 					NumOffsets:  100,
@@ -217,7 +217,7 @@ func TestOffsetsCacheGetMultiple(t *testing.T) {
 		},
 		{
 			TopicID: 8,
-			PartitionInfos: []GetOffsetPartitionInfo{
+			PartitionInfos: []GenerateOffsetPartitionInfo{
 				{
 					PartitionID: 0,
 					NumOffsets:  150,
@@ -255,10 +255,10 @@ func TestOffsetsCacheGetMultiple(t *testing.T) {
 	require.Equal(t, 1, offsets[1].PartitionInfos[1].PartitionID)
 	require.Equal(t, 3456+250, int(offsets[1].PartitionInfos[1].Offset))
 
-	offsets, _, err = oc.GetOffsets([]GetOffsetTopicInfo{
+	offsets, _, err = oc.GenerateOffsets([]GenerateOffsetTopicInfo{
 		{
 			TopicID: 7,
-			PartitionInfos: []GetOffsetPartitionInfo{
+			PartitionInfos: []GenerateOffsetPartitionInfo{
 				{
 					PartitionID: 0,
 					NumOffsets:  110,
@@ -279,7 +279,7 @@ func TestOffsetsCacheGetMultiple(t *testing.T) {
 		},
 		{
 			TopicID: 8,
-			PartitionInfos: []GetOffsetPartitionInfo{
+			PartitionInfos: []GenerateOffsetPartitionInfo{
 				{
 					PartitionID: 0,
 					NumOffsets:  155,
@@ -323,10 +323,10 @@ func TestOffsetsCacheGetMultiple(t *testing.T) {
 func TestOffsetsCacheUnknownTopicID(t *testing.T) {
 	oc := setupAndStartCache(t)
 
-	_, _, err := oc.GetOffsets([]GetOffsetTopicInfo{
+	_, _, err := oc.GenerateOffsets([]GenerateOffsetTopicInfo{
 		{
 			TopicID: 2323,
-			PartitionInfos: []GetOffsetPartitionInfo{
+			PartitionInfos: []GenerateOffsetPartitionInfo{
 				{
 					PartitionID: 0,
 					NumOffsets:  1,
@@ -335,16 +335,16 @@ func TestOffsetsCacheUnknownTopicID(t *testing.T) {
 		},
 	})
 	require.Error(t, err)
-	require.Equal(t, "unknown topic id: 2323", err.Error())
+	require.Equal(t, "generate offsets: unknown topic: 2323", err.Error())
 }
 
 func TestMembershipChanged(t *testing.T) {
 	oc := setupAndStartCache(t)
 
-	infos := []GetOffsetTopicInfo{
+	infos := []GenerateOffsetTopicInfo{
 		{
 			TopicID: 7,
-			PartitionInfos: []GetOffsetPartitionInfo{
+			PartitionInfos: []GenerateOffsetPartitionInfo{
 				{
 					PartitionID: 1,
 					NumOffsets:  100,
@@ -357,7 +357,7 @@ func TestMembershipChanged(t *testing.T) {
 		},
 		{
 			TopicID: 8,
-			PartitionInfos: []GetOffsetPartitionInfo{
+			PartitionInfos: []GenerateOffsetPartitionInfo{
 				{
 					PartitionID: 1,
 					NumOffsets:  200,
@@ -365,36 +365,42 @@ func TestMembershipChanged(t *testing.T) {
 			},
 		},
 	}
-	offs, seq, err := oc.GetOffsets(infos)
+	offs, seq, err := oc.GenerateOffsets(infos)
 	require.NoError(t, err)
 	require.Equal(t, len(infos), len(offs))
 
 	// We haven't updated written offsets yet so should be last written
-	highestReadable, err := oc.GetLastReadableOffset(7, 1)
+	highestReadable, exists, err := oc.GetLastReadableOffset(7, 1)
 	require.NoError(t, err)
+	require.True(t, exists)
 	require.Equal(t, 3456, int(highestReadable))
 
-	highestReadable, err = oc.GetLastReadableOffset(7, 2)
+	highestReadable, exists, err = oc.GetLastReadableOffset(7, 2)
 	require.NoError(t, err)
+	require.True(t, exists)
 	require.Equal(t, 0, int(highestReadable))
 
-	highestReadable, err = oc.GetLastReadableOffset(8, 1)
+	highestReadable, exists, err = oc.GetLastReadableOffset(8, 1)
 	require.NoError(t, err)
+	require.True(t, exists)
 	require.Equal(t, 3456, int(highestReadable))
 
 	// Membership change should trigger reset of highestReadable to be nextOffset - 1
 	oc.MembershipChanged()
 
-	highestReadable, err = oc.GetLastReadableOffset(7, 1)
+	highestReadable, exists, err = oc.GetLastReadableOffset(7, 1)
 	require.NoError(t, err)
+	require.True(t, exists)
 	require.Equal(t, 3456+100, int(highestReadable))
 
-	highestReadable, err = oc.GetLastReadableOffset(7, 2)
+	highestReadable, exists, err = oc.GetLastReadableOffset(7, 2)
 	require.NoError(t, err)
+	require.True(t, exists)
 	require.Equal(t, 0+150, int(highestReadable))
 
-	highestReadable, err = oc.GetLastReadableOffset(8, 1)
+	highestReadable, exists, err = oc.GetLastReadableOffset(8, 1)
 	require.NoError(t, err)
+	require.True(t, exists)
 	require.Equal(t, 3456+200, int(highestReadable))
 
 	// Now any attempt to register with this sequence should not release anything
@@ -407,7 +413,7 @@ func TestMembershipChanged(t *testing.T) {
 	require.True(t, common.IsUnavailableError(err))
 
 	// Get new offsets
-	offs, seq, err = oc.GetOffsets(infos)
+	offs, seq, err = oc.GenerateOffsets(infos)
 	require.NoError(t, err)
 	require.Equal(t, len(infos), len(offs))
 
@@ -419,29 +425,39 @@ func TestMembershipChanged(t *testing.T) {
 	require.Equal(t, offs, releasedOffs)
 
 	// check that last readable was updated
-	highestReadable, err = oc.GetLastReadableOffset(7, 1)
+	highestReadable, exists, err = oc.GetLastReadableOffset(7, 1)
 	require.NoError(t, err)
 	require.Equal(t, offs[0].PartitionInfos[0].Offset, highestReadable)
 
-	highestReadable, err = oc.GetLastReadableOffset(7, 2)
+	highestReadable, exists, err = oc.GetLastReadableOffset(7, 2)
 	require.NoError(t, err)
+	require.True(t, exists)
 	require.Equal(t, offs[0].PartitionInfos[1].Offset, highestReadable)
 
-	highestReadable, err = oc.GetLastReadableOffset(8, 1)
+	highestReadable, exists, err = oc.GetLastReadableOffset(8, 1)
 	require.NoError(t, err)
+	require.True(t, exists)
 	require.Equal(t, offs[1].PartitionInfos[0].Offset, highestReadable)
+}
+
+func TestGetLastReadableTopicDoesNotExist(t *testing.T) {
+	oc := setupAndStartCache(t)
+	highestReadable, exists, err := oc.GetLastReadableOffset(23, 1)
+	require.NoError(t, err)
+	require.False(t, exists)
+	require.Equal(t, 0, int(highestReadable))
 }
 
 type testTopicMetaProvider struct {
 	infos map[int]topicmeta.TopicInfo
 }
 
-func (t *testTopicMetaProvider) GetTopicInfoByID(topicID int) (topicmeta.TopicInfo, error) {
+func (t *testTopicMetaProvider) GetTopicInfoByID(topicID int) (topicmeta.TopicInfo, bool, error) {
 	info, ok := t.infos[topicID]
 	if !ok {
-		return topicmeta.TopicInfo{}, common.NewTektiteErrorf(common.TopicDoesNotExist, "unknown topic id: %d", topicID)
+		return topicmeta.TopicInfo{}, false, nil
 	}
-	return info, nil
+	return info, true, nil
 }
 
 var testTopicProvider = &testTopicMetaProvider{
@@ -463,7 +479,7 @@ type testLsmHolder struct {
 	tableID sst.SSTableID
 }
 
-func (t *testLsmHolder) GetTablesForHighestKeyWithPrefix(prefix []byte) ([]sst.SSTableID, error) {
+func (t *testLsmHolder) GetTablesForHighestKeyWithPrefix(_ []byte) ([]sst.SSTableID, error) {
 	return []sst.SSTableID{t.tableID}, nil
 }
 
@@ -530,7 +546,7 @@ func TestWrittenOffsetsHeap(t *testing.T) {
 	var wos []seqHolder
 	var tabIDs []sst.SSTableID
 	for i := 0; i < numOffsets; i++ {
-		tabID := sst.SSTableID([]byte(fmt.Sprintf("table-%d", i)))
+		tabID := sst.SSTableID(fmt.Sprintf("table-%d", i))
 		tabIDs = append(tabIDs, tabID)
 		wos = append(wos, seqHolder{
 			seq:     int64(i),

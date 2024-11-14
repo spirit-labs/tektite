@@ -5,8 +5,10 @@ const (
 	HandlerIDControllerApplyChanges
 	HandlerIDControllerQueryTablesInRange
 	HandlerIDControllerRegisterTableListener
-	HandlerIDControllerGetOffsets
+	HandlerIDControllerPrepush
+	HandlerIDControllerGetOffsetInfo
 	HandlerIDControllerPollForJob
+	HandlerIDControllerGetAllTopicInfos
 	HandlerIDControllerGetTopicInfo
 	HandlerIDControllerCreateTopic
 	HandlerIDControllerDeleteTopic

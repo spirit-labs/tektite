@@ -64,6 +64,18 @@ func (s *SocketServer) Start() error {
 }
 
 func (s *SocketServer) Stop() error {
+	if err := s.stop(); err != nil {
+		log.Warnf("failed to stop socket server: %v", err)
+	}
+	// Now close connections - must be done outside lock to prevent deadlock
+	s.connections.Range(func(conn, _ interface{}) bool {
+		conn.(*serverConnection).stop()
+		return true
+	})
+	return nil
+}
+
+func (s *SocketServer) stop() error {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 	if !s.started {
@@ -76,11 +88,7 @@ func (s *SocketServer) Stop() error {
 	}
 	// Wait for accept loop to exit
 	s.acceptLoopExitGroup.Wait()
-	// Now close connections
-	s.connections.Range(func(conn, _ interface{}) bool {
-		conn.(*serverConnection).stop()
-		return true
-	})
+
 	s.started = false
 	return nil
 }

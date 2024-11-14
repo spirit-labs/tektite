@@ -126,15 +126,17 @@ func (c *Cache) MembershipChanged(_ int32, membership cluster.MembershipState) e
 	defer c.lock.Unlock()
 	newMembers := make(map[int32]cluster.MembershipEntry, len(membership.Members))
 	for _, member := range membership.Members {
+		data := extractMembershipData(&member)
+		if data.Location != c.cfg.AzInfo {
+			// Each AZ has it's own cache so we don't have cross AZ calls when looking up in cache
+			// Here, Az is different so we ignore
+			continue
+		}
 		newMembers[member.ID] = member
 		_, exists := c.members[member.ID]
 		if !exists {
 			// member added
-			data := extractMembershipData(&member)
-			if data.AZInfo == c.cfg.AzInfo {
-				// Each AZ has it's own cache so we don't have cross AZ calls when looking up in cache
-				c.consist.Add(data.ClusterListenAddress)
-			}
+			c.consist.Add(data.ClusterListenAddress)
 		}
 	}
 	for memberID, member := range c.members {

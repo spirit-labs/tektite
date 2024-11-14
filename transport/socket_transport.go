@@ -11,6 +11,7 @@ import (
 	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/sockserver"
 	"net"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -21,8 +22,8 @@ type SocketTransportVersion uint16
 const (
 	SocketTransportV1       SocketTransportVersion = 1
 	responseBuffInitialSize                        = 4 * 1024
-	dialTimeout         = 5 * time.Second
-	defaultWriteTimeout = 5 * time.Second
+	dialTimeout                                    = 5 * time.Second
+	defaultWriteTimeout                            = 5 * time.Second
 )
 
 var _ Server = (*SocketTransportServer)(nil)
@@ -104,6 +105,7 @@ func (c *SocketTransportServerConn) HandleMessage(buff []byte) error {
 	}
 	correlationID := binary.BigEndian.Uint64(buff[2:])
 	handlerID := int(binary.BigEndian.Uint64(buff[10:]))
+
 	handler, ok := c.s.getRequestHandler(handlerID)
 	if !ok {
 		return errors.Errorf("no handler found with id %d", handlerID)
@@ -117,7 +119,7 @@ func (c *SocketTransportServerConn) HandleMessage(buff []byte) error {
 		5. the operation specific response bytes
 	*/
 	responseBuff := make([]byte, 15, responseBuffInitialSize)
-	return handler(&ConnectionContext{ConnectionID:  c.id}, buff[18:], responseBuff, func(response []byte, err error) error {
+	return handler(&ConnectionContext{ConnectionID: c.id}, buff[18:], responseBuff, func(response []byte, err error) error {
 		if err != nil {
 			response = encodeErrorResponse(responseBuff, err)
 		}
@@ -162,7 +164,12 @@ func (s *SocketTransportConnection) start() {
 		defer s.readPanicHandler()
 		defer s.closeWaitGroup.Done()
 		if err := sockserver.ReadMessage(s.conn, s.responseHandler); err != nil {
-			log.Errorf("failed to read response message: %v", err)
+			if !strings.Contains(err.Error(), "use of closed network connection") {
+				log.Errorf("SocketTransportConnection: failed to read response message: %v", err)
+			} else {
+				// Normal to get these when closing - don't spam the logs
+				log.Debugf("SocketTransportConnection: failed to read response message: %v", err)
+			}
 			s.sendErrorResponsesAndCloseConnection(err)
 		}
 	}()
@@ -176,6 +183,7 @@ func (s *SocketTransportConnection) sendErrorResponsesAndCloseConnection(err err
 	for _, ch := range s.responseChannels {
 		ch <- responseHolder{err: err}
 	}
+	s.responseChannels = map[int64]chan responseHolder{}
 	if err := s.conn.Close(); err != nil {
 		// Ignore
 	}
@@ -297,9 +305,18 @@ type responseHolder struct {
 }
 
 func (s *SocketTransportConnection) Close() error {
-	err := s.conn.Close()
+	s.sendErrorResponsesAndCloseConnection(errors.New("connection closed"))
 	s.closeWaitGroup.Wait()
-	return err
+	return nil
+}
+
+func (s *SocketTransportConnection) closeWaitingRPCs() {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+	for _, ch := range s.responseChannels {
+		close(ch)
+	}
+	s.responseChannels = map[int64]chan responseHolder{}
 }
 
 func NewSocketClient(tlsConf *client.TLSConfig) (*SocketClient, error) {

@@ -26,10 +26,10 @@ func TestSinglePartitionTableNotification(t *testing.T) {
 	require.NoError(t, err)
 
 	// trigger a notification
-	offsetInfos := []offsets.GetOffsetTopicInfo{
+	offsetInfos := []offsets.GenerateOffsetTopicInfo{
 		{
 			TopicID: 1000,
-			PartitionInfos: []offsets.GetOffsetPartitionInfo{
+			PartitionInfos: []offsets.GenerateOffsetPartitionInfo{
 				{
 					PartitionID: 3,
 					NumOffsets:  125,
@@ -62,10 +62,10 @@ func testMultiplePartitionTableNotification(t *testing.T, topicID int, partition
 
 	// trigger a notification
 
-	offsetInfos := []offsets.GetOffsetTopicInfo{
+	offsetInfos := []offsets.GenerateOffsetTopicInfo{
 		{
 			TopicID: 1000,
-			PartitionInfos: []offsets.GetOffsetPartitionInfo{
+			PartitionInfos: []offsets.GenerateOffsetPartitionInfo{
 				{
 					PartitionID: 3,
 					NumOffsets:  125,
@@ -78,7 +78,7 @@ func testMultiplePartitionTableNotification(t *testing.T, topicID int, partition
 		},
 		{
 			TopicID: 1001,
-			PartitionInfos: []offsets.GetOffsetPartitionInfo{
+			PartitionInfos: []offsets.GenerateOffsetPartitionInfo{
 				{
 					PartitionID: 1,
 					NumOffsets:  10,
@@ -107,10 +107,10 @@ func TestRegisterTableListenerReturnsLRO(t *testing.T) {
 
 	// trigger a notification
 
-	offsetInfos := []offsets.GetOffsetTopicInfo{
+	offsetInfos := []offsets.GenerateOffsetTopicInfo{
 		{
 			TopicID: 1000,
-			PartitionInfos: []offsets.GetOffsetPartitionInfo{
+			PartitionInfos: []offsets.GenerateOffsetPartitionInfo{
 				{
 					PartitionID: 1,
 					NumOffsets:  125,
@@ -151,10 +151,10 @@ func TestMultipleRegistrations(t *testing.T) {
 
 	// trigger a notification
 
-	offsetInfos := []offsets.GetOffsetTopicInfo{
+	offsetInfos := []offsets.GenerateOffsetTopicInfo{
 		{
 			TopicID: 1000,
-			PartitionInfos: []offsets.GetOffsetPartitionInfo{
+			PartitionInfos: []offsets.GenerateOffsetPartitionInfo{
 				{
 					PartitionID: 3,
 					NumOffsets:  125,
@@ -167,7 +167,7 @@ func TestMultipleRegistrations(t *testing.T) {
 		},
 		{
 			TopicID: 1001,
-			PartitionInfos: []offsets.GetOffsetPartitionInfo{
+			PartitionInfos: []offsets.GenerateOffsetPartitionInfo{
 				{
 					PartitionID: 1,
 					NumOffsets:  10,
@@ -202,10 +202,10 @@ func TestMultipleReceivers(t *testing.T) {
 
 	// trigger a notification
 
-	offsetInfos := []offsets.GetOffsetTopicInfo{
+	offsetInfos := []offsets.GenerateOffsetTopicInfo{
 		{
 			TopicID: 1000,
-			PartitionInfos: []offsets.GetOffsetPartitionInfo{
+			PartitionInfos: []offsets.GenerateOffsetPartitionInfo{
 				{
 					PartitionID: 3,
 					NumOffsets:  125,
@@ -218,7 +218,7 @@ func TestMultipleReceivers(t *testing.T) {
 		},
 		{
 			TopicID: 1001,
-			PartitionInfos: []offsets.GetOffsetPartitionInfo{
+			PartitionInfos: []offsets.GenerateOffsetPartitionInfo{
 				{
 					PartitionID: 1,
 					NumOffsets:  10,
@@ -253,10 +253,10 @@ func TestNotRegisteredForPartition(t *testing.T) {
 
 	// trigger a notification
 
-	offsetInfos := []offsets.GetOffsetTopicInfo{
+	offsetInfos := []offsets.GenerateOffsetTopicInfo{
 		{
 			TopicID: 1000,
-			PartitionInfos: []offsets.GetOffsetPartitionInfo{
+			PartitionInfos: []offsets.GenerateOffsetPartitionInfo{
 				{
 					PartitionID: 3,
 					NumOffsets:  125,
@@ -269,7 +269,7 @@ func TestNotRegisteredForPartition(t *testing.T) {
 		},
 		{
 			TopicID: 1001,
-			PartitionInfos: []offsets.GetOffsetPartitionInfo{
+			PartitionInfos: []offsets.GenerateOffsetPartitionInfo{
 				{
 					PartitionID: 1,
 					NumOffsets:  10,
@@ -297,10 +297,10 @@ func TestMultipleNotifications(t *testing.T) {
 
 	numNotifs := 10
 	for i := 0; i < numNotifs; i++ {
-		offsetInfos := []offsets.GetOffsetTopicInfo{
+		offsetInfos := []offsets.GenerateOffsetTopicInfo{
 			{
 				TopicID: 1000,
-				PartitionInfos: []offsets.GetOffsetPartitionInfo{
+				PartitionInfos: []offsets.GenerateOffsetPartitionInfo{
 					{
 						PartitionID: 3,
 						NumOffsets:  125,
@@ -313,7 +313,7 @@ func TestMultipleNotifications(t *testing.T) {
 			},
 			{
 				TopicID: 1001,
-				PartitionInfos: []offsets.GetOffsetPartitionInfo{
+				PartitionInfos: []offsets.GenerateOffsetPartitionInfo{
 					{
 						PartitionID: 1,
 						NumOffsets:  10,
@@ -343,10 +343,10 @@ func TestNotificationLeaderVersion(t *testing.T) {
 	_, err := cl.RegisterTableListener(1000, 3, receiver.memberID, 0)
 	require.NoError(t, err)
 
-	offsetInfos := []offsets.GetOffsetTopicInfo{
+	offsetInfos := []offsets.GenerateOffsetTopicInfo{
 		{
 			TopicID: 1000,
-			PartitionInfos: []offsets.GetOffsetPartitionInfo{
+			PartitionInfos: []offsets.GenerateOffsetPartitionInfo{
 				{
 					PartitionID: 3,
 					NumOffsets:  125,
@@ -377,10 +377,10 @@ func TestInvalidateListeners(t *testing.T) {
 	// send some notifications
 	numNotifs := 10
 	for i := 0; i < numNotifs; i++ {
-		offsetInfos := []offsets.GetOffsetTopicInfo{
+		offsetInfos := []offsets.GenerateOffsetTopicInfo{
 			{
 				TopicID: 1000,
-				PartitionInfos: []offsets.GetOffsetPartitionInfo{
+				PartitionInfos: []offsets.GenerateOffsetPartitionInfo{
 					{
 						PartitionID: 3,
 						NumOffsets:  125,
@@ -393,7 +393,7 @@ func TestInvalidateListeners(t *testing.T) {
 			},
 			{
 				TopicID: 1001,
-				PartitionInfos: []offsets.GetOffsetPartitionInfo{
+				PartitionInfos: []offsets.GenerateOffsetPartitionInfo{
 					{
 						PartitionID: 1,
 						NumOffsets:  10,
@@ -419,10 +419,10 @@ func TestInvalidateListeners(t *testing.T) {
 	require.NoError(t, err)
 
 	// Send another notification
-	offsetInfos := []offsets.GetOffsetTopicInfo{
+	offsetInfos := []offsets.GenerateOffsetTopicInfo{
 		{
 			TopicID: 1000,
-			PartitionInfos: []offsets.GetOffsetPartitionInfo{
+			PartitionInfos: []offsets.GenerateOffsetPartitionInfo{
 				{
 					PartitionID: 3,
 					NumOffsets:  125,
@@ -435,7 +435,7 @@ func TestInvalidateListeners(t *testing.T) {
 		},
 		{
 			TopicID: 1001,
-			PartitionInfos: []offsets.GetOffsetPartitionInfo{
+			PartitionInfos: []offsets.GenerateOffsetPartitionInfo{
 				{
 					PartitionID: 1,
 					NumOffsets:  10,
@@ -495,10 +495,10 @@ func TestListenersRemovedOnMembershipChange(t *testing.T) {
 	}
 
 	// send a notification
-	offsetInfos := []offsets.GetOffsetTopicInfo{
+	offsetInfos := []offsets.GenerateOffsetTopicInfo{
 		{
 			TopicID: 1000,
-			PartitionInfos: []offsets.GetOffsetPartitionInfo{
+			PartitionInfos: []offsets.GenerateOffsetPartitionInfo{
 				{
 					PartitionID: 3,
 					NumOffsets:  125,
@@ -588,10 +588,10 @@ func TestNotificationWithMultipleTables(t *testing.T) {
 	_, err := cl.RegisterTableListener(1000, 3, receiver.memberID, 0)
 	require.NoError(t, err)
 
-	offsetInfos := []offsets.GetOffsetTopicInfo{
+	offsetInfos := []offsets.GenerateOffsetTopicInfo{
 		{
 			TopicID: 1000,
-			PartitionInfos: []offsets.GetOffsetPartitionInfo{
+			PartitionInfos: []offsets.GenerateOffsetPartitionInfo{
 				{
 					PartitionID: 3,
 					NumOffsets:  100,
@@ -699,7 +699,7 @@ func verifyTableRegisteredNotification(t *testing.T, sequence int, tableID sst.S
 	}
 }
 
-func triggerTableAddedNotification(t *testing.T, cl Client, offInfos []offsets.GetOffsetTopicInfo) (sst.SSTableID, []offsets.OffsetTopicInfo) {
+func triggerTableAddedNotification(t *testing.T, cl Client, offInfos []offsets.GenerateOffsetTopicInfo) (sst.SSTableID, []offsets.OffsetTopicInfo) {
 	offs, seq, _, err := cl.PrePush(offInfos, nil)
 	require.NoError(t, err)
 

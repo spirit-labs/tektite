@@ -54,6 +54,7 @@ type TablePusher struct {
 	stopping             atomic.Bool
 	controllerClient     ControlClient
 	tableGetter          sst.TableGetter
+	leaderChecker        LeaderChecker
 	partitionRecords     map[int]map[int][]bufferedRecords
 	produceCompletions   []func(error)
 	directKVs            map[string][]common.KV
@@ -66,22 +67,31 @@ type TablePusher struct {
 	offsetSnapshotTimer  *time.Timer
 	sizeBytes            int
 	producerSeqs         map[int]map[int]map[int]*sequenceInfo
+	stats                Stats
 }
 
 type bufferedRecords [][]byte
 
 type topicInfoProvider interface {
-	GetTopicInfo(topicName string) (topicmeta.TopicInfo, error)
+	GetTopicInfo(topicName string) (topicmeta.TopicInfo, bool, error)
 }
 
 type controllerClientFactory func() (ControlClient, error)
 
 type ControlClient interface {
-	PrePush(infos []offsets.GetOffsetTopicInfo, epochInfos []control.EpochInfo) ([]offsets.OffsetTopicInfo, int64,
+	PrePush(infos []offsets.GenerateOffsetTopicInfo, epochInfos []control.EpochInfo) ([]offsets.OffsetTopicInfo, int64,
 		[]bool, error)
 	RegisterL0Table(sequence int64, regEntry lsm.RegistrationEntry) error
 	QueryTablesInRange(keyStart []byte, keyEnd []byte) (lsm.OverlappingTables, error)
 	Close() error
+}
+
+type LeaderChecker interface {
+	IsLeader(topicID int, partitionID int) (bool, error)
+}
+
+type Stats struct {
+	ProducedBatchCount int64
 }
 
 const (
@@ -100,7 +110,8 @@ func init() {
 }
 
 func NewTablePusher(cfg Conf, topicProvider topicInfoProvider, objStore objstore.Client,
-	clientFactory controllerClientFactory, tableGetter sst.TableGetter, partitionHashes *parthash.PartitionHashes) (*TablePusher, error) {
+	clientFactory controllerClientFactory, tableGetter sst.TableGetter, partitionHashes *parthash.PartitionHashes,
+	leaderChecker LeaderChecker) (*TablePusher, error) {
 	return &TablePusher{
 		cfg:                cfg,
 		topicProvider:      topicProvider,
@@ -108,6 +119,7 @@ func NewTablePusher(cfg Conf, topicProvider topicInfoProvider, objStore objstore
 		clientFactory:      clientFactory,
 		tableGetter:        tableGetter,
 		partitionHashes:    partitionHashes,
+		leaderChecker:      leaderChecker,
 		partitionRecords:   map[int]map[int][]bufferedRecords{},
 		directWriterEpochs: map[string]int{},
 		directKVs:          map[string][]common.KV{},
@@ -139,6 +151,12 @@ func (t *TablePusher) Stop() error {
 	t.offsetSnapshotTimer.Stop()
 	t.started = false
 	return nil
+}
+
+func (t *TablePusher) GetStats() Stats {
+	return Stats{
+		ProducedBatchCount: atomic.LoadInt64(&t.stats.ProducedBatchCount),
+	}
 }
 
 func (t *TablePusher) scheduleWriteTimer(timeout time.Duration) {
@@ -195,6 +213,9 @@ func (t *TablePusher) callCompletions(err error) {
 	for _, completionFunc := range t.produceCompletions {
 		completionFunc(err)
 	}
+	if err == nil {
+		atomic.AddInt64(&t.stats.ProducedBatchCount, int64(len(t.produceCompletions)))
+	}
 	for _, offsetCompletions := range t.directCompletions {
 		for _, completionFunc := range offsetCompletions {
 			completionFunc(err)
@@ -222,23 +243,49 @@ func (t *TablePusher) HandleProduceRequest(req *kafkaprotocol.ProduceRequest,
 		resp.Responses[i].Name = topicData.Name
 		partitionResponses := make([]kafkaprotocol.ProduceResponsePartitionProduceResponse, len(topicData.PartitionData))
 		resp.Responses[i].PartitionResponses = partitionResponses
-		topicInfo, err := t.topicProvider.GetTopicInfo(*topicData.Name)
-		topicExists := true
+		topicInfo, topicExists, err := t.topicProvider.GetTopicInfo(*topicData.Name)
+		var errCode int
+		var errMsg string
 		if err != nil {
-			if !common.IsTektiteErrorWithCode(err, common.TopicDoesNotExist) {
+			if common.IsUnavailableError(err) {
+				// Send back unknown topic as client will retry
 				log.Warnf("failed to get topic info: %v", err)
+				errCode = kafkaprotocol.ErrorCodeUnknownTopicOrPartition
+				errMsg = err.Error()
+			} else {
+				errCode = kafkaprotocol.ErrorCodeUnknownServerError
 			}
-			topicExists = false
+		} else if !topicExists {
+			errCode = kafkaprotocol.ErrorCodeUnknownTopicOrPartition
+			errMsg = fmt.Sprintf("unknown topic: %s", common.SafeDerefStringPtr(topicData.Name))
 		}
 		var topicMap map[int][]bufferedRecords
 	partitions:
 		for j, partitionData := range topicData.PartitionData {
 			partitionResponses[j].Index = partitionData.Index
 			partitionID := int(partitionData.Index)
-			if !topicExists {
-				setPartitionError(kafkaprotocol.ErrorCodeUnknownTopicOrPartition,
-					fmt.Sprintf("unknown topic: %s", *topicData.Name), &partitionResponses[j])
+			if errCode != kafkaprotocol.ErrorCodeNone {
+				setPartitionError(errCode, errMsg, &partitionResponses[j])
 				continue partitions
+			}
+			if t.leaderChecker != nil && t.cfg.EnforceProduceOnLeader {
+				leader, err := t.leaderChecker.IsLeader(topicInfo.ID, partitionID)
+				if err != nil {
+					return err
+				}
+				if !leader {
+					// We check whether this agent is the "leader" for the topic, partition. We want produces for
+					// same topic partitions to be handled at same agent in same AZ as that gives less load on the LSM
+					// compactor as each agent handles a non overlapping range of keys, which allows compaction to be
+					// parallelised. We return an error if this agent doesn't handle the partitions key range, this should
+					// result in the client re-requesting metadata from an agent which should have the correct mapping.
+					// If we didn't do this then clients could continue sending batches to the wrong agents until
+					// cluster metadata timeout is hit, default is 5 minutes.
+					setPartitionError(kafkaprotocol.ErrorCodeNotLeaderOrFollower,
+						fmt.Sprintf("produce arrived at wrong agent for partition: %d for topic: %s", partitionID, *topicData.Name),
+						&partitionResponses[j])
+					continue partitions
+				}
 			}
 			if partitionID < 0 || partitionID >= topicInfo.PartitionCount {
 				setPartitionError(kafkaprotocol.ErrorCodeUnknownTopicOrPartition,
@@ -501,11 +548,11 @@ func (t *TablePusher) write() error {
 		return err
 	}
 	// Prepare the offsets to request
-	getOffSetInfos := make([]offsets.GetOffsetTopicInfo, 0, len(t.partitionRecords))
+	getOffSetInfos := make([]offsets.GenerateOffsetTopicInfo, 0, len(t.partitionRecords))
 	for topicID, partitions := range t.partitionRecords {
-		var offsetInfo offsets.GetOffsetTopicInfo
+		var offsetInfo offsets.GenerateOffsetTopicInfo
 		offsetInfo.TopicID = topicID
-		offsetInfo.PartitionInfos = make([]offsets.GetOffsetPartitionInfo, 0, len(partitions))
+		offsetInfo.PartitionInfos = make([]offsets.GenerateOffsetPartitionInfo, 0, len(partitions))
 		for partitionID, entries := range partitions {
 			totRecords := 0
 			for _, entry := range entries {
@@ -513,7 +560,7 @@ func (t *TablePusher) write() error {
 					totRecords += kafkaencoding.NumRecords(batch)
 				}
 			}
-			offsetInfo.PartitionInfos = append(offsetInfo.PartitionInfos, offsets.GetOffsetPartitionInfo{
+			offsetInfo.PartitionInfos = append(offsetInfo.PartitionInfos, offsets.GenerateOffsetPartitionInfo{
 				PartitionID: partitionID,
 				NumOffsets:  totRecords,
 			})
@@ -524,17 +571,18 @@ func (t *TablePusher) write() error {
 	// offset to be got, and ordering the locks prevents deadlock between multiple pushers requesting offsets from
 	// same partitions.
 	if len(getOffSetInfos) > 1 {
-		slices.SortFunc(getOffSetInfos, func(a, b offsets.GetOffsetTopicInfo) int {
+		slices.SortFunc(getOffSetInfos, func(a, b offsets.GenerateOffsetTopicInfo) int {
 			return intCompare(a.TopicID, b.TopicID)
 		})
-		for _, topicInfo := range getOffSetInfos {
-			if len(topicInfo.PartitionInfos) > 1 {
-				slices.SortFunc(topicInfo.PartitionInfos, func(a, b offsets.GetOffsetPartitionInfo) int {
-					return intCompare(a.PartitionID, b.PartitionID)
-				})
-			}
+	}
+	for _, topicInfo := range getOffSetInfos {
+		if len(topicInfo.PartitionInfos) > 1 {
+			slices.SortFunc(topicInfo.PartitionInfos, func(a, b offsets.GenerateOffsetPartitionInfo) int {
+				return intCompare(a.PartitionID, b.PartitionID)
+			})
 		}
 	}
+
 	// Prepare the epoch infos
 	groupEpochInfos := make([]control.EpochInfo, 0, len(t.directWriterEpochs))
 	for groupID, epoch := range t.directWriterEpochs {
@@ -737,7 +785,7 @@ func (t *TablePusher) checkOffset(producerID int, topicID int, partitionID int, 
 
 func (t *TablePusher) loadExpectedSequence(producerID int, topicID int, partitionID int) (int32, error) {
 	// First we lookup any snapshot
-	key, err := t.createSequenceSnapshotKey(producerID, topicID, partitionID)
+	key, err := t.createOffsetSnapshotKey(producerID, topicID, partitionID)
 	if err != nil {
 		return 0, err
 	}
@@ -804,7 +852,7 @@ func (t *TablePusher) maybeSnapshotSequences() error {
 		for topicID, topicMap := range producerMap {
 			for partitionID, seqInfo := range topicMap {
 				if seqInfo.dirty {
-					key, err := t.createSequenceSnapshotKey(producerID, topicID, partitionID)
+					key, err := t.createOffsetSnapshotKey(producerID, topicID, partitionID)
 					if err != nil {
 						return err
 					}
@@ -826,15 +874,16 @@ func (t *TablePusher) maybeSnapshotSequences() error {
 	return nil
 }
 
-func (t *TablePusher) createSequenceSnapshotKey(producerID int, topicID int, partitionID int) ([]byte, error) {
+func (t *TablePusher) createOffsetSnapshotKey(producerID int, topicID int, partitionID int) ([]byte, error) {
 	partHash, err := t.partitionHashes.GetPartitionHash(topicID, partitionID)
 	if err != nil {
 		return nil, err
 	}
-	key := make([]byte, 25)
-	copy(key, partHash)
-	key[16] = common.EntryTypeOffsetSnapshot
-	binary.BigEndian.PutUint64(key[17:], uint64(producerID))
+	key := make([]byte, 0, 33)
+	key = append(key, partHash...)
+	key = append(key, common.EntryTypeOffsetSnapshot)
+	key = binary.BigEndian.AppendUint64(key, uint64(producerID))
+	key = encoding.EncodeVersion(key, 0)
 	return key, nil
 }
 
@@ -882,21 +931,9 @@ func ChooseTablePusherForHash(partHash []byte, members []cluster.MembershipEntry
 	if len(members) == 0 {
 		return "", false
 	}
-	memberID := CalcMemberForHash(partHash, len(members))
+	memberID := common.CalcMemberForHash(partHash, len(members))
 	data := members[memberID].Data
 	var memberData common.MembershipData
 	memberData.Deserialize(data, 0)
 	return memberData.ClusterListenAddress, true
-}
-
-// CalcMemberForHash - we consider hash as a big endian number and distribute it's range evenly and consecutively across
-// n members. This works as n is always much smaller than math.MaxUint32
-func CalcMemberForHash(hash []byte, n int) int {
-	top32bits := binary.BigEndian.Uint32(hash)
-	res := int(uint64(top32bits) * uint64(n) / uint64(math.MaxUint32))
-	// edge case where top32bits = math.MaxUint32:
-	if res == n {
-		res = n - 1
-	}
-	return res
 }

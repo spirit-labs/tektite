@@ -35,6 +35,8 @@ type Controller struct {
 	offsetsCache               *offsets.Cache
 	topicMetaManager           *topicmeta.Manager
 	currentMembership          cluster.MembershipState
+	clusterState               []AgentMeta
+	clusterStateSameAZ         []AgentMeta
 	tableListeners             *tableListeners
 	groupCoordinatorController *CoordinatorController
 	tableGetter                sst.TableGetter
@@ -72,8 +74,10 @@ func (c *Controller) Start() error {
 	c.transportServer.RegisterHandler(transport.HandlerIDControllerApplyChanges, c.handleApplyChanges)
 	c.transportServer.RegisterHandler(transport.HandlerIDControllerRegisterTableListener, c.handleRegisterTableListener)
 	c.transportServer.RegisterHandler(transport.HandlerIDControllerQueryTablesInRange, c.handleQueryTablesInRange)
-	c.transportServer.RegisterHandler(transport.HandlerIDControllerGetOffsets, c.handlePrePush)
+	c.transportServer.RegisterHandler(transport.HandlerIDControllerPrepush, c.handlePrePush)
+	c.transportServer.RegisterHandler(transport.HandlerIDControllerGetOffsetInfo, c.handleGetOffsetInfo)
 	c.transportServer.RegisterHandler(transport.HandlerIDControllerPollForJob, c.handlePollForJob)
+	c.transportServer.RegisterHandler(transport.HandlerIDControllerGetAllTopicInfos, c.handleGetAllTopicInfos)
 	c.transportServer.RegisterHandler(transport.HandlerIDControllerGetTopicInfo, c.handleGetTopicInfo)
 	c.transportServer.RegisterHandler(transport.HandlerIDControllerCreateTopic, c.handleCreateTopic)
 	c.transportServer.RegisterHandler(transport.HandlerIDControllerDeleteTopic, c.handleDeleteTopic)
@@ -177,6 +181,7 @@ func (c *Controller) MembershipChanged(thisMemberID int32, newState cluster.Memb
 		}
 	}
 	c.currentMembership = newState
+	c.updateClusterMeta(&newState)
 	if c.offsetsCache != nil {
 		c.offsetsCache.MembershipChanged()
 	}
@@ -283,7 +288,10 @@ func (c *Controller) handleRegisterTableListener(_ *transport.ConnectionContext,
 	if err := c.checkLeaderVersion(req.LeaderVersion); err != nil {
 		return responseWriter(nil, err)
 	}
-	lro, err := c.offsetsCache.GetLastReadableOffset(req.TopicID, req.PartitionID)
+	lro, exists, err := c.offsetsCache.GetLastReadableOffset(req.TopicID, req.PartitionID)
+	if !exists {
+		err = common.NewTektiteErrorf(common.TopicDoesNotExist, "GetOffsetInfo: unknown topic: %d", req.TopicID)
+	}
 	if err != nil {
 		return responseWriter(nil, err)
 	}
@@ -344,7 +352,7 @@ func (c *Controller) handlePrePush(_ *transport.ConnectionContext, request []byt
 	}
 
 	// And then we get the offsets
-	offs, seq, err := c.offsetsCache.GetOffsets(req.Infos)
+	offs, seq, err := c.offsetsCache.GenerateOffsets(req.Infos)
 	if err != nil {
 		return responseWriter(nil, err)
 	}
@@ -352,6 +360,38 @@ func (c *Controller) handlePrePush(_ *transport.ConnectionContext, request []byt
 		Offsets:  offs,
 		Sequence: seq,
 		EpochsOK: epochsOK,
+	}
+	responseBuff = resp.Serialize(responseBuff)
+	return responseWriter(responseBuff, nil)
+}
+
+func (c *Controller) handleGetOffsetInfo(_ *transport.ConnectionContext, request []byte, responseBuff []byte, responseWriter transport.ResponseWriter) error {
+	c.lock.RLock()
+	defer c.lock.RUnlock()
+	if !c.requestChecks(request, responseWriter) {
+		return nil
+	}
+	var req GetOffsetInfoRequest
+	req.Deserialize(request, 2)
+	if err := c.checkLeaderVersion(req.LeaderVersion); err != nil {
+		return responseWriter(nil, err)
+	}
+	var resp GetOffsetInfoResponse
+	resp.OffsetInfos = make([]offsets.OffsetTopicInfo, len(req.GetOffsetTopicInfos))
+	for i, topicInfo := range req.GetOffsetTopicInfos {
+		resp.OffsetInfos[i].TopicID = topicInfo.TopicID
+		resp.OffsetInfos[i].PartitionInfos = make([]offsets.OffsetPartitionInfo, len(topicInfo.PartitionIDs))
+		for j, partitionID := range topicInfo.PartitionIDs {
+			resp.OffsetInfos[i].PartitionInfos[j].PartitionID = partitionID
+			offset, exists, err := c.offsetsCache.GetLastReadableOffset(topicInfo.TopicID, partitionID)
+			if !exists {
+				err = common.NewTektiteErrorf(common.TopicDoesNotExist, "GetOffsetInfo: unknown topic: %d", topicInfo.TopicID)
+			}
+			if err != nil {
+				return responseWriter(nil, err)
+			}
+			resp.OffsetInfos[i].PartitionInfos[j].Offset = offset
+		}
 	}
 	responseBuff = resp.Serialize(responseBuff)
 	return responseWriter(responseBuff, nil)
@@ -379,6 +419,27 @@ func (c *Controller) handlePollForJob(ctx *transport.ConnectionContext, request 
 	return nil
 }
 
+func (c *Controller) handleGetAllTopicInfos(_ *transport.ConnectionContext, request []byte, responseBuff []byte, responseWriter transport.ResponseWriter) error {
+	c.lock.RLock()
+	defer c.lock.RUnlock()
+	if !c.requestChecks(request, responseWriter) {
+		return nil
+	}
+	var req GetAllTopicInfosRequest
+	req.Deserialize(request, 2)
+	if err := c.checkLeaderVersion(req.LeaderVersion); err != nil {
+		return responseWriter(nil, err)
+	}
+	infos, err := c.topicMetaManager.GetAllTopicInfos()
+	if err != nil {
+		return responseWriter(nil, err)
+	}
+	var resp GetAllTopicInfosResponse
+	resp.TopicInfos = infos
+	responseBuff = resp.Serialize(responseBuff)
+	return responseWriter(responseBuff, nil)
+}
+
 func (c *Controller) handleGetTopicInfo(_ *transport.ConnectionContext, request []byte, responseBuff []byte, responseWriter transport.ResponseWriter) error {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
@@ -390,12 +451,13 @@ func (c *Controller) handleGetTopicInfo(_ *transport.ConnectionContext, request 
 	if err := c.checkLeaderVersion(req.LeaderVersion); err != nil {
 		return responseWriter(nil, err)
 	}
-	info, seq, err := c.topicMetaManager.GetTopicInfo(req.TopicName)
+	info, seq, exists, err := c.topicMetaManager.GetTopicInfo(req.TopicName)
 	if err != nil {
 		return responseWriter(nil, err)
 	}
 	var resp GetTopicInfoResponse
 	resp.Sequence = seq
+	resp.Exists = exists
 	resp.Info = info
 	responseBuff = resp.Serialize(responseBuff)
 	return responseWriter(responseBuff, nil)
@@ -534,4 +596,8 @@ func (c *Controller) checkLeaderVersion(clusterVersion int) error {
 		return common.NewTektiteErrorf(common.Unavailable, "controller - leader version mismatch")
 	}
 	return nil
+}
+
+func (c *Controller) OffsetsCache() *offsets.Cache {
+	return c.offsetsCache
 }

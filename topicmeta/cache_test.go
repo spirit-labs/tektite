@@ -143,7 +143,7 @@ type testControllerClient struct {
 	mgr *Manager
 }
 
-func (t *testControllerClient) GetTopicInfo(topicName string) (TopicInfo, int, error) {
+func (t *testControllerClient) GetTopicInfo(topicName string) (TopicInfo, int, bool, error) {
 	return t.mgr.GetTopicInfo(topicName)
 }
 

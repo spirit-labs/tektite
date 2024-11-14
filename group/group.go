@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"github.com/google/uuid"
+	"github.com/spirit-labs/tektite/asl/encoding"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/kafkaprotocol"
 	log "github.com/spirit-labs/tektite/logger"
@@ -705,12 +706,10 @@ func (g *group) offsetCommit(transactional bool, req *kafkaprotocol.OffsetCommit
 	// Convert to KV pairs
 	var kvs []common.KV
 	for i, topicData := range req.Topics {
-		foundTopic := false
-		info, err := g.gc.topicProvider.GetTopicInfo(*topicData.Name)
+		info, foundTopic, err := g.gc.topicProvider.GetTopicInfo(*topicData.Name)
 		if err != nil {
-			log.Errorf("failed to find topic %s", *topicData.Name)
-		} else {
-			foundTopic = true
+			log.Errorf("failed to get topic info %v", err)
+			return kafkaprotocol.ErrorCodeUnknownServerError
 		}
 		for j, partitionData := range topicData.Partitions {
 			if !foundTopic {
@@ -774,11 +773,12 @@ const (
 )
 
 func createOffsetKey(partHash []byte, offsetKeyType byte, topicID int, partitionID int) []byte {
-	var key []byte
+	key := make([]byte, 0, 41)
 	key = append(key, partHash...)
 	key = append(key, offsetKeyType)
 	key = binary.BigEndian.AppendUint64(key, uint64(topicID))
 	key = binary.BigEndian.AppendUint64(key, uint64(partitionID))
+	key = encoding.EncodeVersion(key, 0)
 	return key
 }
 
@@ -834,17 +834,18 @@ func (g *group) offsetFetch(req *kafkaprotocol.OffsetFetchRequest, resp *kafkapr
 	g.lock.Lock()
 	defer g.lock.Unlock()
 	for i, topicData := range req.Topics {
-		foundTopic := false
 		topicName := common.SafeDerefStringPtr(topicData.Name)
-		topicInfo, err := g.gc.topicProvider.GetTopicInfo(topicName)
+		topicInfo, foundTopic, err := g.gc.topicProvider.GetTopicInfo(topicName)
+		var errCode int16
 		if err != nil {
-			log.Errorf("failed to find topic %s", topicName)
-		} else {
-			foundTopic = true
+			log.Errorf("failed to load topic info %v", err)
+			errCode = kafkaprotocol.ErrorCodeUnknownServerError
+		} else if !foundTopic {
+			errCode = kafkaprotocol.ErrorCodeUnknownTopicOrPartition
 		}
 		for j, partitionID := range topicData.PartitionIndexes {
-			if !foundTopic {
-				resp.Topics[i].Partitions[j].ErrorCode = kafkaprotocol.ErrorCodeUnknownTopicOrPartition
+			if errCode != kafkaprotocol.ErrorCodeNone {
+				resp.Topics[i].Partitions[j].ErrorCode = errCode
 				continue
 			}
 			offset, err := g.loadOffset(topicInfo.ID, int(partitionID))

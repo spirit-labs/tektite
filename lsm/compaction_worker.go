@@ -10,6 +10,7 @@ import (
 	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/objstore"
 	"github.com/spirit-labs/tektite/sst"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -114,9 +115,16 @@ type compactionWorker struct {
 	stopWg         sync.WaitGroup
 	slabRetentions map[int]time.Duration
 	controlClient  ControllerClient
+	ccLock         sync.Mutex
+	stopped        bool
 }
 
 func (c *compactionWorker) controllerClient() (ControllerClient, error) {
+	c.ccLock.Lock()
+	defer c.ccLock.Unlock()
+	if c.stopped {
+		return nil, errors.New("worker is stopped")
+	}
 	if c.controlClient != nil {
 		return c.controlClient, nil
 	}
@@ -128,12 +136,17 @@ func (c *compactionWorker) controllerClient() (ControllerClient, error) {
 	return cl, nil
 }
 
-func (c *compactionWorker) closeControllerClient() {
+func (c *compactionWorker) closeControllerClient(stop bool) {
+	c.ccLock.Lock()
+	defer c.ccLock.Unlock()
 	if c.controlClient != nil {
 		if err := c.controlClient.Close(); err != nil {
 			log.Errorf("failed to close control client: %v", err)
 		}
 		c.controlClient = nil
+	}
+	if stop {
+		c.stopped = true
 	}
 }
 
@@ -165,13 +178,14 @@ func (c *compactionWorker) start() {
 }
 
 func (c *compactionWorker) stop() {
+	c.closeControllerClient(true)
 	c.started.Store(false)
 	c.stopWg.Wait()
 }
 
 func (c *compactionWorker) loop() {
 	defer func() {
-		c.closeControllerClient()
+		c.closeControllerClient(true)
 		c.stopWg.Done()
 	}()
 	for c.started.Load() {
@@ -186,7 +200,7 @@ func (c *compactionWorker) loop() {
 		}
 		job, err := cl.PollForJob()
 		if err != nil {
-			c.closeControllerClient()
+			c.closeControllerClient(false)
 			var tErr common.TektiteError
 			if errwrap.As(err, &tErr) {
 				if tErr.Code == common.Unavailable {
@@ -199,7 +213,12 @@ func (c *compactionWorker) loop() {
 					continue
 				}
 			}
-			log.Errorf("error in polling for compaction job: %v", err)
+			if !strings.Contains(err.Error(), "connection closed") {
+				log.Errorf("error in polling for compaction job: %v", err)
+			} else {
+				// Normnal to get these when shutting down - don't spam the logs
+				log.Debugf("error in polling for compaction job: %v", err)
+			}
 			continue
 		}
 		for c.started.Load() {
@@ -217,7 +236,7 @@ func (c *compactionWorker) loop() {
 					break
 				}
 			}
-			c.closeControllerClient()
+			c.closeControllerClient(false)
 			var tErr common.TektiteError
 			if errwrap.As(err, &tErr) {
 				if tErr.Code == common.Unavailable {
