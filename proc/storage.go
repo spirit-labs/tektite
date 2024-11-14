@@ -384,7 +384,7 @@ func (ps *ProcessorStore) GetWithMaxVersion(key []byte, maxVersion uint64) ([]by
 		return nil, errwrap.New("processor store not started")
 	}
 	keyEnd := common.IncBigEndianBytes(key)
-	log.Debugf("seq:%d node: %d store GetWithMaxVersion key start:%v key end:%v maxVersion:%d", ps.pm.cfg.NodeID,
+	log.Debugf("node: %d store GetWithMaxVersion key start:%v key end:%v maxVersion:%d", ps.pm.cfg.NodeID,
 		key, keyEnd, maxVersion)
 	if ps.mt != nil {
 		// First look in live memTable

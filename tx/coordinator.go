@@ -657,7 +657,7 @@ func (t *txInfo) store() error {
 	value := make([]byte, 0, 32)
 	value = binary.BigEndian.AppendUint16(value, transactionMetadataVersion)
 	value = t.storedState.Serialize(value)
-	return t.sendDirectWrite([]common.KV{common.KV{
+	return t.sendDirectWrite([]common.KV{{
 		Key:   key,
 		Value: value,
 	}})

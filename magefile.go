@@ -7,7 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/spirit-labs/tektite/kafkagen"
-	"io/ioutil"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
@@ -192,7 +192,7 @@ func CheckCerts() error {
 	}
 	defer file.Close()
 	// Read the file's content
-	bytes, err := ioutil.ReadAll(file)
+	bytes, err := io.ReadAll(file)
 	if err != nil {
 		return fmt.Errorf("could not read file: %w", err)
 	}
@@ -241,7 +241,7 @@ func RenewCerts() error {
 	}
 	defer file.Close()
 	// Read the file's content
-	bytes, err := ioutil.ReadAll(file)
+	bytes, err := io.ReadAll(file)
 	if err != nil {
 		return fmt.Errorf("could not read file: %w", err)
 	}

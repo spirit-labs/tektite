@@ -657,7 +657,7 @@ func (lm *LevelManager) connectionClosed(connectionID int) {
 }
 
 func (lm *LevelManager) checkForDeadEntries(rng VersionRange) bool {
-	for level, _ := range lm.masterRecord.levelSegmentEntries {
+	for level := range lm.masterRecord.levelSegmentEntries {
 		iter, err := lm.levelIterator(level)
 		if err != nil {
 			panic(err)

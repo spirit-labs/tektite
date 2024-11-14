@@ -361,7 +361,7 @@ func (t *TestProcessor) handleBatchHolder(holder ingestBatchHolder) {
 	}
 	if mb != nil {
 		if err := t.tpm.st.Write(mb); err != nil {
-			log.Errorf("failed to write batch %v\ncreation stack %s", err)
+			log.Errorf("failed to write batch %v", err)
 		}
 	}
 	if forwardBatches != nil {
