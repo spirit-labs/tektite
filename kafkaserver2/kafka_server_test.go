@@ -141,6 +141,15 @@ func (t *testKafkaHandler) getReceivedRequest() (hdr *kafkaprotocol.RequestHeade
 	defer t.lock.Unlock()
 	return t.receivedHeader, t.receivedRequest
 }
+func (t *testKafkaHandler) HandleCreateTopicsRequest(hdr *kafkaprotocol.RequestHeader, req *kafkaprotocol.CreateTopicsRequest, completionFunc func(resp *kafkaprotocol.CreateTopicsResponse) error) error {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (t *testKafkaHandler) HandleDeleteTopicsRequest(hdr *kafkaprotocol.RequestHeader, req *kafkaprotocol.DeleteTopicsRequest, completionFunc func(resp *kafkaprotocol.DeleteTopicsResponse) error) error {
+	//TODO implement me
+	panic("implement me")
+}
 
 func (t *testKafkaHandler) HandleProduceRequest(hdr *kafkaprotocol.RequestHeader, req *kafkaprotocol.ProduceRequest, completionFunc func(resp *kafkaprotocol.ProduceResponse) error) error {
 	t.lock.Lock()

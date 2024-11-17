@@ -17,6 +17,16 @@ type kafkaHandler struct {
 	ctx   kafkaserver2.ConnectionContext
 }
 
+func (k *kafkaHandler) HandleCreateTopicsRequest(hdr *kafkaprotocol.RequestHeader, req *kafkaprotocol.CreateTopicsRequest, completionFunc func(resp *kafkaprotocol.CreateTopicsResponse) error) error {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (k *kafkaHandler) HandleDeleteTopicsRequest(hdr *kafkaprotocol.RequestHeader, req *kafkaprotocol.DeleteTopicsRequest, completionFunc func(resp *kafkaprotocol.DeleteTopicsResponse) error) error {
+	//TODO implement me
+	panic("implement me")
+}
+
 func (k *kafkaHandler) HandleProduceRequest(_ *kafkaprotocol.RequestHeader, req *kafkaprotocol.ProduceRequest,
 	completionFunc func(resp *kafkaprotocol.ProduceResponse) error) error {
 	return k.agent.tablePusher.HandleProduceRequest(req, completionFunc)

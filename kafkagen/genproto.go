@@ -2,14 +2,15 @@ package kafkagen
 
 import (
 	"fmt"
-	"github.com/pkg/errors"
-	"github.com/spirit-labs/tektite/kafkaprotocol"
-	"github.com/yosuke-furukawa/json5/encoding/json5"
 	"os"
 	"regexp"
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/pkg/errors"
+	"github.com/spirit-labs/tektite/kafkaprotocol"
+	"github.com/yosuke-furukawa/json5/encoding/json5"
 )
 
 var included = []string{
@@ -53,6 +54,10 @@ var included = []string{
 	"TxnOffsetCommitResponse",
 	"EndTxnRequest",
 	"EndTxnResponse",
+	"CreateTopicsRequest",
+	"CreateTopicsResponse",
+	"DeleteTopicsRequest",
+	"DeleteTopicsResponse",
 }
 
 func Generate(specDir string, outDir string) error {
