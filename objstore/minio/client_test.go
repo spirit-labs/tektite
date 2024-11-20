@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	miniolib "github.com/minio/minio-go/v7"
-	"github.com/spirit-labs/tektite/asl/conf"
 	"github.com/spirit-labs/tektite/objstore"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go/modules/minio"
@@ -24,8 +23,7 @@ func TestMinioObjStore(t *testing.T) {
 		require.NoError(t, err)
 	}()
 
-	cfg := &conf.Config{}
-	cfg.ApplyDefaults()
+	cfg := Conf{}
 
 	ip, err := minioContainer.Host(ctx)
 	require.NoError(t, err)
@@ -33,10 +31,10 @@ func TestMinioObjStore(t *testing.T) {
 	port, err := minioContainer.MappedPort(ctx, "9000")
 	require.NoError(t, err)
 
-	cfg.MinioEndpoint = fmt.Sprintf("%s:%d", ip, port.Int())
+	cfg.Endpoint = fmt.Sprintf("%s:%d", ip, port.Int())
 
-	cfg.MinioUsername = "minioadmin"
-	cfg.MinioPassword = "minioadmin"
+	cfg.Username = "minioadmin"
+	cfg.Password = "minioadmin"
 
 	client := NewMinioClient(cfg)
 	err = client.Start()

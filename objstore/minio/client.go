@@ -6,7 +6,6 @@ import (
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
 	"github.com/pkg/errors"
-	"github.com/spirit-labs/tektite/asl/conf"
 	"github.com/spirit-labs/tektite/asl/errwrap"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/objstore"
@@ -14,14 +13,14 @@ import (
 	"math"
 )
 
-func NewMinioClient(cfg *conf.Config) *Client {
+func NewMinioClient(cfg Conf) *Client {
 	return &Client{
 		cfg: cfg,
 	}
 }
 
 type Client struct {
-	cfg    *conf.Config
+	cfg    Conf
 	client *minio.Client
 }
 
@@ -138,9 +137,9 @@ func (m *Client) ListObjectsWithPrefix(ctx context.Context, bucket string, prefi
 
 
 func (m *Client) Start() error {
-	client, err := minio.New(m.cfg.MinioEndpoint, &minio.Options{
-		Creds:  credentials.NewStaticV4(m.cfg.MinioUsername, m.cfg.MinioPassword, ""),
-		Secure: m.cfg.MinioSecure,
+	client, err := minio.New(m.cfg.Endpoint, &minio.Options{
+		Creds:  credentials.NewStaticV4(m.cfg.Username, m.cfg.Password, ""),
+		Secure: m.cfg.Secure,
 	})
 
 	if err != nil {
@@ -160,4 +159,11 @@ func maybeConvertError(err error) error {
 		return err
 	}
 	return common.NewTektiteErrorf(common.Unavailable, err.Error())
+}
+
+type Conf struct {
+	Endpoint string
+	Username string
+	Password string
+	Secure bool
 }
