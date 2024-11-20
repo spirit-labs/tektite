@@ -70,6 +70,7 @@ func (m *Membership) Start() error {
 }
 
 func (m *Membership) Stop() error {
+	m.stateUpdater.SetStopping() // Needs to be done outside lock
 	m.lock.Lock()
 	defer m.lock.Unlock()
 	if !m.started {

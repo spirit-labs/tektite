@@ -53,7 +53,6 @@ func (s *SocketTransportServer) Start() error {
 	if err := s.socketServer.Start(); err != nil {
 		return err
 	}
-	log.Infof("started socket transport server on address %s", s.socketServer.Address())
 	return nil
 }
 

@@ -76,7 +76,7 @@ type StateUpdater struct {
 
 const DefaultMaxTimeBeforeReinitialise = 30 * time.Millisecond
 const DefaultObjStoreCallTimeout = 5 * time.Second
-const DefaultAvailabilityRetryInterval = 5 * time.Second
+const DefaultAvailabilityRetryInterval = 1 * time.Second
 const DefaultAutoUpdateInterval = 5 * time.Second
 
 type StateUpdatorOpts struct {
@@ -128,6 +128,10 @@ func (s *StateUpdater) Start() {
 		s.scheduleUpdate()
 	}
 	s.started = true
+}
+
+func (s *StateUpdater) SetStopping() {
+	s.stopping.Store(true)
 }
 
 func (s *StateUpdater) Stop() {
