@@ -52,9 +52,9 @@ func TestProduceWithAdvertised(t *testing.T) {
 	_, port, err := net.SplitHostPort(serverAddress)
 	require.NoError(t, err)
 
-	adverstisedAddress := fmt.Sprintf("127.0.0.1:%s", port)
+	advertisedAddress := fmt.Sprintf("127.0.0.1:%s", port)
 
-	server, processor := createServer(t, topic, serverAddress, adverstisedAddress)
+	server, processor := createServer(t, topic, serverAddress, advertisedAddress)
 
 	defer func() {
 		err := server.Stop()

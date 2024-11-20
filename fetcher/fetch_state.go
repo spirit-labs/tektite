@@ -46,13 +46,9 @@ func newFetchState(batchFetcher *BatchFetcher, req *kafkaprotocol.FetchRequest, 
 		partitionResponses := make([]kafkaprotocol.FetchResponsePartitionData, len(topicData.Partitions))
 		fetchState.resp.Responses[i].Partitions = partitionResponses
 		topicName := *topicData.Topic
-		topicInfo, err := fetchState.bf.topicProvider.GetTopicInfo(topicName)
-		topicExists := true
+		topicInfo, topicExists, err := fetchState.bf.topicProvider.GetTopicInfo(topicName)
 		if err != nil {
-			if !common.IsTektiteErrorWithCode(err, common.TopicDoesNotExist) {
-				log.Warnf("failed to get topic info: %v", err)
-			}
-			topicExists = false
+			return nil, err
 		}
 		topicPartitionFetchStates := map[int]*PartitionFetchState{}
 		if topicExists {
@@ -91,7 +87,7 @@ func newFetchState(batchFetcher *BatchFetcher, req *kafkaprotocol.FetchRequest, 
 // We read async on notifications to avoid blocking the transport thread that provides the notification and so we can
 // parallelise sending multiple responses and fetching from distributed cache
 func (f *FetchState) readAsync() {
-	f.readExec.ch <- f
+	f.readExec.execFetchState(f)
 }
 
 func (f *FetchState) read() error {

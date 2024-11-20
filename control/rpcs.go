@@ -125,7 +125,7 @@ func (g *RegisterTableListenerResponse) Deserialize(buff []byte, offset int) int
 
 type PrePushRequest struct {
 	LeaderVersion int
-	Infos         []offsets.GetOffsetTopicInfo
+	Infos         []offsets.GenerateOffsetTopicInfo
 	EpochInfos    []EpochInfo
 }
 
@@ -159,14 +159,14 @@ func (g *PrePushRequest) Deserialize(buff []byte, offset int) int {
 	offset += 8
 	lInfos := int(binary.BigEndian.Uint32(buff[offset:]))
 	offset += 4
-	g.Infos = make([]offsets.GetOffsetTopicInfo, lInfos)
+	g.Infos = make([]offsets.GenerateOffsetTopicInfo, lInfos)
 	for i := 0; i < lInfos; i++ {
 		tInfo := &g.Infos[i]
 		tInfo.TopicID = int(binary.BigEndian.Uint64(buff[offset:]))
 		offset += 8
 		pInfos := int(binary.BigEndian.Uint32(buff[offset:]))
 		offset += 4
-		tInfo.PartitionInfos = make([]offsets.GetOffsetPartitionInfo, pInfos)
+		tInfo.PartitionInfos = make([]offsets.GenerateOffsetPartitionInfo, pInfos)
 		for j := 0; j < pInfos; j++ {
 			partitionInfo := &tInfo.PartitionInfos[j]
 			partitionInfo.PartitionID = int(binary.BigEndian.Uint64(buff[offset:]))
@@ -257,6 +257,42 @@ func (g *PrePushResponse) Deserialize(buff []byte, offset int) int {
 	return offset
 }
 
+type GetAllTopicInfosRequest struct {
+	LeaderVersion int
+}
+
+func (g *GetAllTopicInfosRequest) Serialize(buff []byte) []byte {
+	return binary.BigEndian.AppendUint64(buff, uint64(g.LeaderVersion))
+}
+
+func (g *GetAllTopicInfosRequest) Deserialize(buff []byte, offset int) int {
+	g.LeaderVersion = int(binary.BigEndian.Uint64(buff[offset:]))
+	offset += 8
+	return offset
+}
+
+type GetAllTopicInfosResponse struct {
+	TopicInfos []topicmeta.TopicInfo
+}
+
+func (g *GetAllTopicInfosResponse) Serialize(buff []byte) []byte {
+	buff = binary.BigEndian.AppendUint32(buff, uint32(len(g.TopicInfos)))
+	for _, topicInfo := range g.TopicInfos {
+		buff = topicInfo.Serialize(buff)
+	}
+	return buff
+}
+
+func (g *GetAllTopicInfosResponse) Deserialize(buff []byte, offset int) int {
+	ln := int(binary.BigEndian.Uint32(buff[offset:]))
+	offset += 4
+	g.TopicInfos = make([]topicmeta.TopicInfo, ln)
+	for i := 0; i < ln; i++ {
+		offset = g.TopicInfos[i].Deserialize(buff, offset)
+	}
+	return offset
+}
+
 type GetTopicInfoRequest struct {
 	LeaderVersion int
 	TopicName     string
@@ -281,17 +317,25 @@ func (g *GetTopicInfoRequest) Deserialize(buff []byte, offset int) int {
 
 type GetTopicInfoResponse struct {
 	Sequence int
+	Exists   bool
 	Info     topicmeta.TopicInfo
 }
 
 func (g *GetTopicInfoResponse) Serialize(buff []byte) []byte {
 	buff = binary.BigEndian.AppendUint64(buff, uint64(g.Sequence))
+	if g.Exists {
+		buff = append(buff, 1)
+	} else {
+		buff = append(buff, 0)
+	}
 	return g.Info.Serialize(buff)
 }
 
 func (g *GetTopicInfoResponse) Deserialize(buff []byte, offset int) int {
 	g.Sequence = int(binary.BigEndian.Uint64(buff[offset:]))
 	offset += 8
+	g.Exists = buff[offset] == 1
+	offset++
 	return g.Info.Deserialize(buff, offset)
 }
 
@@ -478,5 +522,89 @@ func (g *GenerateSequenceResponse) Serialize(buff []byte) []byte {
 func (g *GenerateSequenceResponse) Deserialize(buff []byte, offset int) int {
 	g.Sequence = int64(binary.BigEndian.Uint64(buff[offset:]))
 	offset += 8
+	return offset
+}
+
+type GetOffsetInfoRequest struct {
+	LeaderVersion       int
+	GetOffsetTopicInfos []offsets.GetOffsetTopicInfo
+}
+
+func (g *GetOffsetInfoRequest) Serialize(buff []byte) []byte {
+	buff = binary.BigEndian.AppendUint64(buff, uint64(g.LeaderVersion))
+	buff = binary.BigEndian.AppendUint32(buff, uint32(len(g.GetOffsetTopicInfos)))
+	for _, topicInfo := range g.GetOffsetTopicInfos {
+		buff = binary.BigEndian.AppendUint64(buff, uint64(topicInfo.TopicID))
+		buff = binary.BigEndian.AppendUint32(buff, uint32(len(topicInfo.PartitionIDs)))
+		for _, partitionID := range topicInfo.PartitionIDs {
+			buff = binary.BigEndian.AppendUint64(buff, uint64(partitionID))
+		}
+	}
+	return buff
+}
+
+func (g *GetOffsetInfoRequest) Deserialize(buff []byte, offset int) int {
+	g.LeaderVersion = int(binary.BigEndian.Uint64(buff[offset:]))
+	offset += 8
+	lInfos := int(binary.BigEndian.Uint32(buff[offset:]))
+	offset += 4
+	g.GetOffsetTopicInfos = make([]offsets.GetOffsetTopicInfo, lInfos)
+	for i := 0; i < lInfos; i++ {
+		tInfo := &g.GetOffsetTopicInfos[i]
+		tInfo.TopicID = int(binary.BigEndian.Uint64(buff[offset:]))
+		offset += 8
+		pInfos := int(binary.BigEndian.Uint32(buff[offset:]))
+		offset += 4
+		tInfo.PartitionIDs = make([]int, pInfos)
+		for j := 0; j < pInfos; j++ {
+			tInfo.PartitionIDs[j] = int(binary.BigEndian.Uint64(buff[offset:]))
+			offset += 8
+		}
+	}
+	return offset
+}
+
+type GetOffsetInfoResponse struct {
+	OffsetInfos []offsets.OffsetTopicInfo
+}
+
+func (g *GetOffsetInfoResponse) Serialize(buff []byte) []byte {
+	buff = binary.BigEndian.AppendUint32(buff, uint32(len(g.OffsetInfos)))
+	for _, offset := range g.OffsetInfos {
+		buff = binary.BigEndian.AppendUint64(buff, uint64(offset.TopicID))
+		buff = binary.BigEndian.AppendUint32(buff, uint32(len(offset.PartitionInfos)))
+		for _, partOffset := range offset.PartitionInfos {
+			buff = binary.BigEndian.AppendUint64(buff, uint64(partOffset.PartitionID))
+			buff = binary.BigEndian.AppendUint64(buff, uint64(partOffset.Offset))
+		}
+	}
+	return buff
+}
+
+func (g *GetOffsetInfoResponse) Deserialize(buff []byte, offset int) int {
+	numOffsets := int(binary.BigEndian.Uint32(buff[offset:]))
+	offset += 4
+	g.OffsetInfos = make([]offsets.OffsetTopicInfo, numOffsets)
+	for i := 0; i < numOffsets; i++ {
+		topicID := int(binary.BigEndian.Uint64(buff[offset:]))
+		offset += 8
+		numPartOffsets := int(binary.BigEndian.Uint32(buff[offset:]))
+		offset += 4
+		partInfos := make([]offsets.OffsetPartitionInfo, numPartOffsets)
+		for j := 0; j < numPartOffsets; j++ {
+			partitionID := int(binary.BigEndian.Uint64(buff[offset:]))
+			offset += 8
+			off := int64(binary.BigEndian.Uint64(buff[offset:]))
+			offset += 8
+			partInfos[j] = offsets.OffsetPartitionInfo{
+				PartitionID: partitionID,
+				Offset:      off,
+			}
+		}
+		g.OffsetInfos[i] = offsets.OffsetTopicInfo{
+			TopicID:        topicID,
+			PartitionInfos: partInfos,
+		}
+	}
 	return offset
 }

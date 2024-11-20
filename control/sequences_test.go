@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"github.com/spirit-labs/tektite/asl/encoding"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/lsm"
 	"github.com/spirit-labs/tektite/objstore"
@@ -125,8 +126,11 @@ func loadStoredSequence(t *testing.T, sequenceName string, tableID sst.SSTableID
 	ok, kv, err := iter.Next()
 	require.NoError(t, err)
 	require.True(t, ok)
-	expectedKey, err := parthash.CreateHash([]byte("sequence." + sequenceName))
+	ph, err := parthash.CreateHash([]byte("sequence." + sequenceName))
 	require.NoError(t, err)
+	expectedKey := make([]byte, 0, 24)
+	expectedKey = append(expectedKey, ph...)
+	expectedKey = encoding.EncodeVersion(expectedKey, 0)
 	require.Equal(t, expectedKey, kv.Key)
 	storedSeq := int64(binary.BigEndian.Uint64(kv.Value))
 	return storedSeq
@@ -135,7 +139,7 @@ func loadStoredSequence(t *testing.T, sequenceName string, tableID sst.SSTableID
 func createTableWithStoredSequence(t *testing.T, sequenceName string, seqVal int64) *sst.SSTable {
 	key, err := parthash.CreateHash([]byte("sequence." + sequenceName))
 	require.NoError(t, err)
-	val := make([]byte, 8)
+	val := make([]byte, 16)
 	binary.BigEndian.PutUint64(val, uint64(seqVal))
 	kv := common.KV{
 		Key:   key,

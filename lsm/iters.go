@@ -60,6 +60,9 @@ func (r *RemoveExpiredEntriesIterator) Close() {
 }
 
 func (r *RemoveExpiredEntriesIterator) isExpired(key []byte) (bool, error) {
+	if len(key) <= 16 {
+		log.Warnf("Got small key %v", key)
+	}
 	slabID := int(binary.BigEndian.Uint64(key[16:]))
 	retention, err := r.retentionProvider.GetSlabRetention(slabID)
 	if err != nil {

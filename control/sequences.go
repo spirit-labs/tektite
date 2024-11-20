@@ -3,6 +3,7 @@ package control
 import (
 	"encoding/binary"
 	"errors"
+	"github.com/spirit-labs/tektite/asl/encoding"
 	"github.com/spirit-labs/tektite/common"
 	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/lsm"
@@ -90,10 +91,12 @@ func (s *Sequences) createSequence(sequenceName string) (*Sequence, error) {
 	if ok {
 		return seq, nil
 	}
-	key, err := parthash.CreateHash([]byte("sequence." + sequenceName))
+	hash, err := parthash.CreateHash([]byte("sequence." + sequenceName))
 	if err != nil {
 		return nil, err
 	}
+	key := make([]byte, 0, 16)
+	key = append(key, hash...)
 	seq = &Sequence{
 		sequences:    s,
 		name:         sequenceName,
@@ -142,8 +145,11 @@ func (s *Sequence) reserveSequenceBlock() error {
 	value := make([]byte, 8)
 	binary.BigEndian.PutUint64(value, uint64(reservedVal))
 	// TODO should we channel all writes through table pusher instead of writing direct?
+	key := make([]byte, 0, 24)
+	key = append(key, s.key...)
+	key = encoding.EncodeVersion(key, 0)
 	if err := s.sequences.writeKvDirect(common.KV{
-		Key:   s.key,
+		Key:   key,
 		Value: value,
 	}); err != nil {
 		return err

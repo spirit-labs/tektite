@@ -2,6 +2,11 @@ package kafkaencoding
 
 import (
 	"encoding/binary"
+	"fmt"
+	"github.com/spirit-labs/tektite/asl/errwrap"
+	"github.com/spirit-labs/tektite/common"
+	"github.com/spirit-labs/tektite/kafkaprotocol"
+	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/types"
 	"hash"
 )
@@ -122,4 +127,30 @@ func BaseSequence(records []byte) int32 {
 
 func LastOffsetDelta(records []byte) int32 {
 	return int32(binary.BigEndian.Uint32(records[23:]))
+}
+
+type KafkaError struct {
+	ErrorCode int
+	ErrorMsg  string
+}
+
+func (k KafkaError) Error() string {
+	return fmt.Sprintf("KafkaProtocolError ErrCode:%d %s", k.ErrorCode, k.ErrorMsg)
+}
+
+func ErrorCodeForError(err error, unavailableErrorCode int16) int16 {
+	if err == nil {
+		return int16(kafkaprotocol.ErrorCodeNone)
+	}
+	var kerr KafkaError
+	if errwrap.As(err, &kerr) {
+		log.Warn(err)
+		return int16(kerr.ErrorCode)
+	} else if common.IsUnavailableError(err) {
+		log.Warn(err)
+		return unavailableErrorCode
+	} else {
+		log.Error(err)
+		return int16(kafkaprotocol.ErrorCodeUnknownServerError)
+	}
 }

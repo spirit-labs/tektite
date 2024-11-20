@@ -145,10 +145,10 @@ func TestSerializeDeserializeRegisterTableListenerResponse(t *testing.T) {
 func TestSerializeDeserializeGetOffsetsRequest(t *testing.T) {
 	req := PrePushRequest{
 		LeaderVersion: 4536,
-		Infos: []offsets.GetOffsetTopicInfo{
+		Infos: []offsets.GenerateOffsetTopicInfo{
 			{
 				TopicID: 1234,
-				PartitionInfos: []offsets.GetOffsetPartitionInfo{
+				PartitionInfos: []offsets.GenerateOffsetPartitionInfo{
 					{PartitionID: 23, NumOffsets: 345},
 					{PartitionID: 45, NumOffsets: 455},
 					{PartitionID: 567, NumOffsets: 23},
@@ -156,13 +156,13 @@ func TestSerializeDeserializeGetOffsetsRequest(t *testing.T) {
 			},
 			{
 				TopicID: 345,
-				PartitionInfos: []offsets.GetOffsetPartitionInfo{
+				PartitionInfos: []offsets.GenerateOffsetPartitionInfo{
 					{PartitionID: 76, NumOffsets: 2342},
 				},
 			},
 			{
 				TopicID: 45656,
-				PartitionInfos: []offsets.GetOffsetPartitionInfo{
+				PartitionInfos: []offsets.GenerateOffsetPartitionInfo{
 					{PartitionID: 879, NumOffsets: 12321},
 					{PartitionID: 34, NumOffsets: 4536},
 				},
@@ -236,6 +236,51 @@ func TestSerializeDeserializeGetOffsetsResponse(t *testing.T) {
 	require.Equal(t, off, len(buff))
 }
 
+func TestSerializeDeserializeGetAllTopicInfosRequest(t *testing.T) {
+	req := GetAllTopicInfosRequest{
+		LeaderVersion: 123,
+	}
+	var buff []byte
+	buff = append(buff, 1, 2, 3)
+	buff = req.Serialize(buff)
+	var req2 GetAllTopicInfosRequest
+	off := req2.Deserialize(buff, 3)
+	require.Equal(t, req, req2)
+	require.Equal(t, off, len(buff))
+}
+
+func TestSerializeDeserializeGetAllTopicInfosResponse(t *testing.T) {
+	req := GetAllTopicInfosResponse{
+		TopicInfos: []topicmeta.TopicInfo{
+			{
+				ID:             1234,
+				Name:           "topic1",
+				PartitionCount: 12345,
+				RetentionTime:  time.Duration(123123),
+			},
+			{
+				ID:             2323,
+				Name:           "topic2",
+				PartitionCount: 45363546,
+				RetentionTime:  time.Duration(234234),
+			},
+			{
+				ID:             657456,
+				Name:           "topic3",
+				PartitionCount: 123,
+				RetentionTime:  time.Duration(457456),
+			},
+		},
+	}
+	var buff []byte
+	buff = append(buff, 1, 2, 3)
+	buff = req.Serialize(buff)
+	var req2 GetAllTopicInfosResponse
+	off := req2.Deserialize(buff, 3)
+	require.Equal(t, req, req2)
+	require.Equal(t, off, len(buff))
+}
+
 func TestSerializeDeserializeGetTopicInfoRequest(t *testing.T) {
 	req := GetTopicInfoRequest{
 		LeaderVersion: 123,
@@ -250,9 +295,10 @@ func TestSerializeDeserializeGetTopicInfoRequest(t *testing.T) {
 	require.Equal(t, off, len(buff))
 }
 
-func TestSerializeDeserializeGetTopicInfoResponse(t *testing.T) {
-	req := GetTopicInfoResponse{
+func TestSerializeDeserializeGetTopicInfoResponseExistsTrue(t *testing.T) {
+	resp := GetTopicInfoResponse{
 		Sequence: 123,
+		Exists:   true,
 		Info: topicmeta.TopicInfo{
 			ID:             1233,
 			Name:           "some-topic",
@@ -260,12 +306,30 @@ func TestSerializeDeserializeGetTopicInfoResponse(t *testing.T) {
 			RetentionTime:  23445346,
 		},
 	}
+	testSerializeDeserializeGetTopicInfoResponse(t, resp)
+}
+
+func TestSerializeDeserializeGetTopicInfoResponseExistsFalse(t *testing.T) {
+	resp := GetTopicInfoResponse{
+		Sequence: 123,
+		Exists:   false,
+		Info: topicmeta.TopicInfo{
+			ID:             1233,
+			Name:           "some-topic",
+			PartitionCount: 123123123,
+			RetentionTime:  23445346,
+		},
+	}
+	testSerializeDeserializeGetTopicInfoResponse(t, resp)
+}
+
+func testSerializeDeserializeGetTopicInfoResponse(t *testing.T, resp GetTopicInfoResponse) {
 	var buff []byte
 	buff = append(buff, 1, 2, 3)
-	buff = req.Serialize(buff)
-	var req2 GetTopicInfoResponse
-	off := req2.Deserialize(buff, 3)
-	require.Equal(t, req, req2)
+	buff = resp.Serialize(buff)
+	var resp2 GetTopicInfoResponse
+	off := resp2.Deserialize(buff, 3)
+	require.Equal(t, resp, resp2)
 	require.Equal(t, off, len(buff))
 }
 
@@ -370,7 +434,7 @@ func TestSerializeDeserializeTableRegisteredNotification(t *testing.T) {
 	require.Equal(t, off, len(buff))
 }
 
-func TestGenerateSequenceRequest(t *testing.T) {
+func TestSerializeDeserializeGenerateSequenceRequest(t *testing.T) {
 	req := GenerateSequenceRequest{
 		LeaderVersion: 1232,
 		SequenceName:  "some_sequence_name",
@@ -384,7 +448,7 @@ func TestGenerateSequenceRequest(t *testing.T) {
 	require.Equal(t, off, len(buff))
 }
 
-func TestGenerateSequenceResponse(t *testing.T) {
+func TestSerializeDeserializeGenerateSequenceResponse(t *testing.T) {
 	req := GenerateSequenceResponse{
 		Sequence: 2342134124,
 	}
@@ -392,6 +456,56 @@ func TestGenerateSequenceResponse(t *testing.T) {
 	buff = append(buff, 1, 2, 3)
 	buff = req.Serialize(buff)
 	var req2 GenerateSequenceResponse
+	off := req2.Deserialize(buff, 3)
+	require.Equal(t, req, req2)
+	require.Equal(t, off, len(buff))
+}
+
+func TestSerializeDeserializeGetOffsetInfoRequest(t *testing.T) {
+	req := GetOffsetInfoRequest{
+		LeaderVersion: 123213,
+		GetOffsetTopicInfos: []offsets.GetOffsetTopicInfo{
+			{
+				TopicID:      1234,
+				PartitionIDs: []int{234, 234345, 34534, 23},
+			},
+		},
+	}
+	var buff []byte
+	buff = append(buff, 1, 2, 3)
+	buff = req.Serialize(buff)
+	var req2 GetOffsetInfoRequest
+	off := req2.Deserialize(buff, 3)
+	require.Equal(t, req, req2)
+	require.Equal(t, off, len(buff))
+}
+
+func TestSerializeDeserializeGetOffsetInfoResponse(t *testing.T) {
+	req := GetOffsetInfoResponse{
+		OffsetInfos: []offsets.OffsetTopicInfo{
+			{
+				TopicID: 1234,
+				PartitionInfos: []offsets.OffsetPartitionInfo{
+					{
+						PartitionID: 234,
+						Offset:      42354,
+					},
+					{
+						PartitionID: 3232,
+						Offset:      424354,
+					},
+					{
+						PartitionID: 23,
+						Offset:      34534,
+					},
+				},
+			},
+		},
+	}
+	var buff []byte
+	buff = append(buff, 1, 2, 3)
+	buff = req.Serialize(buff)
+	var req2 GetOffsetInfoResponse
 	off := req2.Deserialize(buff, 3)
 	require.Equal(t, req, req2)
 	require.Equal(t, off, len(buff))

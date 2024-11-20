@@ -28,12 +28,13 @@ func TestInitProducerNoTransactionalID(t *testing.T) {
 	clientFactory := func() (control.Client, error) {
 		return controlClient, nil
 	}
+	controlClientCache := control.NewClientCache(10, clientFactory)
 	tableGetter := &testTableGetter{}
 	localTransports := transport.NewLocalTransports()
 	partHashes, err := parthash.NewPartitionHashes(0)
 	require.NoError(t, err)
 	topicProvider := &testTopicInfoProvider{infos: map[string]topicmeta.TopicInfo{}}
-	coordinator := NewCoordinator(cfg, clientFactory, tableGetter.getTable, localTransports.CreateConnection,
+	coordinator := NewCoordinator(cfg, controlClientCache, tableGetter.getTable, localTransports.CreateConnection,
 		topicProvider, partHashes)
 	numRequests := 100
 	for i := 0; i < numRequests; i++ {
@@ -69,13 +70,14 @@ func testInitProducerError(t *testing.T, injectError error, expectedErrCode int)
 	clientFactory := func() (control.Client, error) {
 		return controlClient, nil
 	}
+	controlClientCache := control.NewClientCache(10, clientFactory)
 
 	tableGetter := &testTableGetter{}
 	localTransports := transport.NewLocalTransports()
 	topicProvider := &testTopicInfoProvider{infos: map[string]topicmeta.TopicInfo{}}
 	partHashes, err := parthash.NewPartitionHashes(0)
 	require.NoError(t, err)
-	coordinator := NewCoordinator(cfg, clientFactory, tableGetter.getTable, localTransports.CreateConnection,
+	coordinator := NewCoordinator(cfg, controlClientCache, tableGetter.getTable, localTransports.CreateConnection,
 		topicProvider, partHashes)
 
 	fp := &fakePusherSink{}
@@ -122,12 +124,13 @@ func TestInitProducerWithTransactionalID(t *testing.T) {
 	clientFactory := func() (control.Client, error) {
 		return controlClient, nil
 	}
+	controlClientCache := control.NewClientCache(10, clientFactory)
 
 	tableGetter := &testTableGetter{}
 	localTransports := transport.NewLocalTransports()
 	topicProvider := &testTopicInfoProvider{infos: map[string]topicmeta.TopicInfo{}}
 	partHashes, err := parthash.NewPartitionHashes(0)
-	coordinator := NewCoordinator(cfg, clientFactory, tableGetter.getTable, localTransports.CreateConnection,
+	coordinator := NewCoordinator(cfg, controlClientCache, tableGetter.getTable, localTransports.CreateConnection,
 		topicProvider, partHashes)
 
 	fp := &fakePusherSink{}
@@ -231,7 +234,7 @@ type testControlClient struct {
 	coordinatorEpoch    int
 }
 
-func (t *testControlClient) PrePush(infos []offsets.GetOffsetTopicInfo, epochInfos []control.EpochInfo) ([]offsets.OffsetTopicInfo, int64, []bool, error) {
+func (t *testControlClient) PrePush(infos []offsets.GenerateOffsetTopicInfo, epochInfos []control.EpochInfo) ([]offsets.OffsetTopicInfo, int64, []bool, error) {
 	panic("should not be called")
 }
 
@@ -255,7 +258,15 @@ func (t *testControlClient) PollForJob() (lsm.CompactionJob, error) {
 	panic("should not be called")
 }
 
-func (t *testControlClient) GetTopicInfo(topicName string) (topicmeta.TopicInfo, int, error) {
+func (t *testControlClient) GetOffsetInfos(infos []offsets.GetOffsetTopicInfo) ([]offsets.OffsetTopicInfo, error) {
+	panic("should not be called")
+}
+
+func (t *testControlClient) GetTopicInfo(topicName string) (topicmeta.TopicInfo, int, bool, error) {
+	panic("should not be called")
+}
+
+func (t *testControlClient) GetAllTopicInfos() ([]topicmeta.TopicInfo, error) {
 	panic("should not be called")
 }
 
@@ -315,11 +326,10 @@ type testTopicInfoProvider struct {
 	infos map[string]topicmeta.TopicInfo
 }
 
-func (t *testTopicInfoProvider) GetTopicInfo(topicName string) (topicmeta.TopicInfo, error) {
+func (t *testTopicInfoProvider) GetTopicInfo(topicName string) (topicmeta.TopicInfo, bool, error) {
 	info, ok := t.infos[topicName]
 	if !ok {
-		return topicmeta.TopicInfo{}, common.NewTektiteErrorf(common.TopicDoesNotExist,
-			"unknown topic: %s", topicName)
+		return topicmeta.TopicInfo{}, false, nil
 	}
-	return info, nil
+	return info, true, nil
 }

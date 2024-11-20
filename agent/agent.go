@@ -22,7 +22,7 @@ import (
 )
 
 type Agent struct {
-	lock                     sync.Mutex
+	lock                     sync.RWMutex
 	cfg                      Conf
 	started                  bool
 	transportServer          transport.Server
@@ -30,13 +30,16 @@ type Agent struct {
 	tablePusher              *pusher.TablePusher
 	batchFetcher             *fetcher.BatchFetcher
 	controller               *control.Controller
+	controlClientCache       *control.ClientCache
 	membership               ClusterMembership
 	compactionWorkersService *lsm.CompactionWorkerService
 	partitionHashes          *parthash.PartitionHashes
 	fetchCache               *fetchcache.Cache
 	groupCoordinator         *group.Coordinator
 	txCoordinator            *tx.Coordinator
+	topicMetaCache           *topicmeta.LocalCache
 	manifold                 *membershipChangedManifold
+	partitionLeaders         map[string]map[int]map[int]int32
 }
 
 func NewAgent(cfg Conf, objStore objstore.Client) (*Agent, error) {
@@ -75,20 +78,22 @@ func NewAgentWithFactories(cfg Conf, objStore objstore.Client, connectionFactory
 		return nil, errors.New("agent can only run on a 64-bit CPU architecture")
 	}
 	agent := &Agent{
-		cfg: cfg,
+		cfg:              cfg,
+		partitionLeaders: map[string]map[int]map[int]int32{},
 	}
 	membershipData := common.MembershipData{
 		ClusterListenAddress: transportServer.Address(),
 		KafkaListenerAddress: cfg.KafkaListenerConfig.Address,
-		AZInfo:               cfg.FetchCacheConf.AzInfo,
+		Location:             cfg.FetchCacheConf.AzInfo,
 	}
 	agent.controller = control.NewController(cfg.ControllerConf, objStore, connectionFactory, transportServer)
-	topicMetaCache := topicmeta.NewLocalCache(func() (topicmeta.ControllerClient, error) {
+	agent.controlClientCache = control.NewClientCache(cfg.MaxControllerClients, agent.controller.Client)
+	agent.topicMetaCache = topicmeta.NewLocalCache(func() (topicmeta.ControllerClient, error) {
 		cl, err := agent.controller.Client()
 		return cl, err
 	})
-	transportServer.RegisterHandler(transport.HandlerIDMetaLocalCacheTopicAdded, topicMetaCache.HandleTopicAdded)
-	transportServer.RegisterHandler(transport.HandlerIDMetaLocalCacheTopicDeleted, topicMetaCache.HandleTopicDeleted)
+	transportServer.RegisterHandler(transport.HandlerIDMetaLocalCacheTopicAdded, agent.topicMetaCache.HandleTopicAdded)
+	transportServer.RegisterHandler(transport.HandlerIDMetaLocalCacheTopicDeleted, agent.topicMetaCache.HandleTopicDeleted)
 	clientFactory := func() (pusher.ControlClient, error) {
 		return agent.controller.Client()
 	}
@@ -104,28 +109,28 @@ func NewAgentWithFactories(cfg Conf, objStore objstore.Client, connectionFactory
 	agent.fetchCache = fetchCache
 	getter := &fetchCacheGetter{fetchCache: fetchCache}
 	agent.controller.SetTableGetter(getter.get)
-	tablePusher, err := pusher.NewTablePusher(cfg.PusherConf, topicMetaCache, objStore, clientFactory, getter.get, partitionHashes)
+	tablePusher, err := pusher.NewTablePusher(cfg.PusherConf, agent.topicMetaCache, objStore, clientFactory, getter.get, partitionHashes, agent)
 	if err != nil {
 		return nil, err
 	}
 	agent.tablePusher = tablePusher
 	transportServer.RegisterHandler(transport.HandlerIDTablePusherDirectWrite, tablePusher.HandleDirectWriteRequest)
 	transportServer.RegisterHandler(transport.HandlerIDTablePusherDirectProduce, tablePusher.HandleDirectProduceRequest)
-	bf, err := fetcher.NewBatchFetcher(objStore, topicMetaCache, partitionHashes, agent.controller.Client, getter.get,
+	bf, err := fetcher.NewBatchFetcher(objStore, agent.topicMetaCache, partitionHashes, agent.controlClientCache, getter.get,
 		cfg.FetcherConf)
 	if err != nil {
 		return nil, err
 	}
 	transportServer.RegisterHandler(transport.HandlerIDFetcherTableRegisteredNotification, bf.HandleTableRegisteredNotification)
 	agent.batchFetcher = bf
-	groupCoord, err := group.NewCoordinator(cfg.GroupCoordinatorConf, cfg.KafkaListenerConfig.Address, topicMetaCache,
-		agent.controller.Client, connectionFactory, getter.get)
+	groupCoord, err := group.NewCoordinator(cfg.GroupCoordinatorConf, cfg.KafkaListenerConfig.Address, agent.topicMetaCache,
+		agent.controlClientCache, connectionFactory, getter.get)
 	if err != nil {
 		return nil, err
 	}
 	agent.groupCoordinator = groupCoord
-	agent.txCoordinator = tx.NewCoordinator(cfg.TxCoordinatorConf, agent.controller.Client, getter.get, connectionFactory,
-		topicMetaCache, partitionHashes)
+	agent.txCoordinator = tx.NewCoordinator(cfg.TxCoordinatorConf, agent.controlClientCache, getter.get, connectionFactory,
+		agent.topicMetaCache, partitionHashes)
 	agent.kafkaServer = kafkaserver2.NewKafkaServer(cfg.KafkaListenerConfig.Address,
 		cfg.KafkaListenerConfig.TLSConfig, cfg.KafkaListenerConfig.AuthenticationType, agent.newKafkaHandler)
 	agent.manifold = &membershipChangedManifold{listeners: []MembershipListener{agent.controller.MembershipChanged,
@@ -171,6 +176,9 @@ func (a *Agent) Start() error {
 	if err := a.compactionWorkersService.Start(); err != nil {
 		return err
 	}
+	if err := a.transportServer.Start(); err != nil {
+		return err
+	}
 	a.started = true
 	return nil
 }
@@ -209,6 +217,7 @@ func (a *Agent) Stop() error {
 	if err := a.controller.Stop(); err != nil {
 		return err
 	}
+	a.controlClientCache.Close()
 	a.started = false
 	return nil
 }
@@ -221,9 +230,22 @@ func (a *Agent) Conf() Conf {
 	return a.cfg
 }
 
+func (a *Agent) MemberID() int32 {
+	return atomic.LoadInt32(&a.manifold.memberID)
+}
+
+func (a *Agent) Controller() *control.Controller {
+	return a.controller
+}
+
+func (a *Agent) TablePusher() *pusher.TablePusher {
+	return a.tablePusher
+}
+
 type membershipChangedManifold struct {
 	listeners               []MembershipListener
 	deliveredClusterVersion int64
+	memberID                int32
 }
 
 func (m *membershipChangedManifold) membershipChanged(thisMemberID int32, membership cluster.MembershipState) error {
@@ -233,6 +255,7 @@ func (m *membershipChangedManifold) membershipChanged(thisMemberID int32, member
 		}
 	}
 	atomic.StoreInt64(&m.deliveredClusterVersion, int64(membership.ClusterVersion))
+	atomic.StoreInt32(&m.memberID, thisMemberID)
 	return nil
 }
 

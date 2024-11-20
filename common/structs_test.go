@@ -9,7 +9,7 @@ func TestSerializeDeserializeMembershipData(t *testing.T) {
 	data := MembershipData{
 		ClusterListenAddress: "some-address:1234",
 		KafkaListenerAddress: "other-address:5678",
-		AZInfo:               "az-12345",
+		Location:             "az-12345",
 	}
 	var buff []byte
 	buff = append(buff, 1, 2, 3)

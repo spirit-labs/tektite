@@ -2000,9 +2000,10 @@ func setupFetcher(t *testing.T) (*BatchFetcher, *testTopicProvider, *testControl
 	controlFactory := func() (control.Client, error) {
 		return controlClient, nil
 	}
+	controlClientCache := control.NewClientCache(10, controlFactory)
 	cfg := NewConf()
 	cfg.DataBucketName = databucketName
-	fetcher, err := NewBatchFetcher(objStore, infoProvider, partHashes, controlFactory, getter.getSSTable, cfg)
+	fetcher, err := NewBatchFetcher(objStore, infoProvider, partHashes, controlClientCache, getter.getSSTable, cfg)
 	require.NoError(t, err)
 	err = fetcher.Start()
 	require.NoError(t, err)
@@ -2287,7 +2288,7 @@ func (t *testControlClient) setLastReadableOffset(topicID int, partitionID int, 
 	partMap[partitionID] = offset
 }
 
-func (t *testControlClient) PrePush(infos []offsets.GetOffsetTopicInfo, epochInfos []control.EpochInfo) ([]offsets.OffsetTopicInfo, int64, []bool, error) {
+func (t *testControlClient) PrePush(infos []offsets.GenerateOffsetTopicInfo, epochInfos []control.EpochInfo) ([]offsets.OffsetTopicInfo, int64, []bool, error) {
 	panic("should not be called")
 }
 
@@ -2304,7 +2305,15 @@ func (t *testControlClient) PollForJob() (lsm.CompactionJob, error) {
 	panic("should not be called")
 }
 
-func (t *testControlClient) GetTopicInfo(topicName string) (topicmeta.TopicInfo, int, error) {
+func (t *testControlClient) GetOffsetInfos(infos []offsets.GetOffsetTopicInfo) ([]offsets.OffsetTopicInfo, error) {
+	panic("should not be called")
+}
+
+func (t *testControlClient) GetTopicInfo(topicName string) (topicmeta.TopicInfo, int, bool, error) {
+	panic("should not be called")
+}
+
+func (t *testControlClient) GetAllTopicInfos() ([]topicmeta.TopicInfo, error) {
 	panic("should not be called")
 }
 
@@ -2350,10 +2359,10 @@ type testTopicProvider struct {
 	infos map[string]topicmeta.TopicInfo
 }
 
-func (t *testTopicProvider) GetTopicInfo(topicName string) (topicmeta.TopicInfo, error) {
+func (t *testTopicProvider) GetTopicInfo(topicName string) (topicmeta.TopicInfo, bool, error) {
 	info, ok := t.infos[topicName]
 	if !ok {
-		return topicmeta.TopicInfo{}, errors.Errorf("unknown topic: %s", topicName)
+		return topicmeta.TopicInfo{}, false, nil
 	}
-	return info, nil
+	return info, true, nil
 }

@@ -33,7 +33,7 @@ func NewLocalCache(controlClientFactory ControllerClientFactory) *LocalCache {
 type ControllerClientFactory func() (ControllerClient, error)
 
 type ControllerClient interface {
-	GetTopicInfo(topicName string) (TopicInfo, int, error)
+	GetTopicInfo(topicName string) (TopicInfo, int, bool, error)
 	Close() error
 }
 
@@ -49,10 +49,10 @@ func (l *LocalCache) getClient() (ControllerClient, error) {
 	return cl, nil
 }
 
-func (l *LocalCache) GetTopicInfo(topicName string) (TopicInfo, error) {
+func (l *LocalCache) GetTopicInfo(topicName string) (TopicInfo, bool, error) {
 	info, ok := l.getCachedTopicInfo(topicName)
 	if ok {
-		return info, nil
+		return info, true, nil
 	}
 	return l.getTopicInfoFromController(topicName)
 }
@@ -64,30 +64,33 @@ func (l *LocalCache) getCachedTopicInfo(topicName string) (TopicInfo, bool) {
 	return info, ok
 }
 
-func (l *LocalCache) getTopicInfoFromController(topicName string) (TopicInfo, error) {
+func (l *LocalCache) getTopicInfoFromController(topicName string) (TopicInfo, bool, error) {
 	l.lock.Lock()
 	defer l.lock.Unlock()
 	info, ok := l.topicInfos[topicName]
 	if ok {
-		return info, nil
+		return info, true, nil
 	}
 	cl, err := l.getClient()
 	if err != nil {
-		return TopicInfo{}, err
+		return TopicInfo{}, false, err
 	}
 	var sequence int
-	info, sequence, err = cl.GetTopicInfo(topicName)
+	var exists bool
+	info, sequence, exists, err = cl.GetTopicInfo(topicName)
 	if err != nil {
 		// We always close on error if retries occur, new connection will be created
 		if err := l.cl.Close(); err != nil {
 			log.Warnf("failed to close client: %v", err)
 		}
 		l.cl = nil
-		return TopicInfo{}, err
+		return TopicInfo{}, false, err
 	}
-	l.topicInfos[topicName] = info
-	l.lastSequence = sequence
-	return info, nil
+	if exists {
+		l.topicInfos[topicName] = info
+		l.lastSequence = sequence
+	}
+	return info, exists, nil
 }
 
 func (l *LocalCache) HandleTopicAdded(_ *transport.ConnectionContext, buff []byte, responseBuff []byte,

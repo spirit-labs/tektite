@@ -13,6 +13,7 @@ import (
 	"github.com/spirit-labs/tektite/topicmeta"
 	"github.com/spirit-labs/tektite/transport"
 	"github.com/stretchr/testify/require"
+	"sort"
 	"testing"
 	"time"
 )
@@ -175,10 +176,10 @@ func TestControllerPrePushAndRegisterL0(t *testing.T) {
 		require.NoError(t, err)
 	}()
 
-	offs, seq, _, err := cl.PrePush([]offsets.GetOffsetTopicInfo{
+	offs, seq, _, err := cl.PrePush([]offsets.GenerateOffsetTopicInfo{
 		{
 			TopicID: 1000,
-			PartitionInfos: []offsets.GetOffsetPartitionInfo{
+			PartitionInfos: []offsets.GenerateOffsetPartitionInfo{
 				{
 					PartitionID: 1,
 					NumOffsets:  100,
@@ -191,7 +192,7 @@ func TestControllerPrePushAndRegisterL0(t *testing.T) {
 		},
 		{
 			TopicID: 1001,
-			PartitionInfos: []offsets.GetOffsetPartitionInfo{
+			PartitionInfos: []offsets.GenerateOffsetPartitionInfo{
 				{
 					PartitionID: 1,
 					NumOffsets:  50,
@@ -254,6 +255,22 @@ func TestControllerPrePushAndRegisterL0(t *testing.T) {
 		}
 	}
 	require.True(t, found)
+
+	// Now get offset infos
+	offsetInfos, err := cl.GetOffsetInfos([]offsets.GetOffsetTopicInfo{
+		{
+			TopicID:      1000,
+			PartitionIDs: []int{1, 2},
+		},
+	})
+	require.NoError(t, err)
+	require.Equal(t, 1, len(offsetInfos))
+	require.Equal(t, 1000, offsetInfos[0].TopicID)
+	require.Equal(t, 2, len(offsetInfos[0].PartitionInfos))
+	require.Equal(t, 1, offsetInfos[0].PartitionInfos[0].PartitionID)
+	require.Equal(t, 99, int(offsetInfos[0].PartitionInfos[0].Offset))
+	require.Equal(t, 2, offsetInfos[0].PartitionInfos[1].PartitionID)
+	require.Equal(t, 149, int(offsetInfos[0].PartitionInfos[1].Offset))
 }
 
 func TestControllerGroupEpochs(t *testing.T) {
@@ -290,7 +307,7 @@ func TestControllerGroupEpochs(t *testing.T) {
 		})
 	}
 
-	offs, seq, epochsOK, err := cl.PrePush([]offsets.GetOffsetTopicInfo{}, epochInfos)
+	offs, seq, epochsOK, err := cl.PrePush([]offsets.GenerateOffsetTopicInfo{}, epochInfos)
 	require.NoError(t, err)
 	require.Equal(t, 0, len(offs))
 	require.Equal(t, 1, int(seq))
@@ -307,7 +324,7 @@ func TestControllerGroupEpochs(t *testing.T) {
 		}
 	}
 
-	offs, seq, epochsOK, err = cl.PrePush([]offsets.GetOffsetTopicInfo{}, epochInfos)
+	offs, seq, epochsOK, err = cl.PrePush([]offsets.GenerateOffsetTopicInfo{}, epochInfos)
 	require.NoError(t, err)
 	require.Equal(t, 0, len(offs))
 	require.Equal(t, 2, int(seq))
@@ -332,9 +349,8 @@ func TestControllerCreateGetDeleteTopics(t *testing.T) {
 
 	for i := 0; i < numTopics; i++ {
 		topicName := fmt.Sprintf("topic-%03d", i)
-		_, _, err := cl.GetTopicInfo(topicName)
-		require.Error(t, err)
-		require.True(t, common.IsTektiteErrorWithCode(err, common.TopicDoesNotExist))
+		_, _, exists, _ := cl.GetTopicInfo(topicName)
+		require.False(t, exists)
 		info := topicmeta.TopicInfo{
 			Name:           topicName,
 			ID:             1000 + i,
@@ -343,8 +359,9 @@ func TestControllerCreateGetDeleteTopics(t *testing.T) {
 		}
 		err = cl.CreateTopic(info)
 		require.NoError(t, err)
-		received, _, err := cl.GetTopicInfo(topicName)
+		received, _, exists, err := cl.GetTopicInfo(topicName)
 		require.NoError(t, err)
+		require.True(t, exists)
 		require.Equal(t, info, received)
 		infos = append(infos, info)
 	}
@@ -360,8 +377,9 @@ func TestControllerCreateGetDeleteTopics(t *testing.T) {
 
 	// Topics should still be there
 	for _, info := range infos {
-		received, _, err := cl.GetTopicInfo(info.Name)
+		received, _, exists, err := cl.GetTopicInfo(info.Name)
 		require.NoError(t, err)
+		require.True(t, exists)
 		require.Equal(t, info, received)
 	}
 
@@ -370,16 +388,17 @@ func TestControllerCreateGetDeleteTopics(t *testing.T) {
 		info := infos[i]
 		err = cl.DeleteTopic(info.Name)
 		require.NoError(t, err)
-		_, _, err := cl.GetTopicInfo(info.Name)
-		require.Error(t, err)
-		require.True(t, common.IsTektiteErrorWithCode(err, common.TopicDoesNotExist))
+		_, _, exists, err := cl.GetTopicInfo(info.Name)
+		require.NoError(t, err)
+		require.False(t, exists)
 	}
 
 	// Rest should still be there
 	for i := len(infos) / 2; i < len(infos); i++ {
 		info := infos[i]
-		received, _, err := cl.GetTopicInfo(info.Name)
+		received, _, exists, err := cl.GetTopicInfo(info.Name)
 		require.NoError(t, err)
+		require.True(t, exists)
 		require.Equal(t, info, received)
 	}
 
@@ -393,12 +412,13 @@ func TestControllerCreateGetDeleteTopics(t *testing.T) {
 	require.NoError(t, err)
 
 	for i, info := range infos {
-		received, _, err := cl.GetTopicInfo(info.Name)
+		received, _, exists, err := cl.GetTopicInfo(info.Name)
 		if i < len(infos)/2 {
-			require.Error(t, err)
-			require.True(t, common.IsTektiteErrorWithCode(err, common.TopicDoesNotExist))
+			require.NoError(t, err)
+			require.False(t, exists)
 		} else {
 			require.NoError(t, err)
+			require.True(t, exists)
 			require.Equal(t, info, received)
 		}
 	}
@@ -408,9 +428,9 @@ func TestControllerCreateGetDeleteTopics(t *testing.T) {
 		info := infos[i]
 		err = cl.DeleteTopic(info.Name)
 		require.NoError(t, err)
-		_, _, err := cl.GetTopicInfo(info.Name)
-		require.Error(t, err)
-		require.True(t, common.IsTektiteErrorWithCode(err, common.TopicDoesNotExist))
+		_, _, exists, err := cl.GetTopicInfo(info.Name)
+		require.NoError(t, err)
+		require.False(t, exists)
 	}
 
 	// Restart again
@@ -429,10 +449,45 @@ func TestControllerCreateGetDeleteTopics(t *testing.T) {
 
 	// Should be none
 	for _, info := range infos {
-		_, _, err := cl.GetTopicInfo(info.Name)
-		require.Error(t, err)
-		require.True(t, common.IsTektiteErrorWithCode(err, common.TopicDoesNotExist))
+		_, _, exists, err := cl.GetTopicInfo(info.Name)
+		require.NoError(t, err)
+		require.False(t, exists)
 	}
+}
+
+func TestControllerGetAllTopicInfos(t *testing.T) {
+	objStore := dev.NewInMemStore(0)
+	controllers, _, tearDown := setupControllersWithObjectStore(t, 1, objStore)
+	defer tearDown(t)
+
+	updateMembership(t, 1, 1, controllers, 0)
+
+	cl, err := controllers[0].Client()
+	require.NoError(t, err)
+
+	numTopics := 100
+	var infos []topicmeta.TopicInfo
+
+	for i := 0; i < numTopics; i++ {
+		topicName := fmt.Sprintf("topic-%03d", i)
+		info := topicmeta.TopicInfo{
+			Name:           topicName,
+			ID:             1000 + i,
+			PartitionCount: i + 1,
+			RetentionTime:  time.Duration(1000000 + i),
+		}
+		err = cl.CreateTopic(info)
+		require.NoError(t, err)
+		infos = append(infos, info)
+	}
+
+	allInfos, err := cl.GetAllTopicInfos()
+	require.NoError(t, err)
+	sort.Slice(allInfos, func(i, j int) bool {
+		return allInfos[i].ID < allInfos[j].ID
+	})
+
+	require.Equal(t, infos, allInfos)
 }
 
 func TestControllerGenerateSequence(t *testing.T) {
@@ -526,6 +581,7 @@ func createMembership(clusterVersion int, leaderVersion int, controllers []*Cont
 			ClusterListenAddress: controllers[memberIndex].transportServer.Address(),
 			// Make up a fake kafka address
 			KafkaListenerAddress: fmt.Sprintf("kafka-address-%d:1234", i),
+			Location:             controllers[i].cfg.AzInfo,
 		}
 		members = append(members, cluster.MembershipEntry{
 			ID:         int32(memberIndex),

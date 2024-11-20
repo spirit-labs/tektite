@@ -102,7 +102,7 @@ var SupportedAPIVersions = []ApiVersionsResponseApiVersion{
 	{ApiKey: APIKeyProduce, MinVersion: 3, MaxVersion: 3},
 	{ApiKey: APIKeyFetch, MinVersion: 4, MaxVersion: 4},
 	{ApiKey: APIKeyAPIVersions, MinVersion: 0, MaxVersion: 3},
-	{ApiKey: APIKeyMetadata, MinVersion: 1, MaxVersion: 4},
+	{ApiKey: APIKeyMetadata, MinVersion: 1, MaxVersion: 1},
 	{ApiKey: APIKeyFindCoordinator, MinVersion: 0, MaxVersion: 0},
 	{ApiKey: ApiKeyJoinGroup, MinVersion: 0, MaxVersion: 0},
 	{ApiKey: ApiKeySyncGroup, MinVersion: 0, MaxVersion: 0},

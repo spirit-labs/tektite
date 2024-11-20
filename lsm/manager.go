@@ -347,7 +347,6 @@ func (m *Manager) getTablesForHighestKeyWithPrefix(prefix []byte, level int, lev
 				highestIndex--
 				continue
 			}
-			//log.Infof("found in table with keystart %v id %v", te.RangeStart, te.SSTableID)
 			// The last key in the table is greater or equal to the next prefix
 			tables = append(tables, te.SSTableID)
 			break

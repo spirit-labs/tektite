@@ -27,16 +27,18 @@ func (k *kafkaHandler) HandleFetchRequest(_ *kafkaprotocol.RequestHeader, req *k
 	return k.agent.batchFetcher.HandleFetchRequest(req, completionFunc)
 }
 
-func (k *kafkaHandler) HandleListOffsetsRequest(_ *kafkaprotocol.RequestHeader, _ *kafkaprotocol.ListOffsetsRequest,
+func (k *kafkaHandler) HandleListOffsetsRequest(_ *kafkaprotocol.RequestHeader, req *kafkaprotocol.ListOffsetsRequest,
 	completionFunc func(resp *kafkaprotocol.ListOffsetsResponse) error) error {
-	//TODO implement me
-	panic("implement me")
+	return completionFunc(k.agent.HandleListOffsetsRequest(req))
 }
 
 func (k *kafkaHandler) HandleMetadataRequest(hdr *kafkaprotocol.RequestHeader, req *kafkaprotocol.MetadataRequest,
 	completionFunc func(resp *kafkaprotocol.MetadataResponse) error) error {
-	//TODO implement me
-	panic("implement me")
+	resp, err := k.agent.HandleMetadataRequest(hdr, req)
+	if err != nil {
+		return err
+	}
+	return completionFunc(resp)
 }
 
 func (k *kafkaHandler) HandleOffsetCommitRequest(_ *kafkaprotocol.RequestHeader,
@@ -83,23 +85,24 @@ func (k *kafkaHandler) HandleSyncGroupRequest(_ *kafkaprotocol.RequestHeader, re
 	return k.agent.groupCoordinator.HandleSyncGroupRequest(req, completionFunc)
 }
 
-func (k *kafkaHandler) HandleApiVersionsRequest(hdr *kafkaprotocol.RequestHeader, req *kafkaprotocol.ApiVersionsRequest,
+func (k *kafkaHandler) HandleApiVersionsRequest(_ *kafkaprotocol.RequestHeader, req *kafkaprotocol.ApiVersionsRequest,
 	completionFunc func(resp *kafkaprotocol.ApiVersionsResponse) error) error {
-	//TODO implement me
-	panic("implement me")
+	var resp kafkaprotocol.ApiVersionsResponse
+	resp.ApiKeys = kafkaprotocol.SupportedAPIVersions
+	return completionFunc(&resp)
 }
 
-func (k *kafkaHandler) HandleInitProducerIdRequest(hdr *kafkaprotocol.RequestHeader,
+func (k *kafkaHandler) HandleInitProducerIdRequest(_ *kafkaprotocol.RequestHeader,
 	req *kafkaprotocol.InitProducerIdRequest, completionFunc func(resp *kafkaprotocol.InitProducerIdResponse) error) error {
 	return completionFunc(k.agent.txCoordinator.HandleInitProducerID(req))
 }
 
-func (k *kafkaHandler) HandleAddOffsetsToTxnRequest(hdr *kafkaprotocol.RequestHeader,
+func (k *kafkaHandler) HandleAddOffsetsToTxnRequest(_ *kafkaprotocol.RequestHeader,
 	req *kafkaprotocol.AddOffsetsToTxnRequest, completionFunc func(resp *kafkaprotocol.AddOffsetsToTxnResponse) error) error {
 	return completionFunc(k.agent.txCoordinator.HandleAddOffsetsToTxn(req))
 }
 
-func (k *kafkaHandler) HandleAddPartitionsToTxnRequest(hdr *kafkaprotocol.RequestHeader,
+func (k *kafkaHandler) HandleAddPartitionsToTxnRequest(_ *kafkaprotocol.RequestHeader,
 	req *kafkaprotocol.AddPartitionsToTxnRequest, completionFunc func(resp *kafkaprotocol.AddPartitionsToTxnResponse) error) error {
 	return completionFunc(k.agent.txCoordinator.HandleAddPartitionsToTxn(req))
 }
@@ -113,19 +116,19 @@ func (k *kafkaHandler) HandleTxnOffsetCommitRequest(_ *kafkaprotocol.RequestHead
 	return completionFunc(resp)
 }
 
-func (k *kafkaHandler) HandleEndTxnRequest(hdr *kafkaprotocol.RequestHeader, req *kafkaprotocol.EndTxnRequest,
+func (k *kafkaHandler) HandleEndTxnRequest(_ *kafkaprotocol.RequestHeader, req *kafkaprotocol.EndTxnRequest,
 	completionFunc func(resp *kafkaprotocol.EndTxnResponse) error) error {
 	return completionFunc(k.agent.txCoordinator.HandleEndTxn(req))
 }
 
-func (k *kafkaHandler) HandleSaslAuthenticateRequest(hdr *kafkaprotocol.RequestHeader,
+func (k *kafkaHandler) HandleSaslAuthenticateRequest(_ *kafkaprotocol.RequestHeader,
 	req *kafkaprotocol.SaslAuthenticateRequest,
 	completionFunc func(resp *kafkaprotocol.SaslAuthenticateResponse) error) error {
 	//TODO implement me
 	panic("implement me")
 }
 
-func (k *kafkaHandler) HandleSaslHandshakeRequest(hdr *kafkaprotocol.RequestHeader,
+func (k *kafkaHandler) HandleSaslHandshakeRequest(_ *kafkaprotocol.RequestHeader,
 	req *kafkaprotocol.SaslHandshakeRequest,
 	completionFunc func(resp *kafkaprotocol.SaslHandshakeResponse) error) error {
 	//TODO implement me

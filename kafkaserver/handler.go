@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/spirit-labs/tektite/common"
+	"github.com/spirit-labs/tektite/kafkaencoding"
 	"github.com/spirit-labs/tektite/kafkaprotocol"
 	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/opers"
@@ -181,9 +182,9 @@ func (c *connection) HandleFetchRequest(_ *kafkaprotocol.RequestHeader, req *kaf
 					func(batches [][]byte, hwm int64, err error) {
 						if err != nil {
 							var errorCode int16
-							var kerr KafkaProtocolError
+							var kerr kafkaencoding.KafkaError
 							if errors.As(err, &kerr) {
-								errorCode = kerr.ErrorCode
+								errorCode = int16(kerr.ErrorCode)
 							} else {
 								errorCode = kafkaprotocol.ErrorCodeUnknownServerError
 							}

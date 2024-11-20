@@ -35,11 +35,17 @@ func (l *LocalServer) Address() string {
 	return l.address
 }
 
+func (l *LocalServer) Start() error {
+	return nil
+}
+
 func (l *LocalServer) Stop() error {
 	return nil
 }
 
 type LocalConnection struct {
+	lock       sync.Mutex
+	stopped    bool
 	id         int
 	transports *LocalTransports
 	address    string
@@ -95,6 +101,11 @@ func (l *LocalConnection) SendOneway(handlerID int, message []byte) error {
 }
 
 func (l *LocalConnection) sendMessage(handlerID int, message []byte, respChannel chan responseHolder) error {
+	l.lock.Lock()
+	defer l.lock.Unlock()
+	if l.stopped {
+		return errors.New("connection stopped")
+	}
 	handler, err := l.transports.getRequestHandler(handlerID, l.address)
 	if err != nil {
 		return err
@@ -121,9 +132,18 @@ func maybeConvertError(err error) error {
 }
 
 func (l *LocalConnection) Close() error {
-	close(l.msgChan)
+	l.closeChannel()
 	l.stopWG.Wait()
 	return nil
+}
+
+func (l *LocalConnection) closeChannel() {
+	l.lock.Lock()
+	defer l.lock.Unlock()
+	if l.stopped {
+		return
+	}
+	close(l.msgChan)
 }
 
 func NewLocalTransports() *LocalTransports {

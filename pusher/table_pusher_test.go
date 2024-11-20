@@ -36,12 +36,12 @@ type simpleTopicInfoProvider struct {
 	infos map[string]topicmeta.TopicInfo
 }
 
-func (s *simpleTopicInfoProvider) GetTopicInfo(topicName string) (topicmeta.TopicInfo, error) {
+func (s *simpleTopicInfoProvider) GetTopicInfo(topicName string) (topicmeta.TopicInfo, bool, error) {
 	info, ok := s.infos[topicName]
 	if !ok {
-		return topicmeta.TopicInfo{}, common.NewTektiteErrorf(common.TopicDoesNotExist, "unknown topic: %s", topicName)
+		return topicmeta.TopicInfo{}, false, nil
 	}
-	return info, nil
+	return info, true, nil
 }
 
 func TestTablePusherWriteDirectSingleWriter(t *testing.T) {
@@ -68,7 +68,7 @@ func TestTablePusherWriteDirectSingleWriter(t *testing.T) {
 	partHashes, err := parthash.NewPartitionHashes(100)
 	require.NoError(t, err)
 	tableGetter := &testTableGetter{}
-	pusher, err := NewTablePusher(cfg, topicProvider, objStore, clientFactory, tableGetter.getTable, partHashes)
+	pusher, err := NewTablePusher(cfg, topicProvider, objStore, clientFactory, tableGetter.getTable, partHashes, nil)
 	require.NoError(t, err)
 	err = pusher.Start()
 	require.NoError(t, err)
@@ -161,7 +161,7 @@ func TestTablePusherDirectWriteMultipleWritersOK(t *testing.T) {
 	partHashes, err := parthash.NewPartitionHashes(100)
 	require.NoError(t, err)
 	tableGetter := &testTableGetter{}
-	pusher, err := NewTablePusher(cfg, topicProvider, objStore, clientFactory, tableGetter.getTable, partHashes)
+	pusher, err := NewTablePusher(cfg, topicProvider, objStore, clientFactory, tableGetter.getTable, partHashes, nil)
 	require.NoError(t, err)
 	err = pusher.Start()
 	require.NoError(t, err)
@@ -270,7 +270,7 @@ func TestTablePusherDirectWriteMultipleGroupsInvalidEpochs(t *testing.T) {
 	partHashes, err := parthash.NewPartitionHashes(100)
 	require.NoError(t, err)
 	tableGetter := &testTableGetter{}
-	pusher, err := NewTablePusher(cfg, topicProvider, objStore, clientFactory, tableGetter.getTable, partHashes)
+	pusher, err := NewTablePusher(cfg, topicProvider, objStore, clientFactory, tableGetter.getTable, partHashes, nil)
 	require.NoError(t, err)
 	err = pusher.Start()
 	require.NoError(t, err)
@@ -386,11 +386,11 @@ func TestTablePusherHandleDirectProduce(t *testing.T) {
 				TopicID: topicID2,
 				PartitionInfos: []offsets.OffsetPartitionInfo{
 					{
-						PartitionID: 9,
+						PartitionID: 7,
 						Offset:      int64(numRecordsInBatch - 1),
 					},
 					{
-						PartitionID: 7,
+						PartitionID: 9,
 						Offset:      int64(numRecordsInBatch - 1),
 					},
 				},
@@ -407,7 +407,7 @@ func TestTablePusherHandleDirectProduce(t *testing.T) {
 	partHashes, err := parthash.NewPartitionHashes(100)
 	require.NoError(t, err)
 	tableGetter := &testTableGetter{}
-	pusher, err := NewTablePusher(cfg, topicProvider, objStore, clientFactory, tableGetter.getTable, partHashes)
+	pusher, err := NewTablePusher(cfg, topicProvider, objStore, clientFactory, tableGetter.getTable, partHashes, nil)
 	require.NoError(t, err)
 	err = pusher.Start()
 	require.NoError(t, err)
@@ -475,20 +475,21 @@ func TestTablePusherHandleDirectProduce(t *testing.T) {
 	}
 	// Should be in topic, partition order
 	require.Equal(t, 4, len(batches))
-	require.Equal(t, recordBatch1, batches[0])
-	require.Equal(t, recordBatch2, batches[1])
-	require.Equal(t, recordBatch4, batches[2])
-	require.Equal(t, recordBatch3, batches[3])
+
+	checkBatchInBatches(t, recordBatch1, batches)
+	checkBatchInBatches(t, recordBatch2, batches)
+	checkBatchInBatches(t, recordBatch3, batches)
+	checkBatchInBatches(t, recordBatch4, batches)
 
 	// check getOffsets was called with correct args
 	getOffsetInvocs := controllerClient.getPrePushInvocations()
 	require.Equal(t, 1, len(getOffsetInvocs))
 	infos := getOffsetInvocs[0].infos
 
-	expectedInfos := []offsets.GetOffsetTopicInfo{
+	expectedInfos := []offsets.GenerateOffsetTopicInfo{
 		{
 			TopicID: topicID1,
-			PartitionInfos: []offsets.GetOffsetPartitionInfo{
+			PartitionInfos: []offsets.GenerateOffsetPartitionInfo{
 				{
 					PartitionID: 12,
 					NumOffsets:  numRecordsInBatch,
@@ -501,7 +502,7 @@ func TestTablePusherHandleDirectProduce(t *testing.T) {
 		},
 		{
 			TopicID: topicID2,
-			PartitionInfos: []offsets.GetOffsetPartitionInfo{
+			PartitionInfos: []offsets.GenerateOffsetPartitionInfo{
 				{
 					PartitionID: 7,
 					NumOffsets:  numRecordsInBatch,
@@ -526,10 +527,20 @@ func TestTablePusherHandleDirectProduce(t *testing.T) {
 	require.Equal(t, seq, receivedRegs[0].seq)
 }
 
+func checkBatchInBatches(t *testing.T, batch []byte, batches [][]byte) {
+	for _, b := range batches {
+		if bytes.Equal(batch, b) {
+			return
+		}
+	}
+	require.True(t, false, "cannot find batch")
+}
+
 func TestTablePusherHandleProduceBatchSimple(t *testing.T) {
 	cfg := NewConf()
 	cfg.DataBucketName = "test-data-bucket"
 	cfg.WriteTimeout = 1 * time.Millisecond // So it pushes straightaway
+	cfg.EnforceProduceOnLeader = true
 	objStore := dev.NewInMemStore(0)
 	topicID := 1234
 	seq := int64(23)
@@ -558,7 +569,8 @@ func TestTablePusherHandleProduceBatchSimple(t *testing.T) {
 	partHashes, err := parthash.NewPartitionHashes(100)
 	require.NoError(t, err)
 	tableGetter := &testTableGetter{}
-	pusher, err := NewTablePusher(cfg, topicProvider, objStore, clientFactory, tableGetter.getTable, partHashes)
+	pusher, err := NewTablePusher(cfg, topicProvider, objStore, clientFactory, tableGetter.getTable,
+		partHashes, &testLeaderChecker{leader: true})
 	require.NoError(t, err)
 	err = pusher.Start()
 	require.NoError(t, err)
@@ -615,10 +627,10 @@ func TestTablePusherHandleProduceBatchSimple(t *testing.T) {
 	require.Equal(t, 1, len(getOffsetInvocs))
 	infos := getOffsetInvocs[0].infos
 
-	expectedInfos := []offsets.GetOffsetTopicInfo{
+	expectedInfos := []offsets.GenerateOffsetTopicInfo{
 		{
 			TopicID: topicID,
-			PartitionInfos: []offsets.GetOffsetPartitionInfo{
+			PartitionInfos: []offsets.GenerateOffsetPartitionInfo{
 				{
 					PartitionID: 12,
 					NumOffsets:  numRecordsInBatch,
@@ -637,6 +649,72 @@ func TestTablePusherHandleProduceBatchSimple(t *testing.T) {
 	reg := receivedRegs[0].regEntry
 	require.Equal(t, []byte(objects[0].Key), []byte(reg.TableID))
 	require.Equal(t, seq, receivedRegs[0].seq)
+}
+
+func TestTablePusherHandleProduceBatchNotLeader(t *testing.T) {
+	cfg := NewConf()
+	cfg.DataBucketName = "test-data-bucket"
+	cfg.WriteTimeout = 1 * time.Millisecond // So it pushes straightaway
+	cfg.EnforceProduceOnLeader = true
+	objStore := dev.NewInMemStore(0)
+	topicID := 1234
+	numRecordsInBatch := 10
+
+	controllerClient := &testControllerClient{}
+	clientFactory := func() (ControlClient, error) {
+		return controllerClient, nil
+	}
+	topicProvider := &simpleTopicInfoProvider{infos: map[string]topicmeta.TopicInfo{
+		"topic1": {ID: topicID, PartitionCount: 20},
+	}}
+	partHashes, err := parthash.NewPartitionHashes(100)
+	require.NoError(t, err)
+	tableGetter := &testTableGetter{}
+	pusher, err := NewTablePusher(cfg, topicProvider, objStore, clientFactory, tableGetter.getTable, partHashes,
+		&testLeaderChecker{leader: false})
+	require.NoError(t, err)
+	err = pusher.Start()
+	require.NoError(t, err)
+	defer func() {
+		err := pusher.Stop()
+		require.NoError(t, err)
+	}()
+
+	recordBatch := testutils.CreateKafkaRecordBatchWithIncrementingKVs(0, numRecordsInBatch)
+	req := kafkaprotocol.ProduceRequest{
+		TransactionalId: nil,
+		Acks:            -1,
+		TimeoutMs:       1234,
+		TopicData: []kafkaprotocol.ProduceRequestTopicProduceData{
+			{
+				Name: common.StrPtr("topic1"),
+				PartitionData: []kafkaprotocol.ProduceRequestPartitionProduceData{
+					{
+						Index: 12,
+						Records: [][]byte{
+							recordBatch,
+						},
+					},
+				},
+			},
+		},
+	}
+	respCh := make(chan *kafkaprotocol.ProduceResponse, 1)
+	err = pusher.HandleProduceRequest(&req, func(resp *kafkaprotocol.ProduceResponse) error {
+		respCh <- resp
+		return nil
+	})
+	require.NoError(t, err)
+	resp := <-respCh
+	require.Equal(t, kafkaprotocol.ErrorCodeNotLeaderOrFollower, int(resp.Responses[0].PartitionResponses[0].ErrorCode))
+}
+
+type testLeaderChecker struct {
+	leader bool
+}
+
+func (t *testLeaderChecker) IsLeader(topicID int, partitionID int) (bool, error) {
+	return t.leader, nil
 }
 
 func TestTablePusherHandleProduceBatchMultipleTopicsAndPartitions(t *testing.T) {
@@ -685,7 +763,7 @@ func TestTablePusherHandleProduceBatchMultipleTopicsAndPartitions(t *testing.T) 
 	partHashes, err := parthash.NewPartitionHashes(100)
 	require.NoError(t, err)
 	tableGetter := &testTableGetter{}
-	pusher, err := NewTablePusher(cfg, topicProvider, objStore, clientFactory, tableGetter.getTable, partHashes)
+	pusher, err := NewTablePusher(cfg, topicProvider, objStore, clientFactory, tableGetter.getTable, partHashes, nil)
 	require.NoError(t, err)
 
 	err = pusher.Start()
@@ -752,10 +830,10 @@ func TestTablePusherHandleProduceBatchMultipleTopicsAndPartitions(t *testing.T) 
 
 	// verify get offsets called correctly
 	// note, will be sorted in topic, partition order
-	expectedGetOffsets := []offsets.GetOffsetTopicInfo{
+	expectedGetOffsets := []offsets.GenerateOffsetTopicInfo{
 		{
 			TopicID: topicID1,
-			PartitionInfos: []offsets.GetOffsetPartitionInfo{
+			PartitionInfos: []offsets.GenerateOffsetPartitionInfo{
 				{
 					PartitionID: 7,
 					NumOffsets:  20,
@@ -768,7 +846,7 @@ func TestTablePusherHandleProduceBatchMultipleTopicsAndPartitions(t *testing.T) 
 		},
 		{
 			TopicID: topicID2,
-			PartitionInfos: []offsets.GetOffsetPartitionInfo{
+			PartitionInfos: []offsets.GenerateOffsetPartitionInfo{
 				{
 					PartitionID: 23,
 					NumOffsets:  25,
@@ -889,7 +967,7 @@ func TestTablePusherPushWhenBufferIsFull(t *testing.T) {
 	partHashes, err := parthash.NewPartitionHashes(100)
 	require.NoError(t, err)
 	tableGetter := &testTableGetter{}
-	pusher, err := NewTablePusher(cfg, topicProvider, objStore, clientFactory, tableGetter.getTable, partHashes)
+	pusher, err := NewTablePusher(cfg, topicProvider, objStore, clientFactory, tableGetter.getTable, partHashes, nil)
 	require.NoError(t, err)
 
 	err = pusher.Start()
@@ -1009,7 +1087,7 @@ func TestTablePusherPushWhenTimeoutIsExceeded(t *testing.T) {
 	partHashes, err := parthash.NewPartitionHashes(100)
 	require.NoError(t, err)
 	tableGetter := &testTableGetter{}
-	pusher, err := NewTablePusher(cfg, topicProvider, objStore, clientFactory, tableGetter.getTable, partHashes)
+	pusher, err := NewTablePusher(cfg, topicProvider, objStore, clientFactory, tableGetter.getTable, partHashes, nil)
 	require.NoError(t, err)
 
 	start := time.Now()
@@ -1117,7 +1195,7 @@ func TestTablePusherHandleProduceBatchMixtureErrorsAndSuccesses(t *testing.T) {
 	partHashes, err := parthash.NewPartitionHashes(100)
 	require.NoError(t, err)
 	tableGetter := &testTableGetter{}
-	pusher, err := NewTablePusher(cfg, topicProvider, objStore, clientFactory, tableGetter.getTable, partHashes)
+	pusher, err := NewTablePusher(cfg, topicProvider, objStore, clientFactory, tableGetter.getTable, partHashes, nil)
 	require.NoError(t, err)
 
 	err = pusher.Start()
@@ -1216,10 +1294,10 @@ func TestTablePusherHandleProduceBatchMixtureErrorsAndSuccesses(t *testing.T) {
 
 	// verify get offsets called correctly
 	// note, will be sorted in topic, partition order
-	expectedGetOffsets := []offsets.GetOffsetTopicInfo{
+	expectedGetOffsets := []offsets.GenerateOffsetTopicInfo{
 		{
 			TopicID: topicID1,
-			PartitionInfos: []offsets.GetOffsetPartitionInfo{
+			PartitionInfos: []offsets.GenerateOffsetPartitionInfo{
 				{
 					PartitionID: 7,
 					NumOffsets:  20,
@@ -1232,7 +1310,7 @@ func TestTablePusherHandleProduceBatchMixtureErrorsAndSuccesses(t *testing.T) {
 		},
 		{
 			TopicID: topicID2,
-			PartitionInfos: []offsets.GetOffsetPartitionInfo{
+			PartitionInfos: []offsets.GenerateOffsetPartitionInfo{
 				{
 					PartitionID: 23,
 					NumOffsets:  25,
@@ -1340,7 +1418,7 @@ func TestTablePusherUnexpectedError(t *testing.T) {
 	partHashes, err := parthash.NewPartitionHashes(100)
 	require.NoError(t, err)
 	tableGetter := &testTableGetter{}
-	pusher, err := NewTablePusher(cfg, topicProvider, objStore, clientFactory, tableGetter.getTable, partHashes)
+	pusher, err := NewTablePusher(cfg, topicProvider, objStore, clientFactory, tableGetter.getTable, partHashes, nil)
 	require.NoError(t, err)
 	err = pusher.Start()
 	require.NoError(t, err)
@@ -1428,7 +1506,7 @@ func TestTablePusherTemporaryUnavailability(t *testing.T) {
 	require.NoError(t, err)
 	tableGetter := &testTableGetter{}
 
-	pusher, err := NewTablePusher(cfg, topicProvider, objStore, clientFactory, tableGetter.getTable, partHashes)
+	pusher, err := NewTablePusher(cfg, topicProvider, objStore, clientFactory, tableGetter.getTable, partHashes, nil)
 	require.NoError(t, err)
 	err = pusher.Start()
 	require.NoError(t, err)
@@ -1667,9 +1745,9 @@ func TestTablePusherStoreOffsetSnapshot(t *testing.T) {
 	var chans []chan *kafkaprotocol.ProduceResponse
 	numProducers := 10
 	for i := 0; i < numProducers; i++ {
-		ch := sendBatchWithDedupReturnChannel(t, pusher, i, 0, 9, kafkaprotocol.ErrorCodeNone)
+		ch := sendBatchWithDedupReturnChannel(t, pusher, i, 0, 9)
 		chans = append(chans, ch)
-		ch = sendBatchWithDedupReturnChannel(t, pusher, i, 10, 9, kafkaprotocol.ErrorCodeNone)
+		ch = sendBatchWithDedupReturnChannel(t, pusher, i, 10, 9)
 		chans = append(chans, ch)
 	}
 
@@ -1762,7 +1840,7 @@ func setupTablePusherForIdempotentProducerWithConfigSetter(t *testing.T, cfgSett
 		tables: map[string]*sst.SSTable{},
 	}
 
-	pusher, err := NewTablePusher(cfg, topicProvider, objStore, clientFactory, tableGetter.getTable, partHashes)
+	pusher, err := NewTablePusher(cfg, topicProvider, objStore, clientFactory, tableGetter.getTable, partHashes, nil)
 	require.NoError(t, err)
 	err = pusher.Start()
 	require.NoError(t, err)
@@ -1788,10 +1866,11 @@ func setupTableWithOffsetSnapshot(t *testing.T, kvs []common.KV, tg *mapTableGet
 func createSequenceSnapshotKV(t *testing.T, topicID int, partitionID int, producerID int, baseOffset int) common.KV {
 	partHash, err := parthash.CreatePartitionHash(topicID, partitionID)
 	require.NoError(t, err)
-	key := make([]byte, 25)
-	copy(key, partHash)
-	key[16] = common.EntryTypeOffsetSnapshot
-	binary.BigEndian.PutUint64(key[17:], uint64(producerID))
+	key := make([]byte, 0, 33)
+	key = append(key, partHash...)
+	key = append(key, common.EntryTypeOffsetSnapshot)
+	key = binary.BigEndian.AppendUint64(key, uint64(producerID))
+	key = encoding.EncodeVersion(key, 0)
 	value := make([]byte, 0, 6)
 	value = binary.BigEndian.AppendUint16(value, uint16(offsetSnapshotFormatVersion))
 	value = encoding.KeyEncodeInt(value, int64(baseOffset))
@@ -1799,12 +1878,12 @@ func createSequenceSnapshotKV(t *testing.T, topicID int, partitionID int, produc
 }
 
 func sendBatchWithDedup(t *testing.T, pusher *TablePusher, producerID int, baseSequence int, offsetDelta int, expectedErr int) {
-	ch := sendBatchWithDedupReturnChannel(t, pusher, producerID, baseSequence, offsetDelta, expectedErr)
+	ch := sendBatchWithDedupReturnChannel(t, pusher, producerID, baseSequence, offsetDelta)
 	resp := <-ch
 	require.Equal(t, expectedErr, int(resp.Responses[0].PartitionResponses[0].ErrorCode))
 }
 
-func sendBatchWithDedupReturnChannel(t *testing.T, pusher *TablePusher, producerID int, baseSequence int, offsetDelta int, expectedErr int) chan *kafkaprotocol.ProduceResponse {
+func sendBatchWithDedupReturnChannel(t *testing.T, pusher *TablePusher, producerID int, baseSequence int, offsetDelta int) chan *kafkaprotocol.ProduceResponse {
 	recordBatch := testutils.CreateKafkaRecordBatchWithIncrementingKVs(baseSequence, offsetDelta)
 
 	binary.BigEndian.PutUint32(recordBatch[23:], uint32(offsetDelta)) // lastOffsetDelta
@@ -1927,7 +2006,7 @@ type regL0TableInvocation struct {
 }
 
 type prePushInvocation struct {
-	infos      []offsets.GetOffsetTopicInfo
+	infos      []offsets.GenerateOffsetTopicInfo
 	epochInfos []control.EpochInfo
 }
 
@@ -1941,7 +2020,7 @@ func (t *testControllerClient) RegisterL0Table(sequence int64, regEntry lsm.Regi
 	return nil
 }
 
-func (t *testControllerClient) QueryTablesInRange(keyStart []byte, keyEnd []byte) (lsm.OverlappingTables, error) {
+func (t *testControllerClient) QueryTablesInRange(keyStart []byte, _ []byte) (lsm.OverlappingTables, error) {
 	t.lock.Lock()
 	defer t.lock.Unlock()
 	if len(keyStart) > 16 && keyStart[16] == common.EntryTypeOffsetSnapshot {
@@ -1958,7 +2037,7 @@ func (t *testControllerClient) getRegistrations() []regL0TableInvocation {
 	return copied
 }
 
-func (t *testControllerClient) PrePush(infos []offsets.GetOffsetTopicInfo, epochInfos []control.EpochInfo) ([]offsets.OffsetTopicInfo, int64,
+func (t *testControllerClient) PrePush(infos []offsets.GenerateOffsetTopicInfo, epochInfos []control.EpochInfo) ([]offsets.OffsetTopicInfo, int64,
 	[]bool, error) {
 	t.lock.Lock()
 	defer t.lock.Unlock()
@@ -2099,7 +2178,7 @@ type testTableGetter struct {
 	table *sst.SSTable
 }
 
-func (t *testTableGetter) getTable(tableID sst.SSTableID) (*sst.SSTable, error) {
+func (t *testTableGetter) getTable(_ sst.SSTableID) (*sst.SSTable, error) {
 	return t.table, nil
 }
 

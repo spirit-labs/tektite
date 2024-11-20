@@ -12,6 +12,8 @@ type Server interface {
 	RegisterHandler(handlerID int, handler RequestHandler) bool
 	// Address returns the address of the Server
 	Address() string
+	// Start starts the server
+	Start() error
 	// Stop stops the server - releasing all resources
 	Stop() error
 }
