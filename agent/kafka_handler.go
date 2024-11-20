@@ -1,8 +1,17 @@
 package agent
 
 import (
+	"strconv"
+	"time"
+
+	"github.com/google/uuid"
 	"github.com/spirit-labs/tektite/kafkaprotocol"
 	"github.com/spirit-labs/tektite/kafkaserver2"
+	"github.com/spirit-labs/tektite/topicmeta"
+)
+
+const (
+	defaultRetentionTime = 7 * 24 * time.Hour
 )
 
 func (a *Agent) newKafkaHandler(ctx kafkaserver2.ConnectionContext) kafkaprotocol.RequestHandler {
@@ -18,13 +27,42 @@ type kafkaHandler struct {
 }
 
 func (k *kafkaHandler) HandleCreateTopicsRequest(hdr *kafkaprotocol.RequestHeader, req *kafkaprotocol.CreateTopicsRequest, completionFunc func(resp *kafkaprotocol.CreateTopicsResponse) error) error {
-	//TODO implement me
-	panic("implement me")
+	for _, topic := range req.Topics {
+		retentionTime := defaultRetentionTime
+
+		// Parse custom retention time from topic configs if provided
+		for _, config := range topic.Configs {
+			if *config.Name == "retention.ms" {
+				retentionMs, err := strconv.Atoi(*config.Value)
+				if err == nil {
+					retentionTime = time.Duration(retentionMs) * time.Millisecond
+				}
+			}
+		}
+
+		topicInfo := topicmeta.TopicInfo{
+			ID:             int(uuid.New().ID()),
+			Name:           *topic.Name,
+			PartitionCount: int(topic.NumPartitions),
+			RetentionTime:  retentionTime,
+		}
+
+		err := k.agent.controller.TopicMetaManager.CreateTopic(topicInfo)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (k *kafkaHandler) HandleDeleteTopicsRequest(hdr *kafkaprotocol.RequestHeader, req *kafkaprotocol.DeleteTopicsRequest, completionFunc func(resp *kafkaprotocol.DeleteTopicsResponse) error) error {
-	//TODO implement me
-	panic("implement me")
+	for _, topicName := range req.TopicNames {
+		err := k.agent.controller.TopicMetaManager.DeleteTopic(*topicName)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (k *kafkaHandler) HandleProduceRequest(_ *kafkaprotocol.RequestHeader, req *kafkaprotocol.ProduceRequest,

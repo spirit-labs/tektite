@@ -3,6 +3,10 @@ package control
 import (
 	"encoding/binary"
 	"fmt"
+	"sync"
+	"sync/atomic"
+	"time"
+
 	"github.com/pkg/errors"
 	"github.com/spirit-labs/tektite/cluster"
 	"github.com/spirit-labs/tektite/common"
@@ -13,9 +17,6 @@ import (
 	"github.com/spirit-labs/tektite/sst"
 	"github.com/spirit-labs/tektite/topicmeta"
 	"github.com/spirit-labs/tektite/transport"
-	"sync"
-	"sync/atomic"
-	"time"
 )
 
 /*
@@ -33,7 +34,7 @@ type Controller struct {
 	transportServer            transport.Server
 	lsmHolder                  *LsmHolder
 	offsetsCache               *offsets.Cache
-	topicMetaManager           *topicmeta.Manager
+	TopicMetaManager           *topicmeta.Manager
 	currentMembership          cluster.MembershipState
 	clusterState               []AgentMeta
 	clusterStateSameAZ         []AgentMeta
@@ -109,11 +110,11 @@ func (c *Controller) stop() error {
 		}
 		c.lsmHolder = nil
 	}
-	if c.topicMetaManager != nil {
-		if err := c.topicMetaManager.Stop(); err != nil {
+	if c.TopicMetaManager != nil {
+		if err := c.TopicMetaManager.Stop(); err != nil {
 			return err
 		}
-		c.topicMetaManager = nil
+		c.TopicMetaManager = nil
 	}
 	if c.offsetsCache != nil {
 		c.offsetsCache.Stop()
@@ -159,7 +160,7 @@ func (c *Controller) MembershipChanged(thisMemberID int32, newState cluster.Memb
 			if err := topicMetaManager.Start(); err != nil {
 				return err
 			}
-			c.topicMetaManager = topicMetaManager
+			c.TopicMetaManager = topicMetaManager
 			cache, err := offsets.NewOffsetsCache(topicMetaManager, lsmHolder, c.objStoreClient, c.cfg.SSTableBucketName)
 			if err != nil {
 				return err
@@ -186,8 +187,8 @@ func (c *Controller) MembershipChanged(thisMemberID int32, newState cluster.Memb
 	if c.offsetsCache != nil {
 		c.offsetsCache.MembershipChanged()
 	}
-	if c.topicMetaManager != nil {
-		c.topicMetaManager.MembershipChanged(newState)
+	if c.TopicMetaManager != nil {
+		c.TopicMetaManager.MembershipChanged(newState)
 	}
 	c.tableListeners.membershipChanged(&newState)
 	c.groupCoordinatorController.MembershipChanged(&newState)
@@ -453,7 +454,7 @@ func (c *Controller) handleGetTopicInfo(_ *transport.ConnectionContext, request 
 	if err := c.checkLeaderVersion(req.LeaderVersion); err != nil {
 		return responseWriter(nil, err)
 	}
-	info, seq, exists, err := c.topicMetaManager.GetTopicInfo(req.TopicName)
+	info, seq, exists, err := c.TopicMetaManager.GetTopicInfo(req.TopicName)
 	if err != nil {
 		return responseWriter(nil, err)
 	}
@@ -476,7 +477,7 @@ func (c *Controller) handleCreateTopic(_ *transport.ConnectionContext, request [
 	if err := c.checkLeaderVersion(req.LeaderVersion); err != nil {
 		return responseWriter(nil, err)
 	}
-	err := c.topicMetaManager.CreateTopic(req.Info)
+	err := c.TopicMetaManager.CreateTopic(req.Info)
 	if err != nil {
 		return responseWriter(nil, err)
 	}
@@ -494,7 +495,7 @@ func (c *Controller) handleDeleteTopic(_ *transport.ConnectionContext, request [
 	if err := c.checkLeaderVersion(req.LeaderVersion); err != nil {
 		return responseWriter(nil, err)
 	}
-	err := c.topicMetaManager.DeleteTopic(req.TopicName)
+	err := c.TopicMetaManager.DeleteTopic(req.TopicName)
 	if err != nil {
 		return responseWriter(nil, err)
 	}
