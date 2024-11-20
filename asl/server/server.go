@@ -72,7 +72,12 @@ func NewServerWithClientFactory(config conf.Config, clientFactory kafka.ClientFa
 	case conf.EmbeddedObjectStoreType:
 		objStoreClient = dev.NewInMemStore(0)
 	case conf.MinioObjectStoreType:
-		objStoreClient = minio.NewMinioClient(&config)
+		minioConf := minio.Conf{
+			Endpoint: config.MinioEndpoint,
+			Username: config.MinioUsername,
+			Password: config.MinioPassword,
+		}
+		objStoreClient = minio.NewMinioClient(minioConf)
 	default:
 		return nil, common.NewTektiteErrorf(common.InvalidConfiguration, "invalid object store type: %s", config.ObjectStoreType)
 	}
