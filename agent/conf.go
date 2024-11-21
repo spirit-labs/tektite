@@ -5,6 +5,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/spirit-labs/tektite/asl/conf"
 	"github.com/spirit-labs/tektite/cluster"
+	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/control"
 	"github.com/spirit-labs/tektite/fetchcache"
 	"github.com/spirit-labs/tektite/fetcher"
@@ -13,16 +14,25 @@ import (
 	"github.com/spirit-labs/tektite/lsm"
 	"github.com/spirit-labs/tektite/objstore/minio"
 	"github.com/spirit-labs/tektite/pusher"
+	"github.com/spirit-labs/tektite/topicmeta"
 	"github.com/spirit-labs/tektite/tx"
 	"net"
+	"time"
 )
 
 type CommandConf struct {
-	ObjStoreUsername string `help:"username for the object store" required:""`
-	ObjStorePassword string `help:"password for the object store" required:""`
-	ObjStoreURL      string `help:"url of the object store" required:""`
-	ClusterName      string `help:"name of the agent cluster" required:""`
-	Location         string `help:"location (e.g. availability zone) that the agent runs in" required:""`
+	ObjStoreUsername                string `help:"username for the object store" required:""`
+	ObjStorePassword                string `help:"password for the object store" required:""`
+	ObjStoreURL                     string `help:"url of the object store" required:""`
+	ClusterName                     string `help:"name of the agent cluster" required:""`
+	Location                        string `help:"location (e.g. availability zone) that the agent runs in" required:""`
+	KafkaListenAddress              string `help:"address to listen on for kafka connections"`
+	InternalListenAddress           string `help:"address to listen on for internal connections"`
+	MembershipUpdateIntervalMs      int    `help:"interval between updating cluster membership in ms" default:"5000"`
+	MembershipEvictionIntervalMs    int    `help:"interval after which member will be evicted from the cluster" default:"20000"`
+	ConsumerGroupInitialJoinDelayMs int    `name:"consumer-group-initial-join-delay-ms" help:"initial delay to wait for more consumers to join a new consumer group before performing the first rebalance, in ms" default:"3000"`
+
+	TopicName string `name:"topic-name" help:"name of the topic"`
 }
 
 const (
@@ -33,21 +43,46 @@ const (
 func CreateConfFromCommandConf(commandConf CommandConf) (Conf, error) {
 	cfg := NewConf()
 
+	/*
+		FIXME- need to validate the durations etc before setting them
+	*/
+
 	// Configure listener config
-	listenAddress, err := selectNetworkInterface()
-	if err != nil {
-		return cfg, err
+	var listenAddress string
+	var kafkaAddress string
+	var err error
+	if commandConf.KafkaListenAddress == "" {
+		listenAddress, err = selectNetworkInterface()
+		if err != nil {
+			return cfg, err
+		}
+		kafkaAddress = fmt.Sprintf("%s:%d", listenAddress, DefaultKafkaPort)
+	} else {
+		kafkaAddress = commandConf.KafkaListenAddress
 	}
-	kafkaAddress := fmt.Sprintf("%s:%d", listenAddress, DefaultKafkaPort)
-	clusterAddress := fmt.Sprintf("%s:%d", listenAddress, DefaultInternalPort)
+	var clusterAddress string
+	if commandConf.InternalListenAddress == "" {
+		if listenAddress != "" {
+			listenAddress, err = selectNetworkInterface()
+			if err != nil {
+				return cfg, err
+			}
+		}
+		clusterAddress = fmt.Sprintf("%s:%d", listenAddress, DefaultInternalPort)
+	} else {
+		clusterAddress = commandConf.InternalListenAddress
+	}
 	cfg.KafkaListenerConfig.Address = kafkaAddress
 	cfg.ClusterListenerConfig.Address = clusterAddress
-	log.Infof("starting agent with kafka listener:%s and internal listener:%s", kafkaAddress, clusterAddress)
 
 	dataBucketName := commandConf.ClusterName + "-data"
 
 	cfg.ClusterMembershipConfig.BucketName = dataBucketName
 	cfg.ClusterMembershipConfig.KeyPrefix = "membership"
+	updateInterval := time.Duration(commandConf.MembershipUpdateIntervalMs) * time.Millisecond
+	evictionInterval := time.Duration(commandConf.MembershipEvictionIntervalMs) * time.Millisecond
+	cfg.ClusterMembershipConfig.UpdateInterval = updateInterval
+	cfg.ClusterMembershipConfig.EvictionInterval = evictionInterval
 
 	cfg.ControllerConf.SSTableBucketName = dataBucketName
 	cfg.ControllerConf.ControllerMetaDataKeyPrefix = "meta-data"
@@ -57,15 +92,19 @@ func CreateConfFromCommandConf(commandConf CommandConf) (Conf, error) {
 	cfg.ControllerConf.ControllerStateUpdaterKeyPrefix = "meta-state"
 	cfg.ControllerConf.AzInfo = commandConf.Location
 
-	cfg.PusherConf.DataBucketName = dataBucketName
+	cfg.ControllerConf.LsmConf.SSTableBucketName = dataBucketName
 
 	cfg.CompactionWorkersConf.SSTableBucketName = dataBucketName
+
+	cfg.PusherConf.DataBucketName = dataBucketName
 
 	cfg.FetcherConf.DataBucketName = dataBucketName
 
 	cfg.FetchCacheConf.DataBucketName = dataBucketName
 	cfg.FetchCacheConf.MaxSizeBytes = 1 * 1024 * 1024 * 1024 // 1GiB
 	cfg.FetchCacheConf.AzInfo = commandConf.Location
+
+	cfg.GroupCoordinatorConf.InitialJoinDelay = time.Duration(commandConf.ConsumerGroupInitialJoinDelayMs) * time.Millisecond
 	return cfg, nil
 }
 
@@ -181,4 +220,44 @@ type ListenerConfig struct {
 func (l *ListenerConfig) Validate() error {
 	// TODO
 	return nil
+}
+
+// FIXME - get rid of these once create/delete topic is complete
+
+func (a *Agent) CreateTopicWithRetry(topicName string, partitions int) {
+	for {
+		if err := createTopic(topicName, partitions, a); err != nil {
+			if common.IsUnavailableError(err) {
+				log.Warnf("failed to create topic %v", err)
+				time.Sleep(1 * time.Millisecond)
+				continue
+			}
+			if err != nil {
+				log.Errorf("failed to create topic %s: %v", topicName, err)
+				return
+			}
+		} else {
+			log.Infof("agent created topic %s", topicName)
+			return
+		}
+	}
+}
+
+func createTopic(topicName string, partitions int, agent *Agent) error {
+	controller := agent.Controller()
+	cl, err := controller.Client()
+	if err != nil {
+		return err
+	}
+	defer func() {
+		err := cl.Close()
+		if err != nil {
+			panic(err)
+		}
+	}()
+
+	return cl.CreateTopic(topicmeta.TopicInfo{
+		Name:           topicName,
+		PartitionCount: partitions,
+	})
 }

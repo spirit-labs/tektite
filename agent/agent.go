@@ -40,6 +40,7 @@ type Agent struct {
 	topicMetaCache           *topicmeta.LocalCache
 	manifold                 *membershipChangedManifold
 	partitionLeaders         map[string]map[int]map[int]int32
+	clusterMembershipFactory ClusterMembershipFactory
 }
 
 func NewAgent(cfg Conf, objStore objstore.Client) (*Agent, error) {
@@ -81,11 +82,6 @@ func NewAgentWithFactories(cfg Conf, objStore objstore.Client, connectionFactory
 		cfg:              cfg,
 		partitionLeaders: map[string]map[int]map[int]int32{},
 	}
-	membershipData := common.MembershipData{
-		ClusterListenAddress: transportServer.Address(),
-		KafkaListenerAddress: cfg.KafkaListenerConfig.Address,
-		Location:             cfg.FetchCacheConf.AzInfo,
-	}
 	agent.controller = control.NewController(cfg.ControllerConf, objStore, connectionFactory, transportServer)
 	agent.controlClientCache = control.NewClientCache(cfg.MaxControllerClients, agent.controller.Client)
 	agent.topicMetaCache = topicmeta.NewLocalCache(func() (topicmeta.ControllerClient, error) {
@@ -123,7 +119,7 @@ func NewAgentWithFactories(cfg Conf, objStore objstore.Client, connectionFactory
 	}
 	transportServer.RegisterHandler(transport.HandlerIDFetcherTableRegisteredNotification, bf.HandleTableRegisteredNotification)
 	agent.batchFetcher = bf
-	groupCoord, err := group.NewCoordinator(cfg.GroupCoordinatorConf, cfg.KafkaListenerConfig.Address, agent.topicMetaCache,
+	groupCoord, err := group.NewCoordinator(cfg.GroupCoordinatorConf, agent.topicMetaCache,
 		agent.controlClientCache, connectionFactory, getter.get)
 	if err != nil {
 		return nil, err
@@ -135,12 +131,12 @@ func NewAgentWithFactories(cfg Conf, objStore objstore.Client, connectionFactory
 		cfg.KafkaListenerConfig.TLSConfig, cfg.KafkaListenerConfig.AuthenticationType, agent.newKafkaHandler)
 	agent.manifold = &membershipChangedManifold{listeners: []MembershipListener{agent.controller.MembershipChanged,
 		bf.MembershipChanged, fetchCache.MembershipChanged, groupCoord.MembershipChanged}}
-	agent.membership = clusterMembershipFactory(membershipData.Serialize(nil), agent.manifold.membershipChanged)
+	agent.clusterMembershipFactory = clusterMembershipFactory
 	agent.transportServer = transportServer
 	clFactory := func() (lsm.ControllerClient, error) {
 		return agent.controller.Client()
 	}
-	agent.compactionWorkersService = lsm.NewCompactionWorkerService(lsm.NewCompactionWorkerServiceConf(), objStore,
+	agent.compactionWorkersService = lsm.NewCompactionWorkerService(cfg.CompactionWorkersConf, objStore,
 		clFactory, true)
 	return agent, nil
 }
@@ -154,17 +150,11 @@ func (a *Agent) Start() error {
 	if err := a.controller.Start(); err != nil {
 		return err
 	}
-	if err := a.membership.Start(); err != nil {
-		return err
-	}
 	if err := a.tablePusher.Start(); err != nil {
 		return err
 	}
 	a.fetchCache.Start()
 	if err := a.batchFetcher.Start(); err != nil {
-		return err
-	}
-	if err := a.groupCoordinator.Start(); err != nil {
 		return err
 	}
 	if err := a.txCoordinator.Start(); err != nil {
@@ -173,10 +163,25 @@ func (a *Agent) Start() error {
 	if err := a.kafkaServer.Start(); err != nil {
 		return err
 	}
+	if err := a.groupCoordinator.Start(); err != nil {
+		return err
+	}
+	a.groupCoordinator.SetKafkaAddress(a.kafkaServer.ListenAddress())
 	if err := a.compactionWorkersService.Start(); err != nil {
 		return err
 	}
 	if err := a.transportServer.Start(); err != nil {
+		return err
+	}
+	// We delay creation to start as we need to know the cluster and kafka listen addresses which aren't known until
+	// start of the socket servers as they could be using an ephemeral port
+	membershipData := common.MembershipData{
+		ClusterListenAddress: a.transportServer.Address(),
+		KafkaListenerAddress: a.kafkaServer.ListenAddress(),
+		Location:             a.cfg.FetchCacheConf.AzInfo,
+	}
+	a.membership = a.clusterMembershipFactory(membershipData.Serialize(nil), a.manifold.membershipChanged)
+	if err := a.membership.Start(); err != nil {
 		return err
 	}
 	a.started = true
@@ -240,6 +245,14 @@ func (a *Agent) Controller() *control.Controller {
 
 func (a *Agent) TablePusher() *pusher.TablePusher {
 	return a.tablePusher
+}
+
+func (a *Agent) KafkaListenAddress() string {
+	return a.kafkaServer.ListenAddress()
+}
+
+func (a *Agent) ClusterListenAddress() string {
+	return a.transportServer.Address()
 }
 
 type membershipChangedManifold struct {

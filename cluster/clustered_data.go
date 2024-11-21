@@ -45,9 +45,9 @@ type ClusteredData struct {
 	dataKeyPrefix  string
 	stateMachine   *StateUpdater
 	objStoreClient objstore.Client
-	epoch          uint64
-	opts           ClusteredDataOpts
-	readyState     clusteredDataState
+	epoch      uint64
+	opts       ClusteredDataConf
+	readyState clusteredDataState
 	stopping       atomic.Bool
 	logPrefix      string
 }
@@ -61,7 +61,7 @@ const (
 )
 
 func NewClusteredData(stateMachineBucketName string, stateMachineKeyPrefix string, dataBucketName string,
-	dataKeyPrefix string, objStoreClient objstore.Client, opts ClusteredDataOpts) *ClusteredData {
+	dataKeyPrefix string, objStoreClient objstore.Client, opts ClusteredDataConf) *ClusteredData {
 	return &ClusteredData{
 		objStoreClient: objStoreClient,
 		dataBucketName: dataBucketName,
@@ -74,14 +74,15 @@ func NewClusteredData(stateMachineBucketName string, stateMachineKeyPrefix strin
 	}
 }
 
-type ClusteredDataOpts struct {
+type ClusteredDataConf struct {
 	AvailabilityRetryInterval time.Duration
 	ObjStoreCallTimeout       time.Duration
 }
 
-func (mo *ClusteredDataOpts) setDefaults() {
-	if mo.AvailabilityRetryInterval == 0 {
-		mo.AvailabilityRetryInterval = DefaultAvailabilityRetryInterval
+func NewClusteredDataConf() ClusteredDataConf {
+	return ClusteredDataConf{
+		AvailabilityRetryInterval: DefaultAvailabilityRetryInterval,
+		ObjStoreCallTimeout:       DefaultObjStoreCallTimeout,
 	}
 }
 

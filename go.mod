@@ -1,8 +1,8 @@
 module github.com/spirit-labs/tektite
 
-go 1.22
+go 1.23
 
-toolchain go1.22.4
+toolchain go1.23.3
 
 //ToDo: remove this when we get a new release > v0.33.0 in testcontainers-go
 replace (

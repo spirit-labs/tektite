@@ -357,7 +357,6 @@ func mergeSSTables(format common.DataFormat, tables [][]tableToMerge, preserveTo
 		sourceIters := make([]iteration2.Iterator, len(overlapping))
 		for j, table := range overlapping {
 			sstIter, err := table.sst.NewIterator(nil, nil)
-			log.Debugf("mergingSSTables with dead version range %v", table.deadVersionRanges)
 			if len(table.deadVersionRanges) > 0 {
 				sstIter = NewRemoveDeadVersionsIterator(sstIter, table.deadVersionRanges)
 			}

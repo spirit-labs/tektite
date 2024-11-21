@@ -31,6 +31,7 @@ type SocketServer struct {
 	tlsConf             conf.TLSConfig
 	lock                sync.RWMutex
 	address             string
+	listenAddress       string
 	connFactory         ConnectionFactory
 	started             bool
 	listener            net.Listener
@@ -94,7 +95,7 @@ func (s *SocketServer) stop() error {
 }
 
 func (s *SocketServer) Address() string {
-	return s.address
+	return s.listenAddress
 }
 
 func (s *SocketServer) createNetworkListener() (net.Listener, error) {
@@ -116,6 +117,9 @@ func (s *SocketServer) createNetworkListener() (net.Listener, error) {
 	if err != nil {
 		return nil, err
 	}
+	// The actual listen address - this can be different to the passed in address, e.g. if port = 0 meaning
+	// choose an ephemeral port.
+	s.listenAddress = list.Addr().String()
 	return list, nil
 }
 

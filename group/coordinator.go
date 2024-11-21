@@ -74,11 +74,10 @@ const (
 	DefaultDefaultSessionTimeout           = 45 * time.Second
 )
 
-func NewCoordinator(cfg Conf, kafkaAddress string, topicProvider topicInfoProvider, controlClientCache *control.ClientCache,
+func NewCoordinator(cfg Conf, topicProvider topicInfoProvider, controlClientCache *control.ClientCache,
 	connFactory transport.ConnectionFactory, tableGetter sst.TableGetter) (*Coordinator, error) {
 	return &Coordinator{
 		cfg:           cfg,
-		kafkaAddress:  kafkaAddress,
 		groups:        map[string]*group{},
 		topicProvider: topicProvider,
 		clientCache:   controlClientCache,
@@ -86,6 +85,10 @@ func NewCoordinator(cfg Conf, kafkaAddress string, topicProvider topicInfoProvid
 		tableGetter:   tableGetter,
 		connCaches:    map[string]*transport.ConnectionCache{},
 	}, nil
+}
+
+func (c *Coordinator) SetKafkaAddress(address string) {
+	c.kafkaAddress = address
 }
 
 func (c *Coordinator) Start() error {
@@ -127,6 +130,7 @@ func (c *Coordinator) checkStarted() error {
 
 func (c *Coordinator) HandleFindCoordinatorRequest(req *kafkaprotocol.FindCoordinatorRequest,
 	completionFunc func(resp *kafkaprotocol.FindCoordinatorResponse) error) error {
+	log.Debugf("received FindCoordinatorRequest on address: %s for key %s key type: %d", c.kafkaAddress, common.SafeDerefStringPtr(req.Key), req.KeyType)
 	var resp kafkaprotocol.FindCoordinatorResponse
 	var prefix string
 	if req.KeyType == 0 {
@@ -164,6 +168,7 @@ func (c *Coordinator) HandleFindCoordinatorRequest(req *kafkaprotocol.FindCoordi
 				resp.NodeId = memberID
 				resp.Host = &host
 				resp.Port = int32(port)
+				log.Debugf("coordinator for %s is node %d host:%s port:%d", common.SafeDerefStringPtr(req.Key), memberID, host, port)
 			}
 		}
 	}

@@ -101,7 +101,7 @@ func (m *membershipReceivedStates) getThisID() int32 {
 func createConfig() MembershipConf {
 	cfg := NewMembershipConf()
 	cfg.UpdateInterval = 100 * time.Millisecond
-	cfg.EvictionDuration = 5 * time.Second
+	cfg.EvictionInterval = 5 * time.Second
 	return cfg
 }
 
@@ -151,7 +151,7 @@ func TestEviction(t *testing.T) {
 	for i := 0; i < numMembers; i++ {
 		data := []byte(fmt.Sprintf("data-%d", i))
 		cfg := createConfig()
-		cfg.EvictionDuration = 1 * time.Second
+		cfg.EvictionInterval = 1 * time.Second
 		receiverState := &membershipReceivedStates{}
 		receiverStates = append(receiverStates, receiverState)
 		memberShip := NewMembership(cfg, data, objStore, receiverState.membershipChanged)
@@ -212,7 +212,7 @@ func TestLeaderVersionChangedOnEviction(t *testing.T) {
 	for i := 0; i < numMembers; i++ {
 		data := []byte(fmt.Sprintf("data-%d", i))
 		cfg := createConfig()
-		cfg.EvictionDuration = 1 * time.Second
+		cfg.EvictionInterval = 1 * time.Second
 		receivedState := &membershipReceivedStates{}
 		receiverStates = append(receiverStates, receivedState)
 		memberShip := NewMembership(cfg, data, objStore, receivedState.membershipChanged)

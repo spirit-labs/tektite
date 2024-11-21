@@ -132,17 +132,19 @@ func (m *Manager) GetTopicInfo(topicName string) (TopicInfo, int, bool, error) {
 func (m *Manager) CreateTopic(topicInfo TopicInfo) error {
 	m.lock.Lock()
 	defer m.lock.Unlock()
+	log.Debugf("attempting to create topic with id %d name %s partitions %d", topicInfo.ID, topicInfo.Name, topicInfo.PartitionCount)
 	_, ok := m.topicInfosByName[topicInfo.Name]
 	if ok {
 		return common.NewTektiteErrorf(common.TopicAlreadyExists, "topic: %s already exists", topicInfo.Name)
 	}
 	topicInfo.ID = int(m.topicIDSequence)
-	log.Debugf("created topic with id %d", topicInfo.ID)
+	log.Debugf("%p created topic with id %d name %s partitions %d", m, topicInfo.ID, topicInfo.Name, topicInfo.PartitionCount)
 	m.topicIDSequence++
 	if err := m.WriteTopic(topicInfo); err != nil {
 		return err
 	}
 	m.topicInfosByName[topicInfo.Name] = &topicInfo
+	log.Debugf("added topic with name %s to map", topicInfo.Name)
 	m.topicInfosByID[topicInfo.ID] = &topicInfo
 	m.SendTopicNotification(transport.HandlerIDMetaLocalCacheTopicAdded, topicInfo)
 	return nil

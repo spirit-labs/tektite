@@ -711,6 +711,9 @@ func (g *group) offsetCommit(transactional bool, req *kafkaprotocol.OffsetCommit
 			log.Errorf("failed to get topic info %v", err)
 			return kafkaprotocol.ErrorCodeUnknownServerError
 		}
+		if !foundTopic {
+			log.Warnf("group coordinator - offset commit: topic info not found %v", *topicData.Name)
+		}
 		for j, partitionData := range topicData.Partitions {
 			if !foundTopic {
 				resp.Topics[i].Partitions[j].ErrorCode = kafkaprotocol.ErrorCodeUnknownTopicOrPartition
@@ -841,6 +844,7 @@ func (g *group) offsetFetch(req *kafkaprotocol.OffsetFetchRequest, resp *kafkapr
 			log.Errorf("failed to load topic info %v", err)
 			errCode = kafkaprotocol.ErrorCodeUnknownServerError
 		} else if !foundTopic {
+			log.Warnf("group coordinator - offset fetch: topic info not found %v", *topicData.Name)
 			errCode = kafkaprotocol.ErrorCodeUnknownTopicOrPartition
 		}
 		for j, partitionID := range topicData.PartitionIndexes {

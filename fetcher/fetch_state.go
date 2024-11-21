@@ -55,9 +55,13 @@ func newFetchState(batchFetcher *BatchFetcher, req *kafkaprotocol.FetchRequest, 
 			topicPartitionFetchStates = map[int]*PartitionFetchState{}
 			fetchState.partitionStates[topicInfo.ID] = topicPartitionFetchStates
 		}
+		if !topicExists {
+			log.Warnf("fetcher: topic %s does not exist", topicName)
+		}
 		partitionMap := recentTables.getPartitionMap(topicInfo.ID)
 		for j, partitionData := range topicData.Partitions {
 			partitionResponses[j].PartitionIndex = partitionData.Partition
+			partitionResponses[j].Records = [][]byte{} // client does not like nil records
 			partitionID := int(partitionData.Partition)
 			if !topicExists {
 				partitionResponses[j].ErrorCode = int16(kafkaprotocol.ErrorCodeUnknownTopicOrPartition)
@@ -93,6 +97,7 @@ func (f *FetchState) readAsync() {
 func (f *FetchState) read() error {
 	f.lock.Lock()
 	defer f.lock.Unlock()
+
 	if f.completionFunc == nil {
 		// Response already sent
 		return nil
@@ -158,7 +163,7 @@ func (f *FetchState) clearFetchedRecords() {
 	// Clear any data that was fetched
 	for i := 0; i < len(f.resp.Responses); i++ {
 		for j := 0; j < len(f.resp.Responses[i].Partitions); j++ {
-			f.resp.Responses[i].Partitions[j].Records = nil
+			f.resp.Responses[i].Partitions[j].Records = [][]byte{}
 		}
 	}
 }
@@ -168,6 +173,15 @@ func (f *FetchState) sendResponse() error {
 		// response already sent
 		return nil
 	}
+
+	for _, topicResp := range f.resp.Responses {
+		for _, partResp := range topicResp.Partitions {
+			if partResp.ErrorCode != int16(kafkaprotocol.ErrorCodeNone) {
+				log.Warnf("fetch response returning errorcode: %d", partResp.ErrorCode)
+			}
+		}
+	}
+
 	if err := f.completionFunc(&f.resp); err != nil {
 		return err
 	}

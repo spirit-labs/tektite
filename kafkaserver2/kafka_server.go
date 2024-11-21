@@ -66,6 +66,10 @@ func (k *KafkaServer) Stop() error {
 	return nil
 }
 
+func (k *KafkaServer) ListenAddress() string {
+	return k.socketServer.Address()
+}
+
 func (k *KafkaServer) createConnection(conn net.Conn) sockserver.ServerConnection {
 	kc := &kafkaConnection{s: k, conn: conn}
 	handler := k.handlerFactory(kc)

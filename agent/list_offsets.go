@@ -4,6 +4,7 @@ import (
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/kafkaencoding"
 	"github.com/spirit-labs/tektite/kafkaprotocol"
+	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/offsets"
 )
 
@@ -49,6 +50,9 @@ func (a *Agent) handleListOffsetsRequest(req *kafkaprotocol.ListOffsetsRequest) 
 		info, exists, err := a.topicMetaCache.GetTopicInfo(topicName)
 		if err != nil {
 			return &resp, err
+		}
+		if !exists {
+			log.Warnf("list_offsets: unknown topic: %s", topicName)
 		}
 		var getOffsetTopicInfo offsets.GetOffsetTopicInfo
 		for j, partInfo := range topicInfo.Partitions {

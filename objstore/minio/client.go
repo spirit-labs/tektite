@@ -135,6 +135,9 @@ func (m *Client) ListObjectsWithPrefix(ctx context.Context, bucket string, prefi
 	return infos, nil
 }
 
+func (m *Client) MakeBucket(ctx context.Context, bucket string) error {
+	return m.client.MakeBucket(ctx, bucket, minio.MakeBucketOptions{})
+}
 
 func (m *Client) Start() error {
 	client, err := minio.New(m.cfg.Endpoint, &minio.Options{
@@ -165,5 +168,5 @@ type Conf struct {
 	Endpoint string
 	Username string
 	Password string
-	Secure bool
+	Secure   bool
 }

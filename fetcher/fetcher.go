@@ -132,6 +132,7 @@ func (b *BatchFetcher) HandleTableRegisteredNotification(_ *transport.Connection
 
 func (b *BatchFetcher) HandleFetchRequest(req *kafkaprotocol.FetchRequest,
 	completionFunc func(resp *kafkaprotocol.FetchResponse) error) error {
+	log.Infof("handling fetch request %+v", req)
 	pos := atomic.AddInt64(&b.execAssignPos, 1)
 	readExec := &b.readExecs[pos%int64(len(b.readExecs))]
 	// No need to shuffle partitions as golang map has non-deterministic iteration order - this ensures we don't have

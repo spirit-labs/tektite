@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"github.com/alecthomas/kong"
 	konghcl "github.com/alecthomas/kong-hcl/v2"
 	"github.com/spirit-labs/tektite/agent"
@@ -15,13 +16,12 @@ import (
 
 type arguments struct {
 	Conf agent.CommandConf `embed:""`
-	//AgentConf agent.Conf        `help:"agent configuration" embed:"" prefix:"conf-"`
-	Log log.Config `help:"configuration for the logger" embed:"" prefix:"log-"`
+	Log  log.Config        `help:"configuration for the logger" embed:"" prefix:"log-"`
 }
 
 func main() {
 	if err := run(); err != nil {
-		log.Errorf("failed to run agent: %v", err)
+		fmt.Printf("%v", err)
 	}
 }
 
@@ -44,32 +44,36 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	if err := ag.Start(); err != nil {
-		return err
-	}
-	log.Infof("tektite agent is running")
-	// Wait for ag to stop - and set up signal handler to cleanly stop it when SIGINT or SIGTERM occurs
+	// Set up signal handler to cleanly stop it when SIGINT or SIGTERM occurs
 	swg := sync.WaitGroup{}
 	swg.Add(1)
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
-		signals := make(chan os.Signal, 1)
-		signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
 		sig := <-signals
-		log.Warnf("signal: '%s' received. tektite agent will be stopped", sig.String())
+		fmt.Println(fmt.Sprintf("signal: '%s' received. tektite agent will stop", sig.String()))
 		// hard stop if server Stop() hangs
 		tz := time.AfterFunc(30*time.Second, func() {
 			common.DumpStacks()
-			log.Warn("ag stop did not complete in time. system will exit")
+			fmt.Println("tektite agent stop did not complete in time. system will exit")
 			swg.Done()
 			os.Exit(1)
 		})
 		if err := ag.Stop(); err != nil {
-			log.Warnf("failed to stop tektite ag: %v", err)
+			fmt.Println(fmt.Sprintf("failure in stopping tektite agent: %v", err))
 		}
-		log.Infof("agent is stopped")
+		fmt.Println("tektite agent has stopped")
 		tz.Stop()
 		swg.Done()
 	}()
+	if err := ag.Start(); err != nil {
+		return err
+	}
+	fmt.Println(fmt.Sprintf("started tektite agent with kafka listener:%s and internal listener:%s",
+		ag.KafkaListenAddress(), ag.ClusterListenAddress()))
+	if cfg.Conf.TopicName != "" {
+		ag.CreateTopicWithRetry(cfg.Conf.TopicName, 100)
+	}
 	swg.Wait()
 	return nil
 }

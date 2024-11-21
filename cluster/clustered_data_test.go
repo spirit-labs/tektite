@@ -13,7 +13,7 @@ func TestClusteredData(t *testing.T) {
 	objStore := dev.NewInMemStore(0)
 
 	cd1 := NewClusteredData("statebucket", "stateprefix",
-		"databucket", "dataprefix", objStore, ClusteredDataOpts{})
+		"databucket", "dataprefix", objStore, NewClusteredDataConf())
 
 	data, err := cd1.AcquireData()
 	require.NoError(t, err)
@@ -26,7 +26,7 @@ func TestClusteredData(t *testing.T) {
 	require.True(t, ok)
 
 	cd2 := NewClusteredData("statebucket", "stateprefix",
-		"databucket", "dataprefix", objStore, ClusteredDataOpts{})
+		"databucket", "dataprefix", objStore, NewClusteredDataConf())
 
 	data, err = cd2.AcquireData()
 	require.NoError(t, err)
@@ -54,7 +54,7 @@ func TestClusteredData(t *testing.T) {
 	require.False(t, ok)
 
 	cd3 := NewClusteredData("statebucket", "stateprefix",
-		"databucket", "dataprefix", objStore, ClusteredDataOpts{})
+		"databucket", "dataprefix", objStore, NewClusteredDataConf())
 
 	data, err = cd3.AcquireData()
 	require.NoError(t, err)
@@ -66,7 +66,7 @@ func TestClusteredDataReadyState(t *testing.T) {
 	objStore := dev.NewInMemStore(0)
 
 	cd := NewClusteredData("statebucket", "stateprefix",
-		"databucket", "dataprefix", objStore, ClusteredDataOpts{})
+		"databucket", "dataprefix", objStore, NewClusteredDataConf())
 
 	// not loaded
 	ok, err := cd.StoreData([]byte("foo"))
@@ -121,7 +121,7 @@ func TestClusteredDataConcurrency(t *testing.T) {
 	}
 	// Check final state
 	cd := NewClusteredData("statebucket", "stateprefix",
-		"databucket", "dataprefix", objStore, ClusteredDataOpts{})
+		"databucket", "dataprefix", objStore, NewClusteredDataConf())
 	data, err := cd.AcquireData()
 	require.NoError(t, err)
 
@@ -147,7 +147,7 @@ func (r *runner) run() error {
 	for i := 0; i < r.numUpdates; i++ {
 		for {
 			cd := NewClusteredData("statebucket", "stateprefix",
-				"databucket", "dataprefix", r.objStore, ClusteredDataOpts{})
+				"databucket", "dataprefix", r.objStore, NewClusteredDataConf())
 			data, err := cd.AcquireData()
 			if err != nil {
 				return err

@@ -326,6 +326,7 @@ func (c *Cache) MaybeReleaseOffsets(sequence int64, sstableID sst.SSTableID) ([]
 	if !c.started {
 		return nil, nil, errors.New("offsets cache not started")
 	}
+	log.Debugf("in MaybeReleaseOffsets for table %s", string(sstableID))
 	lowestAcceptable := atomic.LoadInt64(&c.lowestAcceptableSequence)
 	if sequence < lowestAcceptable {
 		// attempt to release offsets came in for a sequence that was gotten before membership change
@@ -389,6 +390,7 @@ func (c *Cache) updateLastReadable(infos []OffsetTopicInfo) error {
 		} else {
 			for _, partInfo := range topicInfo.PartitionInfos {
 				offs[partInfo.PartitionID].setLastReadableOffset(partInfo.Offset)
+				log.Debugf("setting lro for topic %d partition %d to %d", topicInfo.TopicID, partInfo.PartitionID, partInfo.Offset)
 			}
 		}
 	}

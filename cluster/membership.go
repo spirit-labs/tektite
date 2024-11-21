@@ -29,7 +29,7 @@ type MembershipConf struct {
 	BucketName       string
 	KeyPrefix        string
 	UpdateInterval   time.Duration
-	EvictionDuration time.Duration
+	EvictionInterval time.Duration
 }
 
 func NewMembershipConf() MembershipConf {
@@ -37,7 +37,7 @@ func NewMembershipConf() MembershipConf {
 		BucketName:       "tektite-membership",
 		KeyPrefix:        "tektite-membership",
 		UpdateInterval:   5 * time.Second,
-		EvictionDuration: 20 * time.Second,
+		EvictionInterval: 20 * time.Second,
 	}
 }
 
@@ -52,7 +52,7 @@ func NewMembership(cfg MembershipConf, data []byte, objStoreClient objstore.Clie
 		data:                 data,
 		stateUpdater:         NewStateUpdator(cfg.BucketName, cfg.KeyPrefix, objStoreClient, StateUpdatorOpts{}),
 		updateInterval:       cfg.UpdateInterval,
-		evictionDuration:     cfg.EvictionDuration,
+		evictionDuration:     cfg.EvictionInterval,
 		stateChangedCallback: stateChangedCallback,
 	}
 }
@@ -103,9 +103,10 @@ func (m *Membership) update() error {
 	if err != nil {
 		return err
 	}
-	// Update succeed so set member id if not already set
-	if m.id == -1 {
+	// Update succeeded so set member id if not already set
+	if m.id == -1 && m.candidateID != -1 {
 		m.id = m.candidateID
+		m.candidateID = -1
 	}
 	var newState MembershipState
 	err = json.Unmarshal(buff, &newState)
@@ -157,6 +158,7 @@ func (m *Membership) updateState(buff []byte) ([]byte, error) {
 		} else {
 			if now-member.UpdateTime >= m.evictionDuration.Milliseconds() {
 				// member evicted
+				log.Infof("attempting to evict cluster member %d from membership", member.ID)
 				changed = true
 				if i == 0 {
 					// leader evicted

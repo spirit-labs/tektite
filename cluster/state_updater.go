@@ -233,6 +233,7 @@ outer:
 			if err != nil {
 				if common.IsUnavailableError(err) {
 					// Update failed because object store is unavailable or call timed out, sleep before retrying
+					log.Warnf("state machine update failed: %v", err)
 					time.Sleep(s.opts.AvailabilityRetryInterval)
 					if time.Duration(arista.NanoTime()-start) >= s.opts.MaxTimeBeforeReinitialise {
 						// We've reached the limit of retrying with the current sequence, set it to -1 and continue
@@ -304,6 +305,7 @@ func (s *StateUpdater) init() error {
 		if err := s.initInner(); err != nil {
 			if common.IsUnavailableError(err) {
 				// Retry
+				log.Warnf("state machine init failed: %v", err)
 				time.Sleep(s.opts.AvailabilityRetryInterval)
 				continue
 			}

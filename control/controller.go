@@ -144,6 +144,7 @@ func (c *Controller) MembershipChanged(thisMemberID int32, newState cluster.Memb
 	if len(newState.Members) > 0 && newState.Members[0].ID == thisMemberID {
 		// This controller is activating as leader
 		if c.lsmHolder == nil {
+			log.Infof("%p controller %d activating as leader, newState %v", c, thisMemberID, newState)
 			lsmHolder := NewLsmHolder(c.cfg.ControllerStateUpdaterBucketName, c.cfg.ControllerStateUpdaterKeyPrefix,
 				c.cfg.ControllerMetaDataBucketName, c.cfg.ControllerMetaDataKeyPrefix, c.objStoreClient, c.cfg.LsmConf)
 			if err := lsmHolder.Start(); err != nil {
@@ -205,8 +206,8 @@ func (c *Controller) MemberID() int32 {
 }
 
 func (c *Controller) Client() (Client, error) {
-	c.lock.Lock()
-	defer c.lock.Unlock()
+	c.lock.RLock()
+	defer c.lock.RUnlock()
 	if c.currentMembership.ClusterVersion == 0 {
 		return nil, common.NewTektiteErrorf(common.Unavailable, "controller has not received cluster membership")
 	}
@@ -292,6 +293,7 @@ func (c *Controller) handleRegisterTableListener(_ *transport.ConnectionContext,
 	if !exists {
 		err = common.NewTektiteErrorf(common.TopicDoesNotExist, "GetOffsetInfo: unknown topic: %d", req.TopicID)
 	}
+	log.Debugf("lro for topic %d partition %d is %d", req.TopicID, req.PartitionID, lro)
 	if err != nil {
 		return responseWriter(nil, err)
 	}
@@ -306,6 +308,7 @@ func (c *Controller) handleRegisterTableListener(_ *transport.ConnectionContext,
 	if memberAddress == "" {
 		return common.NewTektiteErrorf(common.Unavailable, "unable to register table listener - unknown cluster member %d", req.MemberID)
 	}
+	log.Debugf("handleRegisterTableListener returned lro: %d", lro)
 	c.tableListeners.maybeRegisterListenerForPartition(req.MemberID, memberAddress, req.TopicID, req.PartitionID, req.ResetSequence)
 	resp := RegisterTableListenerResponse{
 		LastReadableOffset: lro,
@@ -525,6 +528,10 @@ func (c *Controller) handleGetGroupCoordinatorInfo(_ *transport.ConnectionContex
 
 func (c *Controller) handleGenerateSequenceRequest(_ *transport.ConnectionContext, request []byte, responseBuff []byte,
 	responseWriter transport.ResponseWriter) error {
+	//common.DumpStacks()
+	tz := time.AfterFunc(5*time.Second, func() {
+		common.DumpStacks()
+	})
 	c.lock.RLock()
 	defer c.lock.RUnlock()
 	if !c.requestChecks(request, responseWriter) {
@@ -542,6 +549,7 @@ func (c *Controller) handleGenerateSequenceRequest(_ *transport.ConnectionContex
 	var resp GenerateSequenceResponse
 	resp.Sequence = seq
 	responseBuff = resp.Serialize(responseBuff)
+	tz.Stop()
 	return responseWriter(responseBuff, nil)
 }
 

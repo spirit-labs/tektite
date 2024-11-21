@@ -11,7 +11,7 @@ import (
 	"github.com/spirit-labs/tektite/control"
 	"github.com/spirit-labs/tektite/kafkaencoding"
 	"github.com/spirit-labs/tektite/kafkaprotocol"
-	"github.com/spirit-labs/tektite/logger"
+	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/lsm"
 	"github.com/spirit-labs/tektite/objstore"
 	"github.com/spirit-labs/tektite/offsets"
@@ -20,7 +20,6 @@ import (
 	"github.com/spirit-labs/tektite/sst"
 	"github.com/spirit-labs/tektite/topicmeta"
 	"github.com/spirit-labs/tektite/transport"
-	"go.uber.org/zap/zapcore"
 	"math"
 	"slices"
 	"sync"
@@ -99,16 +98,6 @@ const (
 	offsetSnapshotFormatVersion = 1
 )
 
-var log *logger.TektiteLogger
-
-func init() {
-	var err error
-	log, err = logger.GetLoggerWithLevel("pusher", zapcore.InfoLevel)
-	if err != nil {
-		panic(err)
-	}
-}
-
 func NewTablePusher(cfg Conf, topicProvider topicInfoProvider, objStore objstore.Client,
 	clientFactory controllerClientFactory, tableGetter sst.TableGetter, partitionHashes *parthash.PartitionHashes,
 	leaderChecker LeaderChecker) (*TablePusher, error) {
@@ -129,11 +118,15 @@ func NewTablePusher(cfg Conf, topicProvider topicInfoProvider, objStore objstore
 }
 
 func (t *TablePusher) Start() error {
+	log.Debugf("in table pusher start")
 	t.lock.Lock()
 	defer t.lock.Unlock()
+	log.Debugf("in table pusher start after lock")
 	if t.started {
+		log.Debugf("table pusher already started")
 		return nil
 	}
+	log.Debugf("starting table pusher with write timeout %d ms", t.cfg.WriteTimeout.Milliseconds())
 	t.scheduleWriteTimer(t.cfg.WriteTimeout)
 	t.scheduleOffsetSnapshotTimer(t.cfg.OffsetSnapshotInterval)
 	t.started = true
@@ -166,7 +159,6 @@ func (t *TablePusher) scheduleWriteTimer(timeout time.Duration) {
 		if !t.started {
 			return
 		}
-		log.Debug("scheduling write on timer")
 		if err := t.write(); err != nil {
 			// We close the client, so it will be recreated on any retry
 			t.closeClient()
@@ -703,6 +695,7 @@ func (t *TablePusher) write() error {
 	if err := client.RegisterL0Table(seq, regEntry); err != nil {
 		return err
 	}
+	log.Debugf("table pusher successfully pushed and registered table with id %s", tableID)
 	// Send back completions
 	t.callCompletions(nil)
 	// reset - the state
