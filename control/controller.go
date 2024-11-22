@@ -433,7 +433,7 @@ func (c *Controller) handleGetAllTopicInfos(_ *transport.ConnectionContext, requ
 	if err := c.checkLeaderVersion(req.LeaderVersion); err != nil {
 		return responseWriter(nil, err)
 	}
-	infos, err := c.topicMetaManager.GetAllTopicInfos()
+	infos, err := c.TopicMetaManager.GetAllTopicInfos()
 	if err != nil {
 		return responseWriter(nil, err)
 	}
