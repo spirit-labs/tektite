@@ -5,7 +5,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/spirit-labs/tektite/kafkaprotocol"
 	"github.com/spirit-labs/tektite/kafkaserver2"
 	"github.com/spirit-labs/tektite/topicmeta"
@@ -52,19 +51,25 @@ func (k *kafkaHandler) HandleCreateTopicsRequest(hdr *kafkaprotocol.RequestHeade
 			}
 		}
 
-		topicId := uuid.New().ID()
 		topicInfo := topicmeta.TopicInfo{
-			ID:             int(topicId),
 			Name:           *topic.Name,
 			PartitionCount: int(topic.NumPartitions),
 			RetentionTime:  retentionTime,
 		}
 		err := k.agent.controller.TopicMetaManager.CreateTopic(topicInfo)
-		errMsg := err.Error()
+		var errMsg string
+		if err != nil {
+			errMsg = err.Error()
+		}
+
+		info, ok := k.agent.controller.TopicMetaManager.TopicInfosByName[*topic.Name]
+		if !ok {
+			errMsg = fmt.Sprintf("topic %s not created successfully", *topic.Name)
+		}
 
 		resp.Topics[tidx] = kafkaprotocol.CreateTopicsResponseCreatableTopicResult{
 			Name:              topic.Name,
-			TopicId:           uint32ToBytes(topicId),
+			TopicId:           uint32ToBytes(uint32(info.ID)),
 			ErrorMessage:      &errMsg,
 			NumPartitions:     topic.NumPartitions,
 			ReplicationFactor: topic.ReplicationFactor,
@@ -77,12 +82,11 @@ func (k *kafkaHandler) HandleCreateTopicsRequest(hdr *kafkaprotocol.RequestHeade
 func (k *kafkaHandler) HandleDeleteTopicsRequest(hdr *kafkaprotocol.RequestHeader, req *kafkaprotocol.DeleteTopicsRequest, completionFunc func(resp *kafkaprotocol.DeleteTopicsResponse) error) error {
 	resp := &kafkaprotocol.DeleteTopicsResponse{
 		ThrottleTimeMs: 0,
-		Responses:      make([]kafkaprotocol.DeleteTopicsResponseDeletableTopicResult, len(req.Topics)),
+		Responses:      make([]kafkaprotocol.DeleteTopicsResponseDeletableTopicResult, len(req.TopicNames)),
 	}
 
 	for tidx, topicName := range req.TopicNames {
-		err := k.agent.controller.TopicMetaManager.DeleteTopic(*topicName)
-		errMsg := err.Error()
+		var errMsg string
 
 		info, ok := k.agent.controller.TopicMetaManager.TopicInfosByName[*topicName]
 		if !ok {
@@ -92,6 +96,11 @@ func (k *kafkaHandler) HandleDeleteTopicsRequest(hdr *kafkaprotocol.RequestHeade
 				ErrorMessage: &errMsg,
 			}
 		} else {
+			err := k.agent.controller.TopicMetaManager.DeleteTopic(*topicName)
+			if err != nil {
+				errMsg = err.Error()
+			}
+
 			resp.Responses[tidx] = kafkaprotocol.DeleteTopicsResponseDeletableTopicResult{
 				Name:         topicName,
 				TopicId:      uint32ToBytes(uint32(info.ID)),

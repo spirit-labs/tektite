@@ -37,6 +37,7 @@ func TestCreateDeleteTopics(t *testing.T) {
 	configName := "retention.ms"
 	configValue := "86400000" // 1 day
 
+	//Create
 	req := kafkaprotocol.CreateTopicsRequest{
 		Topics: []kafkaprotocol.CreateTopicsRequestCreatableTopic{
 			{
@@ -56,7 +57,26 @@ func TestCreateDeleteTopics(t *testing.T) {
 	var resp kafkaprotocol.CreateTopicsResponse
 	r, err := conn.SendRequest(&req, kafkaprotocol.APIKeyCreateTopics, -1, &resp)
 	require.NoError(t, err)
-	produceResp, ok := r.(*kafkaprotocol.CreateTopicsResponse)
+	createResp, ok := r.(*kafkaprotocol.CreateTopicsResponse)
 	require.True(t, ok)
-	require.Equal(t, 1, len(produceResp.Topics))
+	require.Equal(t, 1, len(createResp.Topics))
+	require.Equal(t, topicName, *createResp.Topics[0].Name)
+	_, topicExists := agent.controller.TopicMetaManager.TopicInfosByName[topicName]
+	require.True(t, topicExists)
+
+	//Delete
+	req2 := kafkaprotocol.DeleteTopicsRequest{
+		TopicNames: []*string{
+			&topicName,
+		},
+	}
+	var resp2 kafkaprotocol.DeleteTopicsResponse
+	r2, err := conn.SendRequest(&req2, kafkaprotocol.APIKeyDeleteTopics, -1, &resp2)
+	require.NoError(t, err)
+	deleteResp, ok := r2.(*kafkaprotocol.DeleteTopicsResponse)
+	require.True(t, ok)
+	require.Equal(t, 1, len(deleteResp.Responses))
+	require.Equal(t, topicName, *deleteResp.Responses[0].Name)
+	_, topicExists2 := agent.controller.TopicMetaManager.TopicInfosByName[topicName]
+	require.False(t, topicExists2)
 }
