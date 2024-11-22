@@ -14,6 +14,8 @@ const (
 	ApiKeySyncGroup          = 14
 	APIKeySaslHandshake      = 17
 	APIKeyAPIVersions        = 18
+	APIKeyCreateTopics       = 19
+	APIKeyDeleteTopics       = 20
 	APIKeyInitProducerId     = 22
 	APIKeyAddPartitionsToTxn = 24
 	APIKeyAddOffsetsToTxn    = 25
@@ -114,6 +116,9 @@ var SupportedAPIVersions = []ApiVersionsResponseApiVersion{
 	{ApiKey: APIKeySaslHandshake, MinVersion: 0, MaxVersion: 1},
 	{ApiKey: APIKeyInitProducerId, MinVersion: 0, MaxVersion: 0},
 	{ApiKey: APIKeySaslAuthenticate, MinVersion: 0, MaxVersion: 1},
+	{ApiKey: APIKeyCreateTopics, MinVersion: -1, MaxVersion: -1},
+	{ApiKey: APIKeyDeleteTopics, MinVersion: -1, MaxVersion: -1},
+
 	/*
 		Transactions are currently incomplete
 		{ApiKey: APIKeyAddPartitionsToTxn, MinVersion: 3, MaxVersion: 3},

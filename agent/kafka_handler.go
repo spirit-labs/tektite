@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"fmt"
 	"strconv"
 	"time"
 
@@ -27,42 +28,78 @@ type kafkaHandler struct {
 }
 
 func (k *kafkaHandler) HandleCreateTopicsRequest(hdr *kafkaprotocol.RequestHeader, req *kafkaprotocol.CreateTopicsRequest, completionFunc func(resp *kafkaprotocol.CreateTopicsResponse) error) error {
-	for _, topic := range req.Topics {
+	resp := &kafkaprotocol.CreateTopicsResponse{
+		ThrottleTimeMs: 0,
+		Topics:         make([]kafkaprotocol.CreateTopicsResponseCreatableTopicResult, len(req.Topics)),
+	}
+
+	for tidx, topic := range req.Topics {
 		retentionTime := defaultRetentionTime
+		respConfigs := make([]kafkaprotocol.CreateTopicsResponseCreatableTopicConfigs, len(topic.Configs))
 
 		// Parse custom retention time from topic configs if provided
-		for _, config := range topic.Configs {
+		for cidx, config := range topic.Configs {
 			if *config.Name == "retention.ms" {
 				retentionMs, err := strconv.Atoi(*config.Value)
 				if err == nil {
 					retentionTime = time.Duration(retentionMs) * time.Millisecond
 				}
 			}
+
+			respConfigs[cidx] = kafkaprotocol.CreateTopicsResponseCreatableTopicConfigs{
+				Name:  config.Name,
+				Value: config.Value,
+			}
 		}
 
+		topicId := uuid.New().ID()
 		topicInfo := topicmeta.TopicInfo{
-			ID:             int(uuid.New().ID()),
+			ID:             int(topicId),
 			Name:           *topic.Name,
 			PartitionCount: int(topic.NumPartitions),
 			RetentionTime:  retentionTime,
 		}
-
 		err := k.agent.controller.TopicMetaManager.CreateTopic(topicInfo)
-		if err != nil {
-			return err
+		errMsg := err.Error()
+
+		resp.Topics[tidx] = kafkaprotocol.CreateTopicsResponseCreatableTopicResult{
+			Name:              topic.Name,
+			TopicId:           uint32ToBytes(topicId),
+			ErrorMessage:      &errMsg,
+			NumPartitions:     topic.NumPartitions,
+			ReplicationFactor: topic.ReplicationFactor,
+			Configs:           respConfigs,
 		}
 	}
-	return nil
+	return completionFunc(resp)
 }
 
 func (k *kafkaHandler) HandleDeleteTopicsRequest(hdr *kafkaprotocol.RequestHeader, req *kafkaprotocol.DeleteTopicsRequest, completionFunc func(resp *kafkaprotocol.DeleteTopicsResponse) error) error {
-	for _, topicName := range req.TopicNames {
+	resp := &kafkaprotocol.DeleteTopicsResponse{
+		ThrottleTimeMs: 0,
+		Responses:      make([]kafkaprotocol.DeleteTopicsResponseDeletableTopicResult, len(req.Topics)),
+	}
+
+	for tidx, topicName := range req.TopicNames {
 		err := k.agent.controller.TopicMetaManager.DeleteTopic(*topicName)
-		if err != nil {
-			return err
+		errMsg := err.Error()
+
+		info, ok := k.agent.controller.TopicMetaManager.TopicInfosByName[*topicName]
+		if !ok {
+			errMsg = fmt.Sprintf("topic: %s does not exist", *topicName)
+			resp.Responses[tidx] = kafkaprotocol.DeleteTopicsResponseDeletableTopicResult{
+				Name:         topicName,
+				ErrorMessage: &errMsg,
+			}
+		} else {
+			resp.Responses[tidx] = kafkaprotocol.DeleteTopicsResponseDeletableTopicResult{
+				Name:         topicName,
+				TopicId:      uint32ToBytes(uint32(info.ID)),
+				ErrorMessage: &errMsg,
+			}
 		}
 	}
-	return nil
+	return completionFunc(resp)
 }
 
 func (k *kafkaHandler) HandleProduceRequest(_ *kafkaprotocol.RequestHeader, req *kafkaprotocol.ProduceRequest,

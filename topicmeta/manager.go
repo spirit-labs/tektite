@@ -31,7 +31,7 @@ type Manager struct {
 	objStore         objstore.Client
 	dataBucketName   string
 	dataFormat       common.DataFormat
-	topicInfosByName map[string]*TopicInfo
+	TopicInfosByName map[string]*TopicInfo
 	topicInfosByID   map[int]*TopicInfo
 	topicIDSequence  int64
 	stopping         atomic.Bool
@@ -52,7 +52,7 @@ func NewManager(lsm lsmHolder, objStore objstore.Client, dataBucketName string,
 		objStore:         objStore,
 		dataBucketName:   dataBucketName,
 		dataFormat:       dataFormat,
-		topicInfosByName: make(map[string]*TopicInfo),
+		TopicInfosByName: make(map[string]*TopicInfo),
 		topicInfosByID:   make(map[int]*TopicInfo),
 		connFactory:      connFactory,
 		connections:      make(map[string]transport.Connection),
@@ -122,7 +122,7 @@ func (m *Manager) GetTopicInfo(topicName string) (TopicInfo, int, bool, error) {
 	if !m.started {
 		return TopicInfo{}, 0, false, errors.New("topicmeta manager not started")
 	}
-	info, ok := m.topicInfosByName[topicName]
+	info, ok := m.TopicInfosByName[topicName]
 	if !ok {
 		return TopicInfo{}, 0, false, nil
 	}
@@ -132,7 +132,7 @@ func (m *Manager) GetTopicInfo(topicName string) (TopicInfo, int, bool, error) {
 func (m *Manager) CreateTopic(topicInfo TopicInfo) error {
 	m.lock.Lock()
 	defer m.lock.Unlock()
-	_, ok := m.topicInfosByName[topicInfo.Name]
+	_, ok := m.TopicInfosByName[topicInfo.Name]
 	if ok {
 		return common.NewTektiteErrorf(common.TopicAlreadyExists, "topic: %s already exists", topicInfo.Name)
 	}
@@ -142,7 +142,7 @@ func (m *Manager) CreateTopic(topicInfo TopicInfo) error {
 	if err := m.WriteTopic(topicInfo); err != nil {
 		return err
 	}
-	m.topicInfosByName[topicInfo.Name] = &topicInfo
+	m.TopicInfosByName[topicInfo.Name] = &topicInfo
 	m.topicInfosByID[topicInfo.ID] = &topicInfo
 	m.SendTopicNotification(transport.HandlerIDMetaLocalCacheTopicAdded, topicInfo)
 	return nil
@@ -151,7 +151,7 @@ func (m *Manager) CreateTopic(topicInfo TopicInfo) error {
 func (m *Manager) DeleteTopic(topicName string) error {
 	m.lock.Lock()
 	defer m.lock.Unlock()
-	info, ok := m.topicInfosByName[topicName]
+	info, ok := m.TopicInfosByName[topicName]
 	if !ok {
 		return common.NewTektiteErrorf(common.TopicDoesNotExist, "topic: %s does not exist", topicName)
 	}
@@ -161,7 +161,7 @@ func (m *Manager) DeleteTopic(topicName string) error {
 	if err := m.WriteTopicDeletion(info.ID); err != nil {
 		return err
 	}
-	delete(m.topicInfosByName, topicName)
+	delete(m.TopicInfosByName, topicName)
 	delete(m.topicInfosByID, info.ID)
 	m.SendTopicNotification(transport.HandlerIDMetaLocalCacheTopicDeleted, *info)
 	return nil
@@ -173,7 +173,7 @@ func (m *Manager) loadTopics() error {
 		return err
 	}
 	for _, topicInfo := range allTopics {
-		m.topicInfosByName[topicInfo.Name] = &topicInfo
+		m.TopicInfosByName[topicInfo.Name] = &topicInfo
 		m.topicInfosByID[topicInfo.ID] = &topicInfo
 	}
 	return nil
