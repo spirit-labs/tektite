@@ -1,10 +1,11 @@
 package agent
 
 import (
-	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
+	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/kafkaprotocol"
 	"github.com/spirit-labs/tektite/kafkaserver2"
 	"github.com/spirit-labs/tektite/topicmeta"
@@ -38,8 +39,8 @@ func (k *kafkaHandler) HandleCreateTopicsRequest(hdr *kafkaprotocol.RequestHeade
 
 		// Parse custom retention time from topic configs if provided
 		for cidx, config := range topic.Configs {
-			if *config.Name == "retention.ms" {
-				retentionMs, err := strconv.Atoi(*config.Value)
+			if common.SafeDerefStringPtr(config.Name) == "retention.ms" {
+				retentionMs, err := strconv.Atoi(common.SafeDerefStringPtr(config.Value))
 				if err == nil {
 					retentionTime = time.Duration(retentionMs) * time.Millisecond
 				}
@@ -52,24 +53,26 @@ func (k *kafkaHandler) HandleCreateTopicsRequest(hdr *kafkaprotocol.RequestHeade
 		}
 
 		topicInfo := topicmeta.TopicInfo{
-			Name:           *topic.Name,
+			Name:           common.SafeDerefStringPtr(topic.Name),
 			PartitionCount: int(topic.NumPartitions),
 			RetentionTime:  retentionTime,
 		}
 		err := k.agent.controller.TopicMetaManager.CreateTopic(topicInfo)
 		var errMsg string
+		errCode := int16(0)
 		if err != nil {
 			errMsg = err.Error()
-		}
-
-		info, ok := k.agent.controller.TopicMetaManager.TopicInfosByName[*topic.Name]
-		if !ok {
-			errMsg = fmt.Sprintf("topic %s not created successfully", *topic.Name)
+			if strings.Contains(errMsg, "already exists") {
+				errCode = kafkaprotocol.ErrorCodeTopicAlreadyExists
+			} else {
+				// custom error code
+				errCode = int16(common.ErrorCodeWriteTopicFailed)
+			}
 		}
 
 		resp.Topics[tidx] = kafkaprotocol.CreateTopicsResponseCreatableTopicResult{
 			Name:              topic.Name,
-			TopicId:           uint32ToBytes(uint32(info.ID)),
+			ErrorCode:         errCode,
 			ErrorMessage:      &errMsg,
 			NumPartitions:     topic.NumPartitions,
 			ReplicationFactor: topic.ReplicationFactor,
@@ -87,25 +90,22 @@ func (k *kafkaHandler) HandleDeleteTopicsRequest(hdr *kafkaprotocol.RequestHeade
 
 	for tidx, topicName := range req.TopicNames {
 		var errMsg string
+		errCode := int16(0)
+		err := k.agent.controller.TopicMetaManager.DeleteTopic(common.SafeDerefStringPtr(topicName))
+		if err != nil {
+			errMsg = err.Error()
+			if strings.Contains(errMsg, "not exist") {
+				errCode = kafkaprotocol.ErrorCodeUnknownTopicOrPartition
+			} else {
+				// custom error code
+				errCode = int16(common.ErrorCodeWriteTopicFailed)
+			}
+		}
 
-		info, ok := k.agent.controller.TopicMetaManager.TopicInfosByName[*topicName]
-		if !ok {
-			errMsg = fmt.Sprintf("topic: %s does not exist", *topicName)
-			resp.Responses[tidx] = kafkaprotocol.DeleteTopicsResponseDeletableTopicResult{
-				Name:         topicName,
-				ErrorMessage: &errMsg,
-			}
-		} else {
-			err := k.agent.controller.TopicMetaManager.DeleteTopic(*topicName)
-			if err != nil {
-				errMsg = err.Error()
-			}
-
-			resp.Responses[tidx] = kafkaprotocol.DeleteTopicsResponseDeletableTopicResult{
-				Name:         topicName,
-				TopicId:      uint32ToBytes(uint32(info.ID)),
-				ErrorMessage: &errMsg,
-			}
+		resp.Responses[tidx] = kafkaprotocol.DeleteTopicsResponseDeletableTopicResult{
+			Name:         topicName,
+			ErrorCode:    errCode,
+			ErrorMessage: &errMsg,
 		}
 	}
 	return completionFunc(resp)

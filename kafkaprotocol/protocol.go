@@ -116,8 +116,8 @@ var SupportedAPIVersions = []ApiVersionsResponseApiVersion{
 	{ApiKey: APIKeySaslHandshake, MinVersion: 0, MaxVersion: 1},
 	{ApiKey: APIKeyInitProducerId, MinVersion: 0, MaxVersion: 0},
 	{ApiKey: APIKeySaslAuthenticate, MinVersion: 0, MaxVersion: 1},
-	{ApiKey: APIKeyCreateTopics, MinVersion: -1, MaxVersion: -1},
-	{ApiKey: APIKeyDeleteTopics, MinVersion: -1, MaxVersion: -1},
+	{ApiKey: APIKeyCreateTopics, MinVersion: 0, MaxVersion: 5},
+	{ApiKey: APIKeyDeleteTopics, MinVersion: 0, MaxVersion: 5},
 
 	/*
 		Transactions are currently incomplete

@@ -569,5 +569,5 @@ func (m *CreateTopicsRequest) HeaderVersions(version int16) (int16, int16) {
 }
 
 func (m *CreateTopicsRequest) SupportedApiVersions() (int16, int16) {
-    return -1, -1
+    return 0, 5
 }
