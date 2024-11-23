@@ -71,7 +71,10 @@ func TestCreateDeleteTopics(t *testing.T) {
 	require.Equal(t, configName, common.SafeDerefStringPtr(createResp.Topics[0].Configs[0].Name))
 	require.Equal(t, configValue, common.SafeDerefStringPtr(createResp.Topics[0].Configs[0].Value))
 
-	info, topicExists := agent.controller.TopicMetaManager.TopicInfosByName[topicName]
+	acl, err := agent.controller.Client()
+	require.NoError(t, err)
+	info, _, topicExists, err := acl.GetTopicInfo(topicName)
+	require.NoError(t, err)
 	require.True(t, topicExists)
 	require.Equal(t, topicName, info.Name)
 	require.Equal(t, 23, info.PartitionCount)
@@ -91,6 +94,7 @@ func TestCreateDeleteTopics(t *testing.T) {
 	require.Equal(t, 1, len(deleteResp.Responses))
 	require.Equal(t, topicName, *deleteResp.Responses[0].Name)
 	require.Equal(t, int16(0), deleteResp.Responses[0].ErrorCode)
-	_, topicExists2 := agent.controller.TopicMetaManager.TopicInfosByName[topicName]
+	_, _, topicExists2, err := acl.GetTopicInfo(topicName)
+	require.NoError(t, err)
 	require.False(t, topicExists2)
 }

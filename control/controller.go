@@ -34,7 +34,7 @@ type Controller struct {
 	transportServer            transport.Server
 	lsmHolder                  *LsmHolder
 	offsetsCache               *offsets.Cache
-	TopicMetaManager           *topicmeta.Manager
+	topicMetaManager           *topicmeta.Manager
 	currentMembership          cluster.MembershipState
 	clusterState               []AgentMeta
 	clusterStateSameAZ         []AgentMeta
@@ -110,11 +110,11 @@ func (c *Controller) stop() error {
 		}
 		c.lsmHolder = nil
 	}
-	if c.TopicMetaManager != nil {
-		if err := c.TopicMetaManager.Stop(); err != nil {
+	if c.topicMetaManager != nil {
+		if err := c.topicMetaManager.Stop(); err != nil {
 			return err
 		}
-		c.TopicMetaManager = nil
+		c.topicMetaManager = nil
 	}
 	if c.offsetsCache != nil {
 		c.offsetsCache.Stop()
@@ -160,7 +160,7 @@ func (c *Controller) MembershipChanged(thisMemberID int32, newState cluster.Memb
 			if err := topicMetaManager.Start(); err != nil {
 				return err
 			}
-			c.TopicMetaManager = topicMetaManager
+			c.topicMetaManager = topicMetaManager
 			cache, err := offsets.NewOffsetsCache(topicMetaManager, lsmHolder, c.objStoreClient, c.cfg.SSTableBucketName)
 			if err != nil {
 				return err
@@ -187,8 +187,8 @@ func (c *Controller) MembershipChanged(thisMemberID int32, newState cluster.Memb
 	if c.offsetsCache != nil {
 		c.offsetsCache.MembershipChanged()
 	}
-	if c.TopicMetaManager != nil {
-		c.TopicMetaManager.MembershipChanged(newState)
+	if c.topicMetaManager != nil {
+		c.topicMetaManager.MembershipChanged(newState)
 	}
 	c.tableListeners.membershipChanged(&newState)
 	c.groupCoordinatorController.MembershipChanged(&newState)
@@ -433,7 +433,7 @@ func (c *Controller) handleGetAllTopicInfos(_ *transport.ConnectionContext, requ
 	if err := c.checkLeaderVersion(req.LeaderVersion); err != nil {
 		return responseWriter(nil, err)
 	}
-	infos, err := c.TopicMetaManager.GetAllTopicInfos()
+	infos, err := c.topicMetaManager.GetAllTopicInfos()
 	if err != nil {
 		return responseWriter(nil, err)
 	}
@@ -454,7 +454,7 @@ func (c *Controller) handleGetTopicInfo(_ *transport.ConnectionContext, request 
 	if err := c.checkLeaderVersion(req.LeaderVersion); err != nil {
 		return responseWriter(nil, err)
 	}
-	info, seq, exists, err := c.TopicMetaManager.GetTopicInfo(req.TopicName)
+	info, seq, exists, err := c.topicMetaManager.GetTopicInfo(req.TopicName)
 	if err != nil {
 		return responseWriter(nil, err)
 	}
@@ -477,7 +477,7 @@ func (c *Controller) handleCreateTopic(_ *transport.ConnectionContext, request [
 	if err := c.checkLeaderVersion(req.LeaderVersion); err != nil {
 		return responseWriter(nil, err)
 	}
-	err := c.TopicMetaManager.CreateTopic(req.Info)
+	err := c.topicMetaManager.CreateTopic(req.Info)
 	if err != nil {
 		return responseWriter(nil, err)
 	}
@@ -495,7 +495,7 @@ func (c *Controller) handleDeleteTopic(_ *transport.ConnectionContext, request [
 	if err := c.checkLeaderVersion(req.LeaderVersion); err != nil {
 		return responseWriter(nil, err)
 	}
-	err := c.TopicMetaManager.DeleteTopic(req.TopicName)
+	err := c.topicMetaManager.DeleteTopic(req.TopicName)
 	if err != nil {
 		return responseWriter(nil, err)
 	}

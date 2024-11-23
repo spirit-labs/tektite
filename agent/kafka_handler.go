@@ -57,9 +57,17 @@ func (k *kafkaHandler) HandleCreateTopicsRequest(hdr *kafkaprotocol.RequestHeade
 			PartitionCount: int(topic.NumPartitions),
 			RetentionTime:  retentionTime,
 		}
-		err := k.agent.controller.TopicMetaManager.CreateTopic(topicInfo)
+
 		var errMsg string
 		errCode := int16(0)
+
+		acl, err := k.agent.controller.Client()
+		if err != nil {
+			errMsg = err.Error()
+			errCode = int16(common.Unavailable)
+		}
+
+		err = acl.CreateTopic(topicInfo)
 		if err != nil {
 			errMsg = err.Error()
 			if strings.Contains(errMsg, "already exists") {
@@ -91,7 +99,14 @@ func (k *kafkaHandler) HandleDeleteTopicsRequest(hdr *kafkaprotocol.RequestHeade
 	for tidx, topicName := range req.TopicNames {
 		var errMsg string
 		errCode := int16(0)
-		err := k.agent.controller.TopicMetaManager.DeleteTopic(common.SafeDerefStringPtr(topicName))
+
+		acl, err := k.agent.controller.Client()
+		if err != nil {
+			errMsg = err.Error()
+			errCode = int16(common.Unavailable)
+		}
+
+		err = acl.DeleteTopic(common.SafeDerefStringPtr(topicName))
 		if err != nil {
 			errMsg = err.Error()
 			if strings.Contains(errMsg, "not exist") {
