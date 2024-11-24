@@ -45,7 +45,6 @@ func TestCreateDeleteTopics(t *testing.T) {
 			{
 				Name:              &topicName,
 				NumPartitions:     23,
-				ReplicationFactor: 3,
 				Configs: []kafkaprotocol.CreateTopicsRequestCreatableTopicConfig{
 					{
 						Name:  &configName,
@@ -66,7 +65,6 @@ func TestCreateDeleteTopics(t *testing.T) {
 	require.Equal(t, topicName, common.SafeDerefStringPtr(createResp.Topics[0].Name))
 	require.Equal(t, int16(0), createResp.Topics[0].ErrorCode)
 	require.Equal(t, int32(23), createResp.Topics[0].NumPartitions)
-	require.Equal(t, int16(3), createResp.Topics[0].ReplicationFactor)
 	require.Equal(t, 1, len(createResp.Topics[0].Configs))
 	require.Equal(t, configName, common.SafeDerefStringPtr(createResp.Topics[0].Configs[0].Name))
 	require.Equal(t, configValue, common.SafeDerefStringPtr(createResp.Topics[0].Configs[0].Value))
@@ -119,7 +117,6 @@ func TestCreateDuplicateTopic(t *testing.T) {
 			{
 				Name:              &topicName,
 				NumPartitions:     23,
-				ReplicationFactor: 3,
 			},
 		},
 	}
@@ -134,7 +131,6 @@ func TestCreateDuplicateTopic(t *testing.T) {
 	require.Equal(t, topicName, common.SafeDerefStringPtr(createResp.Topics[0].Name))
 	require.Equal(t, int16(0), createResp.Topics[0].ErrorCode)
 	require.Equal(t, int32(23), createResp.Topics[0].NumPartitions)
-	require.Equal(t, int16(3), createResp.Topics[0].ReplicationFactor)
 
 	info, topicExists, err := agent.topicMetaCache.GetTopicInfo(topicName)
 	require.True(t, topicExists)
@@ -149,7 +145,6 @@ func TestCreateDuplicateTopic(t *testing.T) {
 			{
 				Name:              &topicName,
 				NumPartitions:     23,
-				ReplicationFactor: 3,
 			},
 		},
 	}
@@ -164,7 +159,6 @@ func TestCreateDuplicateTopic(t *testing.T) {
 	require.Equal(t, topicName, common.SafeDerefStringPtr(createResp2.Topics[0].Name))
 	require.Equal(t, int16(kafkaprotocol.ErrorCodeTopicAlreadyExists), createResp2.Topics[0].ErrorCode)
 	require.Equal(t, int32(23), createResp2.Topics[0].NumPartitions)
-	require.Equal(t, int16(3), createResp2.Topics[0].ReplicationFactor)
 }
 
 func TestDeleteNonExistentTopic(t *testing.T) {
@@ -224,7 +218,6 @@ func TestInvalidTopicName(t *testing.T) {
 			{
 				Name:              &topicName,
 				NumPartitions:     23,
-				ReplicationFactor: 3,
 			},
 		},
 	}
@@ -239,7 +232,6 @@ func TestInvalidTopicName(t *testing.T) {
 	require.Equal(t, topicName, common.SafeDerefStringPtr(createResp.Topics[0].Name))
 	require.Equal(t, int16(kafkaprotocol.ErrorCodeInvalidTopicException), createResp.Topics[0].ErrorCode)
 	require.Equal(t, int32(23), createResp.Topics[0].NumPartitions)
-	require.Equal(t, int16(3), createResp.Topics[0].ReplicationFactor)
 }
 
 func TestMetaControllerUnavailable(t *testing.T) {
@@ -268,7 +260,6 @@ func TestMetaControllerUnavailable(t *testing.T) {
 			{
 				Name:              &topicName,
 				NumPartitions:     23,
-				ReplicationFactor: 3,
 			},
 		},
 	}
@@ -280,7 +271,6 @@ func TestMetaControllerUnavailable(t *testing.T) {
 	createResp, ok := r.(*kafkaprotocol.CreateTopicsResponse)
 	require.True(t, ok)
 	require.Equal(t, 1, len(createResp.Topics))
-	require.Equal(t, common.ErrorCodeWriteTopicFailed, int(createResp.Topics[0].ErrorCode))
+	require.Equal(t, kafkaprotocol.ErrorCodeInvalidTopicException, int(createResp.Topics[0].ErrorCode))
 	require.Equal(t, int32(23), createResp.Topics[0].NumPartitions)
-	require.Equal(t, int16(3), createResp.Topics[0].ReplicationFactor)
 }

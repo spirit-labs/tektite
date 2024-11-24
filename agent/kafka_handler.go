@@ -97,7 +97,7 @@ func (k *kafkaHandler) HandleCreateTopicsRequest(hdr *kafkaprotocol.RequestHeade
 			acl, err := k.agent.controlClientCache.GetClient()
 			if err != nil {
 				errMsg = err.Error()
-				errCode = int16(common.Unavailable)
+				errCode = kafkaprotocol.ErrorCodeCoordinatorNotAvailable
 			} else {
 				topicInfo := topicmeta.TopicInfo{
 					Name:           derefTopicName,
@@ -111,8 +111,7 @@ func (k *kafkaHandler) HandleCreateTopicsRequest(hdr *kafkaprotocol.RequestHeade
 					if strings.Contains(errMsg, "already exists") {
 						errCode = kafkaprotocol.ErrorCodeTopicAlreadyExists
 					} else {
-						// custom error code
-						errCode = int16(common.ErrorCodeWriteTopicFailed)
+						errCode = kafkaprotocol.ErrorCodeInvalidTopicException
 					}
 				}
 			}
@@ -123,7 +122,6 @@ func (k *kafkaHandler) HandleCreateTopicsRequest(hdr *kafkaprotocol.RequestHeade
 			ErrorCode:         errCode,
 			ErrorMessage:      &errMsg,
 			NumPartitions:     topic.NumPartitions,
-			ReplicationFactor: topic.ReplicationFactor,
 			Configs:           respConfigs,
 		}
 	}
@@ -143,7 +141,7 @@ func (k *kafkaHandler) HandleDeleteTopicsRequest(hdr *kafkaprotocol.RequestHeade
 		acl, err := k.agent.controlClientCache.GetClient()
 		if err != nil {
 			errMsg = err.Error()
-			errCode = int16(common.Unavailable)
+			errCode = kafkaprotocol.ErrorCodeCoordinatorNotAvailable
 		} else {
 			err = acl.DeleteTopic(common.SafeDerefStringPtr(topicName))
 			if err != nil {
@@ -151,8 +149,7 @@ func (k *kafkaHandler) HandleDeleteTopicsRequest(hdr *kafkaprotocol.RequestHeade
 				if strings.Contains(errMsg, "not exist") {
 					errCode = kafkaprotocol.ErrorCodeUnknownTopicOrPartition
 				} else {
-					// custom error code
-					errCode = int16(common.ErrorCodeWriteTopicFailed)
+					errCode = kafkaprotocol.ErrorCodeInvalidTopicException
 				}
 			}
 		}
