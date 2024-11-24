@@ -24,11 +24,13 @@ func TestProduceConsume(t *testing.T) {
 		err := minioContainer.Terminate(ctx)
 		require.NoError(t, err)
 	}()
-	// create the bucket
+	// create the buckets
 	client := miniocl.NewMinioClient(minioCfg)
 	err := client.Start()
 	require.NoError(t, err)
 	err = client.MakeBucket(context.Background(), "test-cluster-data")
+	require.NoError(t, err)
+	err = client.MakeBucket(context.Background(), "test-cluster-controller-sm")
 	require.NoError(t, err)
 
 	mgr := NewManager()

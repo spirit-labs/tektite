@@ -42,11 +42,6 @@ const (
 
 func CreateConfFromCommandConf(commandConf CommandConf) (Conf, error) {
 	cfg := NewConf()
-
-	/*
-		FIXME- need to validate the durations etc before setting them
-	*/
-
 	// Configure listener config
 	var listenAddress string
 	var kafkaAddress string
@@ -74,38 +69,57 @@ func CreateConfFromCommandConf(commandConf CommandConf) (Conf, error) {
 	}
 	cfg.KafkaListenerConfig.Address = kafkaAddress
 	cfg.ClusterListenerConfig.Address = clusterAddress
-
 	dataBucketName := commandConf.ClusterName + "-data"
-
+	// configure cluster membership
 	cfg.ClusterMembershipConfig.BucketName = dataBucketName
 	cfg.ClusterMembershipConfig.KeyPrefix = "membership"
-	updateInterval := time.Duration(commandConf.MembershipUpdateIntervalMs) * time.Millisecond
-	evictionInterval := time.Duration(commandConf.MembershipEvictionIntervalMs) * time.Millisecond
+	updateInterval, err :=
+		validateDurationMs("membership-update-interval-ms", commandConf.MembershipUpdateIntervalMs, 1)
+	if err != nil {
+		return Conf{}, err
+	}
+	evictionInterval, err :=
+		validateDurationMs("membership-eviction-interval-ms", commandConf.MembershipEvictionIntervalMs, 1)
+	if err != nil {
+		return Conf{}, err
+	}
 	cfg.ClusterMembershipConfig.UpdateInterval = updateInterval
 	cfg.ClusterMembershipConfig.EvictionInterval = evictionInterval
-
+	// configure controller
 	cfg.ControllerConf.SSTableBucketName = dataBucketName
 	cfg.ControllerConf.ControllerMetaDataKeyPrefix = "meta-data"
 	cfg.ControllerConf.ControllerMetaDataBucketName = dataBucketName
-	// TODO - should we put the metadata state updator state machine in a different bucket with expiration?
-	cfg.ControllerConf.ControllerStateUpdaterBucketName = dataBucketName
+	// We put the controller state machine in a different bucket - as this will likely be configured with an expiry
+	// TODO move to Dynamo based state machine
+	controllerStateMachineBucketName := commandConf.ClusterName + "-controller-sm"
+	cfg.ControllerConf.ControllerStateUpdaterBucketName = controllerStateMachineBucketName
 	cfg.ControllerConf.ControllerStateUpdaterKeyPrefix = "meta-state"
 	cfg.ControllerConf.AzInfo = commandConf.Location
-
 	cfg.ControllerConf.LsmConf.SSTableBucketName = dataBucketName
-
+	// configure compaction workers
 	cfg.CompactionWorkersConf.SSTableBucketName = dataBucketName
-
+	// configure table pusher
 	cfg.PusherConf.DataBucketName = dataBucketName
-
+	// configure fetcher
 	cfg.FetcherConf.DataBucketName = dataBucketName
-
+	// configure fetch cache
 	cfg.FetchCacheConf.DataBucketName = dataBucketName
 	cfg.FetchCacheConf.MaxSizeBytes = 1 * 1024 * 1024 * 1024 // 1GiB
 	cfg.FetchCacheConf.AzInfo = commandConf.Location
-
-	cfg.GroupCoordinatorConf.InitialJoinDelay = time.Duration(commandConf.ConsumerGroupInitialJoinDelayMs) * time.Millisecond
+	// configure group coordinator
+	cfg.GroupCoordinatorConf.InitialJoinDelay, err =
+		validateDurationMs("consumer-group-initial-join-delay-ms", commandConf.ConsumerGroupInitialJoinDelayMs, 0)
+	if err != nil {
+		return Conf{}, err
+	}
 	return cfg, nil
+}
+
+func validateDurationMs(configName string, durationMs int, minDurationMs int) (time.Duration, error) {
+	if durationMs < minDurationMs {
+		return 0, errors.Errorf("invalid value for %s must be >= %d ms", configName, minDurationMs)
+	}
+	return time.Duration(durationMs) * time.Millisecond, nil
 }
 
 func CreateAgentFromCommandConf(commandConf CommandConf) (*Agent, error) {
