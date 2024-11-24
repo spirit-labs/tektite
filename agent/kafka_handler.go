@@ -61,7 +61,7 @@ func (k *kafkaHandler) HandleCreateTopicsRequest(hdr *kafkaprotocol.RequestHeade
 		var errMsg string
 		errCode := int16(0)
 
-		acl, err := k.agent.controller.Client()
+		acl, err := k.agent.controlClientCache.GetClient()
 		if err != nil {
 			errMsg = err.Error()
 			errCode = int16(common.Unavailable)
@@ -100,7 +100,7 @@ func (k *kafkaHandler) HandleDeleteTopicsRequest(hdr *kafkaprotocol.RequestHeade
 		var errMsg string
 		errCode := int16(0)
 
-		acl, err := k.agent.controller.Client()
+		acl, err := k.agent.controlClientCache.GetClient()
 		if err != nil {
 			errMsg = err.Error()
 			errCode = int16(common.Unavailable)
