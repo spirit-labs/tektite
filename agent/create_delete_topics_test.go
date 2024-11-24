@@ -24,21 +24,17 @@ func TestCreateDeleteTopics(t *testing.T) {
 	cfg := NewConf()
 	agent, _, tearDown := setupAgentWithoutTopics(t, cfg)
 	defer tearDown(t)
-
 	cl, err := NewKafkaApiClient()
 	require.NoError(t, err)
-
 	conn, err := cl.NewConnection(agent.Conf().KafkaListenerConfig.Address)
 	require.NoError(t, err)
 	defer func() {
 		err := conn.Close()
 		require.NoError(t, err)
 	}()
-
 	topicName := "test-topic-1"
 	configName := "retention.ms"
 	configValue := "86400000" // 1 day
-
 	//Create
 	req := kafkaprotocol.CreateTopicsRequest{
 		Topics: []kafkaprotocol.CreateTopicsRequestCreatableTopic{
@@ -54,11 +50,9 @@ func TestCreateDeleteTopics(t *testing.T) {
 			},
 		},
 	}
-
 	var resp kafkaprotocol.CreateTopicsResponse
 	r, err := conn.SendRequest(&req, kafkaprotocol.APIKeyCreateTopics, 5, &resp)
 	require.NoError(t, err)
-
 	createResp, ok := r.(*kafkaprotocol.CreateTopicsResponse)
 	require.True(t, ok)
 	require.Equal(t, 1, len(createResp.Topics))
@@ -68,14 +62,12 @@ func TestCreateDeleteTopics(t *testing.T) {
 	require.Equal(t, 1, len(createResp.Topics[0].Configs))
 	require.Equal(t, configName, common.SafeDerefStringPtr(createResp.Topics[0].Configs[0].Name))
 	require.Equal(t, configValue, common.SafeDerefStringPtr(createResp.Topics[0].Configs[0].Value))
-
 	info, topicExists, err := agent.topicMetaCache.GetTopicInfo(topicName)
 	require.True(t, topicExists)
 	require.NoError(t, err)
 	require.Equal(t, topicName, info.Name)
 	require.Equal(t, 23, info.PartitionCount)
 	require.Equal(t, 24*time.Hour, info.RetentionTime)
-
 	//Delete
 	req2 := kafkaprotocol.DeleteTopicsRequest{
 		TopicNames: []*string{
@@ -98,19 +90,15 @@ func TestCreateDuplicateTopic(t *testing.T) {
 	cfg := NewConf()
 	agent, _, tearDown := setupAgentWithoutTopics(t, cfg)
 	defer tearDown(t)
-
 	cl, err := NewKafkaApiClient()
 	require.NoError(t, err)
-
 	conn, err := cl.NewConnection(agent.Conf().KafkaListenerConfig.Address)
 	require.NoError(t, err)
 	defer func() {
 		err := conn.Close()
 		require.NoError(t, err)
 	}()
-
 	topicName := "test-topic-1"
-
 	//Create
 	req := kafkaprotocol.CreateTopicsRequest{
 		Topics: []kafkaprotocol.CreateTopicsRequestCreatableTopic{
@@ -120,25 +108,21 @@ func TestCreateDuplicateTopic(t *testing.T) {
 			},
 		},
 	}
-
 	var resp kafkaprotocol.CreateTopicsResponse
 	r, err := conn.SendRequest(&req, kafkaprotocol.APIKeyCreateTopics, 5, &resp)
 	require.NoError(t, err)
-
 	createResp, ok := r.(*kafkaprotocol.CreateTopicsResponse)
 	require.True(t, ok)
 	require.Equal(t, 1, len(createResp.Topics))
 	require.Equal(t, topicName, common.SafeDerefStringPtr(createResp.Topics[0].Name))
 	require.Equal(t, int16(0), createResp.Topics[0].ErrorCode)
 	require.Equal(t, int32(23), createResp.Topics[0].NumPartitions)
-
 	info, topicExists, err := agent.topicMetaCache.GetTopicInfo(topicName)
 	require.True(t, topicExists)
 	require.NoError(t, err)
 	require.Equal(t, topicName, info.Name)
 	require.Equal(t, 23, info.PartitionCount)
 	require.Equal(t, 7*24*time.Hour, info.RetentionTime)
-
 	//Duplicate create
 	req = kafkaprotocol.CreateTopicsRequest{
 		Topics: []kafkaprotocol.CreateTopicsRequestCreatableTopic{
@@ -148,11 +132,9 @@ func TestCreateDuplicateTopic(t *testing.T) {
 			},
 		},
 	}
-
 	var resp2 kafkaprotocol.CreateTopicsResponse
 	r2, err := conn.SendRequest(&req, kafkaprotocol.APIKeyCreateTopics, 5, &resp2)
 	require.NoError(t, err)
-
 	createResp2, ok := r2.(*kafkaprotocol.CreateTopicsResponse)
 	require.True(t, ok)
 	require.Equal(t, 1, len(createResp2.Topics))
@@ -165,19 +147,15 @@ func TestDeleteNonExistentTopic(t *testing.T) {
 	cfg := NewConf()
 	agent, _, tearDown := setupAgentWithoutTopics(t, cfg)
 	defer tearDown(t)
-
 	cl, err := NewKafkaApiClient()
 	require.NoError(t, err)
-
 	conn, err := cl.NewConnection(agent.Conf().KafkaListenerConfig.Address)
 	require.NoError(t, err)
 	defer func() {
 		err := conn.Close()
 		require.NoError(t, err)
 	}()
-
 	topicName := "test-topic-1"
-
 	req := kafkaprotocol.DeleteTopicsRequest{
 		TopicNames: []*string{
 			&topicName,
@@ -199,19 +177,15 @@ func TestInvalidTopicName(t *testing.T) {
 	cfg := NewConf()
 	agent, _, tearDown := setupAgentWithoutTopics(t, cfg)
 	defer tearDown(t)
-
 	cl, err := NewKafkaApiClient()
 	require.NoError(t, err)
-
 	conn, err := cl.NewConnection(agent.Conf().KafkaListenerConfig.Address)
 	require.NoError(t, err)
 	defer func() {
 		err := conn.Close()
 		require.NoError(t, err)
 	}()
-
 	topicName := "test topic-1"
-
 	//Create
 	req := kafkaprotocol.CreateTopicsRequest{
 		Topics: []kafkaprotocol.CreateTopicsRequestCreatableTopic{
@@ -221,11 +195,9 @@ func TestInvalidTopicName(t *testing.T) {
 			},
 		},
 	}
-
 	var resp kafkaprotocol.CreateTopicsResponse
 	r, err := conn.SendRequest(&req, kafkaprotocol.APIKeyCreateTopics, 5, &resp)
 	require.NoError(t, err)
-
 	createResp, ok := r.(*kafkaprotocol.CreateTopicsResponse)
 	require.True(t, ok)
 	require.Equal(t, 1, len(createResp.Topics))
@@ -238,22 +210,17 @@ func TestMetaControllerUnavailable(t *testing.T) {
 	cfg := NewConf()
 	agent, _, tearDown := setupAgentWithoutTopics(t, cfg)
 	defer tearDown(t)
-
 	cl, err := NewKafkaApiClient()
 	require.NoError(t, err)
-
 	conn, err := cl.NewConnection(agent.Conf().KafkaListenerConfig.Address)
 	require.NoError(t, err)
 	defer func() {
 		err := conn.Close()
 		require.NoError(t, err)
 	}()
-
 	topicName := "test-topic-1"
-
 	unavail := common.NewTektiteErrorf(common.Unavailable, "injected unavailable")
 	agent.controlClientCache.SetInjectedError(unavail)
-
 	//Create
 	req := kafkaprotocol.CreateTopicsRequest{
 		Topics: []kafkaprotocol.CreateTopicsRequestCreatableTopic{
@@ -263,11 +230,9 @@ func TestMetaControllerUnavailable(t *testing.T) {
 			},
 		},
 	}
-
 	var resp kafkaprotocol.CreateTopicsResponse
 	r, err := conn.SendRequest(&req, kafkaprotocol.APIKeyCreateTopics, 5, &resp)
 	require.NoError(t, err)
-
 	createResp, ok := r.(*kafkaprotocol.CreateTopicsResponse)
 	require.True(t, ok)
 	require.Equal(t, 1, len(createResp.Topics))

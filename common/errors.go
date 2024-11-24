@@ -67,6 +67,7 @@ func (u TektiteError) Error() string {
 type ErrCode int
 
 const (
+	UnknownError ErrCode = iota
 	ParseError ErrCode = iota + 1000
 	StatementError
 	PrepareQueryError
@@ -85,5 +86,4 @@ const (
 	TopicDoesNotExist
 	InvalidConfiguration ErrCode = iota + 3000
 	InternalError        ErrCode = iota + 5000
-	ErrorCodeWriteTopicFailed
 )

@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"regexp"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/pkg/errors"
@@ -14,12 +13,9 @@ import (
 	"github.com/spirit-labs/tektite/topicmeta"
 )
 
-var legalChars = regexp.MustCompile(`^[a-zA-Z0-9._-]+$`)
+var validTopicChars = regexp.MustCompile(`^[a-zA-Z0-9._-]+$`)
 
-const (
-	defaultRetentionTime = 7 * 24 * time.Hour
-	maxNameLength        = 249
-)
+const maxNameLength = 249
 
 func (a *Agent) newKafkaHandler(ctx kafkaserver2.ConnectionContext) kafkaprotocol.RequestHandler {
 	return &kafkaHandler{
@@ -33,12 +29,19 @@ type kafkaHandler struct {
 	ctx   kafkaserver2.ConnectionContext
 }
 
+func extractErrorCode(err error) common.ErrCode {
+	var tektiteErr common.TektiteError
+	if errors.As(err, &tektiteErr) {
+		return tektiteErr.Code
+	}
+	return common.UnknownError
+}
+
 func detectInvalidTopic(name string) error {
 	// Check if the name is empty
 	if len(name) == 0 {
 		return errors.New("the empty string is not allowed")
 	}
-
 	// Check if the name is "." or ".."
 	if name == "." {
 		return errors.New("'.' is not allowed")
@@ -46,17 +49,14 @@ func detectInvalidTopic(name string) error {
 	if name == ".." {
 		return errors.New("'..' is not allowed")
 	}
-
 	// Check the length of the name
 	if len(name) > maxNameLength {
 		return fmt.Errorf("the length of '%s' is longer than the max allowed length %d", name, maxNameLength)
 	}
-
 	// Check if the name contains only valid characters
-	if !legalChars.MatchString(name) {
+	if !validTopicChars.MatchString(name) {
 		return fmt.Errorf("'%s' contains one or more characters other than ASCII alphanumerics, '.', '_' and '-'", name)
 	}
-
 	return nil
 }
 
@@ -65,11 +65,9 @@ func (k *kafkaHandler) HandleCreateTopicsRequest(hdr *kafkaprotocol.RequestHeade
 		ThrottleTimeMs: 0,
 		Topics:         make([]kafkaprotocol.CreateTopicsResponseCreatableTopicResult, len(req.Topics)),
 	}
-
 	for tidx, topic := range req.Topics {
-		retentionTime := defaultRetentionTime
+		retentionTime := k.agent.cfg.DefaultTopicRetentionTime
 		respConfigs := make([]kafkaprotocol.CreateTopicsResponseCreatableTopicConfigs, len(topic.Configs))
-
 		// Parse custom retention time from topic configs if provided
 		for cidx, config := range topic.Configs {
 			if common.SafeDerefStringPtr(config.Name) == "retention.ms" {
@@ -78,17 +76,14 @@ func (k *kafkaHandler) HandleCreateTopicsRequest(hdr *kafkaprotocol.RequestHeade
 					retentionTime = time.Duration(retentionMs) * time.Millisecond
 				}
 			}
-
 			respConfigs[cidx] = kafkaprotocol.CreateTopicsResponseCreatableTopicConfigs{
 				Name:  config.Name,
 				Value: config.Value,
 			}
 		}
-
 		var errMsg string
 		errCode := int16(0)
 		derefTopicName := common.SafeDerefStringPtr(topic.Name)
-
 		err := detectInvalidTopic(derefTopicName)
 		if err != nil {
 			errMsg = fmt.Sprintf("Invalid topic: %s (Reason: %s)\n", derefTopicName, err.Error())
@@ -104,11 +99,10 @@ func (k *kafkaHandler) HandleCreateTopicsRequest(hdr *kafkaprotocol.RequestHeade
 					PartitionCount: int(topic.NumPartitions),
 					RetentionTime:  retentionTime,
 				}
-
 				err = acl.CreateTopic(topicInfo)
 				if err != nil {
 					errMsg = err.Error()
-					if strings.Contains(errMsg, "already exists") {
+					if extractErrorCode(err) == common.TopicAlreadyExists {
 						errCode = kafkaprotocol.ErrorCodeTopicAlreadyExists
 					} else {
 						errCode = kafkaprotocol.ErrorCodeInvalidTopicException
@@ -116,13 +110,12 @@ func (k *kafkaHandler) HandleCreateTopicsRequest(hdr *kafkaprotocol.RequestHeade
 				}
 			}
 		}
-
 		resp.Topics[tidx] = kafkaprotocol.CreateTopicsResponseCreatableTopicResult{
-			Name:              topic.Name,
-			ErrorCode:         errCode,
-			ErrorMessage:      &errMsg,
-			NumPartitions:     topic.NumPartitions,
-			Configs:           respConfigs,
+			Name:          topic.Name,
+			ErrorCode:     errCode,
+			ErrorMessage:  &errMsg,
+			NumPartitions: topic.NumPartitions,
+			Configs:       respConfigs,
 		}
 	}
 	return completionFunc(resp)
@@ -133,11 +126,9 @@ func (k *kafkaHandler) HandleDeleteTopicsRequest(hdr *kafkaprotocol.RequestHeade
 		ThrottleTimeMs: 0,
 		Responses:      make([]kafkaprotocol.DeleteTopicsResponseDeletableTopicResult, len(req.TopicNames)),
 	}
-
 	for tidx, topicName := range req.TopicNames {
 		var errMsg string
 		errCode := int16(0)
-
 		acl, err := k.agent.controlClientCache.GetClient()
 		if err != nil {
 			errMsg = err.Error()
@@ -146,14 +137,13 @@ func (k *kafkaHandler) HandleDeleteTopicsRequest(hdr *kafkaprotocol.RequestHeade
 			err = acl.DeleteTopic(common.SafeDerefStringPtr(topicName))
 			if err != nil {
 				errMsg = err.Error()
-				if strings.Contains(errMsg, "not exist") {
+				if extractErrorCode(err) == common.TopicDoesNotExist {
 					errCode = kafkaprotocol.ErrorCodeUnknownTopicOrPartition
 				} else {
 					errCode = kafkaprotocol.ErrorCodeInvalidTopicException
 				}
 			}
 		}
-
 		resp.Responses[tidx] = kafkaprotocol.DeleteTopicsResponseDeletableTopicResult{
 			Name:         topicName,
 			ErrorCode:    errCode,
