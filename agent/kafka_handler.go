@@ -1,18 +1,24 @@
 package agent
 
 import (
+	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/pkg/errors"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/kafkaprotocol"
 	"github.com/spirit-labs/tektite/kafkaserver2"
 	"github.com/spirit-labs/tektite/topicmeta"
 )
 
+var legalChars = regexp.MustCompile(`^[a-zA-Z0-9._-]+$`)
+
 const (
 	defaultRetentionTime = 7 * 24 * time.Hour
+	maxNameLength        = 249
 )
 
 func (a *Agent) newKafkaHandler(ctx kafkaserver2.ConnectionContext) kafkaprotocol.RequestHandler {
@@ -25,6 +31,33 @@ func (a *Agent) newKafkaHandler(ctx kafkaserver2.ConnectionContext) kafkaprotoco
 type kafkaHandler struct {
 	agent *Agent
 	ctx   kafkaserver2.ConnectionContext
+}
+
+func detectInvalidTopic(name string) error {
+	// Check if the name is empty
+	if len(name) == 0 {
+		return errors.New("the empty string is not allowed")
+	}
+
+	// Check if the name is "." or ".."
+	if name == "." {
+		return errors.New("'.' is not allowed")
+	}
+	if name == ".." {
+		return errors.New("'..' is not allowed")
+	}
+
+	// Check the length of the name
+	if len(name) > maxNameLength {
+		return fmt.Errorf("the length of '%s' is longer than the max allowed length %d", name, maxNameLength)
+	}
+
+	// Check if the name contains only valid characters
+	if !legalChars.MatchString(name) {
+		return fmt.Errorf("'%s' contains one or more characters other than ASCII alphanumerics, '.', '_' and '-'", name)
+	}
+
+	return nil
 }
 
 func (k *kafkaHandler) HandleCreateTopicsRequest(hdr *kafkaprotocol.RequestHeader, req *kafkaprotocol.CreateTopicsRequest, completionFunc func(resp *kafkaprotocol.CreateTopicsResponse) error) error {
@@ -52,29 +85,36 @@ func (k *kafkaHandler) HandleCreateTopicsRequest(hdr *kafkaprotocol.RequestHeade
 			}
 		}
 
-		topicInfo := topicmeta.TopicInfo{
-			Name:           common.SafeDerefStringPtr(topic.Name),
-			PartitionCount: int(topic.NumPartitions),
-			RetentionTime:  retentionTime,
-		}
-
 		var errMsg string
 		errCode := int16(0)
+		derefTopicName := common.SafeDerefStringPtr(topic.Name)
 
-		acl, err := k.agent.controlClientCache.GetClient()
+		err := detectInvalidTopic(derefTopicName)
 		if err != nil {
-			errMsg = err.Error()
-			errCode = int16(common.Unavailable)
-		}
-
-		err = acl.CreateTopic(topicInfo)
-		if err != nil {
-			errMsg = err.Error()
-			if strings.Contains(errMsg, "already exists") {
-				errCode = kafkaprotocol.ErrorCodeTopicAlreadyExists
+			errMsg = fmt.Sprintf("Invalid topic: %s (Reason: %s)\n", derefTopicName, err.Error())
+			errCode = int16(kafkaprotocol.ErrorCodeInvalidTopicException)
+		} else {
+			acl, err := k.agent.controlClientCache.GetClient()
+			if err != nil {
+				errMsg = err.Error()
+				errCode = int16(common.Unavailable)
 			} else {
-				// custom error code
-				errCode = int16(common.ErrorCodeWriteTopicFailed)
+				topicInfo := topicmeta.TopicInfo{
+					Name:           derefTopicName,
+					PartitionCount: int(topic.NumPartitions),
+					RetentionTime:  retentionTime,
+				}
+
+				err = acl.CreateTopic(topicInfo)
+				if err != nil {
+					errMsg = err.Error()
+					if strings.Contains(errMsg, "already exists") {
+						errCode = kafkaprotocol.ErrorCodeTopicAlreadyExists
+					} else {
+						// custom error code
+						errCode = int16(common.ErrorCodeWriteTopicFailed)
+					}
+				}
 			}
 		}
 
@@ -104,16 +144,16 @@ func (k *kafkaHandler) HandleDeleteTopicsRequest(hdr *kafkaprotocol.RequestHeade
 		if err != nil {
 			errMsg = err.Error()
 			errCode = int16(common.Unavailable)
-		}
-
-		err = acl.DeleteTopic(common.SafeDerefStringPtr(topicName))
-		if err != nil {
-			errMsg = err.Error()
-			if strings.Contains(errMsg, "not exist") {
-				errCode = kafkaprotocol.ErrorCodeUnknownTopicOrPartition
-			} else {
-				// custom error code
-				errCode = int16(common.ErrorCodeWriteTopicFailed)
+		} else {
+			err = acl.DeleteTopic(common.SafeDerefStringPtr(topicName))
+			if err != nil {
+				errMsg = err.Error()
+				if strings.Contains(errMsg, "not exist") {
+					errCode = kafkaprotocol.ErrorCodeUnknownTopicOrPartition
+				} else {
+					// custom error code
+					errCode = int16(common.ErrorCodeWriteTopicFailed)
+				}
 			}
 		}
 
