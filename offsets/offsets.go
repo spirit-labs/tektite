@@ -389,6 +389,7 @@ func (c *Cache) updateLastReadable(infos []OffsetTopicInfo) error {
 		} else {
 			for _, partInfo := range topicInfo.PartitionInfos {
 				offs[partInfo.PartitionID].setLastReadableOffset(partInfo.Offset)
+				log.Debugf("setting lro for topic %d partition %d to %d", topicInfo.TopicID, partInfo.PartitionID, partInfo.Offset)
 			}
 		}
 	}

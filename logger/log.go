@@ -45,8 +45,8 @@ func init() {
 }
 
 type Config struct {
-	Format string `help:"Format to write log lines in" enum:"console,json" default:"console"`
-	Level  string `help:"Lowest log level that will be emitted" enum:"debug,info,warn,error" default:"info"`
+	Format string `help:"format to write log lines in - one of: console, json" default:"console"`
+	Level  string `help:"lowest log level that will be emitted - one of: debug, info, warn, error" default:"info"`
 }
 
 func (cfg *Config) Configure() error {

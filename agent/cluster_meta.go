@@ -21,6 +21,7 @@ func (a *Agent) HandleMetadataRequest(hdr *kafkaprotocol.RequestHeader, req *kaf
 	}
 	err := a.handleMetadataRequest(hdr, req, resp)
 	if err != nil {
+		log.Warnf("failed to handle metadata request: %v", err)
 		if len(resp.Topics) > 0 {
 			// We can fill in error on topics
 			errCode := kafkaencoding.ErrorCodeForError(err, kafkaprotocol.ErrorCodeUnknownTopicOrPartition)

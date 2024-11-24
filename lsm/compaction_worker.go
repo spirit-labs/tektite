@@ -241,7 +241,7 @@ func (c *compactionWorker) loop() {
 			if errwrap.As(err, &tErr) {
 				if tErr.Code == common.Unavailable {
 					// transient unavailability - retry after delay
-					log.Debugf("transient error in compaction. will retry: %v", err)
+					log.Warnf("transient error in processing compaction job. will retry: %v", err)
 					time.Sleep(workerRetryInterval)
 					continue
 				}
@@ -253,6 +253,7 @@ func (c *compactionWorker) loop() {
 }
 
 func (c *compactionWorker) processJob(job *CompactionJob) ([]RegistrationEntry, []RegistrationEntry, error) {
+	log.Debugf("compaction worker processing job %s", job.id)
 	if job.isMove {
 		if len(job.tables) != 1 {
 			panic("move requires single run to move")
@@ -311,14 +312,15 @@ func (c *compactionWorker) processJob(job *CompactionJob) ([]RegistrationEntry, 
 		for {
 			tableBytes := info.sst.Serialize()
 			// Add to object store
-			err := objstore.PutWithTimeout(c.cws.objStoreClient, c.cws.cfg.SSTableBucketName, string(id), tableBytes, objstore.DefaultCallTimeout)
+			err := objstore.PutWithTimeout(c.cws.objStoreClient, c.cws.cfg.SSTableBucketName, string(id),
+				tableBytes, objstore.DefaultCallTimeout)
 			if err == nil {
 				break
 			}
 			if !common.IsUnavailableError(err) {
 				return nil, nil, err
 			}
-			log.Debugf("failed to push compacted table, will retry: %v", err)
+			log.Warnf("failed to push compacted table, will retry: %v", err)
 			time.Sleep(c.cws.cfg.SSTablePushRetryDelay)
 		}
 	}
@@ -447,7 +449,6 @@ func mergeSSTables(format common.DataFormat, tables [][]tableToMerge, preserveTo
 		sourceIters := make([]iteration.Iterator, len(overlapping))
 		for j, table := range overlapping {
 			sstIter, err := table.sst.NewIterator(nil, nil)
-			log.Debugf("mergingSSTables with dead version range %v", table.deadVersionRanges)
 			if len(table.deadVersionRanges) > 0 {
 				sstIter = NewRemoveDeadVersionsIterator(sstIter, table.deadVersionRanges)
 			}

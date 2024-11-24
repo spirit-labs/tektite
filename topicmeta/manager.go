@@ -137,7 +137,7 @@ func (m *Manager) CreateTopic(topicInfo TopicInfo) error {
 		return common.NewTektiteErrorf(common.TopicAlreadyExists, "topic: %s already exists", topicInfo.Name)
 	}
 	topicInfo.ID = int(m.topicIDSequence)
-	log.Debugf("created topic with id %d", topicInfo.ID)
+	log.Debugf("%p created topic with id %d name %s partitions %d", m, topicInfo.ID, topicInfo.Name, topicInfo.PartitionCount)
 	m.topicIDSequence++
 	if err := m.WriteTopic(topicInfo); err != nil {
 		return err

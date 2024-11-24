@@ -35,7 +35,7 @@ type queuedRegistration struct {
 func NewLsmHolder(stateUpdaterBucketName string, stateUpdaterKeyPrefix string, dataBucketName string,
 	dataKeyPrefix string, objStoreClient objstore.Client, lsmOpts lsm.Conf) *LsmHolder {
 	clusteredData := cluster.NewClusteredData(stateUpdaterBucketName, stateUpdaterKeyPrefix, dataBucketName, dataKeyPrefix,
-		objStoreClient, cluster.ClusteredDataOpts{})
+		objStoreClient, lsmOpts.ClusteredDataConf)
 	return &LsmHolder{
 		objStore:      objStoreClient,
 		lsmOpts:       lsmOpts,

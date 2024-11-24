@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/spirit-labs/tektite/asl/arista"
 	"github.com/spirit-labs/tektite/asl/errwrap"
+	"github.com/spirit-labs/tektite/cluster"
 	"github.com/spirit-labs/tektite/common"
 	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/objstore"
@@ -41,6 +42,7 @@ type Conf struct {
 	SSTableDeleteCheckInterval time.Duration
 	CompactionPollerTimeout    time.Duration
 	CompactionJobTimeout       time.Duration
+	ClusteredDataConf          cluster.ClusteredDataConf
 }
 
 func NewConf() Conf {
@@ -55,6 +57,7 @@ func NewConf() Conf {
 		SSTableDeleteCheckInterval: 2 * time.Second,
 		CompactionPollerTimeout:    1 * time.Second,
 		CompactionJobTimeout:       30 * time.Second,
+		ClusteredDataConf:          cluster.NewClusteredDataConf(),
 	}
 }
 

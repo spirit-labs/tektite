@@ -214,8 +214,6 @@ outer:
 			sourceRange:        sourceRange,
 			destRange:          destRange,
 		}
-		log.Debugf("created compaction job %s from level %d last level is %d, preserve tombstones is %t",
-			id, level, m.getLastLevel(), preserveTombstones)
 		jobs = append(jobs, job)
 		m.lockTablesForJob(job)
 	}

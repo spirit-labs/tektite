@@ -2166,7 +2166,11 @@ func verifySinglePartitionResponse(t *testing.T, resp *kafkaprotocol.FetchRespon
 	require.Equal(t, partitionID, int(partitionResp.PartitionIndex))
 	require.Equal(t, kafkaprotocol.ErrorCodeNone, int(partitionResp.ErrorCode))
 	require.Equal(t, len(batches), len(partitionResp.Records))
-	require.Equal(t, batches, partitionResp.Records)
+	if len(batches) == 0 {
+		require.Equal(t, 0, len(partitionResp.Records))
+	} else {
+		require.Equal(t, batches, partitionResp.Records)
+	}
 }
 
 func verifyPartitionRecordsInResponse(t *testing.T, resp *kafkaprotocol.FetchResponse, topicName string, partitionID int, batches [][]byte) {

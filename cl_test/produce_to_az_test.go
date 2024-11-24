@@ -6,7 +6,6 @@ import (
 	kafkago "github.com/confluentinc/confluent-kafka-go/v2/kafka"
 	"github.com/spirit-labs/tektite/agent"
 	"github.com/spirit-labs/tektite/common"
-	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/objstore"
 	"github.com/spirit-labs/tektite/objstore/dev"
 	"github.com/spirit-labs/tektite/topicmeta"
@@ -172,7 +171,6 @@ func createTopicUsingAdminClient(t *testing.T, topicName string, partitions int,
 		os.Exit(1)
 	}
 	for _, res := range results {
-		log.Infof("create topic result: %s", res.String())
 		require.NoError(t, res.Error)
 	}
 	admin.Close()
