@@ -166,28 +166,16 @@ func TestProduceConsume(t *testing.T) {
 
 func startMinio(t *testing.T) (miniocl.Conf, *minio.MinioContainer) {
 	ctx := context.Background()
-
 	minioContainer, err := minio.Run(ctx, "minio/minio:RELEASE.2024-08-26T15-33-07Z",
 		minio.WithUsername("minioadmin"), minio.WithPassword("minioadmin"))
 	require.NoError(t, err)
-	//
-	//// Clean up the container
-	//defer func() {
-	//	err := minioContainer.Terminate(ctx)
-	//	require.NoError(t, err)
-	//}()
-
 	cfg := miniocl.Conf{}
-
 	ip, err := minioContainer.Host(ctx)
 	require.NoError(t, err)
-
 	port, err := minioContainer.MappedPort(ctx, "9000")
 	require.NoError(t, err)
-
 	cfg.Username = "minioadmin"
 	cfg.Password = "minioadmin"
 	cfg.Endpoint = fmt.Sprintf("%s:%d", ip, port.Int())
-
 	return cfg, minioContainer
 }

@@ -97,7 +97,6 @@ func (f *FetchState) readAsync() {
 func (f *FetchState) read() error {
 	f.lock.Lock()
 	defer f.lock.Unlock()
-
 	if f.completionFunc == nil {
 		// Response already sent
 		return nil
@@ -173,15 +172,6 @@ func (f *FetchState) sendResponse() error {
 		// response already sent
 		return nil
 	}
-
-	for _, topicResp := range f.resp.Responses {
-		for _, partResp := range topicResp.Partitions {
-			if partResp.ErrorCode != int16(kafkaprotocol.ErrorCodeNone) {
-				log.Warnf("fetch response returning errorcode: %d", partResp.ErrorCode)
-			}
-		}
-	}
-
 	if err := f.completionFunc(&f.resp); err != nil {
 		return err
 	}

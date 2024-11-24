@@ -118,15 +118,11 @@ func NewTablePusher(cfg Conf, topicProvider topicInfoProvider, objStore objstore
 }
 
 func (t *TablePusher) Start() error {
-	log.Debugf("in table pusher start")
 	t.lock.Lock()
 	defer t.lock.Unlock()
-	log.Debugf("in table pusher start after lock")
 	if t.started {
-		log.Debugf("table pusher already started")
 		return nil
 	}
-	log.Debugf("starting table pusher with write timeout %d ms", t.cfg.WriteTimeout.Milliseconds())
 	t.scheduleWriteTimer(t.cfg.WriteTimeout)
 	t.scheduleOffsetSnapshotTimer(t.cfg.OffsetSnapshotInterval)
 	t.started = true

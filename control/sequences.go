@@ -190,13 +190,6 @@ func (s *Sequences) writeKvDirect(kv common.KV) error {
 		Registrations: []lsm.RegistrationEntry{regEntry},
 	}
 	ch := make(chan error, 1)
-
-	/*
-		this has controller read lock held
-		but blocks waiting for result, but the registration on the lsm is queued so requires compaction to release space
-		but
-	*/
-
 	if err := s.lsmHolder.ApplyLsmChanges(batch, func(err error) error {
 		ch <- err
 		return nil

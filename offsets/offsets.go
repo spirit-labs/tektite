@@ -326,7 +326,6 @@ func (c *Cache) MaybeReleaseOffsets(sequence int64, sstableID sst.SSTableID) ([]
 	if !c.started {
 		return nil, nil, errors.New("offsets cache not started")
 	}
-	log.Debugf("in MaybeReleaseOffsets for table %s", string(sstableID))
 	lowestAcceptable := atomic.LoadInt64(&c.lowestAcceptableSequence)
 	if sequence < lowestAcceptable {
 		// attempt to release offsets came in for a sequence that was gotten before membership change

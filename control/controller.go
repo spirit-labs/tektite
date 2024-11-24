@@ -308,7 +308,6 @@ func (c *Controller) handleRegisterTableListener(_ *transport.ConnectionContext,
 	if memberAddress == "" {
 		return common.NewTektiteErrorf(common.Unavailable, "unable to register table listener - unknown cluster member %d", req.MemberID)
 	}
-	log.Debugf("handleRegisterTableListener returned lro: %d", lro)
 	c.tableListeners.maybeRegisterListenerForPartition(req.MemberID, memberAddress, req.TopicID, req.PartitionID, req.ResetSequence)
 	resp := RegisterTableListenerResponse{
 		LastReadableOffset: lro,
@@ -528,10 +527,6 @@ func (c *Controller) handleGetGroupCoordinatorInfo(_ *transport.ConnectionContex
 
 func (c *Controller) handleGenerateSequenceRequest(_ *transport.ConnectionContext, request []byte, responseBuff []byte,
 	responseWriter transport.ResponseWriter) error {
-	//common.DumpStacks()
-	tz := time.AfterFunc(5*time.Second, func() {
-		common.DumpStacks()
-	})
 	c.lock.RLock()
 	defer c.lock.RUnlock()
 	if !c.requestChecks(request, responseWriter) {
@@ -549,7 +544,6 @@ func (c *Controller) handleGenerateSequenceRequest(_ *transport.ConnectionContex
 	var resp GenerateSequenceResponse
 	resp.Sequence = seq
 	responseBuff = resp.Serialize(responseBuff)
-	tz.Stop()
 	return responseWriter(responseBuff, nil)
 }
 
