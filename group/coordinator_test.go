@@ -1719,8 +1719,9 @@ func TestOffsetCommit(t *testing.T) {
 
 func createExpectedKV(partHash []byte, topicID int, partitionID int, committedOffset int64) common.KV {
 	key := createOffsetKey(partHash, offsetKeyPublic, topicID, partitionID)
-	val := make([]byte, 8)
-	binary.BigEndian.PutUint64(val, uint64(committedOffset))
+	val := make([]byte, 0, 9)
+	val = binary.BigEndian.AppendUint64(val, uint64(committedOffset))
+	val = common.AppendValueMetadata(val)
 	return common.KV{
 		Key:   key,
 		Value: val,
@@ -2018,6 +2019,10 @@ func (t *testControlClient) GetOffsetInfos(infos []offsets.GetOffsetTopicInfo) (
 }
 
 func (t *testControlClient) GetTopicInfo(topicName string) (topicmeta.TopicInfo, int, bool, error) {
+	panic("should not be called")
+}
+
+func (t *testControlClient) GetTopicInfoByID(topicID int) (topicmeta.TopicInfo, bool, error) {
 	panic("should not be called")
 }
 

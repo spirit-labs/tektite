@@ -471,7 +471,8 @@ func TestTablePusherHandleDirectProduce(t *testing.T) {
 		if !ok {
 			break
 		}
-		batches = append(batches, kv.Value)
+		val := removeValueMetaData(kv.Value)
+		batches = append(batches, val)
 	}
 	// Should be in topic, partition order
 	require.Equal(t, 4, len(batches))
@@ -525,6 +526,11 @@ func TestTablePusherHandleDirectProduce(t *testing.T) {
 	reg := receivedRegs[0].regEntry
 	require.Equal(t, []byte(objects[0].Key), []byte(reg.TableID))
 	require.Equal(t, seq, receivedRegs[0].seq)
+}
+
+func removeValueMetaData(batch []byte) []byte {
+	values := common.ReadValueMetadata(batch)
+	return batch[:len(batch)-len(values)-2]
 }
 
 func checkBatchInBatches(t *testing.T, batch []byte, batches [][]byte) {
@@ -619,7 +625,7 @@ func TestTablePusherHandleProduceBatchSimple(t *testing.T) {
 		if !ok {
 			break
 		}
-		require.Equal(t, recordBatch, kv.Value)
+		require.Equal(t, recordBatch, removeValueMetaData(kv.Value))
 	}
 
 	// check getOffsets was called with correct args
@@ -871,6 +877,7 @@ func TestTablePusherHandleProduceBatchMultipleTopicsAndPartitions(t *testing.T) 
 		if !ok {
 			break
 		}
+		kv.Value = removeValueMetaData(kv.Value)
 		receivedKVs = append(receivedKVs, kv)
 	}
 	require.Equal(t, 4, len(receivedKVs))
@@ -1335,6 +1342,7 @@ func TestTablePusherHandleProduceBatchMixtureErrorsAndSuccesses(t *testing.T) {
 		if !ok {
 			break
 		}
+		kv.Value = removeValueMetaData(kv.Value)
 		receivedKVs = append(receivedKVs, kv)
 	}
 	require.Equal(t, 4, len(receivedKVs))
@@ -1788,7 +1796,7 @@ func TestTablePusherStoreOffsetSnapshot(t *testing.T) {
 
 		// value should be the offset
 		kv := receivedKVs[0]
-		require.Equal(t, 10, len(kv.Value))
+		require.Equal(t, 10, len(removeValueMetaData(kv.Value)))
 		require.Equal(t, offsetSnapshotFormatVersion, int(binary.BigEndian.Uint16(kv.Value)))
 		offset := binary.BigEndian.Uint64(kv.Value[2:])
 		require.Equal(t, 10, int(offset))

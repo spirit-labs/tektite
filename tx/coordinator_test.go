@@ -214,6 +214,7 @@ func createExpectedKV(partHash []byte, storedState *txStoredState) common.KV {
 	value := make([]byte, 0, 32)
 	value = binary.BigEndian.AppendUint16(value, transactionMetadataVersion)
 	value = storedState.Serialize(value)
+	value = common.AppendValueMetadata(value)
 	return common.KV{Key: kvKey, Value: value}
 }
 
@@ -263,6 +264,10 @@ func (t *testControlClient) GetOffsetInfos(infos []offsets.GetOffsetTopicInfo) (
 }
 
 func (t *testControlClient) GetTopicInfo(topicName string) (topicmeta.TopicInfo, int, bool, error) {
+	panic("should not be called")
+}
+
+func (t *testControlClient) GetTopicInfoByID(topicID int) (topicmeta.TopicInfo, bool, error) {
 	panic("should not be called")
 }
 

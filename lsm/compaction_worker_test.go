@@ -76,9 +76,10 @@ func TestCompactionIncrementingData(t *testing.T) {
 		require.True(t, valid)
 		pref := common.ByteSliceCopy(prefix)
 		expectedKey := append(pref, []byte(fmt.Sprintf("key%06d", i))...)
-		expectedVal := fmt.Sprintf("val%06d", i)
+		expectedVal := []byte(fmt.Sprintf("val%06d", i))
+		expectedVal = common.AppendValueMetadata(expectedVal, 0, 0)
 		require.Equal(t, expectedKey, curr.Key[:len(curr.Key)-8]) // trim version
-		require.Equal(t, expectedVal, string(curr.Value))
+		require.Equal(t, expectedVal, curr.Value)
 	}
 	valid, _, err := mi.Next()
 	require.NoError(t, err)
@@ -140,7 +141,8 @@ func TestCompactionOverwritingData(t *testing.T) {
 			prefixCopy := common.ByteSliceCopy(prefix)
 			key := append(prefixCopy, []byte(fmt.Sprintf("key%06d", k))...)
 			v := random.Intn(numKeys)
-			val := fmt.Sprintf("val%06d", v)
+			val := []byte(fmt.Sprintf("val%06d", v))
+			val = common.AppendValueMetadata(val, 0, 0)
 			ver, ok := versionsMap[k]
 			if !ok {
 				ver = startVersion
@@ -148,7 +150,7 @@ func TestCompactionOverwritingData(t *testing.T) {
 			} else {
 				versionsMap[k]++
 			}
-			si.AddKV(encoding.EncodeVersion(key, uint64(ver)), []byte(val))
+			si.AddKV(encoding.EncodeVersion(key, uint64(ver)), val)
 			keysMap[k] = v
 		}
 
@@ -195,10 +197,11 @@ func TestCompactionOverwritingData(t *testing.T) {
 
 		prefixCopy := common.ByteSliceCopy(prefix)
 		expectedKey := append(prefixCopy, []byte(fmt.Sprintf("key%06d", k))...)
-		expectedVal := fmt.Sprintf("val%06d", v)
+		expectedVal := []byte(fmt.Sprintf("val%06d", v))
+		expectedVal = common.AppendValueMetadata(expectedVal, 0, 0)
 
 		require.Equal(t, expectedKey, curr.Key[:len(curr.Key)-8]) // trim version
-		require.Equal(t, expectedVal, string(curr.Value))
+		require.Equal(t, expectedVal, curr.Value)
 
 		ver := math.MaxUint64 - binary.BigEndian.Uint64(curr.Key[len(curr.Key)-8:])
 		require.Equal(t, expectedVersion, int(ver))
@@ -400,8 +403,9 @@ func TestRandomUpdateDeleteData(t *testing.T) {
 
 			if update {
 				v := random.Intn(numKeys)
-				val := fmt.Sprintf("val%06d", v)
-				si.AddKV(encoding.EncodeVersion(key, uint64(ver)), []byte(val))
+				val := []byte(fmt.Sprintf("val%06d", v))
+				val = common.AppendValueMetadata(val, 0, 0)
+				si.AddKV(encoding.EncodeVersion(key, uint64(ver)), val)
 				entry.updated = true
 				entry.deleted = false
 				entry.val = v
@@ -455,10 +459,11 @@ func TestRandomUpdateDeleteData(t *testing.T) {
 		expectedVersion := entry.ver - 1
 		prefixCopy := common.ByteSliceCopy(prefix)
 		expectedKey := append(prefixCopy, []byte(fmt.Sprintf("key%06d", k))...)
-		expectedVal := fmt.Sprintf("val%06d", entry.val)
+		expectedVal := []byte(fmt.Sprintf("val%06d", entry.val))
+		expectedVal = common.AppendValueMetadata(expectedVal, 0, 0)
 
 		require.Equal(t, expectedKey, curr.Key[:len(curr.Key)-8]) // trim version
-		require.Equal(t, expectedVal, string(curr.Value))
+		require.Equal(t, expectedVal, curr.Value)
 
 		require.Equal(t, expectedVersion, int(ver))
 	}
@@ -837,6 +842,7 @@ func buildAndRegisterTableWithKeyRangeAndVersion(t *testing.T, name string, rang
 		var val []byte
 		if !tombstones {
 			val = []byte(fmt.Sprintf("val%06d", i))
+			val = common.AppendValueMetadata(val, 0, 0)
 		}
 		si.AddKV(encoding.EncodeVersion(key, uint64(version)), val)
 	}
@@ -925,4 +931,8 @@ func (c *directControllerClient) PollForJob() (CompactionJob, error) {
 
 func (c *directControllerClient) Close() error {
 	return nil
+}
+
+func (c *directControllerClient) GetRetentionForTopic(_ int) (time.Duration, bool, error) {
+	return -1, true, nil
 }

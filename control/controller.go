@@ -79,6 +79,7 @@ func (c *Controller) Start() error {
 	c.transportServer.RegisterHandler(transport.HandlerIDControllerPollForJob, c.handlePollForJob)
 	c.transportServer.RegisterHandler(transport.HandlerIDControllerGetAllTopicInfos, c.handleGetAllTopicInfos)
 	c.transportServer.RegisterHandler(transport.HandlerIDControllerGetTopicInfo, c.handleGetTopicInfo)
+	c.transportServer.RegisterHandler(transport.HandlerIDControllerGetTopicInfoByID, c.handleGetTopicInfoByID)
 	c.transportServer.RegisterHandler(transport.HandlerIDControllerCreateTopic, c.handleCreateTopic)
 	c.transportServer.RegisterHandler(transport.HandlerIDControllerDeleteTopic, c.handleDeleteTopic)
 	c.transportServer.RegisterHandler(transport.HandlerIDControllerGetGroupCoordinatorInfo, c.handleGetGroupCoordinatorInfo)
@@ -459,6 +460,28 @@ func (c *Controller) handleGetTopicInfo(_ *transport.ConnectionContext, request 
 	}
 	var resp GetTopicInfoResponse
 	resp.Sequence = seq
+	resp.Exists = exists
+	resp.Info = info
+	responseBuff = resp.Serialize(responseBuff)
+	return responseWriter(responseBuff, nil)
+}
+
+func (c *Controller) handleGetTopicInfoByID(_ *transport.ConnectionContext, request []byte, responseBuff []byte, responseWriter transport.ResponseWriter) error {
+	c.lock.RLock()
+	defer c.lock.RUnlock()
+	if !c.requestChecks(request, responseWriter) {
+		return nil
+	}
+	var req GetTopicInfoByIDRequest
+	req.Deserialize(request, 2)
+	if err := c.checkLeaderVersion(req.LeaderVersion); err != nil {
+		return responseWriter(nil, err)
+	}
+	info, exists, err := c.topicMetaManager.GetTopicInfoByID(req.TopicID)
+	if err != nil {
+		return responseWriter(nil, err)
+	}
+	var resp GetTopicInfoResponse
 	resp.Exists = exists
 	resp.Info = info
 	responseBuff = resp.Serialize(responseBuff)

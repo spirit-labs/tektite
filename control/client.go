@@ -28,6 +28,8 @@ type Client interface {
 
 	GetTopicInfo(topicName string) (topicmeta.TopicInfo, int, bool, error)
 
+	GetTopicInfoByID(topicID int) (topicmeta.TopicInfo, bool, error)
+
 	GetAllTopicInfos() ([]topicmeta.TopicInfo, error)
 
 	CreateTopic(topicInfo topicmeta.TopicInfo) error
@@ -195,6 +197,25 @@ func (c *client) GetTopicInfo(topicName string) (topicmeta.TopicInfo, int, bool,
 	var resp GetTopicInfoResponse
 	resp.Deserialize(respBuff, 0)
 	return resp.Info, resp.Sequence, resp.Exists, nil
+}
+
+func (c *client) GetTopicInfoByID(topicID int) (topicmeta.TopicInfo, bool, error) {
+	conn, err := c.getConnection()
+	if err != nil {
+		return topicmeta.TopicInfo{}, false, err
+	}
+	req := GetTopicInfoByIDRequest{
+		LeaderVersion: c.leaderVersion,
+		TopicID:       topicID,
+	}
+	buff := req.Serialize(createRequestBuffer())
+	respBuff, err := conn.SendRPC(transport.HandlerIDControllerGetTopicInfoByID, buff)
+	if err != nil {
+		return topicmeta.TopicInfo{}, false, err
+	}
+	var resp GetTopicInfoResponse
+	resp.Deserialize(respBuff, 0)
+	return resp.Info, resp.Exists, nil
 }
 
 func (c *client) GetAllTopicInfos() ([]topicmeta.TopicInfo, error) {

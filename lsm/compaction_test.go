@@ -1527,7 +1527,8 @@ func createExpiredEntryKey(slabID int, i int) []byte {
 }
 
 func createExpiredValue(slabID int, i int) []byte {
-	return []byte(fmt.Sprintf("val-%d-%d", slabID, i))
+	buff := []byte(fmt.Sprintf("val-%d-%d", slabID, i))
+	return common.AppendValueMetadata(buff, int64(slabID), 23)
 }
 
 func TestRemoveExpiredEntriesIterator(t *testing.T) {

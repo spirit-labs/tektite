@@ -7,7 +7,6 @@ const (
 	ReplSeqSlabID      = 3
 	StreamMetaSlabID   = 4
 	UserCredsSlabID    = 5
-	TopicMetadataSlabID = 6
 	UserSlabIDBase     = 1000
 )
 

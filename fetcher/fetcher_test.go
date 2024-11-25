@@ -651,7 +651,7 @@ func TestFetcherSingleTopicMultiplePartitionsNoWaitRequestMaxSizeExceeded(t *tes
 	setupForPartition(t, defaultTopicID, defaultTopicName, 24, 3000, 12999, 12999, 10, 2, topicProvider, controlClient, objStore)
 	setupForPartition(t, defaultTopicID, defaultTopicName, 25, 7000, 16999, 16999, 10, 2, topicProvider, controlClient, objStore)
 
-	maxBytes := len(batches1[0]) * 5
+	maxBytes := len(removeValueMetaData(batches1[0])) * 5
 
 	// The order in which partitions are fetched is not deterministic so we just validate total max size
 	req := kafkaprotocol.FetchRequest{
@@ -702,7 +702,7 @@ func TestFetcherSinglePartitionNoWaitAndMinBytesExactlyReached(t *testing.T) {
 	batches, _ := setupDataDefault(t, 0, 9999, 9999, 10, 2, topicProvider, controlClient, objStore)
 	totBatchSizes := 0
 	for _, batch := range batches {
-		totBatchSizes += len(batch)
+		totBatchSizes += len(removeValueMetaData(batch))
 	}
 	resp := sendFetchDefault(t, 0, 0, totBatchSizes, defaultMaxBytes, defaultMaxBytes, fetcher)
 	// All batches should be fetched
@@ -728,7 +728,7 @@ func TestFetcherSinglePartitionMoreThanMinBytesReached(t *testing.T) {
 	batches, _ := setupDataDefault(t, 0, 9999, 9999, 10, 2, topicProvider, controlClient, objStore)
 	totBatchSizes := 0
 	for _, batch := range batches {
-		totBatchSizes += len(batch)
+		totBatchSizes += len(removeValueMetaData(batch))
 	}
 	resp := sendFetchDefault(t, 0, 0, totBatchSizes-1, defaultMaxBytes, defaultMaxBytes, fetcher)
 	// All batches should be fetched
@@ -800,13 +800,13 @@ func TestFetcherSinglePartitionMinBytesReachedExactlyMultiplePartitions(t *testi
 
 	totSize := 0
 	for _, batch := range batches1 {
-		totSize += len(batch)
+		totSize += len(removeValueMetaData(batch))
 	}
 	for _, batch := range batches2 {
-		totSize += len(batch)
+		totSize += len(removeValueMetaData(batch))
 	}
 	for _, batch := range batches3 {
-		totSize += len(batch)
+		totSize += len(removeValueMetaData(batch))
 	}
 
 	// The order in which partitions are fetched is not deterministic so we just validate total max size
@@ -1000,7 +1000,7 @@ func TestFetcherMinBytesExactlyReachedMultipleTopicsMultiplePartitions(t *testin
 
 	totSize := 0
 	for _, batch := range allBatches {
-		totSize += len(batch)
+		totSize += len(removeValueMetaData(batch))
 	}
 
 	req := kafkaprotocol.FetchRequest{
@@ -2029,6 +2029,7 @@ func setupTable(t *testing.T, batchInfos []partitionBatchInfo, objStore objstore
 		key = encoding.KeyEncodeInt(key, info.offsetStart)
 		key = encoding.EncodeVersion(key, 0)
 		batch := testutils.CreateKafkaRecordBatchWithIncrementingKVs(int(info.offsetStart), info.numRecords)
+		batch = common.AppendValueMetadata(batch, int64(info.topicID), int64(info.partitionID))
 		batches = append(batches, batch)
 		kvs = append(kvs, common.KV{
 			Key:   key,
@@ -2169,7 +2170,14 @@ func verifySinglePartitionResponse(t *testing.T, resp *kafkaprotocol.FetchRespon
 	if len(batches) == 0 {
 		require.Equal(t, 0, len(partitionResp.Records))
 	} else {
-		require.Equal(t, batches, partitionResp.Records)
+		verifyBatchesSame(t, batches, partitionResp.Records)
+	}
+}
+
+func verifyBatchesSame(t *testing.T, expected [][]byte, batches [][]byte) {
+	require.Equal(t, len(expected), len(batches))
+	for i, exp := range expected {
+		require.Equal(t, removeValueMetaData(exp), batches[i])
 	}
 }
 
@@ -2314,6 +2322,10 @@ func (t *testControlClient) GetOffsetInfos(infos []offsets.GetOffsetTopicInfo) (
 }
 
 func (t *testControlClient) GetTopicInfo(topicName string) (topicmeta.TopicInfo, int, bool, error) {
+	panic("should not be called")
+}
+
+func (t *testControlClient) GetTopicInfoByID(topicID int) (topicmeta.TopicInfo, bool, error) {
 	panic("should not be called")
 }
 
