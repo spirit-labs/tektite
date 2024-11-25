@@ -81,7 +81,6 @@ func TestFetchSimple(t *testing.T) {
 	require.Equal(t, kafkaprotocol.ErrorCodeNone, int(partResp.ErrorCode))
 	receivedBatches := partResp.Records
 	require.Equal(t, 1, len(receivedBatches))
-
 	require.Equal(t, batch, receivedBatches[0])
 }
 
@@ -106,6 +105,7 @@ func testFetch(t *testing.T, numAgents int, writeTimeout time.Duration, numBatch
 		{
 			Name:           topicName,
 			PartitionCount: 100,
+			RetentionTime:  -1,
 		},
 	}
 	cfg := NewConf()

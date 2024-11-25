@@ -2,6 +2,7 @@ package lsm
 
 import (
 	"encoding/binary"
+	"github.com/pkg/errors"
 	"github.com/spirit-labs/tektite/common"
 	iteration2 "github.com/spirit-labs/tektite/iteration"
 	log "github.com/spirit-labs/tektite/logger"
@@ -37,7 +38,7 @@ func (r *RemoveExpiredEntriesIterator) Next() (bool, common.KV, error) {
 		if err != nil || !valid {
 			return false, curr, err
 		}
-		expired, err := r.isExpired(curr.Key)
+		expired, err := r.isExpired(curr.Value)
 		if err != nil {
 			return false, common.KV{}, err
 		}
@@ -59,16 +60,24 @@ func (r *RemoveExpiredEntriesIterator) Close() {
 	r.iter.Close()
 }
 
-func (r *RemoveExpiredEntriesIterator) isExpired(key []byte) (bool, error) {
-	if len(key) <= 16 {
-		log.Warnf("Got small key %v", key)
+func (r *RemoveExpiredEntriesIterator) isExpired(value []byte) (bool, error) {
+	if len(value) < 2 {
+		// tombstone or marker
+		return false, nil
 	}
-	slabID := int(binary.BigEndian.Uint64(key[16:]))
-	retention, err := r.retentionProvider.GetSlabRetention(slabID)
+	valueMetaData := common.ReadValueMetadata(value)
+	if len(valueMetaData) == 0 {
+		return false, nil
+	}
+	topicID := valueMetaData[0]
+	retention, err := r.retentionProvider.GetSlabRetention(int(topicID))
 	if err != nil {
 		return false, err
 	}
 	if retention == 0 {
+		return false, errors.Errorf("invalid zero retention for topic %v", topicID)
+	}
+	if retention == -1 {
 		return false, nil
 	}
 	expired := r.sstCreationTime+uint64(retention.Milliseconds()) <= r.now

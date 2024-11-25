@@ -269,7 +269,8 @@ func (p *PartitionFetchState) read() (wouldExceedRequestMax bool, wouldExceedPar
 		if !ok {
 			break
 		}
-		batchSize := len(kv.Value)
+		value := removeValueMetaData(kv.Value)
+		batchSize := len(value)
 		if !p.fs.first {
 			if p.bytesFetched+batchSize > int(p.partitionFetchReq.PartitionMaxBytes) {
 				// Would exceed partition max size
@@ -282,16 +283,21 @@ func (p *PartitionFetchState) read() (wouldExceedRequestMax bool, wouldExceedPar
 				break
 			}
 		}
-		batches = append(batches, kv.Value)
+		batches = append(batches, value)
 		p.fs.first = false
 		p.bytesFetched += batchSize
 		p.fs.bytesFetched += batchSize
-		p.fetchOffset += int64(kafkaencoding.NumRecords(kv.Value))
+		p.fetchOffset += int64(kafkaencoding.NumRecords(value))
 	}
 	if len(batches) > 0 {
 		p.partitionFetchResp.Records = append(p.partitionFetchResp.Records, batches...)
 	}
 	return
+}
+
+func removeValueMetaData(batch []byte) []byte {
+	values := common.ReadValueMetadata(batch)
+	return batch[:len(batch)-len(values)-2]
 }
 
 func (p *PartitionFetchState) createKeyStartAndEnd(fetchOffset int64, lro int64) ([]byte, []byte) {

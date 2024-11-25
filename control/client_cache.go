@@ -195,6 +195,17 @@ func (c *clientWrapper) GetTopicInfo(topicName string) (topicmeta.TopicInfo, int
 	return topicInfo, seq, exists, err
 }
 
+func (c *clientWrapper) GetTopicInfoByID(topicID int) (topicmeta.TopicInfo, bool, error) {
+	if c.injectedError != nil {
+		return topicmeta.TopicInfo{}, false, c.injectedError
+	}
+	topicInfo, exists, err := c.client.GetTopicInfoByID(topicID)
+	if err != nil {
+		c.closeConnection()
+	}
+	return topicInfo, exists, err
+}
+
 func (c *clientWrapper) CreateTopic(topicInfo topicmeta.TopicInfo) error {
 	if c.injectedError != nil {
 		return c.injectedError

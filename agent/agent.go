@@ -19,6 +19,7 @@ import (
 	"github.com/spirit-labs/tektite/tx"
 	"sync"
 	"sync/atomic"
+	"time"
 )
 
 type Agent struct {
@@ -134,7 +135,11 @@ func NewAgentWithFactories(cfg Conf, objStore objstore.Client, connectionFactory
 	agent.clusterMembershipFactory = clusterMembershipFactory
 	agent.transportServer = transportServer
 	clFactory := func() (lsm.ControllerClient, error) {
-		return agent.controller.Client()
+		cc, err := agent.controller.Client()
+		if err != nil {
+			return nil, err
+		}
+		return &compactionWorkerControllerClient{cc: cc}, nil
 	}
 	agent.compactionWorkersService = lsm.NewCompactionWorkerService(cfg.CompactionWorkersConf, objStore,
 		clFactory, true)
@@ -287,4 +292,31 @@ func (o *fetchCacheGetter) get(tableID sst.SSTableID) (*sst.SSTable, error) {
 	table := &sst.SSTable{}
 	table.Deserialize(bytes, 0)
 	return table, nil
+}
+
+type compactionWorkerControllerClient struct {
+	cc control.Client
+}
+
+func (c *compactionWorkerControllerClient) ApplyLsmChanges(regBatch lsm.RegistrationBatch) error {
+	return c.cc.ApplyLsmChanges(regBatch)
+}
+
+func (c *compactionWorkerControllerClient) PollForJob() (lsm.CompactionJob, error) {
+	return c.cc.PollForJob()
+}
+
+func (c *compactionWorkerControllerClient) GetRetentionForTopic(topicID int) (time.Duration, bool, error) {
+	topicInfo, exists, err := c.cc.GetTopicInfoByID(topicID)
+	if err != nil {
+		return 0, false, err
+	}
+	if !exists {
+		return 0, false, nil
+	}
+	return topicInfo.RetentionTime, true, nil
+}
+
+func (c *compactionWorkerControllerClient) Close() error {
+	return c.cc.Close()
 }

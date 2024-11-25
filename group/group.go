@@ -730,8 +730,9 @@ func (g *group) offsetCommit(transactional bool, req *kafkaprotocol.OffsetCommit
 				offsetKeyType = offsetKeyPublic
 			}
 			key := createOffsetKey(g.partHash, offsetKeyType, info.ID, int(partitionData.PartitionIndex))
-			value := make([]byte, 8)
-			binary.BigEndian.PutUint64(value, uint64(offset))
+			value := make([]byte, 0, 8)
+			value = binary.BigEndian.AppendUint64(value, uint64(offset))
+			value = common.AppendValueMetadata(value)
 			kvs = append(kvs, common.KV{
 				Key:   key,
 				Value: value,

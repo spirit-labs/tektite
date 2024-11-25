@@ -10,6 +10,7 @@ const (
 	HandlerIDControllerPollForJob
 	HandlerIDControllerGetAllTopicInfos
 	HandlerIDControllerGetTopicInfo
+	HandlerIDControllerGetTopicInfoByID
 	HandlerIDControllerCreateTopic
 	HandlerIDControllerDeleteTopic
 	HandlerIDControllerGetGroupCoordinatorInfo

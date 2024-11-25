@@ -315,6 +315,25 @@ func (g *GetTopicInfoRequest) Deserialize(buff []byte, offset int) int {
 	return offset
 }
 
+type GetTopicInfoByIDRequest struct {
+	LeaderVersion int
+	TopicID       int
+}
+
+func (g *GetTopicInfoByIDRequest) Serialize(buff []byte) []byte {
+	buff = binary.BigEndian.AppendUint64(buff, uint64(g.LeaderVersion))
+	buff = binary.BigEndian.AppendUint64(buff, uint64(g.TopicID))
+	return buff
+}
+
+func (g *GetTopicInfoByIDRequest) Deserialize(buff []byte, offset int) int {
+	g.LeaderVersion = int(binary.BigEndian.Uint64(buff[offset:]))
+	offset += 8
+	g.TopicID = int(binary.BigEndian.Uint64(buff[offset:]))
+	offset += 8
+	return offset
+}
+
 type GetTopicInfoResponse struct {
 	Sequence int
 	Exists   bool

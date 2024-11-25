@@ -62,6 +62,7 @@ type ControllerClientFactory func() (ControllerClient, error)
 type ControllerClient interface {
 	ApplyLsmChanges(regBatch RegistrationBatch) error
 	PollForJob() (CompactionJob, error)
+	GetRetentionForTopic(topicID int) (time.Duration, bool, error)
 	Close() error
 }
 
@@ -156,19 +157,20 @@ func (c *compactionWorker) GetSlabRetention(slabID int) (time.Duration, error) {
 	if ok {
 		return ret, nil
 	}
-	// TODO - slab retentions will come from the metaservice, exposed over the controller
-	//cl, err := c.controllerClient()
-	//if err != nil {
-	//	return 0, err
-	//}
-	//ret, err = cl.GetSlabRetention(slabID)
-	//if err != nil {
-	//	c.closeControllerClient()
-	//	return 0, err
-	//}
-	//c.slabRetentions[slabID] = ret
-	//return ret, nil
-	return 0, nil
+	cl, err := c.controllerClient()
+	if err != nil {
+		return 0, err
+	}
+	retention, exists, err := cl.GetRetentionForTopic(slabID)
+	if err != nil {
+		c.closeControllerClient(false)
+		return 0, err
+	}
+	if !exists {
+		return 0, errors.Errorf("compaction worker failed to get retention: topic with id %d does not exist", slabID)
+	}
+	c.slabRetentions[slabID] = retention
+	return retention, nil
 }
 
 func (c *compactionWorker) start() {

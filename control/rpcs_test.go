@@ -295,6 +295,20 @@ func TestSerializeDeserializeGetTopicInfoRequest(t *testing.T) {
 	require.Equal(t, off, len(buff))
 }
 
+func TestSerializeDeserializeGetTopicInfoByIDRequest(t *testing.T) {
+	req := GetTopicInfoByIDRequest{
+		LeaderVersion: 123,
+		TopicID:       123123,
+	}
+	var buff []byte
+	buff = append(buff, 1, 2, 3)
+	buff = req.Serialize(buff)
+	var req2 GetTopicInfoByIDRequest
+	off := req2.Deserialize(buff, 3)
+	require.Equal(t, req, req2)
+	require.Equal(t, off, len(buff))
+}
+
 func TestSerializeDeserializeGetTopicInfoResponseExistsTrue(t *testing.T) {
 	resp := GetTopicInfoResponse{
 		Sequence: 123,

@@ -526,6 +526,12 @@ func intCompare(i1, i2 int) int {
 	}
 }
 
+func (t *TablePusher) ForceWrite() error {
+	t.lock.Lock()
+	defer t.lock.Unlock()
+	return t.write()
+}
+
 func (t *TablePusher) write() error {
 	if len(t.partitionRecords) == 0 && t.numDirectKVsToCommit == 0 {
 		// Nothing to do
@@ -639,7 +645,6 @@ func (t *TablePusher) write() error {
 							on which agent they came from. The LSM can then parallelize compaction of non overlapping groups of tables
 							thus allowing LSM compaction to scale with number of agents.
 					*/
-
 					key := make([]byte, 0, 33)
 					key = append(key, partitionHash...)
 					key = append(key, common.EntryTypeTopicData)
@@ -647,9 +652,11 @@ func (t *TablePusher) write() error {
 					key = encoding.EncodeVersion(key, 0)
 					// Fill in base offset
 					binary.BigEndian.PutUint64(records, uint64(offset))
+					// We encode topic id and partition id in the metdata at the end of the value
+					value := common.AppendValueMetadata(records, int64(topOffset.TopicID), int64(partInfo.PartitionID))
 					kvs = append(kvs, common.KV{
 						Key:   key,
-						Value: records,
+						Value: value,
 					})
 					offset += int64(kafkaencoding.NumRecords(records))
 				}
@@ -850,6 +857,7 @@ func (t *TablePusher) maybeSnapshotSequences() error {
 					// We store the offset - this lets us index back into the actual data so we can
 					// load latest sequence after the snapshot
 					value = binary.BigEndian.AppendUint64(value, uint64(seqInfo.offset))
+					value = common.AppendValueMetadata(value, int64(topicID), int64(partitionID))
 					kvs = append(kvs, common.KV{
 						Key:   key,
 						Value: value,

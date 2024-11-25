@@ -142,8 +142,9 @@ func (s *Sequence) loadLastSequence() (int64, error) {
 
 func (s *Sequence) reserveSequenceBlock() error {
 	reservedVal := s.maxCachedVal + s.sequences.blockSize
-	value := make([]byte, 8)
-	binary.BigEndian.PutUint64(value, uint64(reservedVal))
+	value := make([]byte, 0, 9)
+	value = binary.BigEndian.AppendUint64(value, uint64(reservedVal))
+	value = common.AppendValueMetadata(value)
 	// TODO should we channel all writes through table pusher instead of writing direct?
 	key := make([]byte, 0, 24)
 	key = append(key, s.key...)
