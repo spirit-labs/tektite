@@ -37,7 +37,7 @@ func extractErrorCode(err error) common.ErrCode {
 	return common.UnknownError
 }
 
-func detectInvalidTopic(name string) error {
+func isInvalidTopicName(name string) error {
 	// Check if the name is empty
 	if len(name) == 0 {
 		return errors.New("the empty string is not allowed")
@@ -60,65 +60,86 @@ func detectInvalidTopic(name string) error {
 	return nil
 }
 
+func (k *kafkaHandler) validateAndCreateTopic(topicName string, topic kafkaprotocol.CreateTopicsRequestCreatableTopic, retentionTime time.Duration) (int16, string) {
+    err := isInvalidTopicName(topicName)
+    if err != nil {
+        return int16(kafkaprotocol.ErrorCodeInvalidTopicException), fmt.Sprintf("Invalid topic: %s (Reason: %s)", topicName, err.Error())
+    }
+
+    acl, err := k.agent.controlClientCache.GetClient()
+    if err != nil {
+        return kafkaprotocol.ErrorCodeCoordinatorNotAvailable, err.Error()
+    }
+
+    topicInfo := topicmeta.TopicInfo{
+        Name:           topicName,
+        PartitionCount: int(topic.NumPartitions),
+        RetentionTime:  retentionTime,
+    }
+
+    err = acl.CreateTopic(topicInfo)
+    if err != nil {
+        if extractErrorCode(err) == common.TopicAlreadyExists {
+            return kafkaprotocol.ErrorCodeTopicAlreadyExists, err.Error()
+        }
+        return kafkaprotocol.ErrorCodeInvalidTopicException, err.Error()
+    }
+
+    return 0, ""
+}
+
+func isValidRetentionTime(retentionMs int) bool {
+    return retentionMs > 0 || retentionMs == -1
+}
+
+func (k *kafkaHandler) parseRetentionConfig(topic kafkaprotocol.CreateTopicsRequestCreatableTopic, topicName string) (time.Duration, []kafkaprotocol.CreateTopicsResponseCreatableTopicConfigs, int16, string) {
+    retentionTime := k.agent.cfg.DefaultTopicRetentionTime
+    respConfigs := make([]kafkaprotocol.CreateTopicsResponseCreatableTopicConfigs, len(topic.Configs))
+	errCode := int16(0)
+    var errMsg string
+	
+	for cidx, config := range topic.Configs {
+        if common.SafeDerefStringPtr(config.Name) == "retention.ms" {
+            retentionMs, err := strconv.Atoi(common.SafeDerefStringPtr(config.Value))
+            if err == nil && isValidRetentionTime(retentionMs) {
+                retentionTime = time.Duration(retentionMs) * time.Millisecond
+            } else {
+				errCode  = int16(kafkaprotocol.ErrorCodeInvalidTopicException)
+				errMsg = fmt.Sprintf("Invalid retention time for topic: %s", topicName)
+            }
+        }
+        respConfigs[cidx] = kafkaprotocol.CreateTopicsResponseCreatableTopicConfigs{
+            Name:  config.Name,
+            Value: config.Value,
+        }
+    }
+    return retentionTime, respConfigs, errCode, errMsg
+}
+
 func (k *kafkaHandler) HandleCreateTopicsRequest(hdr *kafkaprotocol.RequestHeader, req *kafkaprotocol.CreateTopicsRequest, completionFunc func(resp *kafkaprotocol.CreateTopicsResponse) error) error {
-	resp := &kafkaprotocol.CreateTopicsResponse{
-		ThrottleTimeMs: 0,
-		Topics:         make([]kafkaprotocol.CreateTopicsResponseCreatableTopicResult, len(req.Topics)),
-	}
-	for tidx, topic := range req.Topics {
-		retentionTime := k.agent.cfg.DefaultTopicRetentionTime
-		respConfigs := make([]kafkaprotocol.CreateTopicsResponseCreatableTopicConfigs, len(topic.Configs))
-		// Parse custom retention time from topic configs if provided
-		for cidx, config := range topic.Configs {
-			if common.SafeDerefStringPtr(config.Name) == "retention.ms" {
-				retentionMs, err := strconv.Atoi(common.SafeDerefStringPtr(config.Value))
-				if err == nil {
-					retentionTime = time.Duration(retentionMs) * time.Millisecond
-				}
-			}
-			respConfigs[cidx] = kafkaprotocol.CreateTopicsResponseCreatableTopicConfigs{
-				Name:  config.Name,
-				Value: config.Value,
-			}
-		}
-		var errMsg string
-		errCode := int16(0)
-		derefTopicName := common.SafeDerefStringPtr(topic.Name)
-		err := detectInvalidTopic(derefTopicName)
-		if err != nil {
-			errMsg = fmt.Sprintf("Invalid topic: %s (Reason: %s)\n", derefTopicName, err.Error())
-			errCode = int16(kafkaprotocol.ErrorCodeInvalidTopicException)
-		} else {
-			acl, err := k.agent.controlClientCache.GetClient()
-			if err != nil {
-				errMsg = err.Error()
-				errCode = kafkaprotocol.ErrorCodeCoordinatorNotAvailable
-			} else {
-				topicInfo := topicmeta.TopicInfo{
-					Name:           derefTopicName,
-					PartitionCount: int(topic.NumPartitions),
-					RetentionTime:  retentionTime,
-				}
-				err = acl.CreateTopic(topicInfo)
-				if err != nil {
-					errMsg = err.Error()
-					if extractErrorCode(err) == common.TopicAlreadyExists {
-						errCode = kafkaprotocol.ErrorCodeTopicAlreadyExists
-					} else {
-						errCode = kafkaprotocol.ErrorCodeInvalidTopicException
-					}
-				}
-			}
-		}
-		resp.Topics[tidx] = kafkaprotocol.CreateTopicsResponseCreatableTopicResult{
-			Name:          topic.Name,
-			ErrorCode:     errCode,
-			ErrorMessage:  &errMsg,
-			NumPartitions: topic.NumPartitions,
-			Configs:       respConfigs,
-		}
-	}
-	return completionFunc(resp)
+    resp := &kafkaprotocol.CreateTopicsResponse{
+        ThrottleTimeMs: 0,
+        Topics:         make([]kafkaprotocol.CreateTopicsResponseCreatableTopicResult, len(req.Topics)),
+    }
+
+    for tidx, topic := range req.Topics {
+        derefTopicName := common.SafeDerefStringPtr(topic.Name)
+        retentionTime, respConfigs, errCode, errMsg := k.parseRetentionConfig(topic, derefTopicName)
+
+        if errCode == 0 { // No error from config parsing
+            errCode, errMsg = k.validateAndCreateTopic(derefTopicName, topic, retentionTime)
+        }
+
+        resp.Topics[tidx] = kafkaprotocol.CreateTopicsResponseCreatableTopicResult{
+            Name:          topic.Name,
+            ErrorCode:     errCode,
+            ErrorMessage:  &errMsg,
+            NumPartitions: topic.NumPartitions,
+            Configs:       respConfigs,
+        }
+    }
+
+    return completionFunc(resp)
 }
 
 func (k *kafkaHandler) HandleDeleteTopicsRequest(hdr *kafkaprotocol.RequestHeader, req *kafkaprotocol.DeleteTopicsRequest, completionFunc func(resp *kafkaprotocol.DeleteTopicsResponse) error) error {
