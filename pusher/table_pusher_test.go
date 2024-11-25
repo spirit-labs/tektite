@@ -471,7 +471,7 @@ func TestTablePusherHandleDirectProduce(t *testing.T) {
 		if !ok {
 			break
 		}
-		val := removeValueMetaData(kv.Value)
+		val, _ := removeValueMetaData(kv.Value)
 		batches = append(batches, val)
 	}
 	// Should be in topic, partition order
@@ -528,9 +528,9 @@ func TestTablePusherHandleDirectProduce(t *testing.T) {
 	require.Equal(t, seq, receivedRegs[0].seq)
 }
 
-func removeValueMetaData(batch []byte) []byte {
+func removeValueMetaData(batch []byte) ([]byte, []int64) {
 	values := common.ReadValueMetadata(batch)
-	return batch[:len(batch)-len(values)-2]
+	return batch[:len(batch)-len(values)-2], values
 }
 
 func checkBatchInBatches(t *testing.T, batch []byte, batches [][]byte) {
@@ -625,7 +625,11 @@ func TestTablePusherHandleProduceBatchSimple(t *testing.T) {
 		if !ok {
 			break
 		}
-		require.Equal(t, recordBatch, removeValueMetaData(kv.Value))
+		val, meta := removeValueMetaData(kv.Value)
+		require.Equal(t, recordBatch, val)
+		require.Equal(t, 2, len(meta))
+		require.Equal(t, topicID, int(meta[0]))
+		require.Equal(t, 12, int(meta[1]))
 	}
 
 	// check getOffsets was called with correct args
@@ -719,7 +723,7 @@ type testLeaderChecker struct {
 	leader bool
 }
 
-func (t *testLeaderChecker) IsLeader(topicID int, partitionID int) (bool, error) {
+func (t *testLeaderChecker) IsLeader(_ int, _ int) (bool, error) {
 	return t.leader, nil
 }
 
@@ -877,7 +881,7 @@ func TestTablePusherHandleProduceBatchMultipleTopicsAndPartitions(t *testing.T) 
 		if !ok {
 			break
 		}
-		kv.Value = removeValueMetaData(kv.Value)
+		kv.Value, _ = removeValueMetaData(kv.Value)
 		receivedKVs = append(receivedKVs, kv)
 	}
 	require.Equal(t, 4, len(receivedKVs))
@@ -1342,7 +1346,7 @@ func TestTablePusherHandleProduceBatchMixtureErrorsAndSuccesses(t *testing.T) {
 		if !ok {
 			break
 		}
-		kv.Value = removeValueMetaData(kv.Value)
+		kv.Value, _ = removeValueMetaData(kv.Value)
 		receivedKVs = append(receivedKVs, kv)
 	}
 	require.Equal(t, 4, len(receivedKVs))
@@ -1796,7 +1800,8 @@ func TestTablePusherStoreOffsetSnapshot(t *testing.T) {
 
 		// value should be the offset
 		kv := receivedKVs[0]
-		require.Equal(t, 10, len(removeValueMetaData(kv.Value)))
+		val, _ := removeValueMetaData(kv.Value)
+		require.Equal(t, 10, len(val))
 		require.Equal(t, offsetSnapshotFormatVersion, int(binary.BigEndian.Uint16(kv.Value)))
 		offset := binary.BigEndian.Uint64(kv.Value[2:])
 		require.Equal(t, 10, int(offset))

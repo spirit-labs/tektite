@@ -490,6 +490,44 @@ func TestControllerGetAllTopicInfos(t *testing.T) {
 	require.Equal(t, infos, allInfos)
 }
 
+func TestControllerGetTopicInfo(t *testing.T) {
+	objStore := dev.NewInMemStore(0)
+	controllers, _, tearDown := setupControllersWithObjectStore(t, 1, objStore)
+	defer tearDown(t)
+
+	updateMembership(t, 1, 1, controllers, 0)
+
+	cl, err := controllers[0].Client()
+	require.NoError(t, err)
+
+	numTopics := 100
+	var infos []topicmeta.TopicInfo
+
+	for i := 0; i < numTopics; i++ {
+		topicName := fmt.Sprintf("topic-%03d", i)
+		info := topicmeta.TopicInfo{
+			Name:           topicName,
+			ID:             1000 + i,
+			PartitionCount: i + 1,
+			RetentionTime:  time.Duration(1000000 + i),
+		}
+		err = cl.CreateTopic(info)
+		require.NoError(t, err)
+		infos = append(infos, info)
+	}
+
+	for _, info := range infos {
+		received, _, exists, err := cl.GetTopicInfo(info.Name)
+		require.NoError(t, err)
+		require.True(t, exists)
+		require.Equal(t, info, received)
+		received, exists, err = cl.GetTopicInfoByID(received.ID)
+		require.NoError(t, err)
+		require.True(t, exists)
+		require.Equal(t, info, received)
+	}
+}
+
 func TestControllerGenerateSequence(t *testing.T) {
 	controllers, tearDown := setupControllers(t, 1)
 	defer tearDown(t)
