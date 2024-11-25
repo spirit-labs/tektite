@@ -243,7 +243,7 @@ func TestTablePusherDirectWriteMultipleWritersOK(t *testing.T) {
 func TestTablePusherDirectWriteMultipleGroupsInvalidEpochs(t *testing.T) {
 	cfg := NewConf()
 	cfg.DataBucketName = "test-data-bucket"
-	cfg.WriteTimeout = 1 * time.Millisecond // So it pushes straightaway
+	cfg.WriteTimeout = 1 * time.Hour
 	objStore := dev.NewInMemStore(0)
 	seq := int64(23)
 
@@ -308,6 +308,9 @@ func TestTablePusherDirectWriteMultipleGroupsInvalidEpochs(t *testing.T) {
 		})
 		chans = append(chans, respCh)
 	}
+
+	err = pusher.ForceWrite()
+	require.NoError(t, err)
 
 	for i, ch := range chans {
 		err := <-ch

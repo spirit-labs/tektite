@@ -526,6 +526,12 @@ func intCompare(i1, i2 int) int {
 	}
 }
 
+func (t *TablePusher) ForceWrite() error {
+	t.lock.Lock()
+	defer t.lock.Unlock()
+	return t.write()
+}
+
 func (t *TablePusher) write() error {
 	if len(t.partitionRecords) == 0 && t.numDirectKVsToCommit == 0 {
 		// Nothing to do
