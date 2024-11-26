@@ -29,7 +29,8 @@ type Controller struct {
 	started                    bool
 	stopping                   atomic.Bool
 	objStoreClient             objstore.Client
-	connectionFactory          transport.ConnectionFactory
+	connCaches                 *transport.ConnCaches
+	connFactory                transport.ConnectionFactory
 	transportServer            transport.Server
 	lsmHolder                  *LsmHolder
 	offsetsCache               *offsets.Cache
@@ -42,25 +43,32 @@ type Controller struct {
 	tableGetter                sst.TableGetter
 	sequences                  *Sequences
 	memberID                   int32
+	activateClusterVersion     int
+	credentialsLock            sync.Mutex
 }
 
-func NewController(cfg Conf, objStoreClient objstore.Client, connectionFactory transport.ConnectionFactory,
+func NewController(cfg Conf, objStoreClient objstore.Client, connCaches *transport.ConnCaches, connFactory transport.ConnectionFactory,
 	transportServer transport.Server) *Controller {
 	control := &Controller{
-		cfg:                        cfg,
-		objStoreClient:             objStoreClient,
-		connectionFactory:          connectionFactory,
-		transportServer:            transportServer,
-		tableListeners:             newTableListeners(cfg.TableNotificationInterval, connectionFactory),
-		groupCoordinatorController: NewGroupCoordinatorController(),
-		memberID:                   -1,
+		cfg:                    cfg,
+		objStoreClient:         objStoreClient,
+		connCaches:             connCaches,
+		connFactory:            connFactory,
+		transportServer:        transportServer,
+		tableListeners:         newTableListeners(cfg.TableNotificationInterval, connCaches),
+		memberID:               -1,
+		activateClusterVersion: -1,
 	}
+	control.groupCoordinatorController = NewGroupCoordinatorController(func() int {
+		return control.activateClusterVersion
+	})
 	return control
 }
 
 const (
 	objStoreCallTimeout      = 5 * time.Second
 	unavailabilityRetryDelay = 1 * time.Second
+	controllerWriterKey      = "controller"
 )
 
 func (c *Controller) Start() error {
@@ -83,7 +91,10 @@ func (c *Controller) Start() error {
 	c.transportServer.RegisterHandler(transport.HandlerIDControllerCreateTopic, c.handleCreateTopic)
 	c.transportServer.RegisterHandler(transport.HandlerIDControllerDeleteTopic, c.handleDeleteTopic)
 	c.transportServer.RegisterHandler(transport.HandlerIDControllerGetGroupCoordinatorInfo, c.handleGetGroupCoordinatorInfo)
-	c.transportServer.RegisterHandler(transport.HandlerIDControllerGenerateSequence, c.handleGenerateSequenceRequest)
+	c.transportServer.RegisterHandler(transport.HandlerIDControllerGenerateSequence, c.handleGenerateSequence)
+	c.transportServer.RegisterHandler(transport.HandlerIDControllerPutUserCredentials, c.handlePutUserCredentials)
+	c.transportServer.RegisterHandler(transport.HandlerIDControllerDeleteUserCredentials, c.handleDeleteUserCredentials)
+
 	c.tableListeners.start()
 	c.started = true
 	return nil
@@ -153,7 +164,7 @@ func (c *Controller) MembershipChanged(thisMemberID int32, newState cluster.Memb
 			}
 			c.lsmHolder = lsmHolder
 			topicMetaManager, err := topicmeta.NewManager(lsmHolder, c.objStoreClient, c.cfg.SSTableBucketName, c.cfg.DataFormat,
-				c.connectionFactory)
+				c.connCaches)
 			if err != nil {
 				return err
 			}
@@ -168,6 +179,7 @@ func (c *Controller) MembershipChanged(thisMemberID int32, newState cluster.Memb
 			if err := cache.Start(); err != nil {
 				return err
 			}
+			c.activateClusterVersion = newState.ClusterVersion
 			c.offsetsCache = cache
 			c.sequences = NewSequences(lsmHolder, c.tableGetter, c.objStoreClient, c.cfg.SSTableBucketName,
 				c.cfg.DataFormat, int64(c.cfg.SequencesBlockSize))
@@ -221,7 +233,7 @@ func (c *Controller) Client() (Client, error) {
 		m:             c,
 		address:       leaderMembershipData.ClusterListenAddress,
 		leaderVersion: c.currentMembership.LeaderVersion,
-		connFactory:   c.connectionFactory,
+		connFactory:   c.connFactory,
 	}, nil
 }
 
@@ -294,7 +306,6 @@ func (c *Controller) handleRegisterTableListener(_ *transport.ConnectionContext,
 	if !exists {
 		err = common.NewTektiteErrorf(common.TopicDoesNotExist, "GetOffsetInfo: unknown topic: %d", req.TopicID)
 	}
-	log.Debugf("lro for topic %d partition %d is %d", req.TopicID, req.PartitionID, lro)
 	if err != nil {
 		return responseWriter(nil, err)
 	}
@@ -536,7 +547,7 @@ func (c *Controller) handleGetGroupCoordinatorInfo(_ *transport.ConnectionContex
 	if err := c.checkLeaderVersion(req.LeaderVersion); err != nil {
 		return responseWriter(nil, err)
 	}
-	address, groupEpoch, err := c.groupCoordinatorController.GetGroupCoordinatorInfo(req.GroupID)
+	address, groupEpoch, err := c.groupCoordinatorController.GetGroupCoordinatorInfo(req.Key)
 	if err != nil {
 		return responseWriter(nil, err)
 	}
@@ -548,7 +559,7 @@ func (c *Controller) handleGetGroupCoordinatorInfo(_ *transport.ConnectionContex
 	return responseWriter(responseBuff, nil)
 }
 
-func (c *Controller) handleGenerateSequenceRequest(_ *transport.ConnectionContext, request []byte, responseBuff []byte,
+func (c *Controller) handleGenerateSequence(_ *transport.ConnectionContext, request []byte, responseBuff []byte,
 	responseWriter transport.ResponseWriter) error {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
@@ -567,6 +578,42 @@ func (c *Controller) handleGenerateSequenceRequest(_ *transport.ConnectionContex
 	var resp GenerateSequenceResponse
 	resp.Sequence = seq
 	responseBuff = resp.Serialize(responseBuff)
+	return responseWriter(responseBuff, nil)
+}
+
+func (c *Controller) handlePutUserCredentials(_ *transport.ConnectionContext, request []byte, responseBuff []byte,
+	responseWriter transport.ResponseWriter) error {
+	c.lock.RLock()
+	defer c.lock.RUnlock()
+	if !c.requestChecks(request, responseWriter) {
+		return nil
+	}
+	var req PutUserCredentialsRequest
+	req.Deserialize(request, 2)
+	if err := c.checkLeaderVersion(req.LeaderVersion); err != nil {
+		return responseWriter(nil, err)
+	}
+	if err := c.putUserCredentials(req.Username, req.StoredKey, req.ServerKey, req.Salt, req.Iters); err != nil {
+		return responseWriter(nil, err)
+	}
+	return responseWriter(responseBuff, nil)
+}
+
+func (c *Controller) handleDeleteUserCredentials(_ *transport.ConnectionContext, request []byte, responseBuff []byte,
+	responseWriter transport.ResponseWriter) error {
+	c.lock.RLock()
+	defer c.lock.RUnlock()
+	if !c.requestChecks(request, responseWriter) {
+		return nil
+	}
+	var req DeleteUserCredentialsRequest
+	req.Deserialize(request, 2)
+	if err := c.checkLeaderVersion(req.LeaderVersion); err != nil {
+		return responseWriter(nil, err)
+	}
+	if err := c.deleteUserCredentials(req.Username); err != nil {
+		return responseWriter(nil, err)
+	}
 	return responseWriter(responseBuff, nil)
 }
 

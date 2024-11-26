@@ -9,7 +9,9 @@ import (
 )
 
 func TestGroupCoordinatorControllerRoundRobin(t *testing.T) {
-	cg := NewGroupCoordinatorController()
+	cg := NewGroupCoordinatorController(func() int {
+		return 1
+	})
 	numMembers := 10
 	state := applyClusterState(numMembers, cg)
 
@@ -25,7 +27,9 @@ func TestGroupCoordinatorControllerRoundRobin(t *testing.T) {
 }
 
 func TestGroupCoordinatorControllerMemberLeft(t *testing.T) {
-	cg := NewGroupCoordinatorController()
+	cg := NewGroupCoordinatorController(func() int {
+		return 1
+	})
 	numMembers := 10
 	state := applyClusterState(numMembers, cg)
 
@@ -74,7 +78,9 @@ func TestGroupCoordinatorControllerMemberLeft(t *testing.T) {
 }
 
 func TestGroupCoordinatorCheckEpochs(t *testing.T) {
-	cg := NewGroupCoordinatorController()
+	cg := NewGroupCoordinatorController(func() int {
+		return 1
+	})
 	numMembers := 10
 	state := applyClusterState(numMembers, cg)
 

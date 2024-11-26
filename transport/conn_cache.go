@@ -84,7 +84,7 @@ func (cc *ConnectionCache) createConnection(index int) (*connectionWrapper, erro
 	return cl, nil
 }
 
-func (cc *ConnectionCache) deleteClient(index int) {
+func (cc *ConnectionCache) deleteConnection(index int) {
 	cc.lock.Lock()
 	defer cc.lock.Unlock()
 	cc.connections[index] = nil
@@ -105,6 +105,57 @@ func (c *connectionWrapper) SendRPC(handlerID int, request []byte) ([]byte, erro
 }
 
 func (c *connectionWrapper) Close() error {
-	c.cc.deleteClient(c.index)
+	c.cc.deleteConnection(c.index)
 	return c.conn.Close()
+}
+
+type ConnCaches struct {
+	maxConnectionsPerAddress int
+	connFactory              ConnectionFactory
+	connCachesLock           sync.RWMutex
+	connCaches               map[string]*ConnectionCache
+}
+
+func NewConnCaches(maxConnectionsPerAddress int, connFactory ConnectionFactory) *ConnCaches {
+	return &ConnCaches{
+		maxConnectionsPerAddress: maxConnectionsPerAddress,
+		connFactory:              connFactory,
+		connCaches:               map[string]*ConnectionCache{},
+	}
+}
+
+func (c *ConnCaches) GetConnection(address string) (Connection, error) {
+	connCache, ok := c.getConnCache(address)
+	if !ok {
+		connCache = c.createConnCache(address)
+	}
+	return connCache.GetConnection()
+}
+
+func (c *ConnCaches) Close() {
+	c.connCachesLock.Lock()
+	defer c.connCachesLock.Unlock()
+	for _, connCache := range c.connCaches {
+		connCache.Close()
+	}
+	c.connCaches = make(map[string]*ConnectionCache)
+}
+
+func (c *ConnCaches) getConnCache(address string) (*ConnectionCache, bool) {
+	c.connCachesLock.RLock()
+	defer c.connCachesLock.RUnlock()
+	connCache, ok := c.connCaches[address]
+	return connCache, ok
+}
+
+func (c *ConnCaches) createConnCache(address string) *ConnectionCache {
+	c.connCachesLock.Lock()
+	defer c.connCachesLock.Unlock()
+	connCache, ok := c.connCaches[address]
+	if ok {
+		return connCache
+	}
+	connCache = NewConnectionCache(address, c.maxConnectionsPerAddress, c.connFactory)
+	c.connCaches[address] = connCache
+	return connCache
 }

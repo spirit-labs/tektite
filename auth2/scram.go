@@ -3,59 +3,31 @@ package auth
 import (
 	"crypto/hmac"
 	"encoding/base64"
-	"encoding/json"
-	"fmt"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
-	"github.com/spirit-labs/tektite/asl/conf"
+	"github.com/spirit-labs/tektite/asl/encoding"
 	"github.com/spirit-labs/tektite/common"
-	"github.com/spirit-labs/tektite/evbatch"
+	"github.com/spirit-labs/tektite/control"
 	log "github.com/spirit-labs/tektite/logger"
-	"github.com/spirit-labs/tektite/opers"
-	"github.com/spirit-labs/tektite/parser"
-	"github.com/spirit-labs/tektite/proc"
-	"github.com/spirit-labs/tektite/query"
-	"github.com/spirit-labs/tektite/types"
+	"github.com/spirit-labs/tektite/parthash"
+	"github.com/spirit-labs/tektite/sst"
 	"github.com/xdg-go/pbkdf2"
 	"github.com/xdg-go/scram"
-	"math"
 	"sync"
 )
-
-type SystemSlabRegistor interface {
-	RegisterSystemSlab(slabName string, persistorReceiverID int, deleterReceiverID int, slabID int,
-		schema *opers.OperatorSchema, keyCols []string) error
-}
-
-type batchForwarder interface {
-	ForwardBatch(batch *proc.ProcessBatch, replicate bool, completionFunc func(error))
-}
-
-var UserCredsColumnNames = []string{"username", "creds"}
-var UserCredsColumnTypes = []types.ColumnType{types.ColumnTypeString, types.ColumnTypeBytes}
 
 type ScramAuthType int
 
 const (
 	ScramAuthTypeSHA256 = 1
 	ScramAuthTypeSHA512 = 2
-	UserCredsSlabName   = "sys.usercreds"
-	GetCredsQueryName   = "sys.get_creds"
 	NumIters            = 4096
 )
 
-func NewScramManager(slabRegistor SystemSlabRegistor, forwarder batchForwarder, parser *parser.Parser,
-	queryManager query.Manager, cfg *conf.Config, authType ScramAuthType) (*ScramManager, error) {
-	sm := &ScramManager{
-		slabRegistor: slabRegistor,
-		forwarder:    forwarder,
-		parser:       parser,
-		queryManager: queryManager,
-		userCredsSchema: opers.OperatorSchema{
-			EventSchema:     evbatch.NewEventSchema(UserCredsColumnNames, UserCredsColumnTypes),
-			PartitionScheme: opers.NewPartitionScheme("_default_", 1, false, cfg.ProcessorCount),
-		},
-		credsSequenceLocal: common.NewGRLocal(),
+func NewScramManager(authType ScramAuthType, controlClientCache *control.ClientCache, tableGetter sst.TableGetter) (*ScramManager, error) {
+	partHash, err := parthash.CreateHash([]byte("user.creds"))
+	if err != nil {
+		return nil, err
 	}
 	var hashGenFunc scram.HashGeneratorFcn
 	var authTypeStr string
@@ -68,6 +40,12 @@ func NewScramManager(slabRegistor SystemSlabRegistor, forwarder batchForwarder, 
 	} else {
 		return nil, errors.New("invalid auth type")
 	}
+	sm := &ScramManager{
+		controlClientCache: controlClientCache,
+		tableGetter:        tableGetter,
+		partHash:           partHash,
+		credsSequenceLocal: common.NewGRLocal(),
+	}
 	scramServer, err := hashGenFunc.NewServer(sm.lookupCredential)
 	if err != nil {
 		return nil, err
@@ -79,91 +57,13 @@ func NewScramManager(slabRegistor SystemSlabRegistor, forwarder batchForwarder, 
 }
 
 type ScramManager struct {
-	slabRegistor       SystemSlabRegistor
-	forwarder          batchForwarder
-	userCredsSchema    opers.OperatorSchema
+	partHash           []byte
 	scramServer        *scram.Server
+	controlClientCache *control.ClientCache
+	tableGetter        sst.TableGetter
 	hashGenFunc        scram.HashGeneratorFcn
 	authType           string
-	parser             *parser.Parser
-	queryManager       query.Manager
 	credsSequenceLocal common.GRLocal
-}
-
-type userCreds struct {
-	Salt      string
-	Iters     int
-	StoredKey string
-	ServerKey string
-	Sequence  int
-}
-
-func (s *ScramManager) Start() error {
-	// Register system slab receivers that will receive the process batch and store or delete usercreds as appropriate
-	if err := s.slabRegistor.RegisterSystemSlab(UserCredsSlabName, common.UserCredsReceiverID, common.UserCredsDeleteReceiverID,
-		common.UserCredsSlabID, &s.userCredsSchema, []string{"username"}); err != nil {
-		return err
-	}
-	prepare := parser.NewPrepareQueryDesc()
-	if err := s.parser.Parse(fmt.Sprintf("prepare %s := (get $user_name:string from %s)",
-		GetCredsQueryName, UserCredsSlabName), prepare); err != nil {
-		return err
-	}
-
-	return s.queryManager.PrepareQuery(*prepare)
-}
-
-func (s *ScramManager) Stop() error {
-	return nil
-}
-
-func (s *ScramManager) PutUserCredentials(username string, storedKey []byte, serverKey []byte, salt string, iters int) error {
-	if iters != 4096 {
-		return errors.New("invalid iterations")
-	}
-	creds, ok, err := s.lookupUserCreds(username)
-	if err != nil {
-		return err
-	}
-	sequence := 0
-	if ok {
-		// User already exists - this is a password update, increment the sequence from the existing creds
-		sequence = creds.Sequence + 1
-	}
-	// Create a new userCreds2 struct - this is JSON serializable
-	creds = userCreds{
-		Salt:      salt,
-		Iters:     iters,
-		StoredKey: base64.StdEncoding.EncodeToString(storedKey),
-		ServerKey: base64.StdEncoding.EncodeToString(serverKey),
-		Sequence:  sequence,
-	}
-	// Serialize creds to JSON
-	buff, err := json.Marshal(&creds)
-	if err != nil {
-		return err
-	}
-	// Convert to an event batch
-	builders := evbatch.CreateColBuilders(s.userCredsSchema.EventSchema.ColumnTypes())
-	builders[0].(*evbatch.StringColBuilder).Append(username)
-	builders[1].(*evbatch.BytesColBuilder).Append(buff)
-	evBatch := evbatch.NewBatchFromBuilders(s.userCredsSchema.EventSchema, builders...)
-	processorID := s.userCredsSchema.PartitionProcessorMapping[0]
-	// Create a process batch and send it to be stored
-	processBatch := proc.NewProcessBatch(processorID, evBatch, common.UserCredsReceiverID, 0, -1)
-	return s.sendCredsBatch(processBatch)
-}
-
-func (s *ScramManager) DeleteUserCredentials(username string) error {
-	// We create a batch with just the key col
-	columnTypes := []types.ColumnType{types.ColumnTypeString}
-	schema := evbatch.NewEventSchema([]string{"username"}, columnTypes)
-	colBuilders := evbatch.CreateColBuilders(columnTypes)
-	colBuilders[0].(*evbatch.StringColBuilder).Append(username)
-	batch := evbatch.NewBatchFromBuilders(schema, colBuilders...)
-	processorID := s.userCredsSchema.PartitionProcessorMapping[0]
-	processBatch := proc.NewProcessBatch(processorID, batch, common.UserCredsDeleteReceiverID, 0, -1)
-	return s.sendCredsBatch(processBatch)
 }
 
 // AuthenticateWithUserPwd is used e.g. with HTTP basic auth, when we need to auth on the server with a username and
@@ -258,56 +158,28 @@ func (s *ScramManager) GetUserCredsSequence(username string) (int, bool, error) 
 	return creds.Sequence, true, nil
 }
 
-func (s *ScramManager) lookupUserCreds(username string) (userCreds, bool, error) {
-	batch, err := s.executeQuerySingleResultBatch(GetCredsQueryName, []any{username})
+func (s *ScramManager) createKey(username string) []byte {
+	var key []byte
+	key = append(key, s.partHash...)
+	return encoding.KeyEncodeString(key, username)
+}
+
+func (s *ScramManager) lookupUserCreds(username string) (control.UserCredentials, bool, error) {
+	cl, err := s.controlClientCache.GetClient()
 	if err != nil {
-		return userCreds{}, false, err
+		return control.UserCredentials{}, false, err
 	}
-	if batch.RowCount == 0 {
-		return userCreds{}, false, nil
+	creds, exists, err := control.LookupUserCredentials(username, cl, s.tableGetter)
+	if err != nil {
+		return control.UserCredentials{}, false, err
 	}
-	user := batch.Columns[0].(*evbatch.StringColumn).Get(0)
-	if user != username {
-		// sanity check
-		return userCreds{}, false, errors.New("returned username does not match requested username")
-	}
-	credsBuff := batch.Columns[1].(*evbatch.BytesColumn).Get(0)
-	var creds userCreds
-	if err := json.Unmarshal(credsBuff, &creds); err != nil {
-		return userCreds{}, false, err
+	if !exists {
+		return control.UserCredentials{}, false, nil
 	}
 	// We store the creds sequence on a GR local - this is because we have no obvious way to pass it back directly to
 	// the caller in the authentication process as this goes throug xdg-go library code.
 	s.credsSequenceLocal.Set(creds.Sequence)
 	return creds, true, nil
-}
-
-func (s *ScramManager) executeQuerySingleResultBatch(queryName string, args []any) (*evbatch.Batch, error) {
-	ch := make(chan *evbatch.Batch, 1)
-	_, err := s.queryManager.ExecutePreparedQueryWithHighestVersion(queryName, args, math.MaxInt64,
-		func(last bool, numLastBatches int, batch *evbatch.Batch) error {
-			if numLastBatches != 1 {
-				panic("sys query must have 1 partition")
-			}
-			if !last {
-				panic("must be one result batch")
-			}
-			ch <- batch
-			return nil
-		})
-	if err != nil {
-		return nil, err
-	}
-	return <-ch, nil
-}
-
-func (s *ScramManager) sendCredsBatch(batch *proc.ProcessBatch) error {
-	ch := make(chan error, 1)
-	// We ingest this with replication, so the batch will not be lost if failure occurs.
-	s.forwarder.ForwardBatch(batch, true, func(err error) {
-		ch <- err
-	})
-	return <-ch
 }
 
 func (s *ScramManager) NewConversation() (*ScramConversation, error) {

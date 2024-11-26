@@ -40,6 +40,10 @@ type Client interface {
 
 	GenerateSequence(sequenceName string) (int64, error)
 
+	PutUserCredentials(username string, storedKey []byte, serverKey []byte, salt string, iters int) error
+
+	DeleteUserCredentials(username string) error
+
 	Close() error
 }
 
@@ -271,7 +275,7 @@ func (c *client) GetCoordinatorInfo(groupID string) (int32, string, int, error) 
 	}
 	req := GetGroupCoordinatorInfoRequest{
 		LeaderVersion: c.leaderVersion,
-		GroupID:       groupID,
+		Key:           groupID,
 	}
 	buff := req.Serialize(createRequestBuffer())
 	respBuff, err := conn.SendRPC(transport.HandlerIDControllerGetGroupCoordinatorInfo, buff)
@@ -300,6 +304,38 @@ func (c *client) GenerateSequence(sequenceName string) (int64, error) {
 	var resp GenerateSequenceResponse
 	resp.Deserialize(respBuff, 0)
 	return resp.Sequence, nil
+}
+
+func (c *client) PutUserCredentials(username string, storedKey []byte, serverKey []byte, salt string, iters int) error {
+	conn, err := c.getConnection()
+	if err != nil {
+		return err
+	}
+	req := PutUserCredentialsRequest{
+		LeaderVersion: c.leaderVersion,
+		Username:      username,
+		StoredKey:     storedKey,
+		ServerKey:     serverKey,
+		Salt:          salt,
+		Iters:         iters,
+	}
+	buff := req.Serialize(createRequestBuffer())
+	_, err = conn.SendRPC(transport.HandlerIDControllerPutUserCredentials, buff)
+	return err
+}
+
+func (c *client) DeleteUserCredentials(username string) error {
+	conn, err := c.getConnection()
+	if err != nil {
+		return err
+	}
+	req := DeleteUserCredentialsRequest{
+		LeaderVersion: c.leaderVersion,
+		Username:      username,
+	}
+	buff := req.Serialize(createRequestBuffer())
+	_, err = conn.SendRPC(transport.HandlerIDControllerDeleteUserCredentials, buff)
+	return err
 }
 
 func (c *client) Close() error {

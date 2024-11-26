@@ -20,11 +20,12 @@ allows us to screen out zombie coordinators from committing offsets after anothe
 for the key.
 */
 type CoordinatorController struct {
-	lock         sync.RWMutex
-	groupLeaders map[string]groupInfo
-	chooseSeq    int64
-	memberState  *cluster.MembershipState
-	memberGroups map[int32][]string
+	lock              sync.RWMutex
+	groupLeaders      map[string]groupInfo
+	chooseSeq         int64
+	memberState       *cluster.MembershipState
+	memberGroups      map[int32][]string
+	activatedProvider controllerActivatedClusterVersionProvider
 }
 
 type groupInfo struct {
@@ -33,10 +34,13 @@ type groupInfo struct {
 	leaderEpoch  int
 }
 
-func NewGroupCoordinatorController() *CoordinatorController {
+type controllerActivatedClusterVersionProvider func() int
+
+func NewGroupCoordinatorController(activatedProvider controllerActivatedClusterVersionProvider) *CoordinatorController {
 	return &CoordinatorController{
-		groupLeaders: make(map[string]groupInfo),
-		memberGroups: make(map[int32][]string),
+		groupLeaders:      make(map[string]groupInfo),
+		memberGroups:      make(map[int32][]string),
+		activatedProvider: activatedProvider,
 	}
 }
 
@@ -79,6 +83,13 @@ func (m *CoordinatorController) CheckGroupEpochs(groupEpochs []EpochInfo) []bool
 	m.lock.RLock()
 	defer m.lock.RUnlock()
 	for i, info := range groupEpochs {
+		if info.Key == controllerWriterKey {
+			// special key used when the controller itself is writing via the table pusher - in this case the
+			// epoch is just the cluster version when the controller became active
+			if info.Epoch == m.activatedProvider() {
+				res[i] = true
+			}
+		}
 		inf, ok := m.groupLeaders[info.Key]
 		if ok {
 			if inf.leaderEpoch == info.Epoch {

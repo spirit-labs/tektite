@@ -15,6 +15,8 @@ const (
 	HandlerIDControllerDeleteTopic
 	HandlerIDControllerGetGroupCoordinatorInfo
 	HandlerIDControllerGenerateSequence
+	HandlerIDControllerPutUserCredentials
+	HandlerIDControllerDeleteUserCredentials
 	HandlerIDMetaLocalCacheTopicAdded
 	HandlerIDMetaLocalCacheTopicDeleted
 	HandlerIDFetchCacheGetTableBytes

@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"github.com/pkg/errors"
 	"github.com/spirit-labs/tektite/asl/encoding"
-	"github.com/spirit-labs/tektite/cluster"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/control"
 	"github.com/spirit-labs/tektite/kafkaencoding"
@@ -420,7 +419,7 @@ func (t *TablePusher) HandleDirectWriteRequest(_ *transport.ConnectionContext, r
 	if err := checkRPCVersion(request); err != nil {
 		return err
 	}
-	var req DirectWriteRequest
+	var req common.DirectWriteRequest
 	req.Deserialize(request, 2)
 	t.addDirectKVs(&req, func(err error) {
 		if err := responseWriter(responseBuff, err); err != nil {
@@ -430,13 +429,13 @@ func (t *TablePusher) HandleDirectWriteRequest(_ *transport.ConnectionContext, r
 	return nil
 }
 
-func (t *TablePusher) AddDirectKVs(req *DirectWriteRequest, completionFunc func(err error)) {
+func (t *TablePusher) AddDirectKVs(req *common.DirectWriteRequest, completionFunc func(err error)) {
 	t.lock.Lock()
 	defer t.lock.Unlock()
 	t.addDirectKVs(req, completionFunc)
 }
 
-func (t *TablePusher) addDirectKVs(req *DirectWriteRequest, completionFunc func(err error)) {
+func (t *TablePusher) addDirectKVs(req *common.DirectWriteRequest, completionFunc func(err error)) {
 	lastEpoch, ok := t.directWriterEpochs[req.WriterKey]
 	if ok && req.WriterEpoch != lastEpoch {
 		msg := fmt.Sprintf("table pusher rejecting direct write from key %s as epoch is invalid", req.WriterKey)
@@ -622,6 +621,7 @@ func (t *TablePusher) write() error {
 			if err != nil {
 				return err
 			}
+			log.Debugf("table pusher writing entry for topic %d partition %d", topOffset.TopicID, partInfo.PartitionID)
 			// The returned offset is the last offset
 			lastOffset := partInfo.Offset
 			offset := lastOffset - int64(getOffSetInfos[i].PartitionInfos[j].NumOffsets) + 1
@@ -922,15 +922,4 @@ func (t *TablePusher) getLatestValueWithKey(key []byte) ([]byte, error) {
 		return nil, nil
 	}
 	return kv.Value, nil
-}
-
-func ChooseTablePusherForHash(partHash []byte, members []cluster.MembershipEntry) (string, bool) {
-	if len(members) == 0 {
-		return "", false
-	}
-	memberID := common.CalcMemberForHash(partHash, len(members))
-	data := members[memberID].Data
-	var memberData common.MembershipData
-	memberData.Deserialize(data, 0)
-	return memberData.ClusterListenAddress, true
 }

@@ -483,7 +483,7 @@ func verifyBatchesWritten(t *testing.T, topicID int, partitionID int, offsetStar
 		expectedKey = encoding.EncodeVersion(expectedKey, 0)
 		require.Equal(t, kv.Key, expectedKey)
 		recordBatch := kv.Value
-		recordBatch, valueMetadata := removeValueMetaData(recordBatch)
+		valueMetadata, recordBatch := common.ReadAndRemoveValueMetadata(recordBatch)
 		require.Equal(t, expectedBatch, recordBatch)
 		require.Equal(t, 2, len(valueMetadata))
 		require.Equal(t, topicID, int(valueMetadata[0]))
@@ -494,11 +494,6 @@ func verifyBatchesWritten(t *testing.T, topicID int, partitionID int, offsetStar
 	ok, _, err := mi.Next()
 	require.NoError(t, err)
 	require.False(t, ok)
-}
-
-func removeValueMetaData(batch []byte) ([]byte, []int64) {
-	values := common.ReadValueMetadata(batch)
-	return batch[:len(batch)-len(values)-2], values
 }
 
 type tableGetter struct {

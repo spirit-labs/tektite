@@ -12,7 +12,6 @@ import (
 	"github.com/spirit-labs/tektite/lsm"
 	"github.com/spirit-labs/tektite/offsets"
 	"github.com/spirit-labs/tektite/parthash"
-	"github.com/spirit-labs/tektite/pusher"
 	"github.com/spirit-labs/tektite/sst"
 	"github.com/spirit-labs/tektite/topicmeta"
 	"github.com/spirit-labs/tektite/transport"
@@ -34,7 +33,8 @@ func TestInitProducerNoTransactionalID(t *testing.T) {
 	partHashes, err := parthash.NewPartitionHashes(0)
 	require.NoError(t, err)
 	topicProvider := &testTopicInfoProvider{infos: map[string]topicmeta.TopicInfo{}}
-	coordinator := NewCoordinator(cfg, controlClientCache, tableGetter.getTable, localTransports.CreateConnection,
+	connCaches := transport.NewConnCaches(10, localTransports.CreateConnection)
+	coordinator := NewCoordinator(cfg, controlClientCache, tableGetter.getTable, connCaches,
 		topicProvider, partHashes)
 	numRequests := 100
 	for i := 0; i < numRequests; i++ {
@@ -77,7 +77,8 @@ func testInitProducerError(t *testing.T, injectError error, expectedErrCode int)
 	topicProvider := &testTopicInfoProvider{infos: map[string]topicmeta.TopicInfo{}}
 	partHashes, err := parthash.NewPartitionHashes(0)
 	require.NoError(t, err)
-	coordinator := NewCoordinator(cfg, controlClientCache, tableGetter.getTable, localTransports.CreateConnection,
+	connCaches := transport.NewConnCaches(10, localTransports.CreateConnection)
+	coordinator := NewCoordinator(cfg, controlClientCache, tableGetter.getTable, connCaches,
 		topicProvider, partHashes)
 
 	fp := &fakePusherSink{}
@@ -130,9 +131,9 @@ func TestInitProducerWithTransactionalID(t *testing.T) {
 	localTransports := transport.NewLocalTransports()
 	topicProvider := &testTopicInfoProvider{infos: map[string]topicmeta.TopicInfo{}}
 	partHashes, err := parthash.NewPartitionHashes(0)
-	coordinator := NewCoordinator(cfg, controlClientCache, tableGetter.getTable, localTransports.CreateConnection,
+	connCaches := transport.NewConnCaches(10, localTransports.CreateConnection)
+	coordinator := NewCoordinator(cfg, controlClientCache, tableGetter.getTable, connCaches,
 		topicProvider, partHashes)
-
 	fp := &fakePusherSink{}
 	transportServer, err := localTransports.NewLocalServer(uuid.New().String())
 	require.NoError(t, err)
@@ -295,6 +296,14 @@ func (t *testControlClient) GenerateSequence(sequenceName string) (int64, error)
 	return seq, nil
 }
 
+func (t *testControlClient) PutUserCredentials(username string, storedKey []byte, serverKey []byte, salt string, iters int) error {
+	panic("should not be called")
+}
+
+func (t *testControlClient) DeleteUserCredentials(username string) error {
+	panic("should not be called")
+}
+
 func (t *testControlClient) Close() error {
 	return nil
 }
@@ -302,7 +311,7 @@ func (t *testControlClient) Close() error {
 type fakePusherSink struct {
 	lock               sync.Mutex
 	receivedRPCVersion int16
-	received           *pusher.DirectWriteRequest
+	received           *common.DirectWriteRequest
 	directWriteErr     error
 }
 
@@ -314,14 +323,14 @@ func (f *fakePusherSink) HandleDirectWrite(_ *transport.ConnectionContext, reque
 	f.lock.Lock()
 	defer f.lock.Unlock()
 
-	f.received = &pusher.DirectWriteRequest{}
+	f.received = &common.DirectWriteRequest{}
 	f.receivedRPCVersion = int16(binary.BigEndian.Uint16(request))
 	f.received.Deserialize(request, 2)
 
 	return responseWriter(responseBuff, nil)
 }
 
-func (f *fakePusherSink) getReceived() (*pusher.DirectWriteRequest, int16) {
+func (f *fakePusherSink) getReceived() (*common.DirectWriteRequest, int16) {
 	f.lock.Lock()
 	defer f.lock.Unlock()
 	return f.received, f.receivedRPCVersion

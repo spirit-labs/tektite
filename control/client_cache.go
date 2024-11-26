@@ -250,6 +250,28 @@ func (c *clientWrapper) GenerateSequence(sequenceName string) (int64, error) {
 	return seq, err
 }
 
+func (c *clientWrapper) PutUserCredentials(username string, storedKey []byte, serverKey []byte, salt string, iters int) error {
+	if c.injectedError != nil {
+		return c.injectedError
+	}
+	err := c.client.PutUserCredentials(username, storedKey, serverKey, salt, iters)
+	if err != nil {
+		c.closeConnection()
+	}
+	return err
+}
+
+func (c *clientWrapper) DeleteUserCredentials(username string) error {
+	if c.injectedError != nil {
+		return c.injectedError
+	}
+	err := c.client.DeleteUserCredentials(username)
+	if err != nil {
+		c.closeConnection()
+	}
+	return err
+}
+
 func (c *clientWrapper) closeConnection() {
 	// always close connection on error
 	if err := c.Close(); err != nil {

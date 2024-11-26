@@ -17,7 +17,8 @@ func TestNotifications(t *testing.T) {
 	objStore := dev.NewInMemStore(0)
 
 	transports := transport.NewLocalTransports()
-	mgr, err := NewManager(lsmH, objStore, "test-bucket", common.DataFormatV1, transports.CreateConnection)
+	connCaches := transport.NewConnCaches(10, transports.CreateConnection)
+	mgr, err := NewManager(lsmH, objStore, "test-bucket", common.DataFormatV1, connCaches)
 	require.NoError(t, err)
 	err = mgr.Start()
 	require.NoError(t, err)

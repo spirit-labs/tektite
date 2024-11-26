@@ -3,6 +3,7 @@ package cluster
 import (
 	"encoding/json"
 	"github.com/pkg/errors"
+	"github.com/spirit-labs/tektite/common"
 	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/objstore"
 	"math"
@@ -260,4 +261,15 @@ func (m *Membership) GetState() (MembershipState, error) {
 		return MembershipState{}, err
 	}
 	return memberShipState, nil
+}
+
+func ChooseMemberAddressForHash(partHash []byte, members []MembershipEntry) (string, bool) {
+	if len(members) == 0 {
+		return "", false
+	}
+	memberID := common.CalcMemberForHash(partHash, len(members))
+	data := members[memberID].Data
+	var memberData common.MembershipData
+	memberData.Deserialize(data, 0)
+	return memberData.ClusterListenAddress, true
 }

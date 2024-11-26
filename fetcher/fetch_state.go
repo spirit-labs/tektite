@@ -60,6 +60,7 @@ func newFetchState(batchFetcher *BatchFetcher, req *kafkaprotocol.FetchRequest, 
 		}
 		partitionMap := recentTables.getPartitionMap(topicInfo.ID)
 		for j, partitionData := range topicData.Partitions {
+			log.Debugf("fetch for topic %d partition %d", topicInfo.ID, partitionData.Partition)
 			partitionResponses[j].PartitionIndex = partitionData.Partition
 			partitionResponses[j].Records = [][]byte{} // client does not like nil records
 			partitionID := int(partitionData.Partition)
@@ -136,6 +137,7 @@ outer:
 		return nil
 	}
 	if f.bytesFetched >= int(f.req.MinBytes) {
+		log.Debugf("got enough data, sending response")
 		// We fetched enough data
 		if err := f.sendResponse(); err != nil {
 			return err
@@ -231,6 +233,7 @@ func (p *PartitionFetchState) read() (wouldExceedRequestMax bool, wouldExceedPar
 			cl, err := p.fs.bf.getClient()
 			var alreadyInitialised bool
 			lastReadableOffset, alreadyInitialised, err = p.partitionTables.initialise(func() (int64, error) {
+				log.Debugf("registering table listener for topic %d partition %d", p.topicID, p.partitionID)
 				return cl.RegisterTableListener(p.topicID, p.partitionID, p.fs.bf.memberID, atomic.LoadInt64(&p.fs.bf.resetSequence))
 			})
 			if err != nil {
@@ -241,6 +244,7 @@ func (p *PartitionFetchState) read() (wouldExceedRequestMax bool, wouldExceedPar
 				continue
 			}
 		}
+		p.partitionFetchResp.HighWatermark = 1 + lastReadableOffset
 		if isInCachedRange {
 			iter, err = p.createIteratorFromTabIDs(tabIds, p.fetchOffset, lastReadableOffset)
 			if err != nil {
@@ -269,7 +273,7 @@ func (p *PartitionFetchState) read() (wouldExceedRequestMax bool, wouldExceedPar
 		if !ok {
 			break
 		}
-		value := removeValueMetaData(kv.Value)
+		value := common.RemoveValueMetadata(kv.Value)
 		batchSize := len(value)
 		if !p.fs.first {
 			if p.bytesFetched+batchSize > int(p.partitionFetchReq.PartitionMaxBytes) {
@@ -293,11 +297,6 @@ func (p *PartitionFetchState) read() (wouldExceedRequestMax bool, wouldExceedPar
 		p.partitionFetchResp.Records = append(p.partitionFetchResp.Records, batches...)
 	}
 	return
-}
-
-func removeValueMetaData(batch []byte) []byte {
-	values := common.ReadValueMetadata(batch)
-	return batch[:len(batch)-len(values)-2]
 }
 
 func (p *PartitionFetchState) createKeyStartAndEnd(fetchOffset int64, lro int64) ([]byte, []byte) {

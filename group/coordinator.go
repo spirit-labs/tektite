@@ -25,9 +25,7 @@ type Coordinator struct {
 	kafkaAddress   string
 	topicProvider  topicInfoProvider
 	clientCache    *control.ClientCache
-	connFactory    transport.ConnectionFactory
-	connCachesLock sync.RWMutex
-	connCaches     map[string]*transport.ConnectionCache
+	connCaches *transport.ConnCaches
 	tableGetter    sst.TableGetter
 	groups         map[string]*group
 	timers         sync.Map
@@ -75,15 +73,14 @@ const (
 )
 
 func NewCoordinator(cfg Conf, topicProvider topicInfoProvider, controlClientCache *control.ClientCache,
-	connFactory transport.ConnectionFactory, tableGetter sst.TableGetter) (*Coordinator, error) {
+	connCaches *transport.ConnCaches, tableGetter sst.TableGetter) (*Coordinator, error) {
 	return &Coordinator{
 		cfg:           cfg,
 		groups:        map[string]*group{},
 		topicProvider: topicProvider,
 		clientCache:   controlClientCache,
-		connFactory:   connFactory,
 		tableGetter:   tableGetter,
-		connCaches:    map[string]*transport.ConnectionCache{},
+		connCaches:    connCaches,
 	}, nil
 }
 
@@ -546,33 +543,6 @@ func (c *Coordinator) cancelTimer(timerKey string) {
 func (c *Coordinator) rescheduleTimer(timerKey string, delay time.Duration, action func()) {
 	c.cancelTimer(timerKey)
 	c.setTimer(timerKey, delay, action)
-}
-
-func (c *Coordinator) getConnection(address string) (transport.Connection, error) {
-	connCache, ok := c.getConnCache(address)
-	if !ok {
-		connCache = c.createConnCache(address)
-	}
-	return connCache.GetConnection()
-}
-
-func (c *Coordinator) getConnCache(address string) (*transport.ConnectionCache, bool) {
-	c.connCachesLock.RLock()
-	defer c.connCachesLock.RUnlock()
-	connCache, ok := c.connCaches[address]
-	return connCache, ok
-}
-
-func (c *Coordinator) createConnCache(address string) *transport.ConnectionCache {
-	c.connCachesLock.Lock()
-	defer c.connCachesLock.Unlock()
-	connCache, ok := c.connCaches[address]
-	if ok {
-		return connCache
-	}
-	connCache = transport.NewConnectionCache(address, c.cfg.MaxPusherConnectionsPerAddress, c.connFactory)
-	c.connCaches[address] = connCache
-	return connCache
 }
 
 func createCoordinatorKey(groupID string) string {

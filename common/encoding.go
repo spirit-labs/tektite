@@ -21,6 +21,13 @@ func AppendValueMetadata(buff []byte, meta ...int64) []byte {
 	return buff
 }
 
+func RemoveValueMetadata(buff []byte) []byte {
+	lb := len(buff)
+	size := int(buff[lb-1])
+	startPos := lb - size - 1
+	return buff[:startPos]
+}
+
 func ReadValueMetadata(buff []byte) []int64 {
 	lb := len(buff)
 	size := int(buff[lb-1])
@@ -32,4 +39,18 @@ func ReadValueMetadata(buff []byte) []int64 {
 		startPos += read
 	}
 	return values
+}
+
+func ReadAndRemoveValueMetadata(buff []byte) ([]int64, []byte) {
+	lb := len(buff)
+	size := int(buff[lb-1])
+	startPos := lb - size - 1
+	pos := startPos
+	var values []int64
+	for pos < lb-1 {
+		val, read := binary.Varint(buff[pos:])
+		values = append(values, val)
+		pos += read
+	}
+	return values, buff[:startPos]
 }
