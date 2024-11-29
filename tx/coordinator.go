@@ -26,14 +26,11 @@ import (
 type Coordinator struct {
 	lock               sync.RWMutex
 	controlClientCache *control.ClientCache
-	cfg                Conf
 	tableGetter        sst.TableGetter
 	membership         cluster.MembershipState
-	connFactory        transport.ConnectionFactory
+	connCaches         *transport.ConnCaches
 	topicProvider      topicInfoProvider
 	partHashes         *parthash.PartitionHashes
-	connCachesLock     sync.RWMutex
-	connCaches         map[string]*transport.ConnectionCache
 	txInfos            map[int64]*txInfo
 }
 
@@ -41,39 +38,22 @@ type topicInfoProvider interface {
 	GetTopicInfo(topicName string) (topicmeta.TopicInfo, bool, error)
 }
 
-func NewCoordinator(cfg Conf, controlClientCache *control.ClientCache, tableGetter sst.TableGetter,
-	connFactory transport.ConnectionFactory, topicProvider topicInfoProvider,
+func NewCoordinator(controlClientCache *control.ClientCache, tableGetter sst.TableGetter,
+	connCaches *transport.ConnCaches, topicProvider topicInfoProvider,
 	partHashes *parthash.PartitionHashes) *Coordinator {
 	return &Coordinator{
-		cfg:                cfg,
 		controlClientCache: controlClientCache,
 		tableGetter:        tableGetter,
-		connFactory:        connFactory,
 		topicProvider:      topicProvider,
 		partHashes:         partHashes,
 		txInfos:            make(map[int64]*txInfo),
-		connCaches:         map[string]*transport.ConnectionCache{},
+		connCaches:         connCaches,
 	}
-}
-
-type Conf struct {
-	MaxPusherConnectionsPerAddress int
-}
-
-func NewConf() Conf {
-	return Conf{
-		MaxPusherConnectionsPerAddress: DefaultMaxPusherConnectionsPerAddress,
-	}
-}
-
-func (c *Conf) Validate() error {
-	return nil
 }
 
 const (
-	DefaultMaxPusherConnectionsPerAddress = 10
-	producerIDSequenceName                = "pid"
-	transactionMetadataVersion            = uint16(1)
+	producerIDSequenceName     = "pid"
+	transactionMetadataVersion = uint16(1)
 )
 
 func (c *Coordinator) Start() error {
@@ -386,33 +366,6 @@ func (c *Coordinator) getLatestValueWithKey(key []byte) ([]byte, error) {
 	return kv.Value, nil
 }
 
-func (c *Coordinator) getConnection(address string) (transport.Connection, error) {
-	connCache, ok := c.getConnCache(address)
-	if !ok {
-		connCache = c.createConnCache(address)
-	}
-	return connCache.GetConnection()
-}
-
-func (c *Coordinator) getConnCache(address string) (*transport.ConnectionCache, bool) {
-	c.connCachesLock.RLock()
-	defer c.connCachesLock.RUnlock()
-	connCache, ok := c.connCaches[address]
-	return connCache, ok
-}
-
-func (c *Coordinator) createConnCache(address string) *transport.ConnectionCache {
-	c.connCachesLock.Lock()
-	defer c.connCachesLock.Unlock()
-	connCache, ok := c.connCaches[address]
-	if ok {
-		return connCache
-	}
-	connCache = transport.NewConnectionCache(address, c.cfg.MaxPusherConnectionsPerAddress, c.connFactory)
-	c.connCaches[address] = connCache
-	return connCache
-}
-
 type txStatus int
 
 const (
@@ -536,7 +489,7 @@ func (t *txInfo) storeCommittedOffsets() error {
 		key := "g." + group
 		// TODO cache this?
 		_, address, _, err := cl.GetCoordinatorInfo(key)
-		conn, err := t.c.getConnection(address)
+		conn, err := t.c.connCaches.GetConnection(address)
 		if err != nil {
 			return err
 		}
@@ -568,7 +521,7 @@ func (t *txInfo) sendTransactionMarkers() error {
 			if err != nil {
 				return err
 			}
-			pusherAddress, ok := pusher.ChooseTablePusherForHash(partitionHash, t.c.membership.Members)
+			pusherAddress, ok := cluster.ChooseMemberAddressForHash(partitionHash, t.c.membership.Members)
 			if !ok {
 				// No available pushers
 				log.Warnf("cannot commit transaction as no members in cluster")
@@ -612,7 +565,7 @@ func (t *txInfo) sendTransactionMarkers() error {
 	}
 	// TODO Send them in parallel
 	for pusherAddress, req := range requests {
-		conn, err := t.c.getConnection(pusherAddress)
+		conn, err := t.c.connCaches.GetConnection(pusherAddress)
 		if err != nil {
 			return &kafkaencoding.KafkaError{
 				ErrorCode: kafkaprotocol.ErrorCodeCoordinatorNotAvailable,
@@ -654,19 +607,19 @@ func (t *txInfo) store() error {
 }
 
 func (t *txInfo) sendDirectWrite(kvs []common.KV) error {
-	pusherAddress, ok := pusher.ChooseTablePusherForHash(t.partHash, t.c.membership.Members)
+	pusherAddress, ok := cluster.ChooseMemberAddressForHash(t.partHash, t.c.membership.Members)
 	if !ok {
 		// No available pushers
 		return &kafkaencoding.KafkaError{ErrorCode: kafkaprotocol.ErrorCodeCoordinatorNotAvailable,
 			ErrorMsg: "cannot store transaction as no members in cluster"}
 	}
-	pusherReq := pusher.DirectWriteRequest{
+	pusherReq := common.DirectWriteRequest{
 		WriterKey:   t.key,
 		WriterEpoch: int(t.tektiteEpoch),
 		KVs:         kvs,
 	}
 	buff := pusherReq.Serialize(createRequestBuffer())
-	conn, err := t.c.getConnection(pusherAddress)
+	conn, err := t.c.connCaches.GetConnection(pusherAddress)
 	if err != nil {
 		return err
 	}

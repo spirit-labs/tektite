@@ -934,5 +934,5 @@ func (m *FetchRequest) HeaderVersions(version int16) (int16, int16) {
 }
 
 func (m *FetchRequest) SupportedApiVersions() (int16, int16) {
-    return 4, 4
+    return 2, 4
 }

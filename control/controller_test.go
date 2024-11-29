@@ -2,6 +2,10 @@ package control
 
 import (
 	"bytes"
+	"context"
+	"encoding/base64"
+	"encoding/binary"
+	"encoding/json"
 	"fmt"
 	"github.com/google/uuid"
 	"github.com/spirit-labs/tektite/cluster"
@@ -10,10 +14,12 @@ import (
 	"github.com/spirit-labs/tektite/objstore"
 	"github.com/spirit-labs/tektite/objstore/dev"
 	"github.com/spirit-labs/tektite/offsets"
+	"github.com/spirit-labs/tektite/sst"
 	"github.com/spirit-labs/tektite/topicmeta"
 	"github.com/spirit-labs/tektite/transport"
 	"github.com/stretchr/testify/require"
 	"sort"
+	"sync"
 	"testing"
 	"time"
 )
@@ -455,6 +461,260 @@ func TestControllerCreateGetDeleteTopics(t *testing.T) {
 	}
 }
 
+func TestControllerPutDeleteCredentials(t *testing.T) {
+	objStore := dev.NewInMemStore(0)
+	controllers, _, tearDown := setupControllersWithObjectStore(t, 1, objStore)
+	defer tearDown(t)
+
+	controller := controllers[0]
+	fp := &fakePusherSink{}
+	controller.transportServer.RegisterHandler(transport.HandlerIDTablePusherDirectWrite, fp.HandleDirectWrite)
+	controller.SetTableGetter(func(tableID sst.SSTableID) (*sst.SSTable, error) {
+		buff, err := objStore.Get(context.Background(), "tektite-data", string(tableID))
+		if err != nil {
+			return nil, err
+		}
+		if len(buff) == 0 {
+			return nil, nil
+		}
+		tab := sst.SSTable{}
+		tab.Deserialize(buff, 0)
+		return &tab, nil
+	})
+
+	updateMembership(t, 1, 1, controllers, 0)
+
+	cl, err := controller.Client()
+	require.NoError(t, err)
+
+	numCredentials := 100
+	var kvs []common.KV
+	for i := 0; i < numCredentials; i++ {
+		username := fmt.Sprintf("user-%03d", i)
+		storedKey := []byte(fmt.Sprintf("stored-key-%03d", i))
+		serverKey := []byte(fmt.Sprintf("server-key-%03d", i))
+		salt := fmt.Sprintf("salt-%03d", i)
+		iters := 2048
+		err := cl.PutUserCredentials(username, storedKey, serverKey, salt, iters)
+		require.NoError(t, err)
+		received, rpcVer := fp.getReceived()
+		require.Equal(t, 1, int(rpcVer))
+		require.Equal(t, 1, len(received.KVs))
+
+		expectedKey := createCredentialsKey(username)
+		expectedCreds := UserCredentials{
+			Salt:      salt,
+			Iters:     iters,
+			StoredKey: base64.StdEncoding.EncodeToString(storedKey),
+			ServerKey: base64.StdEncoding.EncodeToString(serverKey),
+			Sequence:  0,
+		}
+		expectedVal, err := json.Marshal(&expectedCreds)
+		require.NoError(t, err)
+		expectedVal = common.AppendValueMetadata(expectedVal)
+
+		require.Equal(t, expectedKey, received.KVs[0].Key)
+		require.Equal(t, expectedVal, received.KVs[0].Value)
+		kvs = append(kvs, common.KV{
+			Key:   received.KVs[0].Key,
+			Value: received.KVs[0].Value,
+		})
+	}
+
+	// register table with the KVs
+	createAndRegisterTableWithKVs(t, kvs, objStore, "tektite-data", controller.lsmHolder)
+
+	// Now update them
+	for i := 0; i < numCredentials; i++ {
+		username := fmt.Sprintf("user-%03d", i)
+		storedKey := []byte(fmt.Sprintf("stored-key-%03d-2", i))
+		serverKey := []byte(fmt.Sprintf("server-key-%03d-2", i))
+		salt := fmt.Sprintf("salt-%03d-2", i)
+		iters := 4096
+		err := cl.PutUserCredentials(username, storedKey, serverKey, salt, iters)
+		require.NoError(t, err)
+		received, rpcVer := fp.getReceived()
+		require.Equal(t, 1, int(rpcVer))
+		require.Equal(t, 1, len(received.KVs))
+
+		expectedKey := createCredentialsKey(username)
+		expectedCreds := UserCredentials{
+			Salt:      salt,
+			Iters:     iters,
+			StoredKey: base64.StdEncoding.EncodeToString(storedKey),
+			ServerKey: base64.StdEncoding.EncodeToString(serverKey),
+			Sequence:  1, // sequence should be incremented
+		}
+		expectedVal, err := json.Marshal(&expectedCreds)
+		require.NoError(t, err)
+		expectedVal = common.AppendValueMetadata(expectedVal)
+		require.Equal(t, expectedKey, received.KVs[0].Key)
+		require.Equal(t, expectedVal, received.KVs[0].Value)
+	}
+
+	// Now delete them
+	for i := 0; i < numCredentials; i++ {
+		username := fmt.Sprintf("user-%03d", i)
+
+		err := cl.DeleteUserCredentials(username)
+		require.NoError(t, err)
+
+		received, rpcVer := fp.getReceived()
+		require.Equal(t, 1, int(rpcVer))
+		require.Equal(t, 1, len(received.KVs))
+
+		expectedKey := createCredentialsKey(username)
+		require.Equal(t, expectedKey, received.KVs[0].Key)
+		require.Equal(t, 0, len(received.KVs[0].Value))
+	}
+
+	// Delete unknown user
+	err = cl.DeleteUserCredentials("unknown-user")
+	require.Error(t, err)
+	require.True(t, common.IsTektiteErrorWithCode(err, common.NoSuchUser))
+}
+
+func TestControllerLookupCredentials(t *testing.T) {
+	objStore := dev.NewInMemStore(0)
+	controllers, _, tearDown := setupControllersWithObjectStore(t, 1, objStore)
+	defer tearDown(t)
+
+	controller := controllers[0]
+	fp := &fakePusherSink{}
+	controller.transportServer.RegisterHandler(transport.HandlerIDTablePusherDirectWrite, fp.HandleDirectWrite)
+	controller.SetTableGetter(func(tableID sst.SSTableID) (*sst.SSTable, error) {
+		buff, err := objStore.Get(context.Background(), "tektite-data", string(tableID))
+		if err != nil {
+			return nil, err
+		}
+		if len(buff) == 0 {
+			return nil, nil
+		}
+		tab := sst.SSTable{}
+		tab.Deserialize(buff, 0)
+		return &tab, nil
+	})
+
+	updateMembership(t, 1, 1, controllers, 0)
+
+	cl, err := controller.Client()
+	require.NoError(t, err)
+
+	numCredentials := 100
+	var kvs []common.KV
+	for i := 0; i < numCredentials; i++ {
+		username := fmt.Sprintf("user-%03d", i)
+		storedKey := []byte(fmt.Sprintf("stored-key-%03d", i))
+		serverKey := []byte(fmt.Sprintf("server-key-%03d", i))
+		salt := fmt.Sprintf("salt-%03d", i)
+		iters := 2048
+		err := cl.PutUserCredentials(username, storedKey, serverKey, salt, iters)
+		require.NoError(t, err)
+		received, rpcVer := fp.getReceived()
+		require.Equal(t, 1, int(rpcVer))
+		require.Equal(t, 1, len(received.KVs))
+		kvs = append(kvs, common.KV{
+			Key:   received.KVs[0].Key,
+			Value: received.KVs[0].Value,
+		})
+	}
+
+	// register table with the KVs
+	createAndRegisterTableWithKVs(t, kvs, objStore, "tektite-data", controller.lsmHolder)
+
+	for i := 0; i < numCredentials; i++ {
+		username := fmt.Sprintf("user-%03d", i)
+
+		creds, ok, err := LookupUserCredentials(username, controller.lsmHolder, controller.tableGetter)
+		require.NoError(t, err)
+		require.True(t, ok)
+
+		expectedCreds := UserCredentials{
+			Salt:      fmt.Sprintf("salt-%03d", i),
+			Iters:     2048,
+			StoredKey: base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("stored-key-%03d", i))),
+			ServerKey: base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("server-key-%03d", i))),
+			Sequence:  0,
+		}
+		require.Equal(t, expectedCreds, creds)
+	}
+
+	// lookup non existent
+	_, ok, err := LookupUserCredentials("no-such-user", controller.lsmHolder, controller.tableGetter)
+	require.NoError(t, err)
+	require.False(t, ok)
+}
+
+func TestControllerActivatedVersion(t *testing.T) {
+	controllers, tearDown := setupControllers(t, 3)
+	defer tearDown(t)
+
+	updateMembership(t, 100, 100, controllers, 0, 1, 2)
+
+	cl, err := controllers[0].Client()
+	require.NoError(t, err)
+	defer func() {
+		err := cl.Close()
+		require.NoError(t, err)
+	}()
+
+	require.Equal(t, 100, controllers[0].GetActivateClusterVersion())
+	require.Equal(t, -1, controllers[1].GetActivateClusterVersion())
+	require.Equal(t, -1, controllers[2].GetActivateClusterVersion())
+}
+
+func createAndRegisterTableWithKVs(t *testing.T, kvs []common.KV, objStore objstore.Client, bucketName string, lsmHolder *LsmHolder) {
+	iter := common.NewKvSliceIterator(kvs)
+	table, smallestKey, largestKey, _, _, err := sst.BuildSSTable(common.DataFormatV1, 0, 0, iter)
+	require.NoError(t, err)
+	tableID := sst.CreateSSTableId()
+	buff := table.Serialize()
+	err = objStore.Put(context.Background(), bucketName, tableID, buff)
+	require.NoError(t, err)
+	regBatch := lsm.RegistrationBatch{
+		Registrations: []lsm.RegistrationEntry{
+			{
+				Level:      0,
+				TableID:    []byte(tableID),
+				KeyStart:   smallestKey,
+				KeyEnd:     largestKey,
+				AddedTime:  uint64(time.Now().UnixMilli()),
+				NumEntries: uint64(table.NumEntries()),
+				TableSize:  uint64(table.SizeBytes()),
+			},
+		},
+	}
+	ch := make(chan error, 1)
+	err = lsmHolder.ApplyLsmChanges(regBatch, func(err error) error {
+		ch <- err
+		return nil
+	})
+	require.NoError(t, err)
+}
+
+type fakePusherSink struct {
+	lock               sync.Mutex
+	receivedRPCVersion int16
+	received           *common.DirectWriteRequest
+}
+
+func (f *fakePusherSink) HandleDirectWrite(_ *transport.ConnectionContext, request []byte, responseBuff []byte, responseWriter transport.ResponseWriter) error {
+	f.lock.Lock()
+	defer f.lock.Unlock()
+
+	f.received = &common.DirectWriteRequest{}
+	f.receivedRPCVersion = int16(binary.BigEndian.Uint16(request))
+	f.received.Deserialize(request, 2)
+
+	return responseWriter(responseBuff, nil)
+}
+
+func (f *fakePusherSink) getReceived() (*common.DirectWriteRequest, int16) {
+	f.lock.Lock()
+	defer f.lock.Unlock()
+	return f.received, f.receivedRPCVersion
+}
+
 func TestControllerGetAllTopicInfos(t *testing.T) {
 	objStore := dev.NewInMemStore(0)
 	controllers, _, tearDown := setupControllersWithObjectStore(t, 1, objStore)
@@ -578,7 +838,8 @@ func setupControllersWithObjectStoreAndConfigSetter(t *testing.T, numMembers int
 		if configSetter != nil {
 			configSetter(&cfg)
 		}
-		ctrl := NewController(cfg, objStore, localTransports.CreateConnection, transportServer)
+		connCaches := transport.NewConnCaches(10, localTransports.CreateConnection)
+		ctrl := NewController(cfg, objStore, connCaches, localTransports.CreateConnection, transportServer)
 		err = ctrl.Start()
 		require.NoError(t, err)
 		controllers = append(controllers, ctrl)

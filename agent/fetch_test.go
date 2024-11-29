@@ -20,7 +20,15 @@ import (
 	"time"
 )
 
-func TestFetchSimple(t *testing.T) {
+func TestFetchSimpleV2(t *testing.T) {
+	testFetchSimple(t, 2)
+}
+
+func TestFetchSimpleV3(t *testing.T) {
+	testFetchSimple(t, 3)
+}
+
+func testFetchSimple(t *testing.T, apiVersion int16) {
 	topicName := "test-topic-1"
 	partitionID := 12
 	topicInfos := []topicmeta.TopicInfo{
@@ -65,10 +73,13 @@ func TestFetchSimple(t *testing.T) {
 			},
 		},
 	}
+	if apiVersion == 2 {
+		fetchReq.MaxBytes = 0 // not supported in V2
+	}
 
 	fetchResp := kafkaprotocol.FetchResponse{}
 
-	r, err := conn.SendRequest(&fetchReq, kafkaprotocol.APIKeyFetch, 4, &fetchResp)
+	r, err := conn.SendRequest(&fetchReq, kafkaprotocol.APIKeyFetch, apiVersion, &fetchResp)
 	res, ok := r.(*kafkaprotocol.FetchResponse)
 	require.True(t, ok)
 
@@ -79,6 +90,7 @@ func TestFetchSimple(t *testing.T) {
 	require.Equal(t, 1, len(topicResp.Partitions))
 	partResp := topicResp.Partitions[0]
 	require.Equal(t, kafkaprotocol.ErrorCodeNone, int(partResp.ErrorCode))
+	require.Equal(t, 100, int(partResp.HighWatermark))
 	receivedBatches := partResp.Records
 	require.Equal(t, 1, len(receivedBatches))
 	require.Equal(t, batch, receivedBatches[0])
@@ -363,6 +375,9 @@ func (f *fetchRunner) fetch() {
 			}
 			numRecords := kafkaencoding.NumRecords(batch)
 			f.fetchOffset += int64(numRecords)
+			if partResp.HighWatermark <= f.fetchOffset-1 {
+				panic(fmt.Sprintf("received last offset %d but high watermark is %d", f.fetchOffset-1, partResp.HighWatermark))
+			}
 		}
 	}
 }
@@ -386,7 +401,7 @@ func (f *fetchRunner) sendFetch(req *kafkaprotocol.FetchRequest) *kafkaprotocol.
 	index := rand.Intn(len(f.connections))
 	conn := f.connections[index]
 	var resp kafkaprotocol.FetchResponse
-	r, err := conn.SendRequest(req, kafkaprotocol.APIKeyFetch, 4, &resp)
+	r, err := conn.SendRequest(req, kafkaprotocol.APIKeyFetch, 3, &resp)
 	if err != nil {
 		panic(fmt.Sprintf("failed to send fetch request: %v", err))
 	}

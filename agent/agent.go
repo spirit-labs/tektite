@@ -2,6 +2,7 @@ package agent
 
 import (
 	"github.com/pkg/errors"
+	auth "github.com/spirit-labs/tektite/auth2"
 	"github.com/spirit-labs/tektite/cluster"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/control"
@@ -32,6 +33,7 @@ type Agent struct {
 	batchFetcher             *fetcher.BatchFetcher
 	controller               *control.Controller
 	controlClientCache       *control.ClientCache
+	connCaches               *transport.ConnCaches
 	membership               ClusterMembership
 	compactionWorkersService *lsm.CompactionWorkerService
 	partitionHashes          *parthash.PartitionHashes
@@ -39,6 +41,7 @@ type Agent struct {
 	groupCoordinator         *group.Coordinator
 	txCoordinator            *tx.Coordinator
 	topicMetaCache           *topicmeta.LocalCache
+	saslAuthManager          *auth.SaslAuthManager
 	manifold                 *membershipChangedManifold
 	partitionLeaders         map[string]map[int]map[int]int32
 	clusterMembershipFactory ClusterMembershipFactory
@@ -66,9 +69,6 @@ type ClusterMembershipFactory func(data []byte, listener MembershipListener) Clu
 
 type MembershipListener func(thisMemberID int32, state cluster.MembershipState) error
 
-type MembershipData struct {
-}
-
 type ClusterMembership interface {
 	Start() error
 	Stop() error
@@ -83,7 +83,8 @@ func NewAgentWithFactories(cfg Conf, objStore objstore.Client, connectionFactory
 		cfg:              cfg,
 		partitionLeaders: map[string]map[int]map[int]int32{},
 	}
-	agent.controller = control.NewController(cfg.ControllerConf, objStore, connectionFactory, transportServer)
+	agent.connCaches = transport.NewConnCaches(cfg.MaxConnectionsPerAddress, connectionFactory)
+	agent.controller = control.NewController(cfg.ControllerConf, objStore, agent.connCaches, connectionFactory, transportServer)
 	agent.controlClientCache = control.NewClientCache(cfg.MaxControllerClients, agent.controller.Client)
 	agent.topicMetaCache = topicmeta.NewLocalCache(func() (topicmeta.ControllerClient, error) {
 		cl, err := agent.controller.Client()
@@ -99,7 +100,7 @@ func NewAgentWithFactories(cfg Conf, objStore objstore.Client, connectionFactory
 		return nil, err
 	}
 	agent.partitionHashes = partitionHashes
-	fetchCache, err := fetchcache.NewCache(objStore, connectionFactory, transportServer, cfg.FetchCacheConf)
+	fetchCache, err := fetchcache.NewCache(objStore, agent.connCaches, transportServer, cfg.FetchCacheConf)
 	if err != nil {
 		return nil, err
 	}
@@ -121,12 +122,12 @@ func NewAgentWithFactories(cfg Conf, objStore objstore.Client, connectionFactory
 	transportServer.RegisterHandler(transport.HandlerIDFetcherTableRegisteredNotification, bf.HandleTableRegisteredNotification)
 	agent.batchFetcher = bf
 	groupCoord, err := group.NewCoordinator(cfg.GroupCoordinatorConf, agent.topicMetaCache,
-		agent.controlClientCache, connectionFactory, getter.get)
+		agent.controlClientCache, agent.connCaches, getter.get)
 	if err != nil {
 		return nil, err
 	}
 	agent.groupCoordinator = groupCoord
-	agent.txCoordinator = tx.NewCoordinator(cfg.TxCoordinatorConf, agent.controlClientCache, getter.get, connectionFactory,
+	agent.txCoordinator = tx.NewCoordinator(agent.controlClientCache, getter.get, agent.connCaches,
 		agent.topicMetaCache, partitionHashes)
 	agent.kafkaServer = kafkaserver2.NewKafkaServer(cfg.KafkaListenerConfig.Address,
 		cfg.KafkaListenerConfig.TLSConfig, cfg.KafkaListenerConfig.AuthenticationType, agent.newKafkaHandler)
@@ -143,6 +144,15 @@ func NewAgentWithFactories(cfg Conf, objStore objstore.Client, connectionFactory
 	}
 	agent.compactionWorkersService = lsm.NewCompactionWorkerService(cfg.CompactionWorkersConf, objStore,
 		clFactory, true)
+	scramManager, err := auth.NewScramManager(auth.ScramAuthTypeSHA512, agent.controlClientCache, getter.get)
+	if err != nil {
+		return nil, err
+	}
+	saslAuthManager, err := auth.NewSaslAuthManager(scramManager)
+	if err != nil {
+		return nil, err
+	}
+	agent.saslAuthManager = saslAuthManager
 	return agent, nil
 }
 
@@ -228,6 +238,7 @@ func (a *Agent) Stop() error {
 		return err
 	}
 	a.controlClientCache.Close()
+	a.connCaches.Close()
 	a.started = false
 	return nil
 }

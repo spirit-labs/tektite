@@ -93,7 +93,7 @@ func TestTablePusherWriteDirectSingleWriter(t *testing.T) {
 
 	groupEpoch := 23
 
-	req := DirectWriteRequest{
+	req := common.DirectWriteRequest{
 		WriterKey:   writerKey,
 		WriterEpoch: groupEpoch,
 		KVs:         kvs,
@@ -185,7 +185,7 @@ func TestTablePusherDirectWriteMultipleWritersOK(t *testing.T) {
 		}
 		allKVs = append(allKVs, kvs...)
 		rand.Shuffle(len(kvs), func(i, j int) { kvs[i], kvs[j] = kvs[j], kvs[i] })
-		req := DirectWriteRequest{
+		req := common.DirectWriteRequest{
 			WriterKey:   writerKey,
 			WriterEpoch: 23 + i,
 			KVs:         kvs,
@@ -296,7 +296,7 @@ func TestTablePusherDirectWriteMultipleGroupsInvalidEpochs(t *testing.T) {
 			expectedKVs = append(expectedKVs, kvs...)
 		}
 		rand.Shuffle(len(kvs), func(i, j int) { kvs[i], kvs[j] = kvs[j], kvs[i] })
-		req := DirectWriteRequest{
+		req := common.DirectWriteRequest{
 			WriterKey:   writerKey,
 			WriterEpoch: 23 + i,
 			KVs:         kvs,
@@ -474,7 +474,7 @@ func TestTablePusherHandleDirectProduce(t *testing.T) {
 		if !ok {
 			break
 		}
-		val, _ := removeValueMetaData(kv.Value)
+		val := common.RemoveValueMetadata(kv.Value)
 		batches = append(batches, val)
 	}
 	// Should be in topic, partition order
@@ -529,11 +529,6 @@ func TestTablePusherHandleDirectProduce(t *testing.T) {
 	reg := receivedRegs[0].regEntry
 	require.Equal(t, []byte(objects[0].Key), []byte(reg.TableID))
 	require.Equal(t, seq, receivedRegs[0].seq)
-}
-
-func removeValueMetaData(batch []byte) ([]byte, []int64) {
-	values := common.ReadValueMetadata(batch)
-	return batch[:len(batch)-len(values)-2], values
 }
 
 func checkBatchInBatches(t *testing.T, batch []byte, batches [][]byte) {
@@ -628,7 +623,7 @@ func TestTablePusherHandleProduceBatchSimple(t *testing.T) {
 		if !ok {
 			break
 		}
-		val, meta := removeValueMetaData(kv.Value)
+		meta, val := common.ReadAndRemoveValueMetadata(kv.Value)
 		require.Equal(t, recordBatch, val)
 		require.Equal(t, 2, len(meta))
 		require.Equal(t, topicID, int(meta[0]))
@@ -884,7 +879,7 @@ func TestTablePusherHandleProduceBatchMultipleTopicsAndPartitions(t *testing.T) 
 		if !ok {
 			break
 		}
-		kv.Value, _ = removeValueMetaData(kv.Value)
+		kv.Value = common.RemoveValueMetadata(kv.Value)
 		receivedKVs = append(receivedKVs, kv)
 	}
 	require.Equal(t, 4, len(receivedKVs))
@@ -1349,7 +1344,7 @@ func TestTablePusherHandleProduceBatchMixtureErrorsAndSuccesses(t *testing.T) {
 		if !ok {
 			break
 		}
-		kv.Value, _ = removeValueMetaData(kv.Value)
+		kv.Value = common.RemoveValueMetadata(kv.Value)
 		receivedKVs = append(receivedKVs, kv)
 	}
 	require.Equal(t, 4, len(receivedKVs))
@@ -1803,7 +1798,7 @@ func TestTablePusherStoreOffsetSnapshot(t *testing.T) {
 
 		// value should be the offset
 		kv := receivedKVs[0]
-		val, _ := removeValueMetaData(kv.Value)
+		val := common.RemoveValueMetadata(kv.Value)
 		require.Equal(t, 10, len(val))
 		require.Equal(t, offsetSnapshotFormatVersion, int(binary.BigEndian.Uint16(kv.Value)))
 		offset := binary.BigEndian.Uint64(kv.Value[2:])

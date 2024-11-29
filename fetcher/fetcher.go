@@ -102,6 +102,7 @@ const (
 	DefaultLocalCacheNumEntries        = 10
 	DefaultLocalCacheMaxBytes          = 128 * 1024 * 1024 // 128MiB
 	readExecChannelSize                = 10
+	defaultFetchMaxBytes               = 1024 * 1024
 )
 
 type topicInfoProvider interface {
@@ -130,8 +131,12 @@ func (b *BatchFetcher) HandleTableRegisteredNotification(_ *transport.Connection
 	return b.recentTables.handleTableRegisteredNotification(notif)
 }
 
-func (b *BatchFetcher) HandleFetchRequest(req *kafkaprotocol.FetchRequest,
+func (b *BatchFetcher) HandleFetchRequest(apiVersion int16, req *kafkaprotocol.FetchRequest,
 	completionFunc func(resp *kafkaprotocol.FetchResponse) error) error {
+	if apiVersion < 3 {
+		// Version 3 of api introduces max bytes, so we default it for earlier versions
+		req.MaxBytes = defaultFetchMaxBytes
+	}
 	pos := atomic.AddInt64(&b.execAssignPos, 1)
 	readExec := &b.readExecs[pos%int64(len(b.readExecs))]
 	// No need to shuffle partitions as golang map has non-deterministic iteration order - this ensures we don't have

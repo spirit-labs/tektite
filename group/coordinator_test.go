@@ -12,7 +12,6 @@ import (
 	"github.com/spirit-labs/tektite/lsm"
 	"github.com/spirit-labs/tektite/offsets"
 	"github.com/spirit-labs/tektite/parthash"
-	"github.com/spirit-labs/tektite/pusher"
 	"github.com/spirit-labs/tektite/sst"
 	"github.com/spirit-labs/tektite/topicmeta"
 	"github.com/spirit-labs/tektite/transport"
@@ -1698,10 +1697,10 @@ func TestOffsetCommit(t *testing.T) {
 	require.Equal(t, 7, int(resp.Topics[1].Partitions[0].PartitionIndex))
 	require.Equal(t, kafkaprotocol.ErrorCodeNone, int(resp.Topics[0].Partitions[0].ErrorCode))
 
-	received, rcpVer := fp.getReceived()
+	received, rpcVer := fp.getReceived()
 	require.NotNil(t, received)
 
-	require.Equal(t, 1, int(rcpVer))
+	require.Equal(t, 1, int(rpcVer))
 
 	require.Equal(t, "g."+groupID, received.WriterKey)
 	require.Equal(t, 23, received.WriterEpoch)
@@ -1938,7 +1937,8 @@ func createCoordinatorWithConnFactoryAndCfgSetter(t *testing.T, connFactory tran
 		return controlClient, nil
 	}
 	controlClientCache := control.NewClientCache(10, controlFactory)
-	gc, err := NewCoordinator(cfg, topicProvider, controlClientCache, connFactory, tableGetter.getTable)
+	connCaches := transport.NewConnCaches(10, connFactory)
+	gc, err := NewCoordinator(cfg, topicProvider, controlClientCache, connCaches, tableGetter.getTable)
 	require.NoError(t, err)
 	gc.SetKafkaAddress(address)
 	err = gc.Start()
@@ -1950,21 +1950,21 @@ func createCoordinatorWithConnFactoryAndCfgSetter(t *testing.T, connFactory tran
 type fakePusherSink struct {
 	lock               sync.Mutex
 	receivedRPCVersion int16
-	received           *pusher.DirectWriteRequest
+	received           *common.DirectWriteRequest
 }
 
 func (f *fakePusherSink) HandleDirectWrite(_ *transport.ConnectionContext, request []byte, responseBuff []byte, responseWriter transport.ResponseWriter) error {
 	f.lock.Lock()
 	defer f.lock.Unlock()
 
-	f.received = &pusher.DirectWriteRequest{}
+	f.received = &common.DirectWriteRequest{}
 	f.receivedRPCVersion = int16(binary.BigEndian.Uint16(request))
 	f.received.Deserialize(request, 2)
 
 	return responseWriter(responseBuff, nil)
 }
 
-func (f *fakePusherSink) getReceived() (*pusher.DirectWriteRequest, int16) {
+func (f *fakePusherSink) getReceived() (*common.DirectWriteRequest, int16) {
 	f.lock.Lock()
 	defer f.lock.Unlock()
 	return f.received, f.receivedRPCVersion
@@ -2046,32 +2046,16 @@ func (t *testControlClient) GenerateSequence(sequenceName string) (int64, error)
 	panic("should not be called")
 }
 
-func (t *testControlClient) Close() error {
+func (t *testControlClient) PutUserCredentials(username string, storedKey []byte, serverKey []byte, salt string, iters int) error {
 	panic("should not be called")
 }
 
-type testPusherClient struct {
-	lock              sync.Mutex
-	writtenKVs        []common.KV
-	writtenGroupID    string
-	writtenGroupEpoch int32
+func (t *testControlClient) DeleteUserCredentials(username string) error {
+	panic("should not be called")
 }
 
-func (t *testPusherClient) WriteOffsets(kvs []common.KV, groupID string, groupEpoch int32) error {
-	t.lock.Lock()
-	defer t.lock.Unlock()
-	t.writtenKVs = kvs
-	t.writtenGroupID = groupID
-	t.writtenGroupEpoch = groupEpoch
-	return nil
-}
-
-func (t *testPusherClient) getWrittenValues() ([]common.KV, string, int32) {
-	t.lock.Lock()
-	defer t.lock.Unlock()
-	copied := make([]common.KV, len(t.writtenKVs))
-	copy(copied, t.writtenKVs)
-	return copied, t.writtenGroupID, t.writtenGroupEpoch
+func (t *testControlClient) Close() error {
+	panic("should not be called")
 }
 
 type testTableGetter struct {

@@ -15,7 +15,6 @@ import (
 	"github.com/spirit-labs/tektite/objstore/minio"
 	"github.com/spirit-labs/tektite/pusher"
 	"github.com/spirit-labs/tektite/topicmeta"
-	"github.com/spirit-labs/tektite/tx"
 	"net"
 	"time"
 )
@@ -161,34 +160,37 @@ func selectNetworkInterface() (string, error) {
 }
 
 type Conf struct {
-	ClusterListenerConfig   ListenerConfig
-	KafkaListenerConfig     ListenerConfig
-	ClusterMembershipConfig cluster.MembershipConf
-	PusherConf              pusher.Conf
-	ControllerConf          control.Conf
-	CompactionWorkersConf   lsm.CompactionWorkerServiceConf
-	FetcherConf             fetcher.Conf
-	FetchCacheConf          fetchcache.Conf
-	GroupCoordinatorConf    group.Conf
-	TxCoordinatorConf       tx.Conf
-	MaxControllerClients    int
+	ClusterListenerConfig    ListenerConfig
+	KafkaListenerConfig      ListenerConfig
+	ClusterMembershipConfig  cluster.MembershipConf
+	PusherConf               pusher.Conf
+	ControllerConf           control.Conf
+	CompactionWorkersConf    lsm.CompactionWorkerServiceConf
+	FetcherConf              fetcher.Conf
+	FetchCacheConf           fetchcache.Conf
+	GroupCoordinatorConf     group.Conf
+	MaxControllerClients     int
+	MaxConnectionsPerAddress int
 }
 
 func NewConf() Conf {
 	return Conf{
-		ClusterMembershipConfig: cluster.NewMembershipConf(),
-		PusherConf:              pusher.NewConf(),
-		ControllerConf:          control.NewConf(),
-		CompactionWorkersConf:   lsm.NewCompactionWorkerServiceConf(),
-		FetcherConf:             fetcher.NewConf(),
-		FetchCacheConf:          fetchcache.NewConf(),
-		GroupCoordinatorConf:    group.NewConf(),
-		TxCoordinatorConf:       tx.NewConf(),
-		MaxControllerClients:    DefaultMaxControllerClients,
+		ClusterMembershipConfig:  cluster.NewMembershipConf(),
+		PusherConf:               pusher.NewConf(),
+		ControllerConf:           control.NewConf(),
+		CompactionWorkersConf:    lsm.NewCompactionWorkerServiceConf(),
+		FetcherConf:              fetcher.NewConf(),
+		FetchCacheConf:           fetchcache.NewConf(),
+		GroupCoordinatorConf:     group.NewConf(),
+		MaxControllerClients:     DefaultMaxControllerClients,
+		MaxConnectionsPerAddress: DefaultMaxConnectionsPerAddress,
 	}
 }
 
-const DefaultMaxControllerClients = 10
+const (
+	DefaultMaxControllerClients     = 10
+	DefaultMaxConnectionsPerAddress = 10
+)
 
 func (c *Conf) Validate() error {
 	if err := c.ClusterListenerConfig.Validate(); err != nil {
@@ -216,9 +218,6 @@ func (c *Conf) Validate() error {
 		return err
 	}
 	if err := c.GroupCoordinatorConf.Validate(); err != nil {
-		return err
-	}
-	if err := c.TxCoordinatorConf.Validate(); err != nil {
 		return err
 	}
 	return nil

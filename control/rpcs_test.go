@@ -383,7 +383,7 @@ func TestSerializeDeserializeDeleteTopicRequest(t *testing.T) {
 func TestSerializeDeserializeGetGroupCoordinatorInfoRequest(t *testing.T) {
 	req := GetGroupCoordinatorInfoRequest{
 		LeaderVersion: 123,
-		GroupID:       "some-group-id",
+		Key:           "some-group-id",
 	}
 	var buff []byte
 	buff = append(buff, 1, 2, 3)
@@ -520,6 +520,38 @@ func TestSerializeDeserializeGetOffsetInfoResponse(t *testing.T) {
 	buff = append(buff, 1, 2, 3)
 	buff = req.Serialize(buff)
 	var req2 GetOffsetInfoResponse
+	off := req2.Deserialize(buff, 3)
+	require.Equal(t, req, req2)
+	require.Equal(t, off, len(buff))
+}
+
+func TestSerializeDeserializePutUserCredentialsRequest(t *testing.T) {
+	req := PutUserCredentialsRequest{
+		LeaderVersion: 123213,
+		Username:      "some-username",
+		StoredKey:     []byte("some-stored-key"),
+		ServerKey:     []byte("some-server-key"),
+		Salt:          "some-salt",
+		Iters:         4096,
+	}
+	var buff []byte
+	buff = append(buff, 1, 2, 3)
+	buff = req.Serialize(buff)
+	var req2 PutUserCredentialsRequest
+	off := req2.Deserialize(buff, 3)
+	require.Equal(t, req, req2)
+	require.Equal(t, off, len(buff))
+}
+
+func TestSerializeDeserializeDeleteUserCredentialsRequest(t *testing.T) {
+	req := DeleteUserCredentialsRequest{
+		LeaderVersion: 123213,
+		Username:      "some-username",
+	}
+	var buff []byte
+	buff = append(buff, 1, 2, 3)
+	buff = req.Serialize(buff)
+	var req2 DeleteUserCredentialsRequest
 	off := req2.Deserialize(buff, 3)
 	require.Equal(t, req, req2)
 	require.Equal(t, off, len(buff))

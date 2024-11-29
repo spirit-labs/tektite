@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"github.com/google/uuid"
 	"github.com/spirit-labs/tektite/asl/encoding"
+	"github.com/spirit-labs/tektite/cluster"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/kafkaprotocol"
 	log "github.com/spirit-labs/tektite/logger"
-	"github.com/spirit-labs/tektite/pusher"
 	"github.com/spirit-labs/tektite/transport"
 	"sync"
 	"time"
@@ -741,19 +741,19 @@ func (g *group) offsetCommit(transactional bool, req *kafkaprotocol.OffsetCommit
 				partitionData.PartitionIndex, offset)
 		}
 	}
-	commitReq := pusher.DirectWriteRequest{
+	commitReq := common.DirectWriteRequest{
 		WriterKey:   g.offsetWriterKey,
 		WriterEpoch: g.groupEpoch,
 		KVs:         kvs,
 	}
 	buff := commitReq.Serialize(createRequestBuffer())
-	pusherAddress, ok := pusher.ChooseTablePusherForHash(g.partHash, g.gc.membership.Members)
+	pusherAddress, ok := cluster.ChooseMemberAddressForHash(g.partHash, g.gc.membership.Members)
 	if !ok {
 		// No available pushers
 		log.Warnf("cannot commit offsets as no members in cluster")
 		return kafkaprotocol.ErrorCodeCoordinatorNotAvailable
 	}
-	conn, err := g.gc.getConnection(pusherAddress)
+	conn, err := g.gc.connCaches.GetConnection(pusherAddress)
 	if err != nil {
 		log.Warnf("failed to get table pusher connection %v", err)
 		return kafkaprotocol.ErrorCodeCoordinatorNotAvailable

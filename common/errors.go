@@ -83,6 +83,7 @@ const (
 	RegisterDeadVersionWrongClusterVersion
 	TopicAlreadyExists
 	TopicDoesNotExist
+	NoSuchUser
 	InvalidConfiguration ErrCode = iota + 3000
 	InternalError        ErrCode = iota + 5000
 )

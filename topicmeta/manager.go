@@ -37,8 +37,7 @@ type Manager struct {
 	topicIDSequence  int64
 	stopping         atomic.Bool
 	membership       cluster.MembershipState
-	connFactory      transport.ConnectionFactory
-	connections      map[string]transport.Connection
+	connCaches *transport.ConnCaches
 	dataPrefix       []byte
 }
 
@@ -48,7 +47,7 @@ type lsmHolder interface {
 }
 
 func NewManager(lsm lsmHolder, objStore objstore.Client, dataBucketName string,
-	dataFormat common.DataFormat, connFactory transport.ConnectionFactory) (*Manager, error) {
+	dataFormat common.DataFormat, connCaches *transport.ConnCaches) (*Manager, error) {
 	dataPrefix, err := parthash.CreateHash([]byte("topic.meta"))
 	if err != nil {
 		return nil, err
@@ -60,8 +59,7 @@ func NewManager(lsm lsmHolder, objStore objstore.Client, dataBucketName string,
 		dataFormat:       dataFormat,
 		topicInfosByName: make(map[string]*TopicInfo),
 		topicInfosByID:   make(map[int]*TopicInfo),
-		connFactory:      connFactory,
-		connections:      make(map[string]transport.Connection),
+		connCaches: connCaches,
 		dataPrefix:       dataPrefix,
 	}, nil
 }
@@ -356,21 +354,14 @@ func (m *Manager) MembershipChanged(membership cluster.MembershipState) {
 }
 
 func (m *Manager) sendNotificationToAddress(handlerID int, address string, notif []byte) error {
-	conn, ok := m.connections[address]
-	if !ok {
-		var err error
-		conn, err = m.connFactory(address)
-		if err != nil {
-			return err
-		}
-		// cache it
-		m.connections[address] = conn
+	conn, err := m.connCaches.GetConnection(address)
+	if err != nil {
+		return err
 	}
 	if _, err := conn.SendRPC(handlerID, notif); err != nil {
 		if err2 := conn.Close(); err2 != nil {
 			// Ignore
 		}
-		delete(m.connections, address)
 		return err
 	}
 	return nil

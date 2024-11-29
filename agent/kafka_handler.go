@@ -1,6 +1,7 @@
 package agent
 
 import (
+	auth "github.com/spirit-labs/tektite/auth2"
 	"github.com/spirit-labs/tektite/kafkaprotocol"
 	"github.com/spirit-labs/tektite/kafkaserver2"
 )
@@ -8,13 +9,14 @@ import (
 func (a *Agent) newKafkaHandler(ctx kafkaserver2.ConnectionContext) kafkaprotocol.RequestHandler {
 	return &kafkaHandler{
 		agent: a,
-		ctx:   ctx,
+		//ctx:   ctx,
 	}
 }
 
 type kafkaHandler struct {
-	agent *Agent
-	ctx   kafkaserver2.ConnectionContext
+	agent            *Agent
+	saslConversation auth.SaslConversation
+	authContext      auth.Context
 }
 
 func (k *kafkaHandler) HandleProduceRequest(_ *kafkaprotocol.RequestHeader, req *kafkaprotocol.ProduceRequest,
@@ -22,9 +24,9 @@ func (k *kafkaHandler) HandleProduceRequest(_ *kafkaprotocol.RequestHeader, req 
 	return k.agent.tablePusher.HandleProduceRequest(req, completionFunc)
 }
 
-func (k *kafkaHandler) HandleFetchRequest(_ *kafkaprotocol.RequestHeader, req *kafkaprotocol.FetchRequest,
+func (k *kafkaHandler) HandleFetchRequest(hdr *kafkaprotocol.RequestHeader, req *kafkaprotocol.FetchRequest,
 	completionFunc func(resp *kafkaprotocol.FetchResponse) error) error {
-	return k.agent.batchFetcher.HandleFetchRequest(req, completionFunc)
+	return k.agent.batchFetcher.HandleFetchRequest(hdr.RequestApiVersion, req, completionFunc)
 }
 
 func (k *kafkaHandler) HandleListOffsetsRequest(_ *kafkaprotocol.RequestHeader, req *kafkaprotocol.ListOffsetsRequest,
@@ -124,13 +126,42 @@ func (k *kafkaHandler) HandleEndTxnRequest(_ *kafkaprotocol.RequestHeader, req *
 func (k *kafkaHandler) HandleSaslAuthenticateRequest(_ *kafkaprotocol.RequestHeader,
 	req *kafkaprotocol.SaslAuthenticateRequest,
 	completionFunc func(resp *kafkaprotocol.SaslAuthenticateResponse) error) error {
-	//TODO implement me
-	panic("implement me")
+	var resp kafkaprotocol.SaslAuthenticateResponse
+	conv := k.saslConversation
+	if conv == nil {
+		resp.ErrorCode = kafkaprotocol.ErrorCodeIllegalSaslState
+		msg := "SaslAuthenticateRequest without a preceding SaslAuthenticateRequest"
+		resp.ErrorMessage = &msg
+	} else {
+		saslRespBytes, complete, failed := conv.Process(req.AuthBytes)
+		if failed {
+			resp.ErrorCode = kafkaprotocol.ErrorCodeSaslAuthenticationFailed
+		} else {
+			resp.AuthBytes = saslRespBytes
+			if complete {
+				principal := conv.Principal()
+				k.authContext.Principal = &principal
+				k.authContext.Authenticated = true
+			}
+		}
+	}
+	return completionFunc(&resp)
 }
 
 func (k *kafkaHandler) HandleSaslHandshakeRequest(_ *kafkaprotocol.RequestHeader,
 	req *kafkaprotocol.SaslHandshakeRequest,
 	completionFunc func(resp *kafkaprotocol.SaslHandshakeResponse) error) error {
-	//TODO implement me
-	panic("implement me")
+	var resp kafkaprotocol.SaslHandshakeResponse
+	conversation, ok, err := k.agent.saslAuthManager.CreateConversation(*req.Mechanism)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		resp.ErrorCode = kafkaprotocol.ErrorCodeUnsupportedSaslMechanism
+	} else {
+		k.saslConversation = conversation
+	}
+	authType := k.agent.saslAuthManager.ScramAuthType()
+	resp.Mechanisms = []*string{&authType}
+	return completionFunc(&resp)
 }
