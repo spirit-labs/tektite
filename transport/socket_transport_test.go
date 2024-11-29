@@ -1,9 +1,8 @@
 package transport
 
 import (
-	"github.com/spirit-labs/tektite/asl/conf"
-	"github.com/spirit-labs/tektite/client"
 	"github.com/spirit-labs/tektite/common"
+	"github.com/spirit-labs/tektite/conf"
 	"github.com/stretchr/testify/require"
 	"strings"
 	"testing"
@@ -23,49 +22,48 @@ const (
 )
 
 func TestSocketTransportNoTls(t *testing.T) {
-	serverFactor, connFactory := setup(t, conf.TLSConfig{}, nil)
+	serverFactor, connFactory := setup(t, conf.TlsConf{}, nil)
 	runTestCases(t, serverFactor, connFactory)
 }
 
 func TestSocketTransportServerTls(t *testing.T) {
-	serverFactory, connFactory := setup(t, conf.TLSConfig{
-		Enabled:  true,
-		KeyPath:  serverKeyPath,
-		CertPath: serverCertPath,
-	}, &client.TLSConfig{
-		TrustedCertsPath: serverCertPath,
+	serverFactory, connFactory := setup(t, conf.TlsConf{
+		Enabled:              true,
+		ServerPrivateKeyFile: serverKeyPath,
+		ServerCertFile:       serverCertPath,
+	}, &conf.ClientTlsConf{
+		ServerCertFile: serverCertPath,
 	})
 	runTestCases(t, serverFactory, connFactory)
 }
 
 func TestSocketTransportMutualTls(t *testing.T) {
-	serverFactory, connFactory := setup(t, conf.TLSConfig{
-		Enabled:         true,
-		KeyPath:         serverKeyPath,
-		CertPath:        serverCertPath,
-		ClientCertsPath: clientCertPath1,
-		ClientAuth:      conf.ClientAuthModeRequireAndVerifyClientCert,
-	}, &client.TLSConfig{
-		TrustedCertsPath: serverCertPath,
-		KeyPath:          clientKeyPath1,
-		CertPath:         clientCertPath1,
-		NoVerify:         false,
+	serverFactory, connFactory := setup(t, conf.TlsConf{
+		Enabled:              true,
+		ServerPrivateKeyFile: serverKeyPath,
+		ServerCertFile:       serverCertPath,
+		ClientCertFile:       clientCertPath1,
+		ClientAuthType:       "require-and-verify-client-cert",
+	}, &conf.ClientTlsConf{
+		ServerCertFile:       serverCertPath,
+		ClientPrivateKeyFile: clientKeyPath1,
+		ClientCertFile:       clientCertPath1,
 	})
 	runTestCases(t, serverFactory, connFactory)
 }
 
 func TestSocketTransportServerTlsUntrustedServer(t *testing.T) {
-	serverTlsConf := conf.TLSConfig{
-		Enabled:  true,
-		KeyPath:  serverKeyPath,
-		CertPath: serverCertPath,
+	serverTlsConf := conf.TlsConf{
+		Enabled:              true,
+		ServerPrivateKeyFile: serverKeyPath,
+		ServerCertFile:       serverCertPath,
 	}
 	address, err := common.AddressWithPort("localhost")
 	require.NoError(t, err)
 	server := NewSocketTransportServer(address, serverTlsConf)
 	err = server.Start()
 	require.NoError(t, err)
-	cl, err := NewSocketClient(&client.TLSConfig{})
+	cl, err := NewSocketClient(&conf.ClientTlsConf{})
 	require.NoError(t, err)
 	_, err = cl.CreateConnection(address)
 	require.Error(t, err)
@@ -73,18 +71,17 @@ func TestSocketTransportServerTlsUntrustedServer(t *testing.T) {
 }
 
 func TestSocketTransportMutualTlsUntrustedClient(t *testing.T) {
-	serverTlsConf := conf.TLSConfig{
-		Enabled:         true,
-		KeyPath:         serverKeyPath,
-		CertPath:        serverCertPath,
-		ClientCertsPath: clientCertPath1,
-		ClientAuth:      conf.ClientAuthModeRequireAndVerifyClientCert,
+	serverTlsConf := conf.TlsConf{
+		Enabled:              true,
+		ServerPrivateKeyFile: serverKeyPath,
+		ServerCertFile:       serverCertPath,
+		ClientCertFile:       clientCertPath1,
+		ClientAuthType:       "require-and-verify-client-cert",
 	}
-	clientTlsConf := &client.TLSConfig{
-		TrustedCertsPath: serverCertPath,
-		KeyPath:          clientKeyPath2,
-		CertPath:         clientCertPath2,
-		NoVerify:         false,
+	clientTlsConf := &conf.ClientTlsConf{
+		ServerCertFile:       serverCertPath,
+		ClientPrivateKeyFile: clientKeyPath2,
+		ClientCertFile:       clientCertPath2,
 	}
 	address, err := common.AddressWithPort("localhost")
 	require.NoError(t, err)
@@ -107,7 +104,7 @@ func TestWriteErrorServerNotAvailable(t *testing.T) {
 	require.True(t, common.IsTektiteErrorWithCode(err, common.Unavailable))
 }
 
-func setup(t *testing.T, serverTlsConf conf.TLSConfig, clientTlsConf *client.TLSConfig) (ServerFactory, ConnectionFactory) {
+func setup(t *testing.T, serverTlsConf conf.TlsConf, clientTlsConf *conf.ClientTlsConf) (ServerFactory, ConnectionFactory) {
 	serverFactory := func(t *testing.T) Server {
 		address, err := common.AddressWithPort("localhost")
 		require.NoError(t, err)

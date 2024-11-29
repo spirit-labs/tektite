@@ -2,8 +2,8 @@ package kafkaserver2
 
 import (
 	"encoding/binary"
-	"github.com/spirit-labs/tektite/asl/conf"
 	"github.com/spirit-labs/tektite/common"
+	"github.com/spirit-labs/tektite/conf"
 	"github.com/spirit-labs/tektite/kafkaprotocol"
 	"github.com/spirit-labs/tektite/testutils"
 	"github.com/stretchr/testify/require"
@@ -64,7 +64,7 @@ func TestProduce(t *testing.T) {
 	connHandlers := &testConnHandlers{response: &resp}
 	address, err := common.AddressWithPort("localhost")
 	require.NoError(t, err)
-	kafkaServer := NewKafkaServer(address, conf.TLSConfig{}, "", connHandlers.createHandler)
+	kafkaServer := NewKafkaServer(address, conf.TlsConf{}, "", connHandlers.createHandler)
 	err = kafkaServer.Start()
 	require.NoError(t, err)
 

@@ -8,6 +8,7 @@ import (
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/objstore"
 	"github.com/spirit-labs/tektite/objstore/dev"
+	"github.com/spirit-labs/tektite/testutils"
 	"github.com/spirit-labs/tektite/topicmeta"
 	"github.com/stretchr/testify/require"
 	"os"
@@ -112,6 +113,7 @@ func startAgents(t *testing.T, numAgents int, azPicker func(int) string) ([]*age
 		require.NoError(t, err)
 		agents = append(agents, ag)
 	}
+	waitForMembers(t, numAgents, agents...)
 	return agents, func(t *testing.T) {
 		for _, ag := range agents {
 			err := ag.Stop()
@@ -174,4 +176,12 @@ func createTopicUsingAdminClient(t *testing.T, topicName string, partitions int,
 		require.NoError(t, res.Error)
 	}
 	admin.Close()
+}
+
+func waitForMembers(t *testing.T, numMembers int, agents ...*agent.Agent) {
+	for _, agent := range agents {
+		testutils.WaitUntil(t, func() (bool, error) {
+			return len(agent.Controller().GetClusterState().Members) == numMembers, nil
+		})
+	}
 }

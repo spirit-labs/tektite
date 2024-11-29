@@ -4,8 +4,8 @@ import (
 	"crypto/tls"
 	"encoding/binary"
 	"fmt"
-	"github.com/spirit-labs/tektite/asl/conf"
 	"github.com/spirit-labs/tektite/common"
+	"github.com/spirit-labs/tektite/conf"
 	log "github.com/spirit-labs/tektite/logger"
 	"io"
 	"net"
@@ -28,7 +28,7 @@ message.
 SocketServer can also be configured to use TLS.
 */
 type SocketServer struct {
-	tlsConf             conf.TLSConfig
+	tlsConf             conf.TlsConf
 	lock                sync.RWMutex
 	address             string
 	listenAddress       string
@@ -39,7 +39,7 @@ type SocketServer struct {
 	connections         sync.Map
 }
 
-func NewSocketServer(address string, tlsConf conf.TLSConfig, connFactory ConnectionFactory) *SocketServer {
+func NewSocketServer(address string, tlsConf conf.TlsConf, connFactory ConnectionFactory) *SocketServer {
 	return &SocketServer{
 		tlsConf:     tlsConf,
 		address:     address,
@@ -103,7 +103,7 @@ func (s *SocketServer) createNetworkListener() (net.Listener, error) {
 	var err error
 	var tlsConfig *tls.Config
 	if s.tlsConf.Enabled {
-		tlsConfig, err = conf.CreateServerTLSConfig(s.tlsConf)
+		tlsConfig, err = s.tlsConf.ToGoTlsConf()
 		if err != nil {
 			return nil, err
 		}

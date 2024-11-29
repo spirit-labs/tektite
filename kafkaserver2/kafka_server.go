@@ -4,8 +4,8 @@ import (
 	"crypto/tls"
 	"encoding/binary"
 	"github.com/pkg/errors"
-	"github.com/spirit-labs/tektite/asl/conf"
 	"github.com/spirit-labs/tektite/auth"
+	"github.com/spirit-labs/tektite/conf"
 	"github.com/spirit-labs/tektite/kafkaprotocol"
 	"github.com/spirit-labs/tektite/sockserver"
 	"net"
@@ -15,7 +15,7 @@ import (
 type KafkaServer struct {
 	lock               sync.Mutex
 	address            string
-	tlsConf            conf.TLSConfig
+	tlsConf            conf.TlsConf
 	socketServer       *sockserver.SocketServer
 	saslAuthManager    *auth.SaslAuthManager
 	authenticationType string
@@ -29,7 +29,7 @@ type ConnectionContext interface {
 	AuthContext() auth.Context
 }
 
-func NewKafkaServer(address string, tlsConf conf.TLSConfig, authenticationType string, handlerFactory HandlerFactory) *KafkaServer {
+func NewKafkaServer(address string, tlsConf conf.TlsConf, authenticationType string, handlerFactory HandlerFactory) *KafkaServer {
 	return &KafkaServer{
 		address:            address,
 		tlsConf:            tlsConf,

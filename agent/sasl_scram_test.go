@@ -6,9 +6,9 @@ import (
 	"github.com/google/uuid"
 	segment "github.com/segmentio/kafka-go"
 	"github.com/segmentio/kafka-go/sasl/scram"
-	"github.com/spirit-labs/tektite/asl/conf"
 	auth "github.com/spirit-labs/tektite/auth2"
 	"github.com/spirit-labs/tektite/client"
+	"github.com/spirit-labs/tektite/conf"
 	"github.com/spirit-labs/tektite/topicmeta"
 	"github.com/stretchr/testify/require"
 	"strings"
@@ -26,10 +26,10 @@ func TestKafkaAuthSaslScram(t *testing.T) {
 	authType := auth.AuthenticationSaslScramSha512
 
 	cfg := NewConf()
-	cfg.KafkaListenerConfig.TLSConfig = conf.TLSConfig{
-		Enabled:  true,
-		KeyPath:  serverKeyPath,
-		CertPath: serverCertPath,
+	cfg.KafkaListenerConfig.TLSConfig = conf.TlsConf{
+		Enabled:              true,
+		ServerPrivateKeyFile: serverKeyPath,
+		ServerCertFile:       serverCertPath,
 	}
 	agents, tearDown := setupAgents(t, cfg, 1, func(i int) string {
 		return "az1"

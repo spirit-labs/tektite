@@ -52,7 +52,7 @@ func NewAgent(cfg Conf, objStore objstore.Client) (*Agent, error) {
 		return nil, err
 	}
 	transportServer := transport.NewSocketTransportServer(cfg.ClusterListenerConfig.Address, cfg.ClusterListenerConfig.TLSConfig)
-	socketClient, err := transport.NewSocketClient(nil)
+	socketClient, err := transport.NewSocketClient(&cfg.ClusterClientTlsConfig)
 	if err != nil {
 		return nil, err
 	}

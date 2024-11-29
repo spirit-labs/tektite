@@ -218,6 +218,12 @@ func (c *Controller) MembershipChanged(thisMemberID int32, newState cluster.Memb
 	return nil
 }
 
+func (c *Controller) GetClusterState() cluster.MembershipState {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+	return c.currentMembership
+}
+
 func (c *Controller) MemberID() int32 {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
