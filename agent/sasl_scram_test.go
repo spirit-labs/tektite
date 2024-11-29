@@ -23,7 +23,7 @@ const (
 
 func TestKafkaAuthSaslScram(t *testing.T) {
 
-	authType := auth.AuthenticationSaslScramSha256
+	authType := auth.AuthenticationSaslScramSha512
 
 	cfg := NewConf()
 	cfg.KafkaListenerConfig.TLSConfig = conf.TLSConfig{

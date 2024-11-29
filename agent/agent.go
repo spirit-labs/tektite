@@ -144,7 +144,7 @@ func NewAgentWithFactories(cfg Conf, objStore objstore.Client, connectionFactory
 	}
 	agent.compactionWorkersService = lsm.NewCompactionWorkerService(cfg.CompactionWorkersConf, objStore,
 		clFactory, true)
-	scramManager, err := auth.NewScramManager(auth.ScramAuthTypeSHA256, agent.controlClientCache, getter.get)
+	scramManager, err := auth.NewScramManager(auth.ScramAuthTypeSHA512, agent.controlClientCache, getter.get)
 	if err != nil {
 		return nil, err
 	}

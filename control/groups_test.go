@@ -166,7 +166,7 @@ func TestGroupCoordinatorCheckEpochControllerWriteKey(t *testing.T) {
 		LeaderVersion:  23,
 		ClusterVersion: 23,
 	}
-	applyClusterState(numMembers, state, cg)
+	applyClusterState(numMembers, &state, cg)
 
 	epochsOK := cg.CheckGroupEpochs([]EpochInfo{
 		{
@@ -198,11 +198,11 @@ func applyClusterStateForMembers(numMembers int, cg *CoordinatorController) *clu
 		LeaderVersion:  1,
 		ClusterVersion: 1,
 	}
-	applyClusterState(numMembers, state, cg)
+	applyClusterState(numMembers, &state, cg)
 	return &state
 }
 
-func applyClusterState(numMembers int, state cluster.MembershipState, cg *CoordinatorController) {
+func applyClusterState(numMembers int, state *cluster.MembershipState, cg *CoordinatorController) {
 	for i := 0; i < numMembers; i++ {
 		memberData := common.MembershipData{
 			KafkaListenerAddress: fmt.Sprintf("address-%d", i),
@@ -212,5 +212,5 @@ func applyClusterState(numMembers int, state cluster.MembershipState, cg *Coordi
 			Data: memberData.Serialize(nil),
 		})
 	}
-	cg.MembershipChanged(&state)
+	cg.MembershipChanged(state)
 }
