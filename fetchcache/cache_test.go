@@ -25,7 +25,6 @@ func TestCacheSingleNode(t *testing.T) {
 	cfg.DataBucketName = "test-bucket"
 	cfg.AzInfo = "test-az"
 	cfg.MaxSizeBytes = 16 * 1024 * 1024
-	cfg.MaxConnectionsPerAddress = 100
 	connCaches := transport.NewConnCaches(10, localTransports.CreateConnection)
 	cache, err := NewCache(objStore, connCaches, transportServer, cfg)
 	require.NoError(t, err)
@@ -102,7 +101,6 @@ func TestCacheMultipleNodes(t *testing.T) {
 	cfg.DataBucketName = "test-bucket"
 	cfg.AzInfo = "test-az"
 	cfg.MaxSizeBytes = 16 * 1024 * 1024
-	cfg.MaxConnectionsPerAddress = 100
 
 	numNodes := 5
 
@@ -229,7 +227,6 @@ func TestMultipleAZs(t *testing.T) {
 	cfg.DataBucketName = "test-bucket"
 	cfg.AzInfo = "test-az"
 	cfg.MaxSizeBytes = 16 * 1024 * 1024
-	cfg.MaxConnectionsPerAddress = 100
 
 	var allCaches []*Cache
 	var members []cluster.MembershipEntry
