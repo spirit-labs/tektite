@@ -19,17 +19,17 @@ import (
 )
 
 type Coordinator struct {
-	cfg            Conf
-	lock           sync.RWMutex
-	started        bool
-	kafkaAddress   string
-	topicProvider  topicInfoProvider
-	clientCache    *control.ClientCache
-	connCaches *transport.ConnCaches
-	tableGetter    sst.TableGetter
-	groups         map[string]*group
-	timers         sync.Map
-	membership     cluster.MembershipState
+	cfg           Conf
+	lock          sync.RWMutex
+	started       bool
+	kafkaAddress  string
+	topicProvider topicInfoProvider
+	clientCache   *control.ClientCache
+	connCaches    *transport.ConnCaches
+	tableGetter   sst.TableGetter
+	groups        map[string]*group
+	timers        sync.Map
+	membership    cluster.MembershipState
 }
 
 type topicInfoProvider interface {
@@ -37,24 +37,22 @@ type topicInfoProvider interface {
 }
 
 type Conf struct {
-	MinSessionTimeout              time.Duration
-	MaxSessionTimeout              time.Duration
-	DefaultRebalanceTimeout        time.Duration
-	DefaultSessionTimeout          time.Duration
-	InitialJoinDelay               time.Duration
-	NewMemberJoinTimeout           time.Duration
-	MaxPusherConnectionsPerAddress int
+	MinSessionTimeout       time.Duration
+	MaxSessionTimeout       time.Duration
+	DefaultRebalanceTimeout time.Duration
+	DefaultSessionTimeout   time.Duration
+	InitialJoinDelay        time.Duration
+	NewMemberJoinTimeout    time.Duration
 }
 
 func NewConf() Conf {
 	return Conf{
-		MinSessionTimeout:              DefaultMinSessionTimeout,
-		MaxSessionTimeout:              DefaultMaxSessionTimeout,
-		DefaultRebalanceTimeout:        DeafultDefaultRebalanceTimeout,
-		DefaultSessionTimeout:          DefaultDefaultSessionTimeout,
-		InitialJoinDelay:               DefaultInitialJoinDelay,
-		NewMemberJoinTimeout:           DefaultNewMemberJoinTimeout,
-		MaxPusherConnectionsPerAddress: DefaultMaxPusherConnectionsPerAddresss,
+		MinSessionTimeout:       DefaultMinSessionTimeout,
+		MaxSessionTimeout:       DefaultMaxSessionTimeout,
+		DefaultRebalanceTimeout: DeafultDefaultRebalanceTimeout,
+		DefaultSessionTimeout:   DefaultDefaultSessionTimeout,
+		InitialJoinDelay:        DefaultInitialJoinDelay,
+		NewMemberJoinTimeout:    DefaultNewMemberJoinTimeout,
 	}
 }
 
@@ -63,13 +61,12 @@ func (c *Conf) Validate() error {
 }
 
 const (
-	DefaultMinSessionTimeout               = 6 * time.Second
-	DefaultMaxSessionTimeout               = 30 * time.Minute
-	DefaultInitialJoinDelay                = 3 * time.Second
-	DefaultNewMemberJoinTimeout            = 5 * time.Minute
-	DefaultMaxPusherConnectionsPerAddresss = 10
-	DeafultDefaultRebalanceTimeout         = 5 * time.Minute
-	DefaultDefaultSessionTimeout           = 45 * time.Second
+	DefaultMinSessionTimeout       = 6 * time.Second
+	DefaultMaxSessionTimeout       = 30 * time.Minute
+	DefaultInitialJoinDelay        = 3 * time.Second
+	DefaultNewMemberJoinTimeout    = 5 * time.Minute
+	DeafultDefaultRebalanceTimeout = 5 * time.Minute
+	DefaultDefaultSessionTimeout   = 45 * time.Second
 )
 
 func NewCoordinator(cfg Conf, topicProvider topicInfoProvider, controlClientCache *control.ClientCache,

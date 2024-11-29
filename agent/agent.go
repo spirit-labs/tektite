@@ -83,8 +83,7 @@ func NewAgentWithFactories(cfg Conf, objStore objstore.Client, connectionFactory
 		cfg:              cfg,
 		partitionLeaders: map[string]map[int]map[int]int32{},
 	}
-	// FIXME - make max connections per address configurable
-	agent.connCaches = transport.NewConnCaches(10, connectionFactory)
+	agent.connCaches = transport.NewConnCaches(cfg.MaxConnectionsPerAddress, connectionFactory)
 	agent.controller = control.NewController(cfg.ControllerConf, objStore, agent.connCaches, connectionFactory, transportServer)
 	agent.controlClientCache = control.NewClientCache(cfg.MaxControllerClients, agent.controller.Client)
 	agent.topicMetaCache = topicmeta.NewLocalCache(func() (topicmeta.ControllerClient, error) {
@@ -101,7 +100,7 @@ func NewAgentWithFactories(cfg Conf, objStore objstore.Client, connectionFactory
 		return nil, err
 	}
 	agent.partitionHashes = partitionHashes
-	fetchCache, err := fetchcache.NewCache(objStore, connectionFactory, transportServer, cfg.FetchCacheConf)
+	fetchCache, err := fetchcache.NewCache(objStore, agent.connCaches, transportServer, cfg.FetchCacheConf)
 	if err != nil {
 		return nil, err
 	}
@@ -128,7 +127,7 @@ func NewAgentWithFactories(cfg Conf, objStore objstore.Client, connectionFactory
 		return nil, err
 	}
 	agent.groupCoordinator = groupCoord
-	agent.txCoordinator = tx.NewCoordinator(cfg.TxCoordinatorConf, agent.controlClientCache, getter.get, agent.connCaches,
+	agent.txCoordinator = tx.NewCoordinator(agent.controlClientCache, getter.get, agent.connCaches,
 		agent.topicMetaCache, partitionHashes)
 	agent.kafkaServer = kafkaserver2.NewKafkaServer(cfg.KafkaListenerConfig.Address,
 		cfg.KafkaListenerConfig.TLSConfig, cfg.KafkaListenerConfig.AuthenticationType, agent.newKafkaHandler)

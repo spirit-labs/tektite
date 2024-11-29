@@ -26,8 +26,8 @@ func TestCacheSingleNode(t *testing.T) {
 	cfg.AzInfo = "test-az"
 	cfg.MaxSizeBytes = 16 * 1024 * 1024
 	cfg.MaxConnectionsPerAddress = 100
-
-	cache, err := NewCache(objStore, localTransports.CreateConnection, transportServer, cfg)
+	connCaches := transport.NewConnCaches(10, localTransports.CreateConnection)
+	cache, err := NewCache(objStore, connCaches, transportServer, cfg)
 	require.NoError(t, err)
 
 	cache.Start()
@@ -112,7 +112,8 @@ func TestCacheMultipleNodes(t *testing.T) {
 	for i := 0; i < numNodes; i++ {
 		transportServer, err := localTransports.NewLocalServer(uuid.New().String())
 		require.NoError(t, err)
-		cache, err := NewCache(objStore, localTransports.CreateConnection, transportServer, cfg)
+		connCaches := transport.NewConnCaches(10, localTransports.CreateConnection)
+		cache, err := NewCache(objStore, connCaches, transportServer, cfg)
 		require.NoError(t, err)
 		cache.Start()
 		membershipData := common.MembershipData{
@@ -243,7 +244,8 @@ func TestMultipleAZs(t *testing.T) {
 			require.NoError(t, err)
 			cfgCopy := cfg
 			cfgCopy.AzInfo = az
-			cache, err := NewCache(objStore, localTransports.CreateConnection, transportServer, cfgCopy)
+			connCaches := transport.NewConnCaches(10, localTransports.CreateConnection)
+			cache, err := NewCache(objStore, connCaches, transportServer, cfgCopy)
 			require.NoError(t, err)
 			cache.Start()
 			membershipData := common.MembershipData{

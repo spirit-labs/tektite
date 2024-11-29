@@ -26,25 +26,22 @@ import (
 type Coordinator struct {
 	lock               sync.RWMutex
 	controlClientCache *control.ClientCache
-	cfg                Conf
 	tableGetter        sst.TableGetter
 	membership         cluster.MembershipState
 	connCaches         *transport.ConnCaches
-	//connFactory        transport.ConnectionFactory
-	topicProvider topicInfoProvider
-	partHashes    *parthash.PartitionHashes
-	txInfos       map[int64]*txInfo
+	topicProvider      topicInfoProvider
+	partHashes         *parthash.PartitionHashes
+	txInfos            map[int64]*txInfo
 }
 
 type topicInfoProvider interface {
 	GetTopicInfo(topicName string) (topicmeta.TopicInfo, bool, error)
 }
 
-func NewCoordinator(cfg Conf, controlClientCache *control.ClientCache, tableGetter sst.TableGetter,
+func NewCoordinator(controlClientCache *control.ClientCache, tableGetter sst.TableGetter,
 	connCaches *transport.ConnCaches, topicProvider topicInfoProvider,
 	partHashes *parthash.PartitionHashes) *Coordinator {
 	return &Coordinator{
-		cfg:                cfg,
 		controlClientCache: controlClientCache,
 		tableGetter:        tableGetter,
 		topicProvider:      topicProvider,
@@ -54,24 +51,9 @@ func NewCoordinator(cfg Conf, controlClientCache *control.ClientCache, tableGett
 	}
 }
 
-type Conf struct {
-	MaxPusherConnectionsPerAddress int
-}
-
-func NewConf() Conf {
-	return Conf{
-		MaxPusherConnectionsPerAddress: DefaultMaxPusherConnectionsPerAddress,
-	}
-}
-
-func (c *Conf) Validate() error {
-	return nil
-}
-
 const (
-	DefaultMaxPusherConnectionsPerAddress = 10
-	producerIDSequenceName                = "pid"
-	transactionMetadataVersion            = uint16(1)
+	producerIDSequenceName     = "pid"
+	transactionMetadataVersion = uint16(1)
 )
 
 func (c *Coordinator) Start() error {

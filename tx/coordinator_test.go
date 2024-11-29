@@ -21,7 +21,6 @@ import (
 )
 
 func TestInitProducerNoTransactionalID(t *testing.T) {
-	cfg := NewConf()
 	producerID := int64(23)
 	controlClient := &testControlClient{seq: producerID}
 	clientFactory := func() (control.Client, error) {
@@ -34,7 +33,7 @@ func TestInitProducerNoTransactionalID(t *testing.T) {
 	require.NoError(t, err)
 	topicProvider := &testTopicInfoProvider{infos: map[string]topicmeta.TopicInfo{}}
 	connCaches := transport.NewConnCaches(10, localTransports.CreateConnection)
-	coordinator := NewCoordinator(cfg, controlClientCache, tableGetter.getTable, connCaches,
+	coordinator := NewCoordinator(controlClientCache, tableGetter.getTable, connCaches,
 		topicProvider, partHashes)
 	numRequests := 100
 	for i := 0; i < numRequests; i++ {
@@ -58,7 +57,6 @@ func TestInitProducerErrorUnexpectedError(t *testing.T) {
 }
 
 func testInitProducerError(t *testing.T, injectError error, expectedErrCode int) {
-	cfg := NewConf()
 	producerID := int64(23)
 	writerEpoch := 7
 	controlClient := &testControlClient{
@@ -78,7 +76,7 @@ func testInitProducerError(t *testing.T, injectError error, expectedErrCode int)
 	partHashes, err := parthash.NewPartitionHashes(0)
 	require.NoError(t, err)
 	connCaches := transport.NewConnCaches(10, localTransports.CreateConnection)
-	coordinator := NewCoordinator(cfg, controlClientCache, tableGetter.getTable, connCaches,
+	coordinator := NewCoordinator(controlClientCache, tableGetter.getTable, connCaches,
 		topicProvider, partHashes)
 
 	fp := &fakePusherSink{}
@@ -113,7 +111,6 @@ func testInitProducerError(t *testing.T, injectError error, expectedErrCode int)
 }
 
 func TestInitProducerWithTransactionalID(t *testing.T) {
-	cfg := NewConf()
 	producerID := int64(23)
 	writerEpoch := 7
 	controlClient := &testControlClient{
@@ -132,7 +129,7 @@ func TestInitProducerWithTransactionalID(t *testing.T) {
 	topicProvider := &testTopicInfoProvider{infos: map[string]topicmeta.TopicInfo{}}
 	partHashes, err := parthash.NewPartitionHashes(0)
 	connCaches := transport.NewConnCaches(10, localTransports.CreateConnection)
-	coordinator := NewCoordinator(cfg, controlClientCache, tableGetter.getTable, connCaches,
+	coordinator := NewCoordinator(controlClientCache, tableGetter.getTable, connCaches,
 		topicProvider, partHashes)
 	fp := &fakePusherSink{}
 	transportServer, err := localTransports.NewLocalServer(uuid.New().String())

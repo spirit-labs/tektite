@@ -32,11 +32,10 @@ get pushed out by the LRU mechanism.
 type Cache struct {
 	lock            sync.RWMutex
 	objStore        objstore.Client
-	connFactory     transport.ConnectionFactory
+	connCaches      *transport.ConnCaches
 	transportServer transport.Server
 	cache           *ristretto.Cache
 	consist         *consistent.HashRing
-	connCaches      map[string]*transport.ConnectionCache
 	members         map[int32]cluster.MembershipEntry
 	cfg             Conf
 	stats           CacheStats
@@ -49,8 +48,8 @@ type CacheStats struct {
 	NotFound int64
 }
 
-func NewCache(objStore objstore.Client, connFactory transport.ConnectionFactory,
-	transportServer transport.Server, cfg Conf) (*Cache, error) {
+func NewCache(objStore objstore.Client, connCaches *transport.ConnCaches, transportServer transport.Server,
+	cfg Conf) (*Cache, error) {
 	tableSizeEstimate := 16 * 1024 * 1024
 	if cfg.MaxSizeBytes < tableSizeEstimate {
 		return nil, errors.Errorf("fetch cache maxSizeBytes must be >= %d", tableSizeEstimate)
@@ -66,9 +65,8 @@ func NewCache(objStore objstore.Client, connFactory transport.ConnectionFactory,
 	}
 	return &Cache{
 		objStore:        objStore,
-		connFactory:     connFactory,
+		connCaches:      connCaches,
 		transportServer: transportServer,
-		connCaches:      make(map[string]*transport.ConnectionCache),
 		members:         make(map[int32]cluster.MembershipEntry),
 		cache:           cache,
 		consist:         consistent.NewConsistentHash(cfg.VirtualFactor),
@@ -77,21 +75,19 @@ func NewCache(objStore objstore.Client, connFactory transport.ConnectionFactory,
 }
 
 type Conf struct {
-	MaxSizeBytes             int
-	DataBucketName           string
-	AzInfo                   string
-	VirtualFactor            int
-	MaxConnectionsPerAddress int
-	ObjStoreCallTimeout      time.Duration
+	MaxSizeBytes        int
+	DataBucketName      string
+	AzInfo              string
+	VirtualFactor       int
+	ObjStoreCallTimeout time.Duration
 }
 
 func NewConf() Conf {
 	return Conf{
-		MaxConnectionsPerAddress: DefaultMaxConnectionsPerAddress,
-		ObjStoreCallTimeout:      DefaultObjStoreCallTimeout,
-		VirtualFactor:            DefaultVirtualFactor,
-		DataBucketName:           DefaultDataBucketName,
-		MaxSizeBytes:             DefaultMaxSizeBytes,
+		ObjStoreCallTimeout: DefaultObjStoreCallTimeout,
+		VirtualFactor:       DefaultVirtualFactor,
+		DataBucketName:      DefaultDataBucketName,
+		MaxSizeBytes:        DefaultMaxSizeBytes,
 	}
 }
 
@@ -100,11 +96,10 @@ func (c *Conf) Validate() error {
 }
 
 const (
-	DefaultMaxConnectionsPerAddress = 5
-	DefaultObjStoreCallTimeout      = 5 * time.Second
-	DefaultVirtualFactor            = 100
-	DefaultDataBucketName           = "tektite-data"
-	DefaultMaxSizeBytes             = 128 * 1024 * 1024
+	DefaultObjStoreCallTimeout = 5 * time.Second
+	DefaultVirtualFactor       = 100
+	DefaultDataBucketName      = "tektite-data"
+	DefaultMaxSizeBytes        = 128 * 1024 * 1024
 )
 
 func (c *Cache) Start() {
@@ -114,11 +109,6 @@ func (c *Cache) Start() {
 }
 
 func (c *Cache) Stop() {
-	c.lock.Lock()
-	defer c.lock.Unlock()
-	for _, connCache := range c.connCaches {
-		connCache.Close()
-	}
 }
 
 func (c *Cache) MembershipChanged(_ int32, membership cluster.MembershipState) error {
@@ -171,7 +161,7 @@ func (c *Cache) GetTableBytes(key []byte) ([]byte, error) {
 		// Target is this node - we can do a direct call
 		return c.getFromCache(key)
 	}
-	conn, err := c.getConnection(target)
+	conn, err := c.connCaches.GetConnection(target)
 	if err != nil {
 		return nil, err
 	}
@@ -259,28 +249,4 @@ func createRequestBuffer() []byte {
 	buff := make([]byte, 0, 128)                  // Initial size guess
 	buff = binary.BigEndian.AppendUint16(buff, 1) // rpc version - currently 1
 	return buff
-}
-
-func (c *Cache) getConnection(address string) (transport.Connection, error) {
-	connCache, ok := c.connCaches[address]
-	if !ok {
-		connCache = c.createConnCache(address)
-	}
-	return connCache.GetConnection()
-}
-
-func (c *Cache) createConnCache(address string) *transport.ConnectionCache {
-	c.lock.RUnlock()
-	c.lock.Lock()
-	defer func() {
-		c.lock.Unlock()
-		c.lock.RLock()
-	}()
-	connCache, ok := c.connCaches[address]
-	if ok {
-		return connCache
-	}
-	connCache = transport.NewConnectionCache(address, c.cfg.MaxConnectionsPerAddress, c.connFactory)
-	c.connCaches[address] = connCache
-	return connCache
 }
