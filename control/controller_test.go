@@ -645,6 +645,24 @@ func TestControllerLookupCredentials(t *testing.T) {
 	require.False(t, ok)
 }
 
+func TestControllerActivatedVersion(t *testing.T) {
+	controllers, tearDown := setupControllers(t, 3)
+	defer tearDown(t)
+
+	updateMembership(t, 100, 100, controllers, 0, 1, 2)
+
+	cl, err := controllers[0].Client()
+	require.NoError(t, err)
+	defer func() {
+		err := cl.Close()
+		require.NoError(t, err)
+	}()
+
+	require.Equal(t, 100, controllers[0].GetActivateClusterVersion())
+	require.Equal(t, -1, controllers[1].GetActivateClusterVersion())
+	require.Equal(t, -1, controllers[2].GetActivateClusterVersion())
+}
+
 func createAndRegisterTableWithKVs(t *testing.T, kvs []common.KV, objStore objstore.Client, bucketName string, lsmHolder *LsmHolder) {
 	iter := common.NewKvSliceIterator(kvs)
 	table, smallestKey, largestKey, _, _, err := sst.BuildSSTable(common.DataFormatV1, 0, 0, iter)

@@ -114,6 +114,12 @@ func (c *Controller) SetTableGetter(getter sst.TableGetter) {
 	c.tableGetter = getter
 }
 
+func (c *Controller) GetActivateClusterVersion() int {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+	return c.activateClusterVersion
+}
+
 func (c *Controller) stop() error {
 	if c.lsmHolder != nil {
 		if err := c.lsmHolder.stop(); err != nil {

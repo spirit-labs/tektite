@@ -130,7 +130,7 @@ func (s *ScramManager) PutUserCredentials(username string, storedKey []byte, ser
 		// User already exists - this is a password update, increment the sequence from the existing creds
 		sequence = creds.Sequence + 1
 	}
-	// Create a new userCreds2 struct - this is JSON serializable
+	// Create a new userCreds struct - this is JSON serializable
 	creds = userCreds{
 		Salt:      salt,
 		Iters:     iters,

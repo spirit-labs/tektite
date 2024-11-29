@@ -13,7 +13,7 @@ func TestGroupCoordinatorControllerRoundRobin(t *testing.T) {
 		return 1
 	})
 	numMembers := 10
-	state := applyClusterState(numMembers, cg)
+	state := applyClusterStateForMembers(numMembers, cg)
 
 	numGroups := 100
 	for i := 0; i < numGroups; i++ {
@@ -31,7 +31,7 @@ func TestGroupCoordinatorControllerMemberLeft(t *testing.T) {
 		return 1
 	})
 	numMembers := 10
-	state := applyClusterState(numMembers, cg)
+	state := applyClusterStateForMembers(numMembers, cg)
 
 	numGroups := 100
 	groupToAddress := map[string]string{}
@@ -82,7 +82,7 @@ func TestGroupCoordinatorCheckEpochs(t *testing.T) {
 		return 1
 	})
 	numMembers := 10
-	state := applyClusterState(numMembers, cg)
+	state := applyClusterStateForMembers(numMembers, cg)
 
 	numGroups := 100
 	for i := 0; i < numGroups; i++ {
@@ -156,17 +156,53 @@ func TestGroupCoordinatorCheckEpochs(t *testing.T) {
 	}
 }
 
+func TestGroupCoordinatorCheckEpochControllerWriteKey(t *testing.T) {
+	activatedVersion := 46
+	cg := NewGroupCoordinatorController(func() int {
+		return activatedVersion
+	})
+	numMembers := 10
+	state := cluster.MembershipState{
+		LeaderVersion:  23,
+		ClusterVersion: 23,
+	}
+	applyClusterState(numMembers, state, cg)
+
+	epochsOK := cg.CheckGroupEpochs([]EpochInfo{
+		{
+			Key:   controllerWriterKey,
+			Epoch: activatedVersion,
+		},
+	})
+	require.Equal(t, 1, len(epochsOK))
+	require.True(t, epochsOK[0])
+
+	epochsOK = cg.CheckGroupEpochs([]EpochInfo{
+		{
+			Key:   controllerWriterKey,
+			Epoch: 654,
+		},
+	})
+	require.Equal(t, 1, len(epochsOK))
+	require.False(t, epochsOK[0])
+}
+
 func getAddressFromMember(member cluster.MembershipEntry) string {
 	memberData := common.MembershipData{}
 	memberData.Deserialize(member.Data, 0)
 	return memberData.KafkaListenerAddress
 }
 
-func applyClusterState(numMembers int, cg *CoordinatorController) *cluster.MembershipState {
+func applyClusterStateForMembers(numMembers int, cg *CoordinatorController) *cluster.MembershipState {
 	state := cluster.MembershipState{
 		LeaderVersion:  1,
 		ClusterVersion: 1,
 	}
+	applyClusterState(numMembers, state, cg)
+	return &state
+}
+
+func applyClusterState(numMembers int, state cluster.MembershipState, cg *CoordinatorController) {
 	for i := 0; i < numMembers; i++ {
 		memberData := common.MembershipData{
 			KafkaListenerAddress: fmt.Sprintf("address-%d", i),
@@ -177,5 +213,4 @@ func applyClusterState(numMembers int, cg *CoordinatorController) *cluster.Membe
 		})
 	}
 	cg.MembershipChanged(&state)
-	return &state
 }
