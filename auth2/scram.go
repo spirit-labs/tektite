@@ -30,13 +30,10 @@ func NewScramManager(authType ScramAuthType, controlClientCache *control.ClientC
 		return nil, err
 	}
 	var hashGenFunc scram.HashGeneratorFcn
-	var authTypeStr string
 	if authType == ScramAuthTypeSHA256 {
 		hashGenFunc = scram.SHA256
-		authTypeStr = AuthenticationSaslScramSha256
 	} else if authType == ScramAuthTypeSHA512 {
 		hashGenFunc = scram.SHA512
-		authTypeStr = AuthenticationSaslScramSha512
 	} else {
 		return nil, errors.New("invalid auth type")
 	}
@@ -52,7 +49,6 @@ func NewScramManager(authType ScramAuthType, controlClientCache *control.ClientC
 	}
 	sm.scramServer = scramServer
 	sm.hashGenFunc = hashGenFunc
-	sm.authType = authTypeStr
 	return sm, nil
 }
 
@@ -62,11 +58,10 @@ type ScramManager struct {
 	controlClientCache *control.ClientCache
 	tableGetter        sst.TableGetter
 	hashGenFunc        scram.HashGeneratorFcn
-	authType           string
 	credsSequenceLocal common.GRLocal
 }
 
-// AuthenticateWithUserPwd is used e.g. with HTTP basic auth, when we need to auth on the server with a username and
+// AuthenticateWithUserPwd is used e.g. with SASL/PLAIN, when we need to auth on the server with a username and
 // password
 func (s *ScramManager) AuthenticateWithUserPwd(username string, password string) (int, bool, error) {
 	client, err := s.hashGenFunc.NewClient(username, password, "")
@@ -105,10 +100,6 @@ func (s *ScramManager) AuthenticateWithUserPwd(username string, password string)
 	}
 	s.credsSequenceLocal.Delete()
 	return seq.(int), clConv.Valid(), nil
-}
-
-func (s *ScramManager) AuthType() string {
-	return s.authType
 }
 
 func CalcHash(hg scram.HashGeneratorFcn, b []byte) []byte {

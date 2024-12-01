@@ -6,7 +6,7 @@ type Context struct {
 }
 
 const (
-	AuthenticationTLS             = "tls"
 	AuthenticationSaslScramSha256 = "SCRAM-SHA-256"
 	AuthenticationSaslScramSha512 = "SCRAM-SHA-512"
+	AuthenticationSaslPlain       = "PLAIN"
 )

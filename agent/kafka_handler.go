@@ -161,7 +161,9 @@ func (k *kafkaHandler) HandleSaslHandshakeRequest(_ *kafkaprotocol.RequestHeader
 	} else {
 		k.saslConversation = conversation
 	}
-	authType := k.agent.saslAuthManager.ScramAuthType()
-	resp.Mechanisms = []*string{&authType}
+	resp.Mechanisms = []*string{&plain, &sha512}
 	return completionFunc(&resp)
 }
+
+var plain = auth.AuthenticationSaslPlain
+var sha512 = auth.AuthenticationSaslScramSha512

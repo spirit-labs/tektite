@@ -5,6 +5,8 @@ import (
 	"errors"
 	"github.com/google/uuid"
 	segment "github.com/segmentio/kafka-go"
+	"github.com/segmentio/kafka-go/sasl"
+	saslplain "github.com/segmentio/kafka-go/sasl/plain"
 	"github.com/segmentio/kafka-go/sasl/scram"
 	auth "github.com/spirit-labs/tektite/auth2"
 	"github.com/spirit-labs/tektite/conf"
@@ -62,6 +64,72 @@ func TestKafkaAuthMtls(t *testing.T) {
 	verifyConnection(t, agent, true, "O=acme aardvarks ltd.,L=San Francisco\\, street=Golden Gate Bridge\\, postalCode=94016,C=US", conn.LocalAddr().String())
 }
 
+func TestKafkaAuthSaslPlain(t *testing.T) {
+
+	cfg := NewConf()
+	cfg.AuthType = kafkaserver2.AuthenticationTypeSaslPlain
+	cfg.KafkaListenerConfig.TLSConfig = conf.TlsConf{
+		Enabled:              true,
+		ServerPrivateKeyFile: serverKeyPath,
+		ServerCertFile:       serverCertPath,
+	}
+	agents, tearDown := setupAgents(t, cfg, 1, func(i int) string {
+		return "az1"
+	})
+	defer tearDown(t)
+	agent := agents[0]
+
+	clientTLSConfig := conf.ClientTlsConf{
+		Enabled:        true,
+		ServerCertFile: serverCertPath,
+	}
+
+	username1 := "some-user1"
+	password1 := "some-password1"
+
+	username2 := "some-user2"
+	password2 := "some-password2"
+
+	scramType := auth.AuthenticationSaslScramSha512
+
+	putUserCred(t, agent, username1, password1, scramType)
+	putUserCred(t, agent, username2, password2, scramType)
+
+	mechProvider := func(t *testing.T, username string, password string) sasl.Mechanism {
+		return saslplain.Mechanism{
+			Username: username,
+			Password: password,
+		}
+	}
+
+	// Test success
+	tryConnect(t, username1, password1, true, agent, clientTLSConfig, mechProvider)
+	tryConnect(t, username2, password2, true, agent, clientTLSConfig, mechProvider)
+
+	// Test failure
+	tryConnect(t, username1, "wrongpwd", false, agent, clientTLSConfig, mechProvider)
+	tryConnect(t, username1, password2, false, agent, clientTLSConfig, mechProvider)
+
+	tryConnect(t, username2, "wrongpwd", false, agent, clientTLSConfig, mechProvider)
+	tryConnect(t, username2, password1, false, agent, clientTLSConfig, mechProvider)
+
+	tryConnect(t, "wronguser", "wrongpwd", false, agent, clientTLSConfig, mechProvider)
+
+	// Now create a non SCRAM connection against the server
+	// must fail as it will send a metadata request before any SASL handshake
+	tlsc, err := clientTLSConfig.ToGoTlsConf()
+	require.NoError(t, err)
+	dialer := &segment.Dialer{
+		Timeout:   10 * time.Second,
+		DualStack: true,
+		TLS:       tlsc,
+	}
+	topicName := makeTopic(t, agent)
+	address := agent.cfg.KafkaListenerConfig.Address
+	_, err = dialer.DialLeader(context.Background(), "tcp", address, topicName, 0)
+	require.Error(t, err)
+}
+
 func TestKafkaAuthSaslScram(t *testing.T) {
 
 	cfg := NewConf()
@@ -93,18 +161,24 @@ func TestKafkaAuthSaslScram(t *testing.T) {
 	putUserCred(t, agent, username1, password1, scramType)
 	putUserCred(t, agent, username2, password2, scramType)
 
+	mechProvider := func(t *testing.T, username string, password string) sasl.Mechanism {
+		mechanism, err := scram.Mechanism(scram.SHA512, username, password)
+		require.NoError(t, err)
+		return mechanism
+	}
+
 	// Test success
-	tryConnectScram(t, username1, password1, true, scramType, agent, clientTLSConfig)
-	tryConnectScram(t, username2, password2, true, scramType, agent, clientTLSConfig)
+	tryConnect(t, username1, password1, true, agent, clientTLSConfig, mechProvider)
+	tryConnect(t, username2, password2, true, agent, clientTLSConfig, mechProvider)
 
 	// Test failure
-	tryConnectScram(t, username1, "wrongpwd", false, scramType, agent, clientTLSConfig)
-	tryConnectScram(t, username1, password2, false, scramType, agent, clientTLSConfig)
+	tryConnect(t, username1, "wrongpwd", false, agent, clientTLSConfig, mechProvider)
+	tryConnect(t, username1, password2, false, agent, clientTLSConfig, mechProvider)
 
-	tryConnectScram(t, username2, "wrongpwd", false, scramType, agent, clientTLSConfig)
-	tryConnectScram(t, username2, password1, false, scramType, agent, clientTLSConfig)
+	tryConnect(t, username2, "wrongpwd", false, agent, clientTLSConfig, mechProvider)
+	tryConnect(t, username2, password1, false, agent, clientTLSConfig, mechProvider)
 
-	tryConnectScram(t, "wronguser", "wrongpwd", false, scramType, agent, clientTLSConfig)
+	tryConnect(t, "wronguser", "wrongpwd", false, agent, clientTLSConfig, mechProvider)
 
 	// Now create a non SCRAM connection against the server
 	// must fail as it will send a metadata request before any SASL handshake
@@ -121,12 +195,14 @@ func TestKafkaAuthSaslScram(t *testing.T) {
 	require.Error(t, err)
 }
 
-func tryConnectScram(t *testing.T, username string, password string, shouldSucceeed bool, authType string, agent *Agent,
-	clientTls conf.ClientTlsConf) {
+type saslMechanismProvider func(t *testing.T, username string, password string) sasl.Mechanism
+
+func tryConnect(t *testing.T, username string, password string, shouldSucceeed bool, agent *Agent,
+	clientTls conf.ClientTlsConf, saslMechProvider saslMechanismProvider) {
 	// We use the segmentio Kafka client as it returns errors on authentication failure unlike librdkafka which
 	// retries in a loop
 	topic := makeTopic(t, agent)
-	conn := tryCreateScramConnection(t, agent, clientTls, username, password, topic, shouldSucceeed)
+	conn := tryCreateConnection(t, agent, clientTls, username, password, topic, shouldSucceeed, saslMechProvider)
 	if shouldSucceeed {
 		readAndWriteMessage(t, conn)
 		verifyConnection(t, agent, true, username, conn.LocalAddr().String())
@@ -135,20 +211,11 @@ func tryConnectScram(t *testing.T, username string, password string, shouldSucce
 	}
 }
 
-func verifyConnection(t *testing.T, agent *Agent, authenticated bool, principal string, clientAddress string) {
-	infos := agent.kafkaServer.ConnectionInfos()
-	require.Equal(t, 1, len(infos))
-	info := infos[0]
-	require.Equal(t, authenticated, info.Authenticated)
-	require.Equal(t, principal, info.Principal)
-	require.Equal(t, clientAddress, info.ClientAddress)
-}
-
-func tryCreateScramConnection(t *testing.T, agent *Agent, clientTls conf.ClientTlsConf, username string, password string, topicName string, shouldSucceed bool) *segment.Conn {
+func tryCreateConnection(t *testing.T, agent *Agent, clientTls conf.ClientTlsConf, username string, password string,
+	topicName string, shouldSucceed bool, saslMechProvider saslMechanismProvider) *segment.Conn {
 	tlsc, err := clientTls.ToGoTlsConf()
 	require.NoError(t, err)
-	mechanism, err := scram.Mechanism(scram.SHA512, username, password)
-	require.NoError(t, err)
+	mechanism := saslMechProvider(t, username, password)
 	dialer := &segment.Dialer{
 		Timeout:       10 * time.Second,
 		DualStack:     true,
@@ -166,6 +233,15 @@ func tryCreateScramConnection(t *testing.T, agent *Agent, clientTls conf.ClientT
 		require.True(t, strings.HasPrefix(errMsg, "[58] SASL Authentication Failed"))
 	}
 	return conn
+}
+
+func verifyConnection(t *testing.T, agent *Agent, authenticated bool, principal string, clientAddress string) {
+	infos := agent.kafkaServer.ConnectionInfos()
+	require.Equal(t, 1, len(infos))
+	info := infos[0]
+	require.Equal(t, authenticated, info.Authenticated)
+	require.Equal(t, principal, info.Principal)
+	require.Equal(t, clientAddress, info.ClientAddress)
 }
 
 func readAndWriteMessage(t *testing.T, conn *segment.Conn) {
