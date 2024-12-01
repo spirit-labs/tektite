@@ -3,9 +3,9 @@ package agent
 import (
 	"fmt"
 	"github.com/pkg/errors"
-	"github.com/spirit-labs/tektite/asl/conf"
 	"github.com/spirit-labs/tektite/cluster"
 	"github.com/spirit-labs/tektite/common"
+	"github.com/spirit-labs/tektite/conf"
 	"github.com/spirit-labs/tektite/control"
 	"github.com/spirit-labs/tektite/fetchcache"
 	"github.com/spirit-labs/tektite/fetcher"
@@ -20,19 +20,36 @@ import (
 )
 
 type CommandConf struct {
-	ObjStoreUsername                string `help:"username for the object store" required:""`
-	ObjStorePassword                string `help:"password for the object store" required:""`
-	ObjStoreURL                     string `help:"url of the object store" required:""`
-	ClusterName                     string `help:"name of the agent cluster" required:""`
-	Location                        string `help:"location (e.g. availability zone) that the agent runs in" required:""`
-	KafkaListenAddress              string `help:"address to listen on for kafka connections"`
-	InternalListenAddress           string `help:"address to listen on for internal connections"`
-	MembershipUpdateIntervalMs      int    `help:"interval between updating cluster membership in ms" default:"5000"`
-	MembershipEvictionIntervalMs    int    `help:"interval after which member will be evicted from the cluster" default:"20000"`
-	ConsumerGroupInitialJoinDelayMs int    `name:"consumer-group-initial-join-delay-ms" help:"initial delay to wait for more consumers to join a new consumer group before performing the first rebalance, in ms" default:"3000"`
+	ObjStoreUsername                string             `help:"username for the object store" required:""`
+	ObjStorePassword                string             `help:"password for the object store" required:""`
+	ObjStoreURL                     string             `help:"url of the object store" required:""`
+	ClusterName                     string             `help:"name of the agent cluster" required:""`
+	Location                        string             `help:"location (e.g. availability zone) that the agent runs in" required:""`
+	KafkaListenAddress              string             `help:"address to listen on for kafka connections"`
+	KafkaTlsConf                    conf.TlsConf       `help:"tls configuration for the Kafka api" embed:"" prefix:"kafka-tls-"`
+	InternalTlsConf                 conf.TlsConf       `help:"tls configuration for the internal connections" embed:"" prefix:"internal-tls-"`
+	InternalClientTlsConf           conf.ClientTlsConf `help:"client tls configuration for the internal connections" embed:"" prefix:"internal-client-tls-"`
+	InternalListenAddress           string             `help:"address to listen on for internal connections"`
+	MembershipUpdateIntervalMs      int                `help:"interval between updating cluster membership in ms" default:"5000"`
+	MembershipEvictionIntervalMs    int                `help:"interval after which member will be evicted from the cluster" default:"20000"`
+	ConsumerGroupInitialJoinDelayMs int                `name:"consumer-group-initial-join-delay-ms" help:"initial delay to wait for more consumers to join a new consumer group before performing the first rebalance, in ms" default:"3000"`
+
+	AuthenticationEnabled bool   `help:"whether authentication is enabled" default:"false"`
+	AuthenticationType    string `help:"type of authentication. one of sasl/plain, sasl/scram-sha-512, mtls"`
+
+	MutualAuthenticationEnabled bool `help:"whether to enable mutual TLS authentication" default:"false"`
 
 	TopicName string `name:"topic-name" help:"name of the topic"`
 }
+
+type AuthenticationType int
+
+const (
+	AuthenticationTypeNone         AuthenticationType = iota
+	AuthenticationTypeSaslPlain    AuthenticationType = iota
+	AuthenticationTypeSaslScram512 AuthenticationType = iota
+	AuthenticationTypeMTls         AuthenticationType = iota
+)
 
 const (
 	DefaultKafkaPort    = 9092
@@ -54,6 +71,9 @@ func CreateConfFromCommandConf(commandConf CommandConf) (Conf, error) {
 	} else {
 		kafkaAddress = commandConf.KafkaListenAddress
 	}
+	cfg.KafkaListenerConfig.Address = kafkaAddress
+	cfg.KafkaListenerConfig.TLSConfig = commandConf.KafkaTlsConf
+
 	var clusterAddress string
 	if commandConf.InternalListenAddress == "" {
 		if listenAddress != "" {
@@ -63,11 +83,14 @@ func CreateConfFromCommandConf(commandConf CommandConf) (Conf, error) {
 			}
 		}
 		clusterAddress = fmt.Sprintf("%s:%d", listenAddress, DefaultInternalPort)
+		cfg.ClusterListenerConfig.TLSConfig = commandConf.KafkaTlsConf
 	} else {
 		clusterAddress = commandConf.InternalListenAddress
+		cfg.ClusterListenerConfig.TLSConfig = commandConf.InternalTlsConf
 	}
-	cfg.KafkaListenerConfig.Address = kafkaAddress
 	cfg.ClusterListenerConfig.Address = clusterAddress
+	cfg.ClusterClientTlsConfig = commandConf.InternalClientTlsConf
+
 	dataBucketName := commandConf.ClusterName + "-data"
 	// configure cluster membership
 	cfg.ClusterMembershipConfig.BucketName = dataBucketName
@@ -161,6 +184,7 @@ func selectNetworkInterface() (string, error) {
 
 type Conf struct {
 	ClusterListenerConfig    ListenerConfig
+	ClusterClientTlsConfig   conf.ClientTlsConf
 	KafkaListenerConfig      ListenerConfig
 	ClusterMembershipConfig  cluster.MembershipConf
 	PusherConf               pusher.Conf
@@ -171,6 +195,7 @@ type Conf struct {
 	GroupCoordinatorConf     group.Conf
 	MaxControllerClients     int
 	MaxConnectionsPerAddress int
+	AuthType                 AuthenticationType
 }
 
 func NewConf() Conf {
@@ -226,7 +251,7 @@ func (c *Conf) Validate() error {
 type ListenerConfig struct {
 	Address            string
 	AdvertisedAddress  string
-	TLSConfig          conf.TLSConfig
+	TLSConfig          conf.TlsConf
 	AuthenticationType string
 }
 
@@ -241,7 +266,7 @@ func (a *Agent) CreateTopicWithRetry(topicName string, partitions int) {
 	for {
 		if err := createTopic(topicName, partitions, a); err != nil {
 			if common.IsUnavailableError(err) {
-				log.Warnf("failed to create topic %v", err)
+				log.Debugf("failed to create topic %v", err)
 				time.Sleep(1 * time.Millisecond)
 				continue
 			}

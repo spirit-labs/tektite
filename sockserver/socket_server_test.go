@@ -3,9 +3,9 @@ package sockserver
 import (
 	"crypto/tls"
 	"encoding/binary"
-	"github.com/spirit-labs/tektite/asl/conf"
 	"github.com/spirit-labs/tektite/client"
 	"github.com/spirit-labs/tektite/common"
+	"github.com/spirit-labs/tektite/conf"
 	"github.com/spirit-labs/tektite/testutils"
 	"github.com/stretchr/testify/require"
 	"math/rand"
@@ -29,14 +29,14 @@ const (
 )
 
 func TestSocketServerNoTls(t *testing.T) {
-	testSocketServer(t, conf.TLSConfig{}, nil)
+	testSocketServer(t, conf.TlsConf{}, nil)
 }
 
 func TestSocketServerTls(t *testing.T) {
-	testSocketServer(t, conf.TLSConfig{
-		Enabled:  true,
-		KeyPath:  serverKeyPath,
-		CertPath: serverCertPath,
+	testSocketServer(t, conf.TlsConf{
+		Enabled:              true,
+		ServerPrivateKeyFile: serverKeyPath,
+		ServerCertFile:       serverCertPath,
 	}, &client.TLSConfig{
 		TrustedCertsPath: serverCertPath,
 	})
@@ -44,12 +44,12 @@ func TestSocketServerTls(t *testing.T) {
 }
 
 func TestSocketServerMutualTls(t *testing.T) {
-	testSocketServer(t, conf.TLSConfig{
-		Enabled:         true,
-		KeyPath:         serverKeyPath,
-		CertPath:        serverCertPath,
-		ClientCertsPath: clientCertPath1,
-		ClientAuth:      conf.ClientAuthModeRequireAndVerifyClientCert,
+	testSocketServer(t, conf.TlsConf{
+		Enabled:              true,
+		ServerPrivateKeyFile: serverKeyPath,
+		ServerCertFile:       serverCertPath,
+		ClientCertFile:       clientCertPath1,
+		ClientAuthType:       "require-and-verify-client-cert",
 	}, &client.TLSConfig{
 		TrustedCertsPath: serverCertPath,
 		KeyPath:          clientKeyPath1,
@@ -59,10 +59,10 @@ func TestSocketServerMutualTls(t *testing.T) {
 }
 
 func TestSocketTransportServerTlsUntrustedServer(t *testing.T) {
-	serverTlsConf := conf.TLSConfig{
-		Enabled:  true,
-		KeyPath:  serverKeyPath,
-		CertPath: serverCertPath,
+	serverTlsConf := conf.TlsConf{
+		Enabled:              true,
+		ServerPrivateKeyFile: serverKeyPath,
+		ServerCertFile:       serverCertPath,
 	}
 
 	address, err := common.AddressWithPort("localhost")
@@ -83,7 +83,7 @@ func TestSocketTransportServerTlsUntrustedServer(t *testing.T) {
 	require.True(t, strings.Contains(err.Error(), "tls: failed to verify certificate: x509: certificate signed by unknown authority"))
 }
 
-func testSocketServer(t *testing.T, serverTlsConf conf.TLSConfig, clientTlsConf *client.TLSConfig) {
+func testSocketServer(t *testing.T, serverTlsConf conf.TlsConf, clientTlsConf *client.TLSConfig) {
 	address, err := common.AddressWithPort("localhost")
 	require.NoError(t, err)
 	serverConns := &testServerConnections{

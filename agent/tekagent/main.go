@@ -9,6 +9,7 @@ import (
 	log "github.com/spirit-labs/tektite/logger"
 	"os"
 	"os/signal"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -33,7 +34,16 @@ func run() error {
 		return err
 	}
 	args := os.Args[1:]
-	_, err = parser.Parse(args)
+	// Remove any empty args - as this can otherwise cause parser to fail with a non-descriptive error, and users often
+	// have an extra space at end of command line
+	var args2 []string
+	for _, arg := range args {
+		arg = strings.TrimSpace(arg)
+		if arg != "" {
+			args2 = append(args2, arg)
+		}
+	}
+	_, err = parser.Parse(args2)
 	if err != nil {
 		return err
 	}

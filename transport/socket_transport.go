@@ -4,10 +4,9 @@ import (
 	"crypto/tls"
 	"encoding/binary"
 	"github.com/pkg/errors"
-	"github.com/spirit-labs/tektite/asl/conf"
 	"github.com/spirit-labs/tektite/asl/errwrap"
-	"github.com/spirit-labs/tektite/client"
 	"github.com/spirit-labs/tektite/common"
+	"github.com/spirit-labs/tektite/conf"
 	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/sockserver"
 	"net"
@@ -39,7 +38,7 @@ type SocketTransportServer struct {
 	idSequence   int64
 }
 
-func NewSocketTransportServer(address string, tlsConf conf.TLSConfig) *SocketTransportServer {
+func NewSocketTransportServer(address string, tlsConf conf.TlsConf) *SocketTransportServer {
 	server := &SocketTransportServer{
 		handlers: make(map[int]RequestHandler),
 	}
@@ -318,11 +317,11 @@ func (s *SocketTransportConnection) closeWaitingRPCs() {
 	s.responseChannels = map[int64]chan responseHolder{}
 }
 
-func NewSocketClient(tlsConf *client.TLSConfig) (*SocketClient, error) {
+func NewSocketClient(tlsConf *conf.ClientTlsConf) (*SocketClient, error) {
 	var goTlsConf *tls.Config
 	if tlsConf != nil {
 		var err error
-		goTlsConf, err = tlsConf.ToGoTlsConfig()
+		goTlsConf, err = tlsConf.ToGoTlsConf()
 		if err != nil {
 			return nil, err
 		}
