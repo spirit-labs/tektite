@@ -64,7 +64,7 @@ func TestProduce(t *testing.T) {
 	connHandlers := &testConnHandlers{response: &resp}
 	address, err := common.AddressWithPort("localhost")
 	require.NoError(t, err)
-	kafkaServer := NewKafkaServer(address, conf.TlsConf{}, "", connHandlers.createHandler)
+	kafkaServer := NewKafkaServer(address, conf.TlsConf{}, AuthenticationTypeNone, connHandlers.createHandler)
 	err = kafkaServer.Start()
 	require.NoError(t, err)
 

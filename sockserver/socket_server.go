@@ -76,6 +76,18 @@ func (s *SocketServer) Stop() error {
 	return nil
 }
 
+func (s *SocketServer) Connections() []ServerConnection {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+	var allConns []ServerConnection
+	s.connections.Range(func(conn, _ interface{}) bool {
+		sc := conn.(*serverConnection)
+		allConns = append(allConns, sc.userConn)
+		return true
+	})
+	return allConns
+}
+
 func (s *SocketServer) stop() error {
 	s.lock.Lock()
 	defer s.lock.Unlock()
