@@ -32,6 +32,7 @@ func TestSocketTransportServerTls(t *testing.T) {
 		ServerPrivateKeyFile: serverKeyPath,
 		ServerCertFile:       serverCertPath,
 	}, &conf.ClientTlsConf{
+		Enabled:        true,
 		ServerCertFile: serverCertPath,
 	})
 	runTestCases(t, serverFactory, connFactory)
@@ -45,6 +46,7 @@ func TestSocketTransportMutualTls(t *testing.T) {
 		ClientCertFile:       clientCertPath1,
 		ClientAuthType:       "require-and-verify-client-cert",
 	}, &conf.ClientTlsConf{
+		Enabled:              true,
 		ServerCertFile:       serverCertPath,
 		ClientPrivateKeyFile: clientKeyPath1,
 		ClientCertFile:       clientCertPath1,
@@ -63,7 +65,9 @@ func TestSocketTransportServerTlsUntrustedServer(t *testing.T) {
 	server := NewSocketTransportServer(address, serverTlsConf)
 	err = server.Start()
 	require.NoError(t, err)
-	cl, err := NewSocketClient(&conf.ClientTlsConf{})
+	cl, err := NewSocketClient(&conf.ClientTlsConf{
+		Enabled: true,
+	})
 	require.NoError(t, err)
 	_, err = cl.CreateConnection(address)
 	require.Error(t, err)
@@ -79,6 +83,7 @@ func TestSocketTransportMutualTlsUntrustedClient(t *testing.T) {
 		ClientAuthType:       "require-and-verify-client-cert",
 	}
 	clientTlsConf := &conf.ClientTlsConf{
+		Enabled:              true,
 		ServerCertFile:       serverCertPath,
 		ClientPrivateKeyFile: clientKeyPath2,
 		ClientCertFile:       clientCertPath2,
