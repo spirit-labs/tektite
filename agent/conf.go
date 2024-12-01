@@ -10,6 +10,7 @@ import (
 	"github.com/spirit-labs/tektite/fetchcache"
 	"github.com/spirit-labs/tektite/fetcher"
 	"github.com/spirit-labs/tektite/group"
+	kafkaserver "github.com/spirit-labs/tektite/kafkaserver2"
 	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/lsm"
 	"github.com/spirit-labs/tektite/objstore/minio"
@@ -33,23 +34,18 @@ type CommandConf struct {
 	MembershipUpdateIntervalMs      int                `help:"interval between updating cluster membership in ms" default:"5000"`
 	MembershipEvictionIntervalMs    int                `help:"interval after which member will be evicted from the cluster" default:"20000"`
 	ConsumerGroupInitialJoinDelayMs int                `name:"consumer-group-initial-join-delay-ms" help:"initial delay to wait for more consumers to join a new consumer group before performing the first rebalance, in ms" default:"3000"`
+	AuthenticationType    string `help:"type of authentication. one of sasl/plain, sasl/scram-sha-512, mtls, none" default:"none"`
 
-	AuthenticationEnabled bool   `help:"whether authentication is enabled" default:"false"`
-	AuthenticationType    string `help:"type of authentication. one of sasl/plain, sasl/scram-sha-512, mtls"`
-
-	MutualAuthenticationEnabled bool `help:"whether to enable mutual TLS authentication" default:"false"`
 
 	TopicName string `name:"topic-name" help:"name of the topic"`
 }
 
-type AuthenticationType int
-
-const (
-	AuthenticationTypeNone         AuthenticationType = iota
-	AuthenticationTypeSaslPlain    AuthenticationType = iota
-	AuthenticationTypeSaslScram512 AuthenticationType = iota
-	AuthenticationTypeMTls         AuthenticationType = iota
-)
+var authTypeMapping = map[string]kafkaserver.AuthenticationType{
+	"none": kafkaserver.AuthenticationTypeNone,
+	"sasl/plain": kafkaserver.AuthenticationTypeSaslPlain,
+	"sasl/scram-sha-512": kafkaserver.AuthenticationTypeSaslScram512,
+	"mtls": kafkaserver.AuthenticationTypeMTls,
+}
 
 const (
 	DefaultKafkaPort    = 9092
@@ -134,6 +130,11 @@ func CreateConfFromCommandConf(commandConf CommandConf) (Conf, error) {
 	if err != nil {
 		return Conf{}, err
 	}
+	authType, ok := authTypeMapping[commandConf.AuthenticationType]
+	if !ok {
+		return Conf{}, errors.Errorf("invalid authentication-type: %s", commandConf.AuthenticationType)
+	}
+	cfg.AuthType = authType
 	return cfg, nil
 }
 
@@ -195,7 +196,7 @@ type Conf struct {
 	GroupCoordinatorConf     group.Conf
 	MaxControllerClients     int
 	MaxConnectionsPerAddress int
-	AuthType                 AuthenticationType
+	AuthType                 kafkaserver.AuthenticationType
 }
 
 func NewConf() Conf {
@@ -209,6 +210,7 @@ func NewConf() Conf {
 		GroupCoordinatorConf:     group.NewConf(),
 		MaxControllerClients:     DefaultMaxControllerClients,
 		MaxConnectionsPerAddress: DefaultMaxConnectionsPerAddress,
+		AuthType: kafkaserver.AuthenticationTypeNone,
 	}
 }
 
@@ -252,7 +254,6 @@ type ListenerConfig struct {
 	Address            string
 	AdvertisedAddress  string
 	TLSConfig          conf.TlsConf
-	AuthenticationType string
 }
 
 func (l *ListenerConfig) Validate() error {

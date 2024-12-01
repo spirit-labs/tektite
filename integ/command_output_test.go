@@ -56,9 +56,7 @@ Flags:
       --membership-eviction-interval-ms=20000                 interval after which member will be evicted from the cluster
       --consumer-group-initial-join-delay-ms=3000             initial delay to wait for more consumers to join a new consumer group before performing the first
                                                               rebalance, in ms
-      --authentication-enabled                                whether authentication is enabled
-      --authentication-type=STRING                            type of authentication. one of sasl/plain, sasl/scram-sha-512, mtls
-      --mutual-authentication-enabled                         whether to enable mutual TLS authentication
+      --authentication-type="none"                            type of authentication. one of sasl/plain, sasl/scram-sha-512, mtls, none
       --topic-name=STRING                                     name of the topic
       --log-format="console"                                  format to write log lines in - one of: console, json
       --log-level="info"                                      lowest log level that will be emitted - one of: debug, info, warn, error`

@@ -1,7 +1,7 @@
 package auth
 
 type Context struct {
-	Principal     *string
+	Principal     string
 	Authenticated bool
 }
 

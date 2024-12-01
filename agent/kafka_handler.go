@@ -8,15 +8,15 @@ import (
 
 func (a *Agent) newKafkaHandler(ctx kafkaserver2.ConnectionContext) kafkaprotocol.RequestHandler {
 	return &kafkaHandler{
-		agent: a,
-		//ctx:   ctx,
+		agent:       a,
+		authContext: ctx.AuthContext(),
 	}
 }
 
 type kafkaHandler struct {
 	agent            *Agent
 	saslConversation auth.SaslConversation
-	authContext      auth.Context
+	authContext      *auth.Context
 }
 
 func (k *kafkaHandler) HandleProduceRequest(_ *kafkaprotocol.RequestHeader, req *kafkaprotocol.ProduceRequest,
@@ -140,7 +140,7 @@ func (k *kafkaHandler) HandleSaslAuthenticateRequest(_ *kafkaprotocol.RequestHea
 			resp.AuthBytes = saslRespBytes
 			if complete {
 				principal := conv.Principal()
-				k.authContext.Principal = &principal
+				k.authContext.Principal = principal
 				k.authContext.Authenticated = true
 			}
 		}
