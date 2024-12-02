@@ -115,7 +115,7 @@ func CalcHMAC(hg scram.HashGeneratorFcn, key, buff []byte) []byte {
 }
 
 func (s *ScramManager) lookupCredential(username string) (scram.StoredCredentials, error) {
-	creds, ok, err := s.lookupUserCreds(username)
+	creds, ok, err := s.LookupUserCreds(username)
 	if err != nil {
 		return scram.StoredCredentials{}, err
 	}
@@ -139,7 +139,7 @@ func (s *ScramManager) lookupCredential(username string) (scram.StoredCredential
 }
 
 func (s *ScramManager) GetUserCredsSequence(username string) (int, bool, error) {
-	creds, ok, err := s.lookupUserCreds(username)
+	creds, ok, err := s.LookupUserCreds(username)
 	if err != nil {
 		return 0, false, err
 	}
@@ -155,7 +155,7 @@ func (s *ScramManager) createKey(username string) []byte {
 	return encoding.KeyEncodeString(key, username)
 }
 
-func (s *ScramManager) lookupUserCreds(username string) (control.UserCredentials, bool, error) {
+func (s *ScramManager) LookupUserCreds(username string) (control.UserCredentials, bool, error) {
 	cl, err := s.controlClientCache.GetClient()
 	if err != nil {
 		return control.UserCredentials{}, false, err
@@ -242,8 +242,8 @@ func AlgoForAuthType(authType string) scram.HashGeneratorFcn {
 
 func CreateUserScramCreds(password string, authType string) (storedKey []byte, serverKey []byte, salt string) {
 	salt = uuid.New().String()
-	// These would be computed on the client side and only the (username, storedKey, serverKey, salt, iters) are sent
-	// over the wire
+	// These are computed on the client side and only the (username, storedKey, serverKey, salt, iters) are sent
+	// over the wire - password is not sent over the wire from client to agent
 	hashFunc := AlgoForAuthType(authType)
 	saltedPassword := pbkdf2.Key([]byte(password), []byte(salt), NumIters, hashFunc().Size(), hashFunc)
 	clientKey := CalcHMAC(hashFunc, saltedPassword, []byte("Client Key"))

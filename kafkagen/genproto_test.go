@@ -6,6 +6,10 @@ import (
 )
 
 func TestGenProto(t *testing.T) {
-	err := Generate("../asl/kafka/spec", "../kafkaprotocol")
+	specSet := SpecSet{
+		SpecDir:  "../asl/kafka/spec",
+		Included: StandardIncluded,
+	}
+	err := Generate([]SpecSet{specSet}, "../kafkaprotocol")
 	require.NoError(t, err)
 }

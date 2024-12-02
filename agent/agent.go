@@ -42,6 +42,7 @@ type Agent struct {
 	txCoordinator            *tx.Coordinator
 	topicMetaCache           *topicmeta.LocalCache
 	saslAuthManager          *auth.SaslAuthManager
+	scramManager             *auth.ScramManager
 	manifold                 *membershipChangedManifold
 	partitionLeaders         map[string]map[int]map[int]int32
 	clusterMembershipFactory ClusterMembershipFactory
@@ -148,6 +149,7 @@ func NewAgentWithFactories(cfg Conf, objStore objstore.Client, connectionFactory
 	if err != nil {
 		return nil, err
 	}
+	agent.scramManager = scramManager
 	saslAuthManager, err := auth.NewSaslAuthManager(scramManager)
 	if err != nil {
 		return nil, err

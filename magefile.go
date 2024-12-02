@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/spirit-labs/tektite/kafkagen"
+	"github.com/spirit-labs/tektite/tekusers/tekusers"
 	"io"
 	"os"
 	"os/exec"
@@ -455,5 +456,13 @@ func RenewCerts() error {
 
 // GenKafkaProtocol generates the Kafka protocol code from the protocol JSON descriptors
 func GenKafkaProtocol() error {
-	return kafkagen.Generate("asl/kafka/spec", "kafkaprotocol")
+	standardSpecSet := kafkagen.SpecSet{
+		SpecDir:  "asl/kafka/spec",
+		Included: kafkagen.StandardIncluded,
+	}
+	customSpecSet := kafkagen.SpecSet{
+		SpecDir:  "tekusers/tekusers/apispec",
+		Included: tekusers.Included,
+	}
+	return kafkagen.Generate([]kafkagen.SpecSet{standardSpecSet, customSpecSet}, "kafkaprotocol")
 }

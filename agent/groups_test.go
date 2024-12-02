@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"github.com/spirit-labs/tektite/apiclient"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/kafkaprotocol"
 	"github.com/spirit-labs/tektite/topicmeta"
@@ -22,7 +23,7 @@ func TestConsumerGroups(t *testing.T) {
 	agent, _, tearDown := setupAgent(t, topicInfos, cfg)
 	defer tearDown(t)
 
-	cl, err := NewKafkaApiClient()
+	cl, err := apiclient.NewKafkaApiClient()
 	require.NoError(t, err)
 
 	conn, err := cl.NewConnection(agent.Conf().KafkaListenerConfig.Address)
@@ -190,7 +191,7 @@ func TestFindCoordinatorError(t *testing.T) {
 	// Force no members to get error
 	agent.controller.GetGroupCoordinatorController().ClearMembers()
 
-	cl, err := NewKafkaApiClient()
+	cl, err := apiclient.NewKafkaApiClient()
 	require.NoError(t, err)
 
 	conn, err := cl.NewConnection(agent.Conf().KafkaListenerConfig.Address)
@@ -226,7 +227,7 @@ func TestJoinGroupError(t *testing.T) {
 	// Force no members to get error
 	agent.controller.GetGroupCoordinatorController().ClearMembers()
 
-	cl, err := NewKafkaApiClient()
+	cl, err := apiclient.NewKafkaApiClient()
 	require.NoError(t, err)
 
 	conn, err := cl.NewConnection(agent.Conf().KafkaListenerConfig.Address)
@@ -270,7 +271,7 @@ func TestSyncGroupError(t *testing.T) {
 	// Force no members to get error
 	agent.controller.GetGroupCoordinatorController().ClearMembers()
 
-	cl, err := NewKafkaApiClient()
+	cl, err := apiclient.NewKafkaApiClient()
 	require.NoError(t, err)
 
 	conn, err := cl.NewConnection(agent.Conf().KafkaListenerConfig.Address)
@@ -314,7 +315,7 @@ func TestOffsetCommitError(t *testing.T) {
 	agent, _, tearDown := setupAgent(t, topicInfos, cfg)
 	defer tearDown(t)
 
-	cl, err := NewKafkaApiClient()
+	cl, err := apiclient.NewKafkaApiClient()
 	require.NoError(t, err)
 
 	conn, err := cl.NewConnection(agent.Conf().KafkaListenerConfig.Address)
@@ -369,7 +370,7 @@ func TestOffsetFetchError(t *testing.T) {
 	agent, _, tearDown := setupAgent(t, topicInfos, cfg)
 	defer tearDown(t)
 
-	cl, err := NewKafkaApiClient()
+	cl, err := apiclient.NewKafkaApiClient()
 	require.NoError(t, err)
 
 	conn, err := cl.NewConnection(agent.Conf().KafkaListenerConfig.Address)

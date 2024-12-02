@@ -3,6 +3,7 @@ package agent
 import (
 	"errors"
 	"fmt"
+	"github.com/spirit-labs/tektite/apiclient"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/kafkaprotocol"
 	"github.com/spirit-labs/tektite/objstore/dev"
@@ -266,7 +267,7 @@ func setupNumTopics(t *testing.T, numTopics int, agent *Agent) {
 }
 
 func sendMetadataRequest(t *testing.T, agent *Agent, req *kafkaprotocol.MetadataRequest, clientID string) *kafkaprotocol.MetadataResponse {
-	cl, err := NewKafkaApiClientWithClientID(clientID)
+	cl, err := apiclient.NewKafkaApiClientWithClientID(clientID)
 	require.NoError(t, err)
 	conn, err := cl.NewConnection(agent.Conf().KafkaListenerConfig.Address)
 	require.NoError(t, err)
