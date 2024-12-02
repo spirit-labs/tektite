@@ -11,18 +11,21 @@ func NewSaslAuthManager(scramManager *ScramManager) (*SaslAuthManager, error) {
 }
 
 func (s *SaslAuthManager) CreateConversation(mechanism string) (SaslConversation, bool, error) {
-	if mechanism == s.scramManager.authType {
+	switch mechanism {
+	case AuthenticationSaslScramSha512:
 		conv, err := s.scramManager.NewConversation()
 		if err != nil {
 			return nil, false, err
 		}
 		return conv, true, nil
+	case AuthenticationSaslPlain:
+		conv := &PlainSaslConversation{
+			scramManager: s.scramManager,
+		}
+		return conv, true, nil
+	default:
+		return nil, false, nil
 	}
-	return nil, false, nil
-}
-
-func (s *SaslAuthManager) ScramAuthType() string {
-	return s.scramManager.AuthType()
 }
 
 type SaslConversation interface {
