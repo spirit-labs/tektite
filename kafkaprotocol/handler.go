@@ -533,60 +533,6 @@ func HandleRequestBuffer(apiKey int16, buff []byte, handler RequestHandler, conn
 			_, err := conn.Write(respBuff)
 			return err
 		})
-    case 1000:
-		var req PutUserCredentialsRequest
-		requestHeaderVersion, responseHeaderVersion := req.HeaderVersions(apiVersion)
-		var requestHeader RequestHeader
-		var offset int
-		if offset, err = requestHeader.Read(requestHeaderVersion, buff); err != nil {
-			return err
-		}
-		minVer, maxVer := req.SupportedApiVersions()
-		if err := checkSupportedVersion(apiKey, apiVersion, minVer, maxVer); err != nil {
-			return err
-		}
-		if _, err := req.Read(apiVersion, buff[offset:]); err != nil {
-			return err
-		}
-		responseHeader.CorrelationId = requestHeader.CorrelationId
-		err = handler.HandlePutUserCredentialsRequest(&requestHeader, &req, func(resp *PutUserCredentialsResponse) error {
-			respHeaderSize, hdrTagSizes := responseHeader.CalcSize(responseHeaderVersion, nil)
-			respSize, tagSizes := resp.CalcSize(apiVersion, nil)
-			totRespSize := respHeaderSize + respSize
-			respBuff := make([]byte, 0, 4+totRespSize)
-			respBuff = binary.BigEndian.AppendUint32(respBuff, uint32(totRespSize))
-			respBuff = responseHeader.Write(responseHeaderVersion, respBuff, hdrTagSizes)
-			respBuff = resp.Write(apiVersion, respBuff, tagSizes)
-			_, err := conn.Write(respBuff)
-			return err
-		})
-    case 1001:
-		var req DeleteUserRequest
-		requestHeaderVersion, responseHeaderVersion := req.HeaderVersions(apiVersion)
-		var requestHeader RequestHeader
-		var offset int
-		if offset, err = requestHeader.Read(requestHeaderVersion, buff); err != nil {
-			return err
-		}
-		minVer, maxVer := req.SupportedApiVersions()
-		if err := checkSupportedVersion(apiKey, apiVersion, minVer, maxVer); err != nil {
-			return err
-		}
-		if _, err := req.Read(apiVersion, buff[offset:]); err != nil {
-			return err
-		}
-		responseHeader.CorrelationId = requestHeader.CorrelationId
-		err = handler.HandleDeleteUserRequest(&requestHeader, &req, func(resp *DeleteUserResponse) error {
-			respHeaderSize, hdrTagSizes := responseHeader.CalcSize(responseHeaderVersion, nil)
-			respSize, tagSizes := resp.CalcSize(apiVersion, nil)
-			totRespSize := respHeaderSize + respSize
-			respBuff := make([]byte, 0, 4+totRespSize)
-			respBuff = binary.BigEndian.AppendUint32(respBuff, uint32(totRespSize))
-			respBuff = responseHeader.Write(responseHeaderVersion, respBuff, hdrTagSizes)
-			respBuff = resp.Write(apiVersion, respBuff, tagSizes)
-			_, err := conn.Write(respBuff)
-			return err
-		})
     default: return errors.Errorf("Unsupported ApiKey: %d", apiKey)
     }
     return err
@@ -612,6 +558,4 @@ type RequestHandler interface {
     HandleAddPartitionsToTxnRequest(hdr *RequestHeader, req *AddPartitionsToTxnRequest, completionFunc func(resp *AddPartitionsToTxnResponse) error) error
     HandleTxnOffsetCommitRequest(hdr *RequestHeader, req *TxnOffsetCommitRequest, completionFunc func(resp *TxnOffsetCommitResponse) error) error
     HandleEndTxnRequest(hdr *RequestHeader, req *EndTxnRequest, completionFunc func(resp *EndTxnResponse) error) error
-    HandlePutUserCredentialsRequest(hdr *RequestHeader, req *PutUserCredentialsRequest, completionFunc func(resp *PutUserCredentialsResponse) error) error
-    HandleDeleteUserRequest(hdr *RequestHeader, req *DeleteUserRequest, completionFunc func(resp *DeleteUserResponse) error) error
 }
