@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestTekUsers(t *testing.T) {
@@ -92,15 +93,23 @@ func runTekUsersExpectOutput(t *testing.T, commandLine string, expectedOut strin
 func runTekUsersExpectOutputRaw(t *testing.T, commandLine string, expectedOut string) {
 	args := strings.Split(commandLine, " ")
 
-	cmd := exec.Command("../bin/tekusers", args...)
-	cmd.Env = append(os.Environ(), "COLUMNS=160")
+	for {
+		cmd := exec.Command("../bin/tekusers", args...)
+		cmd.Env = append(os.Environ(), "COLUMNS=160")
 
-	out, err := cmd.Output()
-	require.NoError(t, err)
+		out, err := cmd.Output()
+		require.NoError(t, err)
+		sout := string(out)
 
-	log.Infof("%s", out)
-
-	require.Equal(t, expectedOut, string(out))
+		if strings.Contains(sout, "controller has not received cluster membership") {
+			// After first starting the agents there is a small amount of time before the controller is chosen, so we
+			// retry
+			time.Sleep(200 * time.Millisecond)
+			continue
+		}
+		require.Equal(t, expectedOut, string(out))
+		break
+	}
 }
 
 func buildTekUsersBinary() error {
