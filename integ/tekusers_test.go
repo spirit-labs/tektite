@@ -93,6 +93,7 @@ func runTekUsersExpectOutput(t *testing.T, commandLine string, expectedOut strin
 func runTekUsersExpectOutputRaw(t *testing.T, commandLine string, expectedOut string) {
 	args := strings.Split(commandLine, " ")
 
+	start := time.Now()
 	for {
 		cmd := exec.Command("../bin/tekusers", args...)
 		cmd.Env = append(os.Environ(), "COLUMNS=160")
@@ -104,7 +105,11 @@ func runTekUsersExpectOutputRaw(t *testing.T, commandLine string, expectedOut st
 		if strings.Contains(sout, "controller has not received cluster membership") {
 			// After first starting the agents there is a small amount of time before the controller is chosen, so we
 			// retry
+			if time.Now().Sub(start) >= 5*time.Second {
+				require.Fail(t, "timedout waiting for controller")
+			}
 			time.Sleep(200 * time.Millisecond)
+			log.Warnf("retrying as congroller not available")
 			continue
 		}
 		require.Equal(t, expectedOut, string(out))
@@ -122,5 +127,6 @@ func buildTekUsersBinary() error {
 		log.Errorf("failed to build tekusers binary:\n%s", out.String())
 		return err
 	}
+	log.Infof("built tekusers binary")
 	return nil
 }
