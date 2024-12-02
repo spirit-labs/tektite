@@ -18,7 +18,7 @@ func TestTekUsers(t *testing.T) {
 
 	numAgents := 3
 	agents, tearDown := startAgents(t, numAgents, "foo", false, false)
-	defer tearDown(t)
+	//defer tearDown(t)
 
 	var addresses strings.Builder
 	for i, agent := range agents {
@@ -47,6 +47,8 @@ func TestTekUsers(t *testing.T) {
 	commandLine = fmt.Sprintf("user delete --username unknown --addresses %s",
 		addresses.String())
 	runTekUsersExpectOutput(t, commandLine, "failed to delete user - user does not exist", agents[0].kafkaListenAddress)
+
+	tearDown(t)
 }
 
 func TestTekUsersHelp(t *testing.T) {
@@ -55,7 +57,7 @@ func TestTekUsersHelp(t *testing.T) {
 
 	numAgents := 3
 	agents, tearDown := startAgents(t, numAgents, "foo", false, false)
-	defer tearDown(t)
+	//defer tearDown(t)
 
 	var addresses strings.Builder
 	for i, agent := range agents {
@@ -81,6 +83,8 @@ Run "tekusers <command> --help" for more information on a command.
 `
 
 	runTekUsersExpectOutputRaw(t, "--help", expected)
+
+	tearDown(t)
 }
 
 func runTekUsersExpectOutput(t *testing.T, commandLine string, expectedOut string, listenAddress string) {
