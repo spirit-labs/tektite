@@ -36,7 +36,7 @@ func TestListOffsetInjectUnexpectedError(t *testing.T) {
 }
 
 func testListOffsets(t *testing.T, expectedOffset int64, offset int64, timestamp int64, expectedError error, expectedErrCode int) {
-	t.Parallel()
+
 	cfg := NewConf()
 	numAgents := 5
 	agents, tearDown := setupAgents(t, cfg, numAgents, func(i int) string {

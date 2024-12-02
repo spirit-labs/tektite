@@ -8,7 +8,7 @@ import (
 )
 
 func TestInitProducerID(t *testing.T) {
-	t.Parallel()
+
 	cfg := NewConf()
 	numAgents := 5
 	agents, tearDown := setupAgents(t, cfg, numAgents, func(i int) string {

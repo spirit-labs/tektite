@@ -20,7 +20,7 @@ import (
 )
 
 func TestMetadataAllTopicsNonMatchingClientID(t *testing.T) {
-	t.Parallel()
+
 	cfg := NewConf()
 	numAgents := 5
 	agents, tearDown := setupAgents(t, cfg, numAgents, func(i int) string {
@@ -37,7 +37,7 @@ func TestMetadataAllTopicsNonMatchingClientID(t *testing.T) {
 }
 
 func TestMetadataAllTopicsMatchingSingleAZ(t *testing.T) {
-	t.Parallel()
+
 	cfg := NewConf()
 	numAgents := 5
 	agents, tearDown := setupAgents(t, cfg, numAgents, func(i int) string {
@@ -54,7 +54,7 @@ func TestMetadataAllTopicsMatchingSingleAZ(t *testing.T) {
 }
 
 func TestMetadataOnlySameAZ(t *testing.T) {
-	t.Parallel()
+
 	cfg := NewConf()
 	numAgents := 10
 	agents, tearDown := setupAgents(t, cfg, numAgents, func(i int) string {
@@ -107,7 +107,7 @@ func TestMetadataOnlySameAZ(t *testing.T) {
 }
 
 func TestMetadataNoTopics(t *testing.T) {
-	t.Parallel()
+
 	cfg := NewConf()
 	numAgents := 5
 	agents, tearDown := setupAgents(t, cfg, numAgents, func(i int) string {
@@ -128,7 +128,7 @@ func TestMetadataNoTopics(t *testing.T) {
 }
 
 func TestMetadataSingleTopic(t *testing.T) {
-	t.Parallel()
+
 	cfg := NewConf()
 	numAgents := 5
 	agents, tearDown := setupAgents(t, cfg, numAgents, func(i int) string {
@@ -154,7 +154,7 @@ func TestMetadataSingleTopic(t *testing.T) {
 }
 
 func TestMetadataSingleTopicUnknown(t *testing.T) {
-	t.Parallel()
+
 	cfg := NewConf()
 	numAgents := 5
 	agents, tearDown := setupAgents(t, cfg, numAgents, func(i int) string {
@@ -175,7 +175,7 @@ func TestMetadataSingleTopicUnknown(t *testing.T) {
 }
 
 func TestMetadataControllerUnavailable(t *testing.T) {
-	t.Parallel()
+
 	cfg := NewConf()
 	numAgents := 5
 	agents, tearDown := setupAgents(t, cfg, numAgents, func(i int) string {
@@ -197,7 +197,7 @@ func TestMetadataControllerUnavailable(t *testing.T) {
 }
 
 func TestMetadataControllerUnexpectedError(t *testing.T) {
-	t.Parallel()
+
 	cfg := NewConf()
 	numAgents := 5
 	agents, tearDown := setupAgents(t, cfg, numAgents, func(i int) string {

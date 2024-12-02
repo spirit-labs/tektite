@@ -22,7 +22,7 @@ func TestApiVersionsRequestV3(t *testing.T) {
 }
 
 func testApiVersionsRequest(t *testing.T, apiVersion int16, req *kafkaprotocol.ApiVersionsRequest) {
-	t.Parallel()
+
 	cfg := NewConf()
 	agents, tearDown := setupAgents(t, cfg, 1, func(i int) string {
 		return "az1"

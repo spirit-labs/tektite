@@ -7,18 +7,10 @@ import (
 	auth "github.com/spirit-labs/tektite/auth2"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/kafkaprotocol"
-	log "github.com/spirit-labs/tektite/logger"
 	"github.com/stretchr/testify/require"
 	"testing"
 	"time"
 )
-
-func TestInLoop(t *testing.T) {
-	for i := 0; i < 10000; i++ {
-		log.Infof("iteration %d", i)
-		TestPutDeleteUser(t)
-	}
-}
 
 func TestPutDeleteUser(t *testing.T) {
 	cfg := NewConf()
