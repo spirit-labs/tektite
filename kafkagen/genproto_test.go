@@ -1,15 +1,20 @@
 package kafkagen
 
 import (
+	"github.com/spirit-labs/tektite/tekusers/tekusers"
 	"github.com/stretchr/testify/require"
 	"testing"
 )
 
 func TestGenProto(t *testing.T) {
-	specSet := SpecSet{
+	standardSpecSet := SpecSet{
 		SpecDir:  "../asl/kafka/spec",
 		Included: StandardIncluded,
 	}
-	err := Generate([]SpecSet{specSet}, "../kafkaprotocol")
+	customSpecSet := SpecSet{
+		SpecDir:  "../tekusers/tekusers/apispec",
+		Included: tekusers.Included,
+	}
+	err := Generate([]SpecSet{standardSpecSet, customSpecSet}, "../kafkaprotocol")
 	require.NoError(t, err)
 }
