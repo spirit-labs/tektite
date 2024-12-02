@@ -49,6 +49,7 @@ require (
 	github.com/tetratelabs/wazero v1.7.1
 	github.com/tidwall/gjson v1.14.4
 	github.com/timandy/routine v1.1.4
+	github.com/twmb/franz-go v1.18.0
 	github.com/xdg-go/pbkdf2 v1.0.0
 	github.com/xdg-go/scram v1.1.2
 	github.com/yosuke-furukawa/json5 v0.1.1
@@ -129,7 +130,6 @@ require (
 	github.com/tidwall/pretty v1.2.1 // indirect
 	github.com/tklauser/go-sysconf v0.3.12 // indirect
 	github.com/tklauser/numcpus v0.6.1 // indirect
-	github.com/twmb/franz-go v1.18.0 // indirect
 	github.com/twmb/franz-go/pkg/kmsg v1.9.0 // indirect
 	github.com/xdg-go/stringprep v1.0.4 // indirect
 	github.com/yusufpapurcu/wmi v1.2.3 // indirect
