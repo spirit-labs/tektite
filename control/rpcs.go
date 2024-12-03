@@ -358,17 +358,25 @@ func (g *GetTopicInfoResponse) Deserialize(buff []byte, offset int) int {
 	return g.Info.Deserialize(buff, offset)
 }
 
-type CreateTopicRequest struct {
+type CreateOrUpdateTopicRequest struct {
 	LeaderVersion int
+	Create        bool
 	Info          topicmeta.TopicInfo
 }
 
-func (g *CreateTopicRequest) Serialize(buff []byte) []byte {
+func (g *CreateOrUpdateTopicRequest) Serialize(buff []byte) []byte {
+	if g.Create {
+		buff = append(buff, 1)
+	} else {
+		buff = append(buff, 0)
+	}
 	buff = binary.BigEndian.AppendUint64(buff, uint64(g.LeaderVersion))
 	return g.Info.Serialize(buff)
 }
 
-func (g *CreateTopicRequest) Deserialize(buff []byte, offset int) int {
+func (g *CreateOrUpdateTopicRequest) Deserialize(buff []byte, offset int) int {
+	g.Create = buff[offset] == 1
+	offset++
 	g.LeaderVersion = int(binary.BigEndian.Uint64(buff[offset:]))
 	offset += 8
 	return g.Info.Deserialize(buff, offset)

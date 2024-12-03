@@ -416,7 +416,7 @@ outer:
 				cl, err = controller.Client()
 			}
 			if err == nil {
-				err = cl.CreateTopic(info)
+				err = cl.CreateOrUpdateTopic(info, true)
 				if err == nil {
 					continue outer
 				}

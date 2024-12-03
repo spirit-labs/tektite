@@ -363,7 +363,7 @@ func TestControllerCreateGetDeleteTopics(t *testing.T) {
 			PartitionCount: i + 1,
 			RetentionTime:  time.Duration(1000000 + i),
 		}
-		err = cl.CreateTopic(info)
+		err = cl.CreateOrUpdateTopic(info, true)
 		require.NoError(t, err)
 		received, _, exists, err := cl.GetTopicInfo(topicName)
 		require.NoError(t, err)
@@ -736,7 +736,7 @@ func TestControllerGetAllTopicInfos(t *testing.T) {
 			PartitionCount: i + 1,
 			RetentionTime:  time.Duration(1000000 + i),
 		}
-		err = cl.CreateTopic(info)
+		err = cl.CreateOrUpdateTopic(info, true)
 		require.NoError(t, err)
 		infos = append(infos, info)
 	}
@@ -771,7 +771,7 @@ func TestControllerGetTopicInfo(t *testing.T) {
 			PartitionCount: i + 1,
 			RetentionTime:  time.Duration(1000000 + i),
 		}
-		err = cl.CreateTopic(info)
+		err = cl.CreateOrUpdateTopic(info, true)
 		require.NoError(t, err)
 		infos = append(infos, info)
 	}
@@ -898,16 +898,16 @@ func createMembership(clusterVersion int, leaderVersion int, controllers []*Cont
 func setupTopics(t *testing.T, controller *Controller) {
 	cl, err := controller.Client()
 	require.NoError(t, err)
-	err = cl.CreateTopic(topicmeta.TopicInfo{
+	err = cl.CreateOrUpdateTopic(topicmeta.TopicInfo{
 		Name:           "topic1",
 		PartitionCount: 4,
 		RetentionTime:  1232123,
-	})
+	}, true)
 	require.NoError(t, err)
-	err = cl.CreateTopic(topicmeta.TopicInfo{
+	err = cl.CreateOrUpdateTopic(topicmeta.TopicInfo{
 		Name:           "topic2",
 		PartitionCount: 2,
 		RetentionTime:  34464646,
-	})
+	}, true)
 	require.NoError(t, err)
 }

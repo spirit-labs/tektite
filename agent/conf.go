@@ -304,8 +304,8 @@ func createTopic(topicName string, partitions int, agent *Agent) error {
 		}
 	}()
 
-	return cl.CreateTopic(topicmeta.TopicInfo{
+	return cl.CreateOrUpdateTopic(topicmeta.TopicInfo{
 		Name:           topicName,
 		PartitionCount: partitions,
-	})
+	}, true)
 }

@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-func TestManager(t *testing.T) {
+func TestCreateLoadDeleteTopics(t *testing.T) {
 	lsmH := &testLsmHolder{}
 	objStore := dev.NewInMemStore(0)
 
@@ -31,15 +31,16 @@ func TestManager(t *testing.T) {
 		require.False(t, exists)
 		info := TopicInfo{
 			Name:           topicName,
-			ID:             expectedSeq,
 			PartitionCount: i + 1,
 			RetentionTime:  time.Duration(1000000 + i),
 		}
-		err = mgr.CreateTopic(info)
+		id, err := mgr.CreateOrUpdateTopic(info, true)
 		require.NoError(t, err)
+		require.Equal(t, expectedSeq, id)
 		received, seq, exists, err := mgr.GetTopicInfo(topicName)
 		require.NoError(t, err)
 		require.True(t, exists)
+		info.ID = id
 		require.Equal(t, info, received)
 		expectedSeq++
 		require.Equal(t, expectedSeq, seq)
@@ -127,6 +128,152 @@ func TestManager(t *testing.T) {
 	}
 }
 
+func TestUpdateTopicInfo(t *testing.T) {
+	lsmH := &testLsmHolder{}
+	objStore := dev.NewInMemStore(0)
+
+	mgr, err := NewManager(lsmH, objStore, "test-bucket", common.DataFormatV1, nil)
+	require.NoError(t, err)
+	err = mgr.Start()
+	require.NoError(t, err)
+	topicName := "test-topic"
+	info := TopicInfo{
+		Name:           topicName,
+		PartitionCount: 10,
+		RetentionTime:  -1,
+	}
+	id, err := mgr.CreateOrUpdateTopic(info, true)
+	require.NoError(t, err)
+	require.Equal(t, 1000, id)
+	received, _, exists, err := mgr.GetTopicInfo(topicName)
+	require.NoError(t, err)
+	require.True(t, exists)
+	require.Equal(t, info.Name, received.Name)
+	require.Equal(t, info.PartitionCount, received.PartitionCount)
+
+	// Now double number of partitions
+	info.PartitionCount *= 2
+	id, err = mgr.CreateOrUpdateTopic(info, false)
+	require.NoError(t, err)
+	require.Equal(t, 1000, id)
+	received, _, exists, err = mgr.GetTopicInfo(topicName)
+	require.NoError(t, err)
+	require.True(t, exists)
+	require.Equal(t, info.Name, received.Name)
+	require.Equal(t, info.PartitionCount, received.PartitionCount)
+
+	// Now restart
+	err = mgr.Stop()
+	require.NoError(t, err)
+	mgr, err = NewManager(lsmH, objStore, "test-bucket", common.DataFormatV1, nil)
+	require.NoError(t, err)
+	err = mgr.Start()
+	require.NoError(t, err)
+
+	received, _, exists, err = mgr.GetTopicInfo(info.Name)
+	require.NoError(t, err)
+	require.True(t, exists)
+	require.Equal(t, info.Name, received.Name)
+	require.Equal(t, info.PartitionCount, received.PartitionCount)
+}
+
+func TestCreateTopicInfoInvalidPartitionCount(t *testing.T) {
+	lsmH := &testLsmHolder{}
+	objStore := dev.NewInMemStore(0)
+
+	mgr, err := NewManager(lsmH, objStore, "test-bucket", common.DataFormatV1, nil)
+	require.NoError(t, err)
+	err = mgr.Start()
+	require.NoError(t, err)
+	topicName := "test-topic"
+	info := TopicInfo{
+		Name:           topicName,
+		PartitionCount: -1,
+		RetentionTime:  -1,
+	}
+	_, err = mgr.CreateOrUpdateTopic(info, true)
+	require.Error(t, err)
+	require.True(t, common.IsTektiteErrorWithCode(err, common.InvalidPartitionCount))
+}
+
+func TestUpdateTopicInfoInvalidPartitionCount(t *testing.T) {
+	lsmH := &testLsmHolder{}
+	objStore := dev.NewInMemStore(0)
+
+	mgr, err := NewManager(lsmH, objStore, "test-bucket", common.DataFormatV1, nil)
+	require.NoError(t, err)
+	err = mgr.Start()
+	require.NoError(t, err)
+	topicName := "test-topic"
+	info := TopicInfo{
+		Name:           topicName,
+		PartitionCount: 10,
+		RetentionTime:  -1,
+	}
+	_, err = mgr.CreateOrUpdateTopic(info, true)
+	require.NoError(t, err)
+	received, _, exists, err := mgr.GetTopicInfo(topicName)
+	require.NoError(t, err)
+	require.True(t, exists)
+	require.Equal(t, info.Name, received.Name)
+	require.Equal(t, info.PartitionCount, received.PartitionCount)
+
+	info.PartitionCount = -1
+	_, err = mgr.CreateOrUpdateTopic(info, false)
+	require.Error(t, err)
+	require.True(t, common.IsTektiteErrorWithCode(err, common.InvalidPartitionCount))
+}
+
+func TestCreateTopicInfoTopicAlreadyExists(t *testing.T) {
+	lsmH := &testLsmHolder{}
+	objStore := dev.NewInMemStore(0)
+
+	mgr, err := NewManager(lsmH, objStore, "test-bucket", common.DataFormatV1, nil)
+	require.NoError(t, err)
+	err = mgr.Start()
+	require.NoError(t, err)
+	topicName := "test-topic"
+	info := TopicInfo{
+		Name:           topicName,
+		PartitionCount: 10,
+		RetentionTime:  -1,
+	}
+	_, err = mgr.CreateOrUpdateTopic(info, true)
+	require.NoError(t, err)
+
+	_, err = mgr.CreateOrUpdateTopic(info, true)
+	require.Error(t, err)
+	require.True(t, common.IsTektiteErrorWithCode(err, common.TopicAlreadyExists))
+}
+
+func TestUpdateTopicInfoInvalidTopic(t *testing.T) {
+	lsmH := &testLsmHolder{}
+	objStore := dev.NewInMemStore(0)
+
+	mgr, err := NewManager(lsmH, objStore, "test-bucket", common.DataFormatV1, nil)
+	require.NoError(t, err)
+	err = mgr.Start()
+	require.NoError(t, err)
+	topicName := "test-topic"
+	info := TopicInfo{
+		Name:           topicName,
+		PartitionCount: 10,
+		RetentionTime:  -1,
+	}
+	_, err = mgr.CreateOrUpdateTopic(info, true)
+	require.NoError(t, err)
+	received, _, exists, err := mgr.GetTopicInfo(topicName)
+	require.NoError(t, err)
+	require.True(t, exists)
+	require.Equal(t, info.Name, received.Name)
+	require.Equal(t, info.PartitionCount, received.PartitionCount)
+
+	info.Name = "unknown"
+	_, err = mgr.CreateOrUpdateTopic(info, false)
+	require.Error(t, err)
+	require.True(t, common.IsTektiteErrorWithCode(err, common.TopicDoesNotExist))
+}
+
 func TestGetTopicInfoSequence(t *testing.T) {
 	lsmH := &testLsmHolder{}
 	objStore := dev.NewInMemStore(0)
@@ -142,15 +289,16 @@ func TestGetTopicInfoSequence(t *testing.T) {
 		topicName := fmt.Sprintf("topic-%03d", i)
 		info := TopicInfo{
 			Name:           topicName,
-			ID:             expectedSeq,
 			PartitionCount: i + 1,
 			RetentionTime:  time.Duration(1000000 + i),
 		}
-		err = mgr.CreateTopic(info)
+		id, err := mgr.CreateOrUpdateTopic(info, true)
 		require.NoError(t, err)
+		require.Equal(t, expectedSeq, id)
 		received, seq, exists, err := mgr.GetTopicInfo(topicName)
 		require.NoError(t, err)
 		require.True(t, exists)
+		info.ID = id
 		require.Equal(t, info, received)
 		expectedSeq++
 		require.Equal(t, expectedSeq, seq)
@@ -184,15 +332,16 @@ func TestGetTopicInfoSequencePersisted(t *testing.T) {
 		topicName := fmt.Sprintf("topic-%03d", i)
 		info := TopicInfo{
 			Name:           topicName,
-			ID:             expectedSeq,
 			PartitionCount: i + 1,
 			RetentionTime:  time.Duration(1000000 + i),
 		}
-		err = mgr.CreateTopic(info)
+		id, err := mgr.CreateOrUpdateTopic(info, true)
 		require.NoError(t, err)
+		require.Equal(t, expectedSeq, id)
 		received, seq, exists, err := mgr.GetTopicInfo(topicName)
 		require.NoError(t, err)
 		require.True(t, exists)
+		info.ID = id
 		require.Equal(t, info, received)
 		expectedSeq++
 		require.Equal(t, expectedSeq, seq)
@@ -225,8 +374,9 @@ func TestGetTopicInfoSequencePersisted(t *testing.T) {
 			PartitionCount: i + 1,
 			RetentionTime:  time.Duration(1000000 + i),
 		}
-		err = mgr.CreateTopic(info)
+		id, err := mgr.CreateOrUpdateTopic(info, true)
 		require.NoError(t, err)
+		require.Equal(t, expectedSeq, id)
 		received, seq, exists, err := mgr.GetTopicInfo(topicName)
 		require.NoError(t, err)
 		require.True(t, exists)

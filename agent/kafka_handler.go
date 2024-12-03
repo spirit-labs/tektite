@@ -6,6 +6,7 @@ import (
 	"github.com/spirit-labs/tektite/kafkaprotocol"
 	"github.com/spirit-labs/tektite/kafkaserver2"
 	log "github.com/spirit-labs/tektite/logger"
+	"github.com/spirit-labs/tektite/topicmeta"
 	"strings"
 )
 
@@ -246,5 +247,77 @@ func setErrorForDeleteUserResponse(err error, resp *kafkaprotocol.DeleteUserResp
 		} else {
 			resp.ErrorCode = kafkaprotocol.ErrorCodeUnknownServerError
 		}
+	}
+}
+
+func (k *kafkaHandler) HandleOffsetDeleteRequest(hdr *kafkaprotocol.RequestHeader, req *kafkaprotocol.OffsetDeleteRequest, completionFunc func(resp *kafkaprotocol.OffsetDeleteResponse) error) error {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (k *kafkaHandler) HandleListGroupsRequest(hdr *kafkaprotocol.RequestHeader, req *kafkaprotocol.ListGroupsRequest, completionFunc func(resp *kafkaprotocol.ListGroupsResponse) error) error {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (k *kafkaHandler) HandleDescribeGroupsRequest(hdr *kafkaprotocol.RequestHeader, req *kafkaprotocol.DescribeGroupsRequest, completionFunc func(resp *kafkaprotocol.DescribeGroupsResponse) error) error {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (k *kafkaHandler) HandleDeleteGroupsRequest(hdr *kafkaprotocol.RequestHeader,
+	req *kafkaprotocol.DeleteGroupsRequest, completionFunc func(resp *kafkaprotocol.DeleteGroupsResponse) error) error {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (k *kafkaHandler) HandleCreatePartitionsRequest(_ *kafkaprotocol.RequestHeader,
+	req *kafkaprotocol.CreatePartitionsRequest, completionFunc func(resp *kafkaprotocol.CreatePartitionsResponse) error) error {
+	resp := kafkaprotocol.CreatePartitionsResponse{
+		Results: make([]kafkaprotocol.CreatePartitionsResponseCreatePartitionsTopicResult, len(req.Topics)),
+	}
+	for i := 0; i < len(req.Topics); i++ {
+		resp.Results[i].Name = req.Topics[i].Name
+	}
+	if req.ValidateOnly {
+		// FIXME - what are we supposed to do here?
+		return completionFunc(&resp)
+	}
+	cl, err := k.agent.controlClientCache.GetClient()
+	if err != nil {
+		setErrorForCreatePartitionsResponse(err, &resp)
+	} else {
+		for i, topic := range req.Topics {
+			if err := cl.CreateOrUpdateTopic(topicmeta.TopicInfo{
+				Name:           common.SafeDerefStringPtr(topic.Name),
+				PartitionCount: int(topic.Count),
+			}, false); err != nil {
+				errCode, errMsg := getErrorCodeAndMessageForCreatePartitionsResponse(err)
+				resp.Results[i].ErrorCode = errCode
+				resp.Results[i].ErrorMessage = common.StrPtr(errMsg)
+			}
+		}
+	}
+	return completionFunc(&resp)
+}
+
+func getErrorCodeAndMessageForCreatePartitionsResponse(err error) (int16, string) {
+	errMsg := err.Error()
+	var errCode int16
+	if common.IsUnavailableError(err) {
+		errCode = kafkaprotocol.ErrorCodeCoordinatorNotAvailable
+	} else if common.IsTektiteErrorWithCode(err, common.TopicDoesNotExist) {
+		errCode = kafkaprotocol.ErrorCodeUnknownTopicOrPartition
+	} else {
+		errCode = kafkaprotocol.ErrorCodeUnknownServerError
+	}
+	return errCode, errMsg
+}
+
+func setErrorForCreatePartitionsResponse(err error, resp *kafkaprotocol.CreatePartitionsResponse) {
+	errCode, errMsg := getErrorCodeAndMessageForCreatePartitionsResponse(err)
+	for i := 0; i < len(resp.Results); i++ {
+		resp.Results[i].ErrorCode = errCode
+		resp.Results[i].ErrorMessage = common.StrPtr(errMsg)
 	}
 }

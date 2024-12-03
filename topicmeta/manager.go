@@ -37,7 +37,7 @@ type Manager struct {
 	topicIDSequence  int64
 	stopping         atomic.Bool
 	membership       cluster.MembershipState
-	connCaches *transport.ConnCaches
+	connCaches       *transport.ConnCaches
 	dataPrefix       []byte
 }
 
@@ -59,7 +59,7 @@ func NewManager(lsm lsmHolder, objStore objstore.Client, dataBucketName string,
 		dataFormat:       dataFormat,
 		topicInfosByName: make(map[string]*TopicInfo),
 		topicInfosByID:   make(map[int]*TopicInfo),
-		connCaches: connCaches,
+		connCaches:       connCaches,
 		dataPrefix:       dataPrefix,
 	}, nil
 }
@@ -134,26 +134,37 @@ func (m *Manager) GetTopicInfo(topicName string) (TopicInfo, int, bool, error) {
 	return *info, int(m.topicIDSequence), true, nil
 }
 
-func (m *Manager) CreateTopic(topicInfo TopicInfo) error {
+func (m *Manager) CreateOrUpdateTopic(topicInfo TopicInfo, create bool) (int, error) {
 	m.lock.Lock()
 	defer m.lock.Unlock()
-	_, ok := m.topicInfosByName[topicInfo.Name]
-	if ok {
-		return common.NewTektiteErrorf(common.TopicAlreadyExists, "topic: %s already exists", topicInfo.Name)
+	if topicInfo.PartitionCount < 1 {
+		return 0, common.NewTektiteErrorf(common.InvalidPartitionCount, "invalid partition count %d", topicInfo.PartitionCount)
 	}
-	topicInfo.ID = int(m.topicIDSequence)
-	log.Debugf("%p created topic with id %d name %s partitions %d", m, topicInfo.ID, topicInfo.Name, topicInfo.PartitionCount)
-	m.topicIDSequence++
-	if topicInfo.RetentionTime == 0 {
-		topicInfo.RetentionTime = -1
+	info, ok := m.topicInfosByName[topicInfo.Name]
+	if create {
+		if ok {
+			return 0, common.NewTektiteErrorf(common.TopicAlreadyExists, "topic: %s already exists", topicInfo.Name)
+		}
+		topicInfo.ID = int(m.topicIDSequence)
+		log.Debugf("%p created topic with id %d name %s partitions %d", m, topicInfo.ID, topicInfo.Name, topicInfo.PartitionCount)
+		m.topicIDSequence++
+		if topicInfo.RetentionTime == 0 {
+			topicInfo.RetentionTime = -1
+		}
+	} else {
+		if !ok {
+			return 0, common.NewTektiteErrorf(common.TopicDoesNotExist, "topic: %s does not exist", topicInfo.Name)
+		}
+		topicInfo.ID = info.ID
+		topicInfo.RetentionTime = info.RetentionTime
 	}
 	if err := m.WriteTopic(topicInfo); err != nil {
-		return err
+		return 0, err
 	}
 	m.topicInfosByName[topicInfo.Name] = &topicInfo
 	m.topicInfosByID[topicInfo.ID] = &topicInfo
 	m.SendTopicNotification(transport.HandlerIDMetaLocalCacheTopicAdded, topicInfo)
-	return nil
+	return topicInfo.ID, nil
 }
 
 func (m *Manager) DeleteTopic(topicName string) error {

@@ -348,8 +348,14 @@ func testSerializeDeserializeGetTopicInfoResponse(t *testing.T, resp GetTopicInf
 }
 
 func TestSerializeDeserializeCreateTopicRequest(t *testing.T) {
-	req := CreateTopicRequest{
+	testSerializeDeserializeCreateTopicRequest(t, false)
+	testSerializeDeserializeCreateTopicRequest(t, true)
+}
+
+func testSerializeDeserializeCreateTopicRequest(t *testing.T, create bool) {
+	req := CreateOrUpdateTopicRequest{
 		LeaderVersion: 123,
+		Create:        create,
 		Info: topicmeta.TopicInfo{
 			ID:             23423,
 			Name:           "some-topic",
@@ -360,7 +366,7 @@ func TestSerializeDeserializeCreateTopicRequest(t *testing.T) {
 	var buff []byte
 	buff = append(buff, 1, 2, 3)
 	buff = req.Serialize(buff)
-	var req2 CreateTopicRequest
+	var req2 CreateOrUpdateTopicRequest
 	off := req2.Deserialize(buff, 3)
 	require.Equal(t, req, req2)
 	require.Equal(t, off, len(buff))

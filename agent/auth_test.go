@@ -320,11 +320,11 @@ func makeTopic(t *testing.T, agent *Agent) string {
 	topicName := "topic-" + uuid.New().String()
 	cl, err := agent.Controller().Client()
 	require.NoError(t, err)
-	err = cl.CreateTopic(topicmeta.TopicInfo{
+	err = cl.CreateOrUpdateTopic(topicmeta.TopicInfo{
 		Name:           topicName,
 		PartitionCount: 10,
 		RetentionTime:  -1,
-	})
+	}, true)
 	require.NoError(t, err)
 	return topicName
 }

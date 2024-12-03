@@ -151,10 +151,10 @@ func createTopic(t *testing.T, topicName string, partitions int, agent *agent.Ag
 		err := cl.Close()
 		require.NoError(t, err)
 	}()
-	return cl.CreateTopic(topicmeta.TopicInfo{
+	return cl.CreateOrUpdateTopic(topicmeta.TopicInfo{
 		Name:           topicName,
 		PartitionCount: partitions,
-	})
+	}, true)
 }
 
 func createTopicUsingAdminClient(t *testing.T, topicName string, partitions int, producer *kafkago.Producer) {
