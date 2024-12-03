@@ -54,6 +54,8 @@ func (m *Manager) removeAgent(id int) {
 }
 
 type AgentProcess struct {
+	lock                 sync.Mutex
+	started              bool
 	mgr                  *Manager
 	id                   int
 	args                 []string
@@ -98,6 +100,11 @@ func (m *Manager) RunAgentAndGetOutput(args string) ([]string, error) {
 }
 
 func (a *AgentProcess) Start() error {
+	a.lock.Lock()
+	defer a.lock.Unlock()
+	if a.started {
+		return errors.New("already started")
+	}
 	cmd := exec.Command("../bin/tekagent", a.args...)
 	cmd.Env = append(os.Environ(), "COLUMNS=160")
 	out, err := cmd.StdoutPipe()
@@ -121,10 +128,16 @@ func (a *AgentProcess) Start() error {
 	// We wait until the agent has started running , so the signal handler has been set otherwise if we stop it quickly
 	// the signal won't be intercepted
 	a.startWG.Wait()
+	a.started = true
 	return nil
 }
 
 func (a *AgentProcess) Stop() error {
+	a.lock.Lock()
+	defer a.lock.Unlock()
+	if !a.started {
+		return errors.New("not started")
+	}
 	// Send a SIGINT signal
 	if err := a.cmd.Process.Signal(syscall.SIGINT); err != nil {
 		return err

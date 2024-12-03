@@ -87,13 +87,13 @@ func (c *Controller) putUserCredentials(username string, storedKey []byte, serve
 		Key:   key,
 		Value: val,
 	}
-	return c.sendDirectWrite([]common.KV{kv}, credentialsPrefix)
+	return c.sendDirectWrite([]common.KV{kv})
 }
 
-func (c *Controller) sendDirectWrite(kvs []common.KV, partHash []byte) error {
+func (c *Controller) sendDirectWrite(kvs []common.KV) error {
 	req := common.DirectWriteRequest{
 		WriterKey:   controllerWriterKey,
-		WriterEpoch: c.activateClusterVersion,
+		WriterEpoch: c.GetActivateClusterVersion(),
 		KVs:         kvs,
 	}
 	reqBuff := req.Serialize(createRequestBuffer())
@@ -124,7 +124,7 @@ func (c *Controller) deleteUserCredentials(username string) error {
 	kv := common.KV{
 		Key: key,
 	}
-	return c.sendDirectWrite([]common.KV{kv}, credentialsPrefix)
+	return c.sendDirectWrite([]common.KV{kv})
 }
 
 func createCredentialsKey(username string) []byte {

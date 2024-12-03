@@ -13,6 +13,7 @@ import (
 	"github.com/spirit-labs/tektite/sst"
 	"github.com/xdg-go/pbkdf2"
 	"github.com/xdg-go/scram"
+	"strings"
 	"sync"
 )
 
@@ -24,7 +25,8 @@ const (
 	NumIters            = 4096
 )
 
-func NewScramManager(authType ScramAuthType, controlClientCache *control.ClientCache, tableGetter sst.TableGetter) (*ScramManager, error) {
+func NewScramManager(authType ScramAuthType, controlClientCache *control.ClientCache, tableGetter sst.TableGetter,
+	allowNonceAsPrefix bool) (*ScramManager, error) {
 	partHash, err := parthash.CreateHash([]byte("user.creds"))
 	if err != nil {
 		return nil, err
@@ -42,6 +44,7 @@ func NewScramManager(authType ScramAuthType, controlClientCache *control.ClientC
 		tableGetter:        tableGetter,
 		partHash:           partHash,
 		credsSequenceLocal: common.NewGRLocal(),
+		allowNonceAsPrefix: allowNonceAsPrefix,
 	}
 	scramServer, err := hashGenFunc.NewServer(sm.lookupCredential)
 	if err != nil {
@@ -59,6 +62,7 @@ type ScramManager struct {
 	tableGetter        sst.TableGetter
 	hashGenFunc        scram.HashGeneratorFcn
 	credsSequenceLocal common.GRLocal
+	allowNonceAsPrefix bool
 }
 
 // AuthenticateWithUserPwd is used e.g. with SASL/PLAIN, when we need to auth on the server with a username and
@@ -187,6 +191,11 @@ type ScramConversation struct {
 	lock          sync.Mutex
 	credsSequence int
 	step          int
+	returnedNonce string
+}
+
+func (s *ScramConversation) Step() int {
+	return s.step
 }
 
 func (s *ScramConversation) Principal() string {
@@ -204,6 +213,7 @@ func (s *ScramConversation) CredentialsSequence() int {
 func (s *ScramConversation) Process(request []byte) (resp []byte, complete bool, failed bool) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
+	request = s.maybeTrimNonce(request)
 	r, err := s.conv.Step(string(request))
 	if err != nil {
 		// Log auth failures at info
@@ -211,6 +221,10 @@ func (s *ScramConversation) Process(request []byte) (resp []byte, complete bool,
 		return nil, false, true
 	}
 	if s.step == 0 {
+		if s.mgr.allowNonceAsPrefix {
+			// extract the nonce
+			s.returnedNonce = extractNonce(r, 0)
+		}
 		// GRLocal for sequence is set in the credentials lookup which occurs in the first step
 		// The credentials sequence number should have been set using a GR local
 		credsSequence, ok := s.mgr.credsSequenceLocal.Get()
@@ -226,6 +240,44 @@ func (s *ScramConversation) Process(request []byte) (resp []byte, complete bool,
 		s.principal = s.conv.Username()
 	}
 	return []byte(r), s.conv.Valid(), false
+}
+
+func extractNonce(resp string, index int) string {
+	fields := strings.Split(resp, ",")
+	nonceField := fields[index]
+	if !strings.HasPrefix(nonceField, "r=") {
+		panic("invalid scram field")
+	}
+	return strings.TrimPrefix(nonceField, "r=")
+}
+
+func (s *ScramConversation) maybeTrimNonce(request []byte) []byte {
+	if s.mgr.allowNonceAsPrefix && s.step == 1 {
+		nonce := extractNonce(string(request), 1)
+		if strings.HasPrefix(nonce, s.returnedNonce) {
+			// The nonce provided by the client is a prefix of the actual nonce returned by the server in step 1
+			// According to the SCRAM RFC it should be exactly equal, but earlier versions of librdkafka had
+			// a bug whereby the nonce sent back in step 2 had the server nonce as a prefix burt was not exactly equal.
+			// To allow compatibility with older librdkafka versions we don't fail the handshake if the supplied nonce
+			// has a prefix. By default we don't allow this but it can be configured on the agent if necessary.
+			sRequest := string(request)
+			fields := strings.Split(sRequest, ",")
+			var newRequest strings.Builder
+			for i, field := range fields {
+				if i == 1 {
+					// substitute the exact nonce so handshake will pass
+					newRequest.WriteString("r=" + s.returnedNonce)
+				} else {
+					newRequest.WriteString(field)
+				}
+				if i != len(fields)-1 {
+					newRequest.WriteRune(',')
+				}
+			}
+			request = []byte(newRequest.String())
+		}
+	}
+	return request
 }
 
 func AlgoForAuthType(authType string) scram.HashGeneratorFcn {

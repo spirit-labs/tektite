@@ -130,7 +130,15 @@ func TestKafkaAuthSaslPlain(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestKafkaAuthSaslScram(t *testing.T) {
+func TestKafkaAuthSaslScramDontAllowNonceAsPrefix(t *testing.T) {
+	testKafkaAuthSaslScram(t, false)
+}
+
+func TestKafkaAuthSaslScramAllowNonceAsPrefix(t *testing.T) {
+	testKafkaAuthSaslScram(t, true)
+}
+
+func testKafkaAuthSaslScram(t *testing.T, allowNonceAsPrefix bool) {
 
 	cfg := NewConf()
 	cfg.AuthType = kafkaserver2.AuthenticationTypeSaslScram512
@@ -138,6 +146,10 @@ func TestKafkaAuthSaslScram(t *testing.T) {
 		Enabled:              true,
 		ServerPrivateKeyFile: serverKeyPath,
 		ServerCertFile:       serverCertPath,
+	}
+	if allowNonceAsPrefix {
+		cfg.AddJunkOnScramNonce = true
+		cfg.AllowScramNonceAsPrefix = true
 	}
 	agents, tearDown := setupAgents(t, cfg, 1, func(i int) string {
 		return "az1"
@@ -193,6 +205,44 @@ func TestKafkaAuthSaslScram(t *testing.T) {
 	address := agent.cfg.KafkaListenerConfig.Address
 	_, err = dialer.DialLeader(context.Background(), "tcp", address, topicName, 0)
 	require.Error(t, err)
+}
+
+func TestKafkaAuthSaslScramFailIfNonceAsPrefixNotAllowe3d(t *testing.T) {
+	cfg := NewConf()
+	cfg.AuthType = kafkaserver2.AuthenticationTypeSaslScram512
+	cfg.KafkaListenerConfig.TLSConfig = conf.TlsConf{
+		Enabled:              true,
+		ServerPrivateKeyFile: serverKeyPath,
+		ServerCertFile:       serverCertPath,
+	}
+	cfg.AddJunkOnScramNonce = true
+	cfg.AllowScramNonceAsPrefix = false
+
+	agents, tearDown := setupAgents(t, cfg, 1, func(i int) string {
+		return "az1"
+	})
+	defer tearDown(t)
+	agent := agents[0]
+
+	clientTLSConfig := conf.ClientTlsConf{
+		Enabled:        true,
+		ServerCertFile: serverCertPath,
+	}
+
+	username1 := "some-user1"
+	password1 := "some-password1"
+
+	scramType := auth.AuthenticationSaslScramSha512
+
+	putUserCred(t, agent, username1, password1, scramType)
+
+	mechProvider := func(t *testing.T, username string, password string) sasl.Mechanism {
+		mechanism, err := scram.Mechanism(scram.SHA512, username, password)
+		require.NoError(t, err)
+		return mechanism
+	}
+
+	tryConnect(t, username1, password1, false, agent, clientTLSConfig, mechProvider)
 }
 
 type saslMechanismProvider func(t *testing.T, username string, password string) sasl.Mechanism

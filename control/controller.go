@@ -43,7 +43,7 @@ type Controller struct {
 	tableGetter                sst.TableGetter
 	sequences                  *Sequences
 	memberID                   int32
-	activateClusterVersion     int
+	activateClusterVersion     int64
 	credentialsLock            sync.Mutex
 }
 
@@ -60,7 +60,7 @@ func NewController(cfg Conf, objStoreClient objstore.Client, connCaches *transpo
 		activateClusterVersion: -1,
 	}
 	control.groupCoordinatorController = NewGroupCoordinatorController(func() int {
-		return control.activateClusterVersion
+		return control.GetActivateClusterVersion()
 	})
 	return control
 }
@@ -115,9 +115,7 @@ func (c *Controller) SetTableGetter(getter sst.TableGetter) {
 }
 
 func (c *Controller) GetActivateClusterVersion() int {
-	c.lock.Lock()
-	defer c.lock.Unlock()
-	return c.activateClusterVersion
+	return int(atomic.LoadInt64(&c.activateClusterVersion))
 }
 
 func (c *Controller) stop() error {
@@ -185,7 +183,7 @@ func (c *Controller) MembershipChanged(thisMemberID int32, newState cluster.Memb
 			if err := cache.Start(); err != nil {
 				return err
 			}
-			c.activateClusterVersion = newState.ClusterVersion
+			atomic.StoreInt64(&c.activateClusterVersion, int64(newState.ClusterVersion))
 			c.offsetsCache = cache
 			c.sequences = NewSequences(lsmHolder, c.tableGetter, c.objStoreClient, c.cfg.SSTableBucketName,
 				c.cfg.DataFormat, int64(c.cfg.SequencesBlockSize))
@@ -596,7 +594,12 @@ func (c *Controller) handleGenerateSequence(_ *transport.ConnectionContext, requ
 func (c *Controller) handlePutUserCredentials(_ *transport.ConnectionContext, request []byte, responseBuff []byte,
 	responseWriter transport.ResponseWriter) error {
 	c.lock.RLock()
-	defer c.lock.RUnlock()
+	unlocked := false
+	defer func() {
+		if !unlocked {
+			c.lock.RUnlock()
+		}
+	}()
 	if !c.requestChecks(request, responseWriter) {
 		return nil
 	}
@@ -605,6 +608,11 @@ func (c *Controller) handlePutUserCredentials(_ *transport.ConnectionContext, re
 	if err := c.checkLeaderVersion(req.LeaderVersion); err != nil {
 		return responseWriter(nil, err)
 	}
+	// We release the controller lock before executing the putUserCredentials - as this causes an indirect call
+	// back into the controller via the table pusher when the KV is written, and this can otherwise deadlock
+	// if MembershipChanged is trying to get the W lock.
+	c.lock.RUnlock()
+	unlocked = true
 	if err := c.putUserCredentials(req.Username, req.StoredKey, req.ServerKey, req.Salt, req.Iters); err != nil {
 		return responseWriter(nil, err)
 	}
@@ -614,7 +622,12 @@ func (c *Controller) handlePutUserCredentials(_ *transport.ConnectionContext, re
 func (c *Controller) handleDeleteUserCredentials(_ *transport.ConnectionContext, request []byte, responseBuff []byte,
 	responseWriter transport.ResponseWriter) error {
 	c.lock.RLock()
-	defer c.lock.RUnlock()
+	unlocked := false
+	defer func() {
+		if !unlocked {
+			c.lock.RUnlock()
+		}
+	}()
 	if !c.requestChecks(request, responseWriter) {
 		return nil
 	}
@@ -623,6 +636,11 @@ func (c *Controller) handleDeleteUserCredentials(_ *transport.ConnectionContext,
 	if err := c.checkLeaderVersion(req.LeaderVersion); err != nil {
 		return responseWriter(nil, err)
 	}
+	// We release the controller lock before executing the putUserCredentials - as this causes an indirect call
+	// back into the controller via the table pusher when the KV is written, and this can otherwise deadlock
+	// if MembershipChanged is trying to get the W lock.
+	c.lock.RUnlock()
+	unlocked = true
 	if err := c.deleteUserCredentials(req.Username); err != nil {
 		return responseWriter(nil, err)
 	}
