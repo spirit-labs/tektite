@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"github.com/spirit-labs/tektite/apiclient"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/kafkaencoding"
 	"github.com/spirit-labs/tektite/kafkaprotocol"
@@ -44,7 +45,7 @@ func testFetchSimple(t *testing.T, apiVersion int16) {
 	address := agent.Conf().KafkaListenerConfig.Address
 	batch := produceBatch(t, topicName, partitionID, address)
 
-	cl, err := NewKafkaApiClient()
+	cl, err := apiclient.NewKafkaApiClient()
 	require.NoError(t, err)
 
 	conn, err := cl.NewConnection(address)
@@ -143,9 +144,9 @@ func testFetch(t *testing.T, numAgents int, writeTimeout time.Duration, numBatch
 		}
 	}()
 
-	cl, err := NewKafkaApiClient()
+	cl, err := apiclient.NewKafkaApiClient()
 	require.NoError(t, err)
-	var connections []*KafkaApiConnection
+	var connections []*apiclient.KafkaApiConnection
 	for _, agent := range agents {
 		conn, err := cl.NewConnection(agent.Conf().KafkaListenerConfig.Address)
 		require.NoError(t, err)
@@ -224,7 +225,7 @@ type sendRunner struct {
 	partitionID        int
 	numBatches         int
 	stopWg             sync.WaitGroup
-	connections        []*KafkaApiConnection
+	connections        []*apiclient.KafkaApiConnection
 	batches            [][]byte
 	offset             int64
 	maxRecordsPerBatch int
@@ -308,7 +309,7 @@ type fetchRunner struct {
 	maxBytes    int
 	maxWaitMs   int
 	stopWg      sync.WaitGroup
-	connections []*KafkaApiConnection
+	connections []*apiclient.KafkaApiConnection
 	fetchOffset int64
 	batches     [][]byte
 }
@@ -429,7 +430,7 @@ func produceBatch(t *testing.T, topicName string, partitionID int, address strin
 			},
 		},
 	}
-	cl, err := NewKafkaApiClient()
+	cl, err := apiclient.NewKafkaApiClient()
 	require.NoError(t, err)
 	conn, err := cl.NewConnection(address)
 	require.NoError(t, err)

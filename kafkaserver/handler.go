@@ -684,3 +684,13 @@ func (c *connection) HandleEndTxnRequest(hdr *kafkaprotocol.RequestHeader, req *
 	//TODO implement me
 	panic("implement me")
 }
+
+func (c *connection) HandlePutUserCredentialsRequest(hdr *kafkaprotocol.RequestHeader, req *kafkaprotocol.PutUserCredentialsRequest, completionFunc func(resp *kafkaprotocol.PutUserCredentialsResponse) error) error {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (c *connection) HandleDeleteUserRequest(hdr *kafkaprotocol.RequestHeader, req *kafkaprotocol.DeleteUserRequest, completionFunc func(resp *kafkaprotocol.DeleteUserResponse) error) error {
+	//TODO implement me
+	panic("implement me")
+}

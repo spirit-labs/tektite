@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/google/uuid"
+	"github.com/spirit-labs/tektite/apiclient"
 	"github.com/spirit-labs/tektite/asl/encoding"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/control"
@@ -65,7 +66,7 @@ func TestProduceSimple(t *testing.T) {
 		},
 	}
 
-	cl, err := NewKafkaApiClient()
+	cl, err := apiclient.NewKafkaApiClient()
 	require.NoError(t, err)
 
 	conn, err := cl.NewConnection(agent.Conf().KafkaListenerConfig.Address)
@@ -138,7 +139,7 @@ func TestProduceMultipleTopicsAndPartitions(t *testing.T) {
 		TopicData:       topicData,
 	}
 
-	cl, err := NewKafkaApiClient()
+	cl, err := apiclient.NewKafkaApiClient()
 	require.NoError(t, err)
 
 	conn, err := cl.NewConnection(agent.Conf().KafkaListenerConfig.Address)
@@ -202,7 +203,7 @@ func TestProduceMultipleBatches(t *testing.T) {
 	numBatches := 100
 	recordsPerBatch := 100
 
-	cl, err := NewKafkaApiClient()
+	cl, err := apiclient.NewKafkaApiClient()
 	require.NoError(t, err)
 
 	conn, err := cl.NewConnection(agent.Conf().KafkaListenerConfig.Address)
@@ -298,7 +299,7 @@ func TestProduceSimpleWithReload(t *testing.T) {
 		},
 	}
 
-	cl, err := NewKafkaApiClient()
+	cl, err := apiclient.NewKafkaApiClient()
 	require.NoError(t, err)
 
 	conn, err := cl.NewConnection(agent.Conf().KafkaListenerConfig.Address)
@@ -348,7 +349,7 @@ func TestProduceSimpleWithReload(t *testing.T) {
 		},
 	}
 
-	cl, err = NewKafkaApiClient()
+	cl, err = apiclient.NewKafkaApiClient()
 	require.NoError(t, err)
 
 	conn, err = cl.NewConnection(agent.Conf().KafkaListenerConfig.Address)

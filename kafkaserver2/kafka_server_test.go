@@ -318,3 +318,11 @@ func (t *testKafkaHandler) HandleEndTxnRequest(hdr *kafkaprotocol.RequestHeader,
 
 	panic("implement me")
 }
+
+func (t *testKafkaHandler) HandlePutUserCredentialsRequest(hdr *kafkaprotocol.RequestHeader, req *kafkaprotocol.PutUserCredentialsRequest, completionFunc func(resp *kafkaprotocol.PutUserCredentialsResponse) error) error {
+	panic("implement me")
+}
+
+func (t *testKafkaHandler) HandleDeleteUserRequest(hdr *kafkaprotocol.RequestHeader, req *kafkaprotocol.DeleteUserRequest, completionFunc func(resp *kafkaprotocol.DeleteUserResponse) error) error {
+	panic("implement me")
+}

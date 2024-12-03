@@ -1,6 +1,8 @@
 package kafkaprotocol
 
 const (
+	// Standard Kafka API keys
+
 	APIKeyProduce            = 0
 	APIKeyFetch              = 1
 	APIKeyListOffsets        = 2
@@ -20,6 +22,11 @@ const (
 	APIKeyEndTxn             = 26
 	APIKeyTxnOffsetCommit    = 28
 	APIKeySaslAuthenticate   = 36
+
+	// Custom API keys
+
+	ApiKeyPutUserCredentialsRequest = 1000
+	ApiKeyDeleteUserRequest         = 1001
 )
 
 const (
@@ -96,6 +103,8 @@ const (
 	ErrorCodeGroupIDNotFound                    = 69
 	ErrorCodeFetchSessionIDNotFound             = 70
 	ErrorCodeInvalidFetchSessionEpoch           = 71
+
+	ErrorCodeNoSuchUser = 1000
 )
 
 var SupportedAPIVersions = []ApiVersionsResponseApiVersion{
@@ -121,6 +130,13 @@ var SupportedAPIVersions = []ApiVersionsResponseApiVersion{
 		{ApiKey: APIKeyEndTxn, MinVersion: 3, MaxVersion: 3},
 		{ApiKey: APIKeyTxnOffsetCommit, MinVersion: 3, MaxVersion: 3},
 	*/
+	{ApiKey: ApiKeyPutUserCredentialsRequest, MinVersion: 0, MaxVersion: 0},
+	{ApiKey: ApiKeyDeleteUserRequest, MinVersion: 0, MaxVersion: 0},
+}
+
+var SupportedCustomAPIVersions = []ApiVersionsResponseApiVersion{
+	{ApiKey: ApiKeyPutUserCredentialsRequest, MinVersion: 0, MaxVersion: 0},
+	{ApiKey: ApiKeyDeleteUserRequest, MinVersion: 0, MaxVersion: 0},
 }
 
 type Records struct {
