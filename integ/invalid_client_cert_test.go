@@ -31,9 +31,6 @@ func TestInvalidClientCert(t *testing.T) {
 	mgr := NewManager()
 	agent, err := mgr.StartAgent(commandLine, false)
 	require.NoError(t, err)
-
-	err = agent.Start()
-	require.NoError(t, err)
 	defer func() {
 		err := agent.Stop()
 		require.NoError(t, err)

@@ -5,6 +5,8 @@ import (
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/kafkaprotocol"
 	"github.com/spirit-labs/tektite/kafkaserver2"
+	log "github.com/spirit-labs/tektite/logger"
+	"strings"
 )
 
 func (a *Agent) newKafkaHandler(ctx kafkaserver2.ConnectionContext) kafkaprotocol.RequestHandler {
@@ -134,7 +136,13 @@ func (k *kafkaHandler) HandleSaslAuthenticateRequest(_ *kafkaprotocol.RequestHea
 		msg := "SaslAuthenticateRequest without a preceding SaslAuthenticateRequest"
 		resp.ErrorMessage = &msg
 	} else {
-		saslRespBytes, complete, failed := conv.Process(req.AuthBytes)
+		reqBytes := req.AuthBytes
+		sc, isSCram := conv.(*auth.ScramConversation)
+		if isSCram && k.agent.cfg.AddJunkOnScramNonce && sc.Step() == 1 {
+			log.Warnf("Testing: Adding Junk to SCRAM nonce")
+			reqBytes = addJunkToScramNonce(reqBytes)
+		}
+		saslRespBytes, complete, failed := conv.Process(reqBytes)
 		if failed {
 			resp.ErrorCode = kafkaprotocol.ErrorCodeSaslAuthenticationFailed
 		} else {
@@ -147,6 +155,25 @@ func (k *kafkaHandler) HandleSaslAuthenticateRequest(_ *kafkaprotocol.RequestHea
 		}
 	}
 	return completionFunc(&resp)
+}
+
+func addJunkToScramNonce(reqBytes []byte) []byte {
+	// Used in testing only. We add some junk to the nonce
+	sRequest := string(reqBytes)
+	fields := strings.Split(sRequest, ",")
+	var newRequest strings.Builder
+	for i, field := range fields {
+		if i == 1 {
+			nonce := strings.TrimPrefix(field, "r=")
+			newRequest.WriteString("r=" + nonce + "-some-junk")
+		} else {
+			newRequest.WriteString(field)
+		}
+		if i != len(fields)-1 {
+			newRequest.WriteRune(',')
+		}
+	}
+	return []byte(newRequest.String())
 }
 
 func (k *kafkaHandler) HandleSaslHandshakeRequest(_ *kafkaprotocol.RequestHeader,

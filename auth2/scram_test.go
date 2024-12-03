@@ -7,7 +7,7 @@ import (
 )
 
 // TestScram - this just runs a client/server conv using xdg-go as a sanity check, it does not test our end-end scram
-// that is done in the integration tests
+// that is done in other tests
 func TestScram(t *testing.T) {
 	username := "some_user"
 	password := "some_password"

@@ -57,6 +57,7 @@ Flags:
       --consumer-group-initial-join-delay-ms=3000             initial delay to wait for more consumers to join a new consumer group before performing the first
                                                               rebalance, in ms
       --authentication-type="none"                            type of authentication. one of sasl/plain, sasl/scram-sha-512, mtls, none
+      --allow-scram-nonce-as-prefix
       --topic-name=STRING                                     name of the topic
       --log-format="console"                                  format to write log lines in - one of: console, json
       --log-level="info"                                      lowest log level that will be emitted - one of: debug, info, warn, error`

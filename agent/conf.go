@@ -34,17 +34,17 @@ type CommandConf struct {
 	MembershipUpdateIntervalMs      int                `help:"interval between updating cluster membership in ms" default:"5000"`
 	MembershipEvictionIntervalMs    int                `help:"interval after which member will be evicted from the cluster" default:"20000"`
 	ConsumerGroupInitialJoinDelayMs int                `name:"consumer-group-initial-join-delay-ms" help:"initial delay to wait for more consumers to join a new consumer group before performing the first rebalance, in ms" default:"3000"`
-	AuthenticationType    string `help:"type of authentication. one of sasl/plain, sasl/scram-sha-512, mtls, none" default:"none"`
-
+	AuthenticationType              string             `help:"type of authentication. one of sasl/plain, sasl/scram-sha-512, mtls, none" default:"none"`
+	AllowScramNonceAsPrefix         bool
 
 	TopicName string `name:"topic-name" help:"name of the topic"`
 }
 
 var authTypeMapping = map[string]kafkaserver.AuthenticationType{
-	"none": kafkaserver.AuthenticationTypeNone,
-	"sasl/plain": kafkaserver.AuthenticationTypeSaslPlain,
+	"none":               kafkaserver.AuthenticationTypeNone,
+	"sasl/plain":         kafkaserver.AuthenticationTypeSaslPlain,
 	"sasl/scram-sha-512": kafkaserver.AuthenticationTypeSaslScram512,
-	"mtls": kafkaserver.AuthenticationTypeMTls,
+	"mtls":               kafkaserver.AuthenticationTypeMTls,
 }
 
 const (
@@ -135,6 +135,13 @@ func CreateConfFromCommandConf(commandConf CommandConf) (Conf, error) {
 		return Conf{}, errors.Errorf("invalid authentication-type: %s", commandConf.AuthenticationType)
 	}
 	cfg.AuthType = authType
+	cfg.AllowScramNonceAsPrefix = commandConf.AllowScramNonceAsPrefix
+	if cfg.AllowScramNonceAsPrefix {
+		log.Warnf("allow-scram-nonce-as-prefix is set to true to allow SCRAM handshakes to pass with older" +
+			" versions of librdkafka which have a bug where the nonce sent in the second SCRAM handshake request is a" +
+			" prefix of the required nonce. It is recommended to upgrade clients to later versions of librdkafka where possible" +
+			" and not to enable this setting.")
+	}
 	return cfg, nil
 }
 
@@ -197,6 +204,8 @@ type Conf struct {
 	MaxControllerClients     int
 	MaxConnectionsPerAddress int
 	AuthType                 kafkaserver.AuthenticationType
+	AllowScramNonceAsPrefix  bool
+	AddJunkOnScramNonce      bool
 }
 
 func NewConf() Conf {
@@ -210,7 +219,7 @@ func NewConf() Conf {
 		GroupCoordinatorConf:     group.NewConf(),
 		MaxControllerClients:     DefaultMaxControllerClients,
 		MaxConnectionsPerAddress: DefaultMaxConnectionsPerAddress,
-		AuthType: kafkaserver.AuthenticationTypeNone,
+		AuthType:                 kafkaserver.AuthenticationTypeNone,
 	}
 }
 
@@ -251,9 +260,9 @@ func (c *Conf) Validate() error {
 }
 
 type ListenerConfig struct {
-	Address            string
-	AdvertisedAddress  string
-	TLSConfig          conf.TlsConf
+	Address           string
+	AdvertisedAddress string
+	TLSConfig         conf.TlsConf
 }
 
 func (l *ListenerConfig) Validate() error {
