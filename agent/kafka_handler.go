@@ -252,8 +252,11 @@ func setErrorForDeleteUserResponse(err error, resp *kafkaprotocol.DeleteUserResp
 }
 
 func (k *kafkaHandler) HandleOffsetDeleteRequest(hdr *kafkaprotocol.RequestHeader, req *kafkaprotocol.OffsetDeleteRequest, completionFunc func(resp *kafkaprotocol.OffsetDeleteResponse) error) error {
-	//TODO implement me
-	panic("implement me")
+	resp, err := k.agent.groupCoordinator.OffsetDelete(req)
+	if err != nil {
+		return err
+	}
+	return completionFunc(resp)
 }
 
 func (k *kafkaHandler) HandleListGroupsRequest(hdr *kafkaprotocol.RequestHeader, req *kafkaprotocol.ListGroupsRequest, completionFunc func(resp *kafkaprotocol.ListGroupsResponse) error) error {

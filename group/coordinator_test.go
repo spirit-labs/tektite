@@ -1709,14 +1709,14 @@ func TestOffsetCommit(t *testing.T) {
 	require.NoError(t, err)
 
 	var expectedKVs []common.KV
-	expectedKVs = append(expectedKVs, createExpectedKV(partHash, 1234, 1, 12345))
-	expectedKVs = append(expectedKVs, createExpectedKV(partHash, 1234, 23, 456456))
-	expectedKVs = append(expectedKVs, createExpectedKV(partHash, 2234, 7, 345345))
+	expectedKVs = append(expectedKVs, createExpectedCommitKV(partHash, 1234, 1, 12345))
+	expectedKVs = append(expectedKVs, createExpectedCommitKV(partHash, 1234, 23, 456456))
+	expectedKVs = append(expectedKVs, createExpectedCommitKV(partHash, 2234, 7, 345345))
 
 	require.Equal(t, expectedKVs, received.KVs)
 }
 
-func createExpectedKV(partHash []byte, topicID int, partitionID int, committedOffset int64) common.KV {
+func createExpectedCommitKV(partHash []byte, topicID int, partitionID int, committedOffset int64) common.KV {
 	key := createOffsetKey(partHash, offsetKeyPublic, topicID, partitionID)
 	val := make([]byte, 0, 9)
 	val = binary.BigEndian.AppendUint64(val, uint64(committedOffset))
@@ -1724,6 +1724,121 @@ func createExpectedKV(partHash []byte, topicID int, partitionID int, committedOf
 	return common.KV{
 		Key:   key,
 		Value: val,
+	}
+}
+
+func TestOffsetDelete(t *testing.T) {
+	localTransports := transport.NewLocalTransports()
+	gc, controlClient, topicProvider, _ := createCoordinatorWithConnFactoryAndCfgSetter(t, localTransports.CreateConnection, nil)
+	defer stopCoordinator(t, gc)
+
+	fp := &fakePusherSink{}
+	transportServer, err := localTransports.NewLocalServer(uuid.New().String())
+	require.NoError(t, err)
+	transportServer.RegisterHandler(transport.HandlerIDTablePusherDirectWrite, fp.HandleDirectWrite)
+	memberData := common.MembershipData{
+		ClusterListenAddress: transportServer.Address(),
+	}
+	err = gc.MembershipChanged(0, cluster.MembershipState{
+		LeaderVersion:  1,
+		ClusterVersion: 1,
+		Members: []cluster.MembershipEntry{
+			{
+				ID:   0,
+				Data: memberData.Serialize(nil),
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	topicName1 := "test-topic1"
+	topicName2 := "test-topic2"
+	topicProvider.infos[topicName1] = topicmeta.TopicInfo{
+		ID:             1234,
+		Name:           topicName1,
+		PartitionCount: 100,
+	}
+	topicProvider.infos[topicName2] = topicmeta.TopicInfo{
+		ID:             2234,
+		Name:           topicName2,
+		PartitionCount: 100,
+	}
+	controlClient.groupEpoch = 23
+
+	groupID := uuid.New().String()
+	numMembers := 10
+	rebalanceTimeout := 1 * time.Second
+	members, _ := setupJoinedGroupWithArgs(t, numMembers, groupID, gc, rebalanceTimeout)
+	syncGroup(groupID, numMembers, members, gc)
+	require.Equal(t, stateActive, gc.getState(groupID))
+
+	req := kafkaprotocol.OffsetDeleteRequest{
+		GroupId: common.StrPtr(groupID),
+		Topics: []kafkaprotocol.OffsetDeleteRequestOffsetDeleteRequestTopic{
+			{
+				Name: common.StrPtr(topicName1),
+				Partitions: []kafkaprotocol.OffsetDeleteRequestOffsetDeleteRequestPartition{
+					{
+						PartitionIndex: 1,
+					},
+					{
+						PartitionIndex: 23,
+					},
+				},
+			},
+			{
+				Name: common.StrPtr(topicName2),
+				Partitions: []kafkaprotocol.OffsetDeleteRequestOffsetDeleteRequestPartition{
+					{
+						PartitionIndex: 7,
+					},
+				},
+			},
+		},
+	}
+
+	resp, err := gc.OffsetDelete(&req)
+	require.NoError(t, err)
+
+	require.Equal(t, 2, len(resp.Topics))
+	require.Equal(t, topicName1, *resp.Topics[0].Name)
+
+	require.Equal(t, 2, len(resp.Topics[0].Partitions))
+
+	require.Equal(t, 1, int(resp.Topics[0].Partitions[0].PartitionIndex))
+	require.Equal(t, kafkaprotocol.ErrorCodeNone, int(resp.Topics[0].Partitions[0].ErrorCode))
+	require.Equal(t, 23, int(resp.Topics[0].Partitions[1].PartitionIndex))
+	require.Equal(t, kafkaprotocol.ErrorCodeNone, int(resp.Topics[0].Partitions[1].ErrorCode))
+
+	require.Equal(t, 1, len(resp.Topics[1].Partitions))
+
+	require.Equal(t, 7, int(resp.Topics[1].Partitions[0].PartitionIndex))
+	require.Equal(t, kafkaprotocol.ErrorCodeNone, int(resp.Topics[0].Partitions[0].ErrorCode))
+
+	received, rpcVer := fp.getReceived()
+	require.NotNil(t, received)
+
+	require.Equal(t, 1, int(rpcVer))
+
+	require.Equal(t, "g."+groupID, received.WriterKey)
+	require.Equal(t, 23, received.WriterEpoch)
+
+	partHash, err := parthash.CreateHash([]byte("g." + groupID))
+	require.NoError(t, err)
+
+	var expectedKVs []common.KV
+	expectedKVs = append(expectedKVs, createExpectedDeleteKV(partHash, 1234, 1))
+	expectedKVs = append(expectedKVs, createExpectedDeleteKV(partHash, 1234, 23))
+	expectedKVs = append(expectedKVs, createExpectedDeleteKV(partHash, 2234, 7))
+
+	require.Equal(t, expectedKVs, received.KVs)
+}
+
+func createExpectedDeleteKV(partHash []byte, topicID int, partitionID int) common.KV {
+	key := createOffsetKey(partHash, offsetKeyPublic, topicID, partitionID)
+	return common.KV{
+		Key:   key,
+		Value: []byte{},
 	}
 }
 

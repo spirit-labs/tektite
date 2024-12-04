@@ -154,6 +154,32 @@ func TestConsumerGroups(t *testing.T) {
 	require.Equal(t, partitionID, partOffset.PartitionIndex)
 	require.Equal(t, committedOffset, partOffset.CommittedOffset)
 
+	offsetDeleteReq := &kafkaprotocol.OffsetDeleteRequest{
+		GroupId: common.StrPtr(groupID),
+		Topics: []kafkaprotocol.OffsetDeleteRequestOffsetDeleteRequestTopic{
+			{
+				Name: common.StrPtr(topicName),
+				Partitions: []kafkaprotocol.OffsetDeleteRequestOffsetDeleteRequestPartition{
+					{
+						PartitionIndex: partitionID,
+					},
+				},
+			},
+		},
+	}
+	offsetDeleteResp := &kafkaprotocol.OffsetDeleteResponse{}
+	r, err = conn.SendRequest(offsetDeleteReq, kafkaprotocol.APIKeyOffsetDelete, 0, offsetDeleteResp)
+	require.NoError(t, err)
+	offsetDeleteResp = r.(*kafkaprotocol.OffsetDeleteResponse)
+
+	require.Equal(t, 1, len(offsetDeleteResp.Topics))
+	require.Equal(t, topicName, common.SafeDerefStringPtr(offsetDeleteResp.Topics[0].Name))
+	require.Equal(t, 1, len(offsetDeleteResp.Topics[0].Partitions))
+	delPartitionResp := offsetDeleteResp.Topics[0].Partitions[0]
+
+	require.Equal(t, 23, int(delPartitionResp.PartitionIndex))
+	require.Equal(t, kafkaprotocol.ErrorCodeNone, int(delPartitionResp.ErrorCode))
+
 	heartbeatReq := &kafkaprotocol.HeartbeatRequest{
 		GroupId:      common.StrPtr(groupID),
 		GenerationId: 1,
@@ -353,6 +379,57 @@ func TestOffsetCommitError(t *testing.T) {
 	require.Equal(t, 1, len(offsetCommitResp.Topics))
 	require.Equal(t, 1, len(offsetCommitResp.Topics[0].Partitions))
 	partitionResp := offsetCommitResp.Topics[0].Partitions[0]
+
+	require.Equal(t, 23, int(partitionResp.PartitionIndex))
+	require.Equal(t, kafkaprotocol.ErrorCodeGroupIDNotFound, int(partitionResp.ErrorCode))
+}
+
+func TestOffsetDeleteError(t *testing.T) {
+	topicName := "test-topic-1"
+	topicInfos := []topicmeta.TopicInfo{
+		{
+			Name:           topicName,
+			PartitionCount: 100,
+		},
+	}
+	cfg := NewConf()
+	agent, _, tearDown := setupAgent(t, topicInfos, cfg)
+	defer tearDown(t)
+
+	cl, err := apiclient.NewKafkaApiClient()
+	require.NoError(t, err)
+
+	conn, err := cl.NewConnection(agent.Conf().KafkaListenerConfig.Address)
+	require.NoError(t, err)
+	defer func() {
+		err := conn.Close()
+		require.NoError(t, err)
+	}()
+
+	groupID := "test-group"
+	partitionID := int32(23)
+
+	offsetDeleteReq := &kafkaprotocol.OffsetDeleteRequest{
+		GroupId: common.StrPtr(groupID),
+		Topics: []kafkaprotocol.OffsetDeleteRequestOffsetDeleteRequestTopic{
+			{
+				Name: common.StrPtr(topicName),
+				Partitions: []kafkaprotocol.OffsetDeleteRequestOffsetDeleteRequestPartition{
+					{
+						PartitionIndex: partitionID,
+					},
+				},
+			},
+		},
+	}
+	offsetDeleteResp := &kafkaprotocol.OffsetDeleteResponse{}
+	r, err := conn.SendRequest(offsetDeleteReq, kafkaprotocol.APIKeyOffsetDelete, 0, offsetDeleteResp)
+	require.NoError(t, err)
+	offsetDeleteResp = r.(*kafkaprotocol.OffsetDeleteResponse)
+
+	require.Equal(t, 1, len(offsetDeleteResp.Topics))
+	require.Equal(t, 1, len(offsetDeleteResp.Topics[0].Partitions))
+	partitionResp := offsetDeleteResp.Topics[0].Partitions[0]
 
 	require.Equal(t, 23, int(partitionResp.PartitionIndex))
 	require.Equal(t, kafkaprotocol.ErrorCodeGroupIDNotFound, int(partitionResp.ErrorCode))

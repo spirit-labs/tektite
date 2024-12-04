@@ -771,6 +771,82 @@ func (g *group) offsetCommit(transactional bool, req *kafkaprotocol.OffsetCommit
 	return kafkaprotocol.ErrorCodeNone
 }
 
+func (g *group) offsetDelete(req *kafkaprotocol.OffsetDeleteRequest, resp *kafkaprotocol.OffsetDeleteResponse) int {
+	g.lock.Lock()
+	defer g.lock.Unlock()
+	// Convert to KV pairs
+	var kvs []common.KV
+	for i, topicData := range req.Topics {
+		info, foundTopic, err := g.gc.topicProvider.GetTopicInfo(*topicData.Name)
+		if err != nil {
+			log.Errorf("failed to get topic info %v", err)
+			return kafkaprotocol.ErrorCodeUnknownServerError
+		}
+		if !foundTopic {
+			log.Warnf("group coordinator - offset commit: topic info not found %v", *topicData.Name)
+		}
+		for j, partitionData := range topicData.Partitions {
+			if !foundTopic {
+				resp.Topics[i].Partitions[j].ErrorCode = kafkaprotocol.ErrorCodeUnknownTopicOrPartition
+				continue
+			}
+			key := createOffsetKey(g.partHash, offsetKeyPublic, info.ID, int(partitionData.PartitionIndex))
+			kvs = append(kvs, common.KV{
+				Key:   key,
+				Value: nil,
+			})
+			log.Debugf("group %s topic %d partition %d deleting offset", *req.GroupId, info.ID,
+				partitionData.PartitionIndex)
+		}
+	}
+	commitReq := common.DirectWriteRequest{
+		WriterKey:   g.offsetWriterKey,
+		WriterEpoch: g.groupEpoch,
+		KVs:         kvs,
+	}
+	buff := commitReq.Serialize(createRequestBuffer())
+	pusherAddress, ok := cluster.ChooseMemberAddressForHash(g.partHash, g.gc.membership.Members)
+	if !ok {
+		// No available pushers
+		log.Warnf("cannot commit offsets as no members in cluster")
+		return kafkaprotocol.ErrorCodeCoordinatorNotAvailable
+	}
+	conn, err := g.gc.connCaches.GetConnection(pusherAddress)
+	if err != nil {
+		log.Warnf("failed to get table pusher connection %v", err)
+		return kafkaprotocol.ErrorCodeCoordinatorNotAvailable
+	}
+	_, err = conn.SendRPC(transport.HandlerIDTablePusherDirectWrite, buff)
+	if err != nil {
+		if common.IsUnavailableError(err) {
+			log.Warnf("failed to handle offset commit: %v", err)
+			return kafkaprotocol.ErrorCodeCoordinatorNotAvailable
+		} else {
+			log.Errorf("failed to handle offset commit: %v", err)
+			return kafkaprotocol.ErrorCodeUnknownServerError
+		}
+	}
+	return kafkaprotocol.ErrorCodeNone
+}
+
+func fillAllErrorCodesForOffsetDelete(req *kafkaprotocol.OffsetDeleteRequest, errorCode int) *kafkaprotocol.OffsetDeleteResponse {
+	var resp kafkaprotocol.OffsetDeleteResponse
+	resp.Topics = make([]kafkaprotocol.OffsetDeleteResponseOffsetDeleteResponseTopic, len(req.Topics))
+	for i, topicData := range req.Topics {
+		resp.Topics[i].Name = req.Topics[i].Name
+		resp.Topics[i].Partitions = make([]kafkaprotocol.OffsetDeleteResponseOffsetDeleteResponsePartition, len(topicData.Partitions))
+		for j, partData := range topicData.Partitions {
+			resp.Topics[i].Partitions[j].PartitionIndex = partData.PartitionIndex
+		}
+	}
+	for i, topicData := range resp.Topics {
+		for j := range topicData.Partitions {
+			resp.Topics[i].Partitions[j].ErrorCode = int16(errorCode)
+		}
+	}
+	return &resp
+}
+
 const (
 	offsetKeyPublic        = byte(1)
 	offsetKeyTransactional = byte(2)
