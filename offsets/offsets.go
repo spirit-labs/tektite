@@ -265,6 +265,9 @@ func (c *Cache) ResizePartitionCount(topicID, partitionCount int) (bool, error) 
 		// Nothing to do
 		return true, nil
 	}
+	if partitionCount < len(offs) {
+		return false, common.NewTektiteErrorf(common.PartitionOutOfRange, "cannot reduce partition count")
+	}
 	newOffs := make([]partitionOffsets, partitionCount)
 	copy(newOffs, offs)
 	if partitionCount > len(offs) {

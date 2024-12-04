@@ -155,6 +155,9 @@ func (m *Manager) CreateOrUpdateTopic(topicInfo TopicInfo, create bool) (int, er
 		if !ok {
 			return 0, common.NewTektiteErrorf(common.TopicDoesNotExist, "topic: %s does not exist", topicInfo.Name)
 		}
+		if topicInfo.PartitionCount < info.PartitionCount {
+			return 0, common.NewTektiteErrorf(common.InvalidPartitionCount, "cannot reduce partition count")
+		}
 		topicInfo.ID = info.ID
 		topicInfo.RetentionTime = info.RetentionTime
 	}

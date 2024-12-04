@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"fmt"
 	auth "github.com/spirit-labs/tektite/auth2"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/kafkaprotocol"
@@ -279,15 +280,33 @@ func (k *kafkaHandler) HandleCreatePartitionsRequest(_ *kafkaprotocol.RequestHea
 	for i := 0; i < len(req.Topics); i++ {
 		resp.Results[i].Name = req.Topics[i].Name
 	}
-	if req.ValidateOnly {
-		// FIXME - what are we supposed to do here?
-		return completionFunc(&resp)
-	}
-	cl, err := k.agent.controlClientCache.GetClient()
-	if err != nil {
-		setErrorForCreatePartitionsResponse(err, &resp)
-	} else {
-		for i, topic := range req.Topics {
+	for i, topic := range req.Topics {
+		cl, err := k.agent.controlClientCache.GetClient()
+		if err != nil {
+			errCode, errMsg := getErrorCodeAndMessageForCreatePartitionsResponse(err)
+			resp.Results[i].ErrorCode = errCode
+			resp.Results[i].ErrorMessage = common.StrPtr(errMsg)
+			continue
+		}
+		topicName := common.SafeDerefStringPtr(topic.Name)
+		if req.ValidateOnly {
+			info, _, exists, err := cl.GetTopicInfo(topicName)
+			if err != nil {
+				errCode, errMsg := getErrorCodeAndMessageForCreatePartitionsResponse(err)
+				resp.Results[i].ErrorCode = errCode
+				resp.Results[i].ErrorMessage = common.StrPtr(errMsg)
+			} else {
+				if !exists {
+					resp.Results[i].ErrorCode = kafkaprotocol.ErrorCodeUnknownTopicOrPartition
+					resp.Results[i].ErrorMessage = common.StrPtr(fmt.Sprintf("unknown topic: %s", topicName))
+				} else {
+					if int(topic.Count) < info.PartitionCount {
+						resp.Results[i].ErrorCode = kafkaprotocol.ErrorCodeInvalidPartitions
+						resp.Results[i].ErrorMessage = common.StrPtr("cannot reduce partition count")
+					}
+				}
+			}
+		} else {
 			if err := cl.CreateOrUpdateTopic(topicmeta.TopicInfo{
 				Name:           common.SafeDerefStringPtr(topic.Name),
 				PartitionCount: int(topic.Count),
@@ -308,6 +327,10 @@ func getErrorCodeAndMessageForCreatePartitionsResponse(err error) (int16, string
 		errCode = kafkaprotocol.ErrorCodeCoordinatorNotAvailable
 	} else if common.IsTektiteErrorWithCode(err, common.TopicDoesNotExist) {
 		errCode = kafkaprotocol.ErrorCodeUnknownTopicOrPartition
+	} else if common.IsTektiteErrorWithCode(err, common.PartitionOutOfRange) {
+		errCode = kafkaprotocol.ErrorCodeInvalidPartitions
+	} else if common.IsTektiteErrorWithCode(err, common.InvalidPartitionCount) {
+		errCode = kafkaprotocol.ErrorCodeInvalidPartitions
 	} else {
 		errCode = kafkaprotocol.ErrorCodeUnknownServerError
 	}

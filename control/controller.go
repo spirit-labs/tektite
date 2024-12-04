@@ -522,18 +522,21 @@ func (c *Controller) handleCreateOrUpdateTopic(_ *transport.ConnectionContext, r
 		return responseWriter(nil, err)
 	}
 	topicID, err := c.topicMetaManager.CreateOrUpdateTopic(req.Info, req.Create)
-	if err == nil {
-		var ok bool
-		ok, err = c.offsetsCache.ResizePartitionCount(topicID, req.Info.PartitionCount)
-		if err == nil {
-			if !req.Create && !ok {
-				err = common.NewTektiteErrorf(common.TopicDoesNotExist, "topic with id %d does not exist", req.Info.ID)
-			} else {
-				return responseWriter(responseBuff, nil)
-			}
-		}
+	if req.Create && err == nil {
+		return responseWriter(responseBuff, nil)
 	}
-	return responseWriter(nil, err)
+	if err != nil {
+		return responseWriter(nil, err)
+	}
+	ok, err := c.offsetsCache.ResizePartitionCount(topicID, req.Info.PartitionCount)
+	if err != nil {
+		return responseWriter(nil, err)
+	}
+	if !ok {
+		return responseWriter(nil, common.NewTektiteErrorf(common.TopicDoesNotExist,
+			"topic with id %d does not exist", req.Info.ID))
+	}
+	return responseWriter(responseBuff, nil)
 }
 
 func (c *Controller) handleDeleteTopic(_ *transport.ConnectionContext, request []byte, responseBuff []byte, responseWriter transport.ResponseWriter) error {
