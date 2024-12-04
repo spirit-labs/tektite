@@ -166,7 +166,7 @@ func (t *TablePusher) scheduleWriteTimer(timeout time.Duration) {
 			}
 			// Unexpected error
 			log.Errorf("table pusher failed to write: %v", err)
-			t.handleUnexpectedError(err)
+			t.handleError(err)
 			return
 		}
 		t.scheduleWriteTimer(t.cfg.WriteTimeout)
@@ -360,7 +360,7 @@ func (t *TablePusher) HandleProduceRequest(req *kafkaprotocol.ProduceRequest,
 			// Close the client - it will be recreated on any retry
 			t.closeClient()
 			if !common.IsUnavailableError(err) {
-				t.handleUnexpectedError(err)
+				t.handleError(err)
 				return err
 			}
 			// Temporary unavailability of object store or controller - we will retry after a delay
@@ -495,12 +495,17 @@ func extractBatches(buff []byte) [][]byte {
 	return batches
 }
 
-func (t *TablePusher) handleUnexpectedError(err error) {
-	// unexpected error - call all completions with error, and stop
+func (t *TablePusher) handleError(err error) {
 	t.callCompletions(err)
 	t.reset()
-	t.started = false
-	t.stopping.Store(true)
+	// PartitionOutOfRange can occur if partition count is reduced but produced records for old partitions still in transit
+	// We don't want to stop inm that case
+	if !common.IsTektiteErrorWithCode(err, common.PartitionOutOfRange) {
+		// unexpected error - call all completions with error, and stop
+		log.Errorf("got unexpected error in table pusher, will stop. %v", err)
+		t.started = false
+		t.stopping.Store(true)
+	}
 }
 
 func (t *TablePusher) getClient() (ControlClient, error) {

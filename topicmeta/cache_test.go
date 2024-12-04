@@ -59,14 +59,15 @@ func TestNotifications(t *testing.T) {
 	var infos []TopicInfo
 	for i := 0; i < numTopics; i++ {
 		info := TopicInfo{
-			ID:             1000 + i,
 			Name:           fmt.Sprintf("foo-topic-%d", i),
 			PartitionCount: i + 1,
 			RetentionTime:  time.Duration(i + 10000),
 		}
-		infos = append(infos, info)
-		err = mgr.CreateTopic(info)
+		id, err := mgr.CreateOrUpdateTopic(info, true)
 		require.NoError(t, err)
+		require.Equal(t, 1000+i, id)
+		info.ID = id
+		infos = append(infos, info)
 	}
 
 	for _, localCache := range localCaches {
@@ -98,14 +99,15 @@ func TestNotifications(t *testing.T) {
 
 	// Create another topic
 	info := TopicInfo{
-		ID:             1000 + numTopics + 5,
 		Name:           fmt.Sprintf("foo-topic-%d", numTopics),
 		PartitionCount: numTopics + 1,
 		RetentionTime:  time.Duration(numTopics + 10000),
 	}
-	infos = append(infos, info)
-	err = mgr.CreateTopic(info)
+	id, err := mgr.CreateOrUpdateTopic(info, true)
 	require.NoError(t, err)
+	require.Equal(t, 1000+numTopics+5, id)
+	info.ID = id
+	infos = append(infos, info)
 
 	for _, localCache := range localCaches {
 		receivedInfos := localCache.getTopicInfos()

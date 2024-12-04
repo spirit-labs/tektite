@@ -1,11 +1,13 @@
 package agent
 
 import (
+	"fmt"
 	auth "github.com/spirit-labs/tektite/auth2"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/kafkaprotocol"
 	"github.com/spirit-labs/tektite/kafkaserver2"
 	log "github.com/spirit-labs/tektite/logger"
+	"github.com/spirit-labs/tektite/topicmeta"
 	"strings"
 )
 
@@ -246,5 +248,99 @@ func setErrorForDeleteUserResponse(err error, resp *kafkaprotocol.DeleteUserResp
 		} else {
 			resp.ErrorCode = kafkaprotocol.ErrorCodeUnknownServerError
 		}
+	}
+}
+
+func (k *kafkaHandler) HandleOffsetDeleteRequest(hdr *kafkaprotocol.RequestHeader, req *kafkaprotocol.OffsetDeleteRequest, completionFunc func(resp *kafkaprotocol.OffsetDeleteResponse) error) error {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (k *kafkaHandler) HandleListGroupsRequest(hdr *kafkaprotocol.RequestHeader, req *kafkaprotocol.ListGroupsRequest, completionFunc func(resp *kafkaprotocol.ListGroupsResponse) error) error {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (k *kafkaHandler) HandleDescribeGroupsRequest(hdr *kafkaprotocol.RequestHeader, req *kafkaprotocol.DescribeGroupsRequest, completionFunc func(resp *kafkaprotocol.DescribeGroupsResponse) error) error {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (k *kafkaHandler) HandleDeleteGroupsRequest(hdr *kafkaprotocol.RequestHeader,
+	req *kafkaprotocol.DeleteGroupsRequest, completionFunc func(resp *kafkaprotocol.DeleteGroupsResponse) error) error {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (k *kafkaHandler) HandleCreatePartitionsRequest(_ *kafkaprotocol.RequestHeader,
+	req *kafkaprotocol.CreatePartitionsRequest, completionFunc func(resp *kafkaprotocol.CreatePartitionsResponse) error) error {
+	resp := kafkaprotocol.CreatePartitionsResponse{
+		Results: make([]kafkaprotocol.CreatePartitionsResponseCreatePartitionsTopicResult, len(req.Topics)),
+	}
+	for i := 0; i < len(req.Topics); i++ {
+		resp.Results[i].Name = req.Topics[i].Name
+	}
+	for i, topic := range req.Topics {
+		cl, err := k.agent.controlClientCache.GetClient()
+		if err != nil {
+			errCode, errMsg := getErrorCodeAndMessageForCreatePartitionsResponse(err)
+			resp.Results[i].ErrorCode = errCode
+			resp.Results[i].ErrorMessage = common.StrPtr(errMsg)
+			continue
+		}
+		topicName := common.SafeDerefStringPtr(topic.Name)
+		if req.ValidateOnly {
+			info, _, exists, err := cl.GetTopicInfo(topicName)
+			if err != nil {
+				errCode, errMsg := getErrorCodeAndMessageForCreatePartitionsResponse(err)
+				resp.Results[i].ErrorCode = errCode
+				resp.Results[i].ErrorMessage = common.StrPtr(errMsg)
+			} else {
+				if !exists {
+					resp.Results[i].ErrorCode = kafkaprotocol.ErrorCodeUnknownTopicOrPartition
+					resp.Results[i].ErrorMessage = common.StrPtr(fmt.Sprintf("unknown topic: %s", topicName))
+				} else {
+					if int(topic.Count) < info.PartitionCount {
+						resp.Results[i].ErrorCode = kafkaprotocol.ErrorCodeInvalidPartitions
+						resp.Results[i].ErrorMessage = common.StrPtr("cannot reduce partition count")
+					}
+				}
+			}
+		} else {
+			if err := cl.CreateOrUpdateTopic(topicmeta.TopicInfo{
+				Name:           common.SafeDerefStringPtr(topic.Name),
+				PartitionCount: int(topic.Count),
+			}, false); err != nil {
+				errCode, errMsg := getErrorCodeAndMessageForCreatePartitionsResponse(err)
+				resp.Results[i].ErrorCode = errCode
+				resp.Results[i].ErrorMessage = common.StrPtr(errMsg)
+			}
+		}
+	}
+	return completionFunc(&resp)
+}
+
+func getErrorCodeAndMessageForCreatePartitionsResponse(err error) (int16, string) {
+	errMsg := err.Error()
+	var errCode int16
+	if common.IsUnavailableError(err) {
+		errCode = kafkaprotocol.ErrorCodeCoordinatorNotAvailable
+	} else if common.IsTektiteErrorWithCode(err, common.TopicDoesNotExist) {
+		errCode = kafkaprotocol.ErrorCodeUnknownTopicOrPartition
+	} else if common.IsTektiteErrorWithCode(err, common.PartitionOutOfRange) {
+		errCode = kafkaprotocol.ErrorCodeInvalidPartitions
+	} else if common.IsTektiteErrorWithCode(err, common.InvalidPartitionCount) {
+		errCode = kafkaprotocol.ErrorCodeInvalidPartitions
+	} else {
+		errCode = kafkaprotocol.ErrorCodeUnknownServerError
+	}
+	return errCode, errMsg
+}
+
+func setErrorForCreatePartitionsResponse(err error, resp *kafkaprotocol.CreatePartitionsResponse) {
+	errCode, errMsg := getErrorCodeAndMessageForCreatePartitionsResponse(err)
+	for i := 0; i < len(resp.Results); i++ {
+		resp.Results[i].ErrorCode = errCode
+		resp.Results[i].ErrorMessage = common.StrPtr(errMsg)
 	}
 }

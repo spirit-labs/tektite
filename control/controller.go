@@ -88,7 +88,7 @@ func (c *Controller) Start() error {
 	c.transportServer.RegisterHandler(transport.HandlerIDControllerGetAllTopicInfos, c.handleGetAllTopicInfos)
 	c.transportServer.RegisterHandler(transport.HandlerIDControllerGetTopicInfo, c.handleGetTopicInfo)
 	c.transportServer.RegisterHandler(transport.HandlerIDControllerGetTopicInfoByID, c.handleGetTopicInfoByID)
-	c.transportServer.RegisterHandler(transport.HandlerIDControllerCreateTopic, c.handleCreateTopic)
+	c.transportServer.RegisterHandler(transport.HandlerIDControllerCreateTopic, c.handleCreateOrUpdateTopic)
 	c.transportServer.RegisterHandler(transport.HandlerIDControllerDeleteTopic, c.handleDeleteTopic)
 	c.transportServer.RegisterHandler(transport.HandlerIDControllerGetGroupCoordinatorInfo, c.handleGetGroupCoordinatorInfo)
 	c.transportServer.RegisterHandler(transport.HandlerIDControllerGenerateSequence, c.handleGenerateSequence)
@@ -509,20 +509,32 @@ func (c *Controller) handleGetTopicInfoByID(_ *transport.ConnectionContext, requ
 	return responseWriter(responseBuff, nil)
 }
 
-func (c *Controller) handleCreateTopic(_ *transport.ConnectionContext, request []byte, responseBuff []byte, responseWriter transport.ResponseWriter) error {
+func (c *Controller) handleCreateOrUpdateTopic(_ *transport.ConnectionContext, request []byte,
+	responseBuff []byte, responseWriter transport.ResponseWriter) error {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
 	if !c.requestChecks(request, responseWriter) {
 		return nil
 	}
-	var req CreateTopicRequest
+	var req CreateOrUpdateTopicRequest
 	req.Deserialize(request, 2)
 	if err := c.checkLeaderVersion(req.LeaderVersion); err != nil {
 		return responseWriter(nil, err)
 	}
-	err := c.topicMetaManager.CreateTopic(req.Info)
+	topicID, err := c.topicMetaManager.CreateOrUpdateTopic(req.Info, req.Create)
+	if req.Create && err == nil {
+		return responseWriter(responseBuff, nil)
+	}
 	if err != nil {
 		return responseWriter(nil, err)
+	}
+	ok, err := c.offsetsCache.ResizePartitionCount(topicID, req.Info.PartitionCount)
+	if err != nil {
+		return responseWriter(nil, err)
+	}
+	if !ok {
+		return responseWriter(nil, common.NewTektiteErrorf(common.TopicDoesNotExist,
+			"topic with id %d does not exist", req.Info.ID))
 	}
 	return responseWriter(responseBuff, nil)
 }

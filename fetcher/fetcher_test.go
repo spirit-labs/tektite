@@ -2384,7 +2384,7 @@ func (t *testControlClient) GetAllTopicInfos() ([]topicmeta.TopicInfo, error) {
 	panic("should not be called")
 }
 
-func (t *testControlClient) CreateTopic(topicInfo topicmeta.TopicInfo) error {
+func (t *testControlClient) CreateOrUpdateTopic(topicInfo topicmeta.TopicInfo, create bool) error {
 	panic("should not be called")
 }
 

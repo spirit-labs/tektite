@@ -14,6 +14,8 @@ const (
 	ApiKeyHeartbeat          = 12
 	ApiKeyLeaveGroup         = 13
 	ApiKeySyncGroup          = 14
+	ApiKeyDescribeGroups     = 15
+	ApiKeyListGroups         = 16
 	APIKeySaslHandshake      = 17
 	APIKeyAPIVersions        = 18
 	APIKeyInitProducerId     = 22
@@ -22,6 +24,9 @@ const (
 	APIKeyEndTxn             = 26
 	APIKeyTxnOffsetCommit    = 28
 	APIKeySaslAuthenticate   = 36
+	ApiKeyCreatePartitions   = 37
+	ApiKeyDeleteGroups       = 42
+	APIKeyOffsetDelete       = 47
 
 	// Custom API keys
 
@@ -123,6 +128,11 @@ var SupportedAPIVersions = []ApiVersionsResponseApiVersion{
 	{ApiKey: APIKeySaslHandshake, MinVersion: 0, MaxVersion: 1},
 	{ApiKey: APIKeyInitProducerId, MinVersion: 0, MaxVersion: 0},
 	{ApiKey: APIKeySaslAuthenticate, MinVersion: 0, MaxVersion: 1},
+	{ApiKey: APIKeyOffsetDelete, MinVersion: 0, MaxVersion: 0},
+	{ApiKey: ApiKeyListGroups, MinVersion: 0, MaxVersion: 0},
+	{ApiKey: ApiKeyDescribeGroups, MinVersion: 0, MaxVersion: 0},
+	{ApiKey: ApiKeyDeleteGroups, MinVersion: 0, MaxVersion: 0},
+	{ApiKey: ApiKeyCreatePartitions, MinVersion: 0, MaxVersion: 0},
 	/*
 		Transactions are currently incomplete
 		{ApiKey: APIKeyAddPartitionsToTxn, MinVersion: 3, MaxVersion: 3},

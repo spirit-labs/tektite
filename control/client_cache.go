@@ -206,11 +206,11 @@ func (c *clientWrapper) GetTopicInfoByID(topicID int) (topicmeta.TopicInfo, bool
 	return topicInfo, exists, err
 }
 
-func (c *clientWrapper) CreateTopic(topicInfo topicmeta.TopicInfo) error {
+func (c *clientWrapper) CreateOrUpdateTopic(topicInfo topicmeta.TopicInfo, create bool) error {
 	if c.injectedError != nil {
 		return c.injectedError
 	}
-	err := c.client.CreateTopic(topicInfo)
+	err := c.client.CreateOrUpdateTopic(topicInfo, create)
 	if err != nil {
 		c.closeConnection()
 	}

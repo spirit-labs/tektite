@@ -32,7 +32,7 @@ type Client interface {
 
 	GetAllTopicInfos() ([]topicmeta.TopicInfo, error)
 
-	CreateTopic(topicInfo topicmeta.TopicInfo) error
+	CreateOrUpdateTopic(topicInfo topicmeta.TopicInfo, create bool) error
 
 	DeleteTopic(topicName string) error
 
@@ -240,13 +240,14 @@ func (c *client) GetAllTopicInfos() ([]topicmeta.TopicInfo, error) {
 	return resp.TopicInfos, nil
 }
 
-func (c *client) CreateTopic(topicInfo topicmeta.TopicInfo) error {
+func (c *client) CreateOrUpdateTopic(topicInfo topicmeta.TopicInfo, create bool) error {
 	conn, err := c.getConnection()
 	if err != nil {
 		return err
 	}
-	req := CreateTopicRequest{
+	req := CreateOrUpdateTopicRequest{
 		LeaderVersion: c.leaderVersion,
+		Create:        create,
 		Info:          topicInfo,
 	}
 	buff := req.Serialize(createRequestBuffer())

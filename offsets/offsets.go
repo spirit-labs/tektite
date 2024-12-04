@@ -248,6 +248,40 @@ func (c *Cache) GetLastReadableOffset(topicID int, partitionID int) (int64, bool
 	return off, true, nil
 }
 
+func (c *Cache) ResizePartitionCount(topicID, partitionCount int) (bool, error) {
+	c.lock.RLock()
+	defer c.lock.RUnlock()
+	if !c.started {
+		return false, errors.New("offsets cache not started")
+	}
+	offs, exists, err := c.getTopicOffsets(topicID)
+	if err != nil {
+		return false, err
+	}
+	if !exists {
+		return false, nil
+	}
+	if partitionCount == len(offs) {
+		// Nothing to do
+		return true, nil
+	}
+	if partitionCount < len(offs) {
+		return false, common.NewTektiteErrorf(common.PartitionOutOfRange, "cannot reduce partition count")
+	}
+	newOffs := make([]partitionOffsets, partitionCount)
+	copy(newOffs, offs)
+	if partitionCount > len(offs) {
+		// grow partitions
+		for i := len(offs); i < partitionCount; i++ {
+			newOffs[i].loaded = true
+			newOffs[i].lastReadableOffset = -1
+			newOffs[i].nextWriteOffset = 0
+		}
+	}
+	c.topicOffsets[topicID] = newOffs
+	return true, nil
+}
+
 func (c *Cache) MembershipChanged() {
 	c.lock.Lock()
 	defer c.lock.Unlock()
@@ -299,7 +333,7 @@ func (c *Cache) loadTopicInfo(topicID int) ([]partitionOffsets, bool, error) {
 
 func checkPartitionOffsetInRange(partitionID int, numPartitions int) error {
 	if partitionID >= numPartitions {
-		return errors.Errorf("partition offset out of range: %d", partitionID)
+		return common.NewTektiteErrorf(common.PartitionOutOfRange, "partition %d out of range - partition count %d", partitionID, numPartitions)
 	}
 	return nil
 }

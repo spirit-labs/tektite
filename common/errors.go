@@ -83,6 +83,8 @@ const (
 	RegisterDeadVersionWrongClusterVersion
 	TopicAlreadyExists
 	TopicDoesNotExist
+	InvalidPartitionCount
+	PartitionOutOfRange
 	NoSuchUser
 	InvalidConfiguration ErrCode = iota + 3000
 	InternalError        ErrCode = iota + 5000
