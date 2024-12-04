@@ -434,6 +434,33 @@ func (c *Coordinator) OffsetCommitTransactional(req *kafkaprotocol.TxnOffsetComm
 	return tResp, nil
 }
 
+func (c *Coordinator) OffsetDelete(req *kafkaprotocol.OffsetDeleteRequest) (*kafkaprotocol.OffsetDeleteResponse, error) {
+	c.lock.RLock()
+	defer c.lock.RUnlock()
+	if err := c.checkStarted(); err != nil {
+		return nil, err
+	}
+	var resp kafkaprotocol.OffsetDeleteResponse
+	resp.Topics = make([]kafkaprotocol.OffsetDeleteResponseOffsetDeleteResponseTopic, len(req.Topics))
+	for i, topicData := range req.Topics {
+		resp.Topics[i].Name = req.Topics[i].Name
+		resp.Topics[i].Partitions = make([]kafkaprotocol.OffsetDeleteResponseOffsetDeleteResponsePartition, len(topicData.Partitions))
+		for j, partData := range topicData.Partitions {
+			resp.Topics[i].Partitions[j].PartitionIndex = partData.PartitionIndex
+		}
+	}
+	groupID := *req.GroupId
+	g, ok := c.getGroup(groupID)
+	if !ok {
+		return fillAllErrorCodesForOffsetDelete(req, kafkaprotocol.ErrorCodeGroupIDNotFound), nil
+	}
+	errCode := g.offsetDelete(req, &resp)
+	if errCode != kafkaprotocol.ErrorCodeNone {
+		return fillAllErrorCodesForOffsetDelete(req, errCode), nil
+	}
+	return &resp, nil
+}
+
 func (c *Coordinator) CompleteTx(groupID string, pid int64, abort bool) error {
 	return nil
 }
