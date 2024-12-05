@@ -39,8 +39,8 @@ func TestCreateDeleteTopics(t *testing.T) {
 	req := kafkaprotocol.CreateTopicsRequest{
 		Topics: []kafkaprotocol.CreateTopicsRequestCreatableTopic{
 			{
-				Name:              &topicName,
-				NumPartitions:     23,
+				Name:          &topicName,
+				NumPartitions: 23,
 				Configs: []kafkaprotocol.CreateTopicsRequestCreatableTopicConfig{
 					{
 						Name:  &configName,
@@ -103,8 +103,8 @@ func TestCreateDuplicateTopic(t *testing.T) {
 	req := kafkaprotocol.CreateTopicsRequest{
 		Topics: []kafkaprotocol.CreateTopicsRequestCreatableTopic{
 			{
-				Name:              &topicName,
-				NumPartitions:     23,
+				Name:          &topicName,
+				NumPartitions: 23,
 			},
 		},
 	}
@@ -127,8 +127,8 @@ func TestCreateDuplicateTopic(t *testing.T) {
 	req = kafkaprotocol.CreateTopicsRequest{
 		Topics: []kafkaprotocol.CreateTopicsRequestCreatableTopic{
 			{
-				Name:              &topicName,
-				NumPartitions:     23,
+				Name:          &topicName,
+				NumPartitions: 23,
 			},
 		},
 	}
@@ -174,39 +174,52 @@ func TestDeleteNonExistentTopic(t *testing.T) {
 }
 
 func TestInvalidTopicName(t *testing.T) {
-	cfg := NewConf()
-	agent, _, tearDown := setupAgentWithoutTopics(t, cfg)
-	defer tearDown(t)
-	cl, err := NewKafkaApiClient()
-	require.NoError(t, err)
-	conn, err := cl.NewConnection(agent.Conf().KafkaListenerConfig.Address)
-	require.NoError(t, err)
-	defer func() {
-		err := conn.Close()
-		require.NoError(t, err)
-	}()
-	topicName := "test topic-1"
-	//Create
-	req := kafkaprotocol.CreateTopicsRequest{
-		Topics: []kafkaprotocol.CreateTopicsRequestCreatableTopic{
-			{
-				Name:              &topicName,
-				NumPartitions:     23,
-			},
-		},
+	testCases := []struct {
+		name         string
+		topicName    string
+		expectedCode int16
+	}{
+		{"Invalid name with space", "test topic-1", int16(kafkaprotocol.ErrorCodeInvalidTopicException)},
+		{"Valid name", "valid-topic", 0},
+		{"Empty name", "", int16(kafkaprotocol.ErrorCodeInvalidTopicException)},
+		{"Invalid special characters", "topic@", int16(kafkaprotocol.ErrorCodeInvalidTopicException)},
 	}
-	var resp kafkaprotocol.CreateTopicsResponse
-	r, err := conn.SendRequest(&req, kafkaprotocol.APIKeyCreateTopics, 5, &resp)
-	require.NoError(t, err)
-	createResp, ok := r.(*kafkaprotocol.CreateTopicsResponse)
-	require.True(t, ok)
-	require.Equal(t, 1, len(createResp.Topics))
-	require.Equal(t, topicName, common.SafeDerefStringPtr(createResp.Topics[0].Name))
-	require.Equal(t, int16(kafkaprotocol.ErrorCodeInvalidTopicException), createResp.Topics[0].ErrorCode)
-	require.Equal(t, int32(23), createResp.Topics[0].NumPartitions)
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := NewConf()
+			agent, _, tearDown := setupAgentWithoutTopics(t, cfg)
+			defer tearDown(t)
+			cl, err := NewKafkaApiClient()
+			require.NoError(t, err)
+			conn, err := cl.NewConnection(agent.Conf().KafkaListenerConfig.Address)
+			require.NoError(t, err)
+			defer func() {
+				err := conn.Close()
+				require.NoError(t, err)
+			}()
+			//Create
+			req := kafkaprotocol.CreateTopicsRequest{
+				Topics: []kafkaprotocol.CreateTopicsRequestCreatableTopic{
+					{
+						Name:          &tc.topicName,
+						NumPartitions: 23,
+					},
+				},
+			}
+			var resp kafkaprotocol.CreateTopicsResponse
+			r, err := conn.SendRequest(&req, kafkaprotocol.APIKeyCreateTopics, 5, &resp)
+			require.NoError(t, err)
+			createResp, ok := r.(*kafkaprotocol.CreateTopicsResponse)
+			require.True(t, ok)
+			require.Equal(t, 1, len(createResp.Topics))
+			require.Equal(t, tc.topicName, common.SafeDerefStringPtr(createResp.Topics[0].Name))
+			require.Equal(t, tc.expectedCode, createResp.Topics[0].ErrorCode)
+			require.Equal(t, int32(23), createResp.Topics[0].NumPartitions)
+		})
+	}
 }
 
-func TestMetaControllerUnavailable(t *testing.T) {
+func TestControllerUnavailable(t *testing.T) {
 	cfg := NewConf()
 	agent, _, tearDown := setupAgentWithoutTopics(t, cfg)
 	defer tearDown(t)
@@ -225,8 +238,8 @@ func TestMetaControllerUnavailable(t *testing.T) {
 	req := kafkaprotocol.CreateTopicsRequest{
 		Topics: []kafkaprotocol.CreateTopicsRequestCreatableTopic{
 			{
-				Name:              &topicName,
-				NumPartitions:     23,
+				Name:          &topicName,
+				NumPartitions: 23,
 			},
 		},
 	}
@@ -259,8 +272,8 @@ func TestInvalidRetentionTime(t *testing.T) {
 	req := kafkaprotocol.CreateTopicsRequest{
 		Topics: []kafkaprotocol.CreateTopicsRequestCreatableTopic{
 			{
-				Name:              &topicName,
-				NumPartitions:     23,
+				Name:          &topicName,
+				NumPartitions: 23,
 				Configs: []kafkaprotocol.CreateTopicsRequestCreatableTopicConfig{
 					{
 						Name:  &configName,

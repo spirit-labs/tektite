@@ -67,7 +67,6 @@ func (u TektiteError) Error() string {
 type ErrCode int
 
 const (
-	UnknownError ErrCode = iota
 	ParseError ErrCode = iota + 1000
 	StatementError
 	PrepareQueryError

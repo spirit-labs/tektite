@@ -162,37 +162,37 @@ func selectNetworkInterface() (string, error) {
 }
 
 type Conf struct {
-	ClusterListenerConfig     ListenerConfig
-	KafkaListenerConfig       ListenerConfig
-	ClusterMembershipConfig   cluster.MembershipConf
-	PusherConf                pusher.Conf
-	ControllerConf            control.Conf
-	CompactionWorkersConf     lsm.CompactionWorkerServiceConf
-	FetcherConf               fetcher.Conf
-	FetchCacheConf            fetchcache.Conf
-	GroupCoordinatorConf      group.Conf
-	TxCoordinatorConf         tx.Conf
-	MaxControllerClients      int
-	DefaultTopicRetentionTime time.Duration
+	ClusterListenerConfig            ListenerConfig
+	KafkaListenerConfig              ListenerConfig
+	ClusterMembershipConfig          cluster.MembershipConf
+	PusherConf                       pusher.Conf
+	ControllerConf                   control.Conf
+	CompactionWorkersConf            lsm.CompactionWorkerServiceConf
+	FetcherConf                      fetcher.Conf
+	FetchCacheConf                   fetchcache.Conf
+	GroupCoordinatorConf             group.Conf
+	TxCoordinatorConf                tx.Conf
+	MaxControllerClients             int
+	DefaultDefaultTopicRetentionTime time.Duration
 }
 
 func NewConf() Conf {
 	return Conf{
-		ClusterMembershipConfig:   cluster.NewMembershipConf(),
-		PusherConf:                pusher.NewConf(),
-		ControllerConf:            control.NewConf(),
-		CompactionWorkersConf:     lsm.NewCompactionWorkerServiceConf(),
-		FetcherConf:               fetcher.NewConf(),
-		FetchCacheConf:            fetchcache.NewConf(),
-		GroupCoordinatorConf:      group.NewConf(),
-		TxCoordinatorConf:         tx.NewConf(),
-		MaxControllerClients:      DefaultMaxControllerClients,
-		DefaultTopicRetentionTime: DefaultTopicRetentionTime,
+		ClusterMembershipConfig:          cluster.NewMembershipConf(),
+		PusherConf:                       pusher.NewConf(),
+		ControllerConf:                   control.NewConf(),
+		CompactionWorkersConf:            lsm.NewCompactionWorkerServiceConf(),
+		FetcherConf:                      fetcher.NewConf(),
+		FetchCacheConf:                   fetchcache.NewConf(),
+		GroupCoordinatorConf:             group.NewConf(),
+		TxCoordinatorConf:                tx.NewConf(),
+		MaxControllerClients:             DefaultMaxControllerClients,
+		DefaultDefaultTopicRetentionTime: DefaultDefaultTopicRetentionTime,
 	}
 }
 
 const DefaultMaxControllerClients = 10
-const DefaultTopicRetentionTime = 7 * 24 * time.Hour
+const DefaultDefaultTopicRetentionTime = 7 * 24 * time.Hour
 
 func (c *Conf) Validate() error {
 	if err := c.ClusterListenerConfig.Validate(); err != nil {
