@@ -109,14 +109,14 @@ func BuildSSTable(format common.DataFormat, buffSizeEstimate int, entriesEstimat
 			offset: offset,
 		})
 		numEntries++
+		version := math.MaxUint64 - binary.BigEndian.Uint64(kv.Key[len(kv.Key)-8:]) // last 8 bytes is version
 		if len(kv.Value) == 0 {
-			if len(kv.Key) == 32 { // [partition_hash, slab_id, version]
+			if version == math.MaxUint64 {
 				numPrefixDeletes++
 			}
 			numDeletes++
 		}
 		largestKey = kv.Key
-		version := math.MaxUint64 - binary.BigEndian.Uint64(kv.Key[len(kv.Key)-8:]) // last 8 bytes is version
 
 		if version != math.MaxUint64 && version > maxVersion {
 			// prefix delete tombstones have a special version = math.MaxUint64 which identifies them in merging_iterator

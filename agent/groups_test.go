@@ -235,6 +235,21 @@ func TestConsumerGroups(t *testing.T) {
 	require.Equal(t, "consumer", common.SafeDerefStringPtr(listGroupsResp.GroupType))
 	require.Equal(t, "protocol-type-1", common.SafeDerefStringPtr(listGroupsResp.ProtocolType))
 	require.Equal(t, groupID, common.SafeDerefStringPtr(listGroupsResp.GroupId))
+
+	deleteGroupsReq := &kafkaprotocol.DeleteGroupsRequest{
+		GroupsNames: []*string{common.StrPtr(groupID), common.StrPtr("unknown")},
+	}
+	deleteGroupsResp := &kafkaprotocol.DeleteGroupsResponse{}
+	r, err = conn.SendRequest(deleteGroupsReq, kafkaprotocol.ApiKeyDeleteGroups, 0, deleteGroupsResp)
+	require.NoError(t, err)
+	deleteGroupsResp = r.(*kafkaprotocol.DeleteGroupsResponse)
+	require.Equal(t, 2, len(deleteGroupsResp.Results))
+	res1 := deleteGroupsResp.Results[0]
+	require.Equal(t, kafkaprotocol.ErrorCodeNone, int(res1.ErrorCode))
+	require.Equal(t, groupID, common.SafeDerefStringPtr(res1.GroupId))
+	res2 := deleteGroupsResp.Results[1]
+	require.Equal(t, kafkaprotocol.ErrorCodeInvalidGroupID, int(res2.ErrorCode))
+	require.Equal(t, "unknown", common.SafeDerefStringPtr(res2.GroupId))
 }
 
 func TestFindCoordinatorError(t *testing.T) {

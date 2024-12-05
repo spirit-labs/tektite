@@ -11,6 +11,7 @@ import (
 	"github.com/spirit-labs/tektite/kafkaprotocol"
 	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/transport"
+	"math"
 	"sync"
 	"time"
 )
@@ -45,8 +46,8 @@ type member struct {
 	new              bool
 	sessionTimeout   time.Duration
 	reBalanceTimeout time.Duration
-	clientID string
-	clientHost string
+	clientID         string
+	clientHost       string
 }
 
 func (g *group) Join(apiVersion int16, clientID string, clientHost string, memberID string, protocolType string, protocols []ProtocolInfo,
@@ -312,8 +313,8 @@ func (g *group) addMember(memberID string, protocols []ProtocolInfo, sessionTime
 		sessionTimeout:   sessionTimeout,
 		reBalanceTimeout: reBalanceTimeout,
 		new:              true,
-		clientID: clientID,
-		clientHost: clientHost,
+		clientID:         clientID,
+		clientHost:       clientHost,
 	}
 	g.updateSupportedProtocols(protocols, true)
 	delete(g.pendingMemberIDs, memberID)
@@ -849,6 +850,53 @@ func fillAllErrorCodesForOffsetDelete(req *kafkaprotocol.OffsetDeleteRequest, er
 		}
 	}
 	return &resp
+}
+
+func (g *group) deleteAllOffsets() int {
+	g.lock.Lock()
+	defer g.lock.Unlock()
+	// We write a prefix deletion
+	tombstoneKey := make([]byte, 0, 24)
+	tombstoneKey = append(tombstoneKey, g.partHash...)
+	tombstoneKey = encoding.EncodeVersion(tombstoneKey, math.MaxUint64)
+	endMarker := make([]byte, 0, 24)
+	endMarker = append(endMarker, common.IncBigEndianBytes(g.partHash)...)
+	endMarker = encoding.EncodeVersion(endMarker, math.MaxUint64)
+	tombeStoneKv := common.KV{
+		Key: tombstoneKey,
+	}
+	endMarkerKv := common.KV{
+		Key:   endMarker,
+		Value: []byte{'x'},
+	}
+	commitReq := common.DirectWriteRequest{
+		WriterKey:   g.offsetWriterKey,
+		WriterEpoch: g.groupEpoch,
+		KVs:         []common.KV{tombeStoneKv, endMarkerKv},
+	}
+	buff := commitReq.Serialize(createRequestBuffer())
+	pusherAddress, ok := cluster.ChooseMemberAddressForHash(g.partHash, g.gc.membership.Members)
+	if !ok {
+		// No available pushers
+		log.Warnf("cannot commit offsets as no members in cluster")
+		return kafkaprotocol.ErrorCodeCoordinatorNotAvailable
+	}
+	conn, err := g.gc.connCaches.GetConnection(pusherAddress)
+	if err != nil {
+		log.Warnf("failed to get table pusher connection %v", err)
+		return kafkaprotocol.ErrorCodeCoordinatorNotAvailable
+	}
+	_, err = conn.SendRPC(transport.HandlerIDTablePusherDirectWrite, buff)
+	if err != nil {
+		if common.IsUnavailableError(err) {
+			log.Warnf("failed to handle offset commit: %v", err)
+			return kafkaprotocol.ErrorCodeCoordinatorNotAvailable
+		} else {
+			log.Errorf("failed to handle offset commit: %v", err)
+			return kafkaprotocol.ErrorCodeUnknownServerError
+		}
+	}
+	return kafkaprotocol.ErrorCodeNone
 }
 
 const (

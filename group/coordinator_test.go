@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"github.com/google/uuid"
+	"github.com/spirit-labs/tektite/asl/encoding"
 	"github.com/spirit-labs/tektite/cluster"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/control"
@@ -16,6 +17,7 @@ import (
 	"github.com/spirit-labs/tektite/topicmeta"
 	"github.com/spirit-labs/tektite/transport"
 	"github.com/stretchr/testify/require"
+	"math"
 	"sort"
 	"strings"
 	"sync"
@@ -2311,6 +2313,89 @@ func TestDescribeGroupsNoSuchGroup(t *testing.T) {
 	eGroup := resp.Groups[1]
 	require.Equal(t, kafkaprotocol.ErrorCodeInvalidGroupID, int(eGroup.ErrorCode))
 	require.Equal(t, "unknown", common.SafeDerefStringPtr(eGroup.GroupId))
+}
+
+func TestDeleteGroups(t *testing.T) {
+	localTransports := transport.NewLocalTransports()
+	gc, controlClient, _, _ := createCoordinatorWithConnFactoryAndCfgSetter(t, localTransports.CreateConnection, nil)
+	defer stopCoordinator(t, gc)
+
+	fp := &fakePusherSink{}
+	transportServer, err := localTransports.NewLocalServer(uuid.New().String())
+	require.NoError(t, err)
+	transportServer.RegisterHandler(transport.HandlerIDTablePusherDirectWrite, fp.HandleDirectWrite)
+	memberData := common.MembershipData{
+		ClusterListenAddress: transportServer.Address(),
+	}
+	err = gc.MembershipChanged(0, cluster.MembershipState{
+		LeaderVersion:  1,
+		ClusterVersion: 1,
+		Members: []cluster.MembershipEntry{
+			{
+				ID:   0,
+				Data: memberData.Serialize(nil),
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	//topicName1 := "test-topic1"
+	//topicName2 := "test-topic2"
+	//topicProvider.infos[topicName1] = topicmeta.TopicInfo{
+	//	ID:             1234,
+	//	Name:           topicName1,
+	//	PartitionCount: 100,
+	//}
+	//topicProvider.infos[topicName2] = topicmeta.TopicInfo{
+	//	ID:             2234,
+	//	Name:           topicName2,
+	//	PartitionCount: 100,
+	//}
+	controlClient.groupEpoch = 23
+
+	groupID := uuid.New().String()
+	numMembers := 10
+	rebalanceTimeout := 1 * time.Second
+	members, _ := setupJoinedGroupWithArgs(t, numMembers, groupID, gc, rebalanceTimeout)
+	syncGroup(groupID, numMembers, members, gc)
+	require.Equal(t, StateActive, gc.getState(groupID))
+
+	req := kafkaprotocol.DeleteGroupsRequest{
+		GroupsNames: []*string{common.StrPtr(groupID)},
+	}
+
+	resp, err := gc.DeleteGroups(&req)
+	require.NoError(t, err)
+	require.Equal(t, 1, len(resp.Results))
+	require.Equal(t, kafkaprotocol.ErrorCodeNone, int(resp.Results[0].ErrorCode))
+	require.Equal(t, groupID, common.SafeDerefStringPtr(resp.Results[0].GroupId))
+
+	received, rpcVer := fp.getReceived()
+	require.NotNil(t, received)
+
+	require.Equal(t, 1, int(rpcVer))
+
+	require.Equal(t, "g."+groupID, received.WriterKey)
+	require.Equal(t, 23, received.WriterEpoch)
+
+	require.Equal(t, 2, len(received.KVs))
+
+	var expectedKVs []common.KV
+
+	partHash, err := parthash.CreateHash([]byte("g." + groupID))
+	require.NoError(t, err)
+
+	tombstoneKey := make([]byte, 0, 24)
+	tombstoneKey = append(tombstoneKey, partHash...)
+	tombstoneKey = encoding.EncodeVersion(tombstoneKey, math.MaxUint64)
+
+	endMarker := make([]byte, 0, 24)
+	endMarker = append(endMarker, common.IncBigEndianBytes(partHash)...)
+	endMarker = encoding.EncodeVersion(endMarker, math.MaxUint64)
+
+	expectedKVs = append(expectedKVs, common.KV{Key: tombstoneKey, Value: []byte{}}, common.KV{Key: endMarker, Value: []byte{'x'}})
+
+	require.Equal(t, expectedKVs, received.KVs)
 }
 
 type createOffsetsInfo struct {
