@@ -166,5 +166,5 @@ func (m *ListGroupsRequest) HeaderVersions(version int16) (int16, int16) {
 }
 
 func (m *ListGroupsRequest) SupportedApiVersions() (int16, int16) {
-    return 0, 0
+    return 0, 5
 }

@@ -13,7 +13,9 @@ import (
 	"github.com/spirit-labs/tektite/topicmeta"
 	"github.com/spirit-labs/tektite/transport"
 	"net"
+	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -490,6 +492,50 @@ func (c *Coordinator) OffsetFetch(req *kafkaprotocol.OffsetFetchRequest) (*kafka
 	return &resp, nil
 }
 
+func (c *Coordinator) ListGroups(req *kafkaprotocol.ListGroupsRequest) (*kafkaprotocol.ListGroupsResponse, error) {
+	c.lock.RLock()
+	defer c.lock.RUnlock()
+	if err := c.checkStarted(); err != nil {
+		return nil, err
+	}
+	var respGroups []kafkaprotocol.ListGroupsResponseListedGroup
+	for _, g := range c.groups {
+		gsString := groupStateToString(g.state)
+		if matchesFilters(req.StatesFilter, gsString) &&
+			matchesFilters(req.TypesFilter, "consumer") {
+			respGroups = append(respGroups, kafkaprotocol.ListGroupsResponseListedGroup{
+				GroupId:      common.StrPtr(g.id),
+				ProtocolType: common.StrPtr(g.protocolType),
+				GroupState:   common.StrPtr(gsString),
+				GroupType:    common.StrPtr("consumer"),
+			})
+		}
+	}
+	// sort by group id
+	sort.SliceStable(respGroups, func(i, j int) bool {
+		return strings.Compare(common.SafeDerefStringPtr(respGroups[i].GroupId),
+			common.SafeDerefStringPtr(respGroups[j].GroupId)) < 0
+	})
+	return &kafkaprotocol.ListGroupsResponse{
+		Groups: respGroups,
+	}, nil
+}
+
+func matchesFilters(filters []*string, s string) bool {
+	if len(filters) == 0 {
+		return true
+	}
+	s = strings.ToLower(s)
+	for _, filter := range filters {
+		f := common.SafeDerefStringPtr(filter)
+		f = strings.ToLower(strings.TrimSpace(f))
+		if f == s {
+			return true
+		}
+	}
+	return false
+}
+
 func (c *Coordinator) getGroup(groupID string) (*group, bool) {
 	g, ok := c.groups[groupID]
 	return g, ok
@@ -503,7 +549,7 @@ func (c *Coordinator) sendSyncError(completionFunc SyncCompletion, errorCode int
 	completionFunc(errorCode, nil)
 }
 
-func (c *Coordinator) getState(groupID string) int {
+func (c *Coordinator) getState(groupID string) GroupState {
 	g, ok := c.groups[groupID]
 	if !ok {
 		return -1
@@ -541,7 +587,7 @@ func (c *Coordinator) createGroup(groupID string, groupEpoch int) *group {
 		groupEpoch:              groupEpoch,
 		partHash:                partHash,
 		offsetWriterKey:         offsetWriterKey,
-		state:                   stateEmpty,
+		state:                   StateEmpty,
 		members:                 map[string]*member{},
 		pendingMemberIDs:        map[string]struct{}{},
 		supportedProtocolCounts: map[string]int{},
@@ -574,13 +620,32 @@ func createCoordinatorKey(groupID string) string {
 	return "g." + groupID
 }
 
+type GroupState int
+
 const (
-	stateEmpty             = 0
-	statePreReBalance      = 1
-	stateAwaitingReBalance = 2
-	stateActive            = 3
-	stateDead              = 4
+	StateEmpty             = GroupState(0)
+	StatePreReBalance      = GroupState(1)
+	StateAwaitingReBalance = GroupState(2)
+	StateActive            = GroupState(3)
+	StateDead              = GroupState(4)
 )
+
+func groupStateToString(gs GroupState) string {
+	switch gs {
+	case StateEmpty:
+		return "empty"
+	case StatePreReBalance:
+		return "assigning"
+	case StateAwaitingReBalance:
+		return "reconciling"
+	case StateActive:
+		return "stable"
+	case StateDead:
+		return "dead"
+	default:
+		panic("unknown group state")
+	}
+}
 
 type MemberInfo struct {
 	MemberID string
