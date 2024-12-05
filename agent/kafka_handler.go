@@ -15,6 +15,7 @@ func (a *Agent) newKafkaHandler(ctx kafkaserver2.ConnectionContext) kafkaprotoco
 	return &kafkaHandler{
 		agent:       a,
 		authContext: ctx.AuthContext(),
+		clientHost:  ctx.ClientHost(),
 	}
 }
 
@@ -22,6 +23,7 @@ type kafkaHandler struct {
 	agent            *Agent
 	saslConversation auth.SaslConversation
 	authContext      *auth.Context
+	clientHost       string
 }
 
 func (k *kafkaHandler) HandleProduceRequest(_ *kafkaprotocol.RequestHeader, req *kafkaprotocol.ProduceRequest,
@@ -74,7 +76,7 @@ func (k *kafkaHandler) HandleFindCoordinatorRequest(_ *kafkaprotocol.RequestHead
 
 func (k *kafkaHandler) HandleJoinGroupRequest(hdr *kafkaprotocol.RequestHeader, req *kafkaprotocol.JoinGroupRequest,
 	completionFunc func(resp *kafkaprotocol.JoinGroupResponse) error) error {
-	return k.agent.groupCoordinator.HandleJoinGroupRequest(hdr, req, completionFunc)
+	return k.agent.groupCoordinator.HandleJoinGroupRequest(k.clientHost, hdr, req, completionFunc)
 }
 
 func (k *kafkaHandler) HandleHeartbeatRequest(_ *kafkaprotocol.RequestHeader, req *kafkaprotocol.HeartbeatRequest,
@@ -268,8 +270,11 @@ func (k *kafkaHandler) HandleListGroupsRequest(_ *kafkaprotocol.RequestHeader, r
 }
 
 func (k *kafkaHandler) HandleDescribeGroupsRequest(hdr *kafkaprotocol.RequestHeader, req *kafkaprotocol.DescribeGroupsRequest, completionFunc func(resp *kafkaprotocol.DescribeGroupsResponse) error) error {
-	//TODO implement me
-	panic("implement me")
+	resp, err := k.agent.groupCoordinator.DescribeGroups(req)
+	if err != nil {
+		return err
+	}
+	return completionFunc(resp)
 }
 
 func (k *kafkaHandler) HandleDeleteGroupsRequest(hdr *kafkaprotocol.RequestHeader,

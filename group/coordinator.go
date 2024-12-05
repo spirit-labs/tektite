@@ -189,7 +189,7 @@ func (c *Coordinator) findCoordinator(key string) (int32, string, error) {
 	return memberID, address, err
 }
 
-func (c *Coordinator) HandleJoinGroupRequest(hdr *kafkaprotocol.RequestHeader, req *kafkaprotocol.JoinGroupRequest,
+func (c *Coordinator) HandleJoinGroupRequest(clientHost string, hdr *kafkaprotocol.RequestHeader, req *kafkaprotocol.JoinGroupRequest,
 	completionFunc func(resp *kafkaprotocol.JoinGroupResponse) error) error {
 	infos := make([]ProtocolInfo, len(req.Protocols))
 	for i, protoInfo := range req.Protocols {
@@ -207,7 +207,7 @@ func (c *Coordinator) HandleJoinGroupRequest(hdr *kafkaprotocol.RequestHeader, r
 		sessionTimeout = time.Duration(req.SessionTimeoutMs) * time.Millisecond
 	}
 	c.joinGroup(hdr.RequestApiVersion, common.SafeDerefStringPtr(req.GroupId),
-		common.SafeDerefStringPtr(hdr.ClientId), common.SafeDerefStringPtr(req.MemberId), common.SafeDerefStringPtr(req.ProtocolType),
+		common.SafeDerefStringPtr(hdr.ClientId), clientHost, common.SafeDerefStringPtr(req.MemberId), common.SafeDerefStringPtr(req.ProtocolType),
 		infos, sessionTimeout, rebalanceTimeout, func(result JoinResult) {
 			var resp kafkaprotocol.JoinGroupResponse
 			resp.ErrorCode = int16(result.ErrorCode)
@@ -235,8 +235,9 @@ func (c *Coordinator) HandleJoinGroupRequest(hdr *kafkaprotocol.RequestHeader, r
 	return nil
 }
 
-func (c *Coordinator) joinGroup(apiVersion int16, groupID string, clientID string, memberID string, protocolType string,
-	protocols []ProtocolInfo, sessionTimeout time.Duration, reBalanceTimeout time.Duration, completionFunc JoinCompletion) {
+func (c *Coordinator) joinGroup(apiVersion int16, groupID string, clientID string, clientHost string, memberID string,
+	protocolType string, protocols []ProtocolInfo, sessionTimeout time.Duration, reBalanceTimeout time.Duration,
+	completionFunc JoinCompletion) {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
 	if err := c.checkStarted(); err != nil {
@@ -268,7 +269,7 @@ func (c *Coordinator) joinGroup(apiVersion int16, groupID string, clientID strin
 		}
 		g = c.createGroup(groupID, groupEpoch)
 	}
-	g.Join(apiVersion, clientID, memberID, protocolType, protocols, sessionTimeout, reBalanceTimeout, completionFunc)
+	g.Join(apiVersion, clientID, clientHost, memberID, protocolType, protocols, sessionTimeout, reBalanceTimeout, completionFunc)
 }
 
 func (c *Coordinator) HandleSyncGroupRequest(req *kafkaprotocol.SyncGroupRequest,
@@ -534,6 +535,70 @@ func matchesFilters(filters []*string, s string) bool {
 		}
 	}
 	return false
+}
+
+func (c *Coordinator) DescribeGroups(req *kafkaprotocol.DescribeGroupsRequest) (*kafkaprotocol.DescribeGroupsResponse, error) {
+	c.lock.RLock()
+	defer c.lock.RUnlock()
+	if err := c.checkStarted(); err != nil {
+		return nil, err
+	}
+	var respGroups []kafkaprotocol.DescribeGroupsResponseDescribedGroup
+	for _, pGroupID := range req.Groups {
+		groupID := common.SafeDerefStringPtr(pGroupID)
+		g, ok := c.groups[groupID]
+		if !ok {
+			respGroups = append(respGroups, kafkaprotocol.DescribeGroupsResponseDescribedGroup{
+				GroupId:   common.StrPtr(groupID),
+				ErrorCode: kafkaprotocol.ErrorCodeInvalidGroupID,
+			})
+		} else {
+			groupState := groupStateToString(g.state)
+			respGroup := kafkaprotocol.DescribeGroupsResponseDescribedGroup{
+				GroupId:      common.StrPtr(g.id),
+				ProtocolType: common.StrPtr(g.protocolType),
+				GroupState:   common.StrPtr(groupState),
+			}
+			if g.state == StateActive {
+				respGroup.ProtocolData = common.StrPtr(g.protocolName)
+			}
+			if g.state != StateDead {
+				assignmentMap := make(map[string]AssignmentInfo, len(g.members))
+				for _, info := range g.assignments {
+					assignmentMap[info.MemberID] = info
+				}
+				memberInfos := g.createMemberInfos()
+				memberInfosMap := make(map[string]MemberInfo, len(memberInfos))
+				for _, memberInfo := range memberInfos {
+					memberInfosMap[memberInfo.MemberID] = memberInfo
+				}
+				for memberID, m := range g.members {
+					respMember := kafkaprotocol.DescribeGroupsResponseDescribedGroupMember{
+						MemberId:   common.StrPtr(memberID),
+						ClientId:   common.StrPtr(m.clientID),
+						ClientHost: common.StrPtr(m.clientHost),
+					}
+					if g.state == StateActive {
+						assignInfo, ok := assignmentMap[memberID]
+						if !ok {
+							panic("cannot find assignment for group")
+						}
+						respMember.MemberAssignment = assignInfo.Assignment
+						memberInfo, ok := memberInfosMap[memberID]
+						if !ok {
+							panic("cannot find member info for group")
+						}
+						respMember.MemberMetadata = memberInfo.MetaData
+					}
+					respGroup.Members = append(respGroup.Members, respMember)
+				}
+			}
+			respGroups = append(respGroups, respGroup)
+		}
+	}
+	return &kafkaprotocol.DescribeGroupsResponse{
+		Groups: respGroups,
+	}, nil
 }
 
 func (c *Coordinator) getGroup(groupID string) (*group, bool) {

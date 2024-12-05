@@ -45,9 +45,11 @@ type member struct {
 	new              bool
 	sessionTimeout   time.Duration
 	reBalanceTimeout time.Duration
+	clientID string
+	clientHost string
 }
 
-func (g *group) Join(apiVersion int16, clientID string, memberID string, protocolType string, protocols []ProtocolInfo,
+func (g *group) Join(apiVersion int16, clientID string, clientHost string, memberID string, protocolType string, protocols []ProtocolInfo,
 	sessionTimeout time.Duration, reBalanceTimeout time.Duration, completionFunc JoinCompletion) {
 	g.lock.Lock()
 	defer g.lock.Unlock()
@@ -73,7 +75,7 @@ func (g *group) Join(apiVersion int16, clientID string, memberID string, protoco
 		// The first to join is the leader
 		g.leader = memberID
 		g.protocolType = protocolType
-		g.addMember(memberID, protocols, sessionTimeout, reBalanceTimeout, completionFunc)
+		g.addMember(memberID, protocols, sessionTimeout, reBalanceTimeout, completionFunc, clientID, clientHost)
 		g.newMemberAdded = false
 		g.state = StatePreReBalance
 		// The first time the join stage is attempted we don't try to complete the join until after a delay - this
@@ -87,7 +89,7 @@ func (g *group) Join(apiVersion int16, clientID string, memberID string, protoco
 			g.updateMember(memberID, protocols, completionFunc)
 		} else {
 			// adding new member
-			g.addMember(memberID, protocols, sessionTimeout, reBalanceTimeout, completionFunc)
+			g.addMember(memberID, protocols, sessionTimeout, reBalanceTimeout, completionFunc, clientID, clientHost)
 		}
 		if g.initialJoinDelayExpired {
 			// If we have gone through join before we can potentially complete the join now, otherwise a timer
@@ -101,7 +103,7 @@ func (g *group) Join(apiVersion int16, clientID string, memberID string, protoco
 			// For any members waiting sync we complete response with reBalance-in-progress and empty assignments
 			// Members will then re-join
 			g.resetSync()
-			g.addMember(memberID, protocols, sessionTimeout, reBalanceTimeout, completionFunc)
+			g.addMember(memberID, protocols, sessionTimeout, reBalanceTimeout, completionFunc, clientID, clientHost)
 		} else {
 			// existing member
 			if !protocolInfosEqual(member.protocols, protocols) {
@@ -116,7 +118,7 @@ func (g *group) Join(apiVersion int16, clientID string, memberID string, protoco
 	case StateActive:
 		_, ok := g.members[memberID]
 		if !ok {
-			g.addMember(memberID, protocols, sessionTimeout, reBalanceTimeout, completionFunc)
+			g.addMember(memberID, protocols, sessionTimeout, reBalanceTimeout, completionFunc, clientID, clientHost)
 			g.triggerReBalance()
 		} else {
 			// existing member
@@ -303,13 +305,15 @@ func (g *group) chooseNewLeader() string {
 }
 
 func (g *group) addMember(memberID string, protocols []ProtocolInfo, sessionTimeout time.Duration,
-	reBalanceTimeout time.Duration, completionFunc JoinCompletion) {
+	reBalanceTimeout time.Duration, completionFunc JoinCompletion, clientID string, clientHost string) {
 	g.members[memberID] = &member{
 		protocols:        protocols,
 		joinCompletion:   completionFunc,
 		sessionTimeout:   sessionTimeout,
 		reBalanceTimeout: reBalanceTimeout,
 		new:              true,
+		clientID: clientID,
+		clientHost: clientHost,
 	}
 	g.updateSupportedProtocols(protocols, true)
 	delete(g.pendingMemberIDs, memberID)
