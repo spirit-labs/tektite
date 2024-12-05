@@ -76,8 +76,8 @@ func TestBuildWithTombstones(t *testing.T) {
 
 func TestBuildWithPrefixTombstones(t *testing.T) {
 	gi := &iteration2.StaticIterator{}
-	gi.AddKV(encoding.EncodeVersion([]byte("................prefix1_"), 0), nil)
-	gi.AddKV(encoding.EncodeVersion([]byte("................prefix2_"), 0), nil)
+	gi.AddKV(encoding.EncodeVersion([]byte("................prefix1_"), math.MaxUint64), nil)
+	gi.AddKV(encoding.EncodeVersion([]byte("................prefix2_"), math.MaxUint64), nil)
 	sstable, _, _, _, _, err := BuildSSTable(common.DataFormatV1, 0, 0, gi)
 	require.NoError(t, err)
 	require.Equal(t, 2, sstable.NumPrefixDeletes())
