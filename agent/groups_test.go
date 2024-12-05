@@ -191,6 +191,25 @@ func TestConsumerGroups(t *testing.T) {
 	heartbeatResp = r.(*kafkaprotocol.HeartbeatResponse)
 	require.Equal(t, kafkaprotocol.ErrorCodeNone, int(heartbeatResp.ErrorCode))
 
+	describeGroupsReq := &kafkaprotocol.DescribeGroupsRequest{
+		Groups: []*string{common.StrPtr(groupID)},
+	}
+	describeGroupResp := &kafkaprotocol.DescribeGroupsResponse{}
+	r, err = conn.SendRequest(describeGroupsReq, kafkaprotocol.ApiKeyDescribeGroups, 0, describeGroupResp)
+	require.NoError(t, err)
+	describeGroupResp = r.(*kafkaprotocol.DescribeGroupsResponse)
+
+	require.Equal(t, 1, len(describeGroupResp.Groups))
+	groupResp := describeGroupResp.Groups[0]
+	require.Equal(t, groupID, common.SafeDerefStringPtr(groupResp.GroupId))
+	require.Equal(t, 1, len(groupResp.Members))
+	memberResp := groupResp.Members[0]
+	require.Equal(t, "metadata-1", string(memberResp.MemberMetadata))
+	require.Equal(t, "assignment-1", string(memberResp.MemberAssignment))
+	require.Equal(t, "member-1", common.SafeDerefStringPtr(memberResp.MemberId))
+	require.Equal(t, "some-client-id", common.SafeDerefStringPtr(memberResp.ClientId))
+	require.Equal(t, "127.0.0.1", common.SafeDerefStringPtr(memberResp.ClientHost))
+
 	leaveGroupReq := &kafkaprotocol.LeaveGroupRequest{
 		GroupId:  common.StrPtr(groupID),
 		MemberId: common.StrPtr("member-1"),
@@ -211,11 +230,11 @@ func TestConsumerGroups(t *testing.T) {
 	listGroupResp = r.(*kafkaprotocol.ListGroupsResponse)
 	require.Equal(t, kafkaprotocol.ErrorCodeNone, int(listGroupResp.ErrorCode))
 	require.Equal(t, 1, len(listGroupResp.Groups))
-	groupResp := listGroupResp.Groups[0]
-	require.Equal(t, "empty", common.SafeDerefStringPtr(groupResp.GroupState))
-	require.Equal(t, "consumer", common.SafeDerefStringPtr(groupResp.GroupType))
-	require.Equal(t, "protocol-type-1", common.SafeDerefStringPtr(groupResp.ProtocolType))
-	require.Equal(t, groupID, common.SafeDerefStringPtr(groupResp.GroupId))
+	listGroupsResp := listGroupResp.Groups[0]
+	require.Equal(t, "empty", common.SafeDerefStringPtr(listGroupsResp.GroupState))
+	require.Equal(t, "consumer", common.SafeDerefStringPtr(listGroupsResp.GroupType))
+	require.Equal(t, "protocol-type-1", common.SafeDerefStringPtr(listGroupsResp.ProtocolType))
+	require.Equal(t, groupID, common.SafeDerefStringPtr(listGroupsResp.GroupId))
 }
 
 func TestFindCoordinatorError(t *testing.T) {

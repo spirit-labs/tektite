@@ -28,6 +28,7 @@ type HandlerFactory func(ctx ConnectionContext) kafkaprotocol.RequestHandler
 
 type ConnectionContext interface {
 	AuthContext() *auth.Context
+	ClientHost() string
 }
 
 type AuthenticationType int
@@ -83,7 +84,7 @@ func (k *KafkaServer) ListenAddress() string {
 type ConnectionInfo struct {
 	ClientAddress string
 	Authenticated bool
-	Principal string
+	Principal     string
 }
 
 func (k *KafkaServer) ConnectionInfos() []ConnectionInfo {
@@ -96,14 +97,24 @@ func (k *KafkaServer) ConnectionInfos() []ConnectionInfo {
 		infos = append(infos, ConnectionInfo{
 			ClientAddress: kconn.conn.RemoteAddr().String(),
 			Authenticated: kconn.authContext.Authenticated,
-			Principal: kconn.authContext.Principal,
+			Principal:     kconn.authContext.Principal,
 		})
 	}
 	return infos
 }
 
 func (k *KafkaServer) createConnection(conn net.Conn) sockserver.ServerConnection {
-	kc := &kafkaConnection{s: k, conn: conn}
+	remoteAddr := conn.RemoteAddr().String()
+	clientHost, _, err := net.SplitHostPort(remoteAddr)
+	if err != nil {
+		log.Warnf("failed to split client host and port: %v", err)
+		clientHost = "unknown"
+	}
+	kc := &kafkaConnection{
+		s:          k,
+		conn:       conn,
+		clientHost: clientHost,
+	}
 	handler := k.handlerFactory(kc)
 	kc.handler = handler
 	return kc
@@ -115,10 +126,15 @@ type kafkaConnection struct {
 	conn        net.Conn
 	authContext auth.Context
 	handler     kafkaprotocol.RequestHandler
+	clientHost  string
 }
 
 func (c *kafkaConnection) AuthContext() *auth.Context {
 	return &c.authContext
+}
+
+func (c *kafkaConnection) ClientHost() string {
+	return c.clientHost
 }
 
 func (c *kafkaConnection) HandleMessage(message []byte) error {
