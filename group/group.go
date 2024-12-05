@@ -21,7 +21,7 @@ type group struct {
 	offsetWriterKey         string
 	partHash                []byte
 	lock                    sync.Mutex
-	state                   int
+	state                   GroupState
 	members                 map[string]*member
 	pendingMemberIDs        map[string]struct{}
 	leader                  string
@@ -51,7 +51,7 @@ func (g *group) Join(apiVersion int16, clientID string, memberID string, protoco
 	sessionTimeout time.Duration, reBalanceTimeout time.Duration, completionFunc JoinCompletion) {
 	g.lock.Lock()
 	defer g.lock.Unlock()
-	if g.state != stateEmpty && !g.canSupportProtocols(protocols) {
+	if g.state != StateEmpty && !g.canSupportProtocols(protocols) {
 		completionFunc(JoinResult{ErrorCode: kafkaprotocol.ErrorCodeInconsistentGroupProtocol, MemberID: ""})
 		return
 	}
@@ -69,18 +69,18 @@ func (g *group) Join(apiVersion int16, clientID string, memberID string, protoco
 		}
 	}
 	switch g.state {
-	case stateEmpty:
+	case StateEmpty:
 		// The first to join is the leader
 		g.leader = memberID
 		g.protocolType = protocolType
 		g.addMember(memberID, protocols, sessionTimeout, reBalanceTimeout, completionFunc)
 		g.newMemberAdded = false
-		g.state = statePreReBalance
+		g.state = StatePreReBalance
 		// The first time the join stage is attempted we don't try to complete the join until after a delay - this
 		// handles the case when a system starts and many clients join around the same time - we want to avoid
 		// re-balancing too much.
 		g.scheduleInitialJoinDelay(g.getReBalanceTimeout())
-	case statePreReBalance:
+	case StatePreReBalance:
 		_, ok := g.members[memberID]
 		if ok {
 			// member already exists
@@ -94,7 +94,7 @@ func (g *group) Join(apiVersion int16, clientID string, memberID string, protoco
 			// will have already been set and join will complete when it fires
 			g.maybeCompleteJoin()
 		}
-	case stateAwaitingReBalance:
+	case StateAwaitingReBalance:
 		member, ok := g.members[memberID]
 		if !ok {
 			// Join new member
@@ -113,7 +113,7 @@ func (g *group) Join(apiVersion int16, clientID string, memberID string, protoco
 				g.sendJoinResult(memberID, completionFunc)
 			}
 		}
-	case stateActive:
+	case StateActive:
 		_, ok := g.members[memberID]
 		if !ok {
 			g.addMember(memberID, protocols, sessionTimeout, reBalanceTimeout, completionFunc)
@@ -130,7 +130,7 @@ func (g *group) Join(apiVersion int16, clientID string, memberID string, protoco
 				g.sendJoinResult(memberID, completionFunc)
 			}
 		}
-	case stateDead:
+	case StateDead:
 		completionFunc(JoinResult{ErrorCode: kafkaprotocol.ErrorCodeCoordinatorNotAvailable, MemberID: memberID})
 		return
 	}
@@ -253,7 +253,7 @@ func (g *group) triggerReBalance() {
 	if len(g.members) == 0 {
 		panic("no members in group")
 	}
-	g.state = statePreReBalance
+	g.state = StatePreReBalance
 	g.gc.rescheduleTimer(g.id, g.getReBalanceTimeout(), func() {
 		g.handleJoinTimeout()
 	})
@@ -262,7 +262,7 @@ func (g *group) triggerReBalance() {
 func (g *group) handleJoinTimeout() {
 	g.lock.Lock()
 	defer g.lock.Unlock()
-	if g.stopped || g.state != statePreReBalance {
+	if g.stopped || g.state != StatePreReBalance {
 		return
 	}
 	// We waited long enough for the join to complete.
@@ -281,7 +281,7 @@ func (g *group) handleJoinTimeout() {
 	}
 	if len(g.members) == 0 {
 		// None left - transition to empty
-		g.state = stateEmpty
+		g.state = StateEmpty
 		g.generationID++
 		return
 	}
@@ -345,7 +345,7 @@ func (g *group) removeMember(memberID string) bool {
 	g.updateSupportedProtocols(member.protocols, false)
 	g.gc.cancelTimer(memberID)
 	if len(g.members) == 0 {
-		g.state = stateEmpty
+		g.state = StateEmpty
 		g.assignments = nil
 	}
 	return true
@@ -382,7 +382,7 @@ func (g *group) sendJoinResults() {
 			g.sessionTimeoutExpired(memberID)
 		})
 	}
-	g.state = stateAwaitingReBalance
+	g.state = StateAwaitingReBalance
 	// Now we can set a timer for sync timeout
 	genID := g.generationID
 	g.gc.rescheduleTimer(g.id, g.getReBalanceTimeout(), func() {
@@ -393,14 +393,14 @@ func (g *group) sendJoinResults() {
 func (g *group) handleSyncTimeout(genId int) {
 	g.lock.Lock()
 	defer g.lock.Unlock()
-	if g.stopped || g.state != stateAwaitingReBalance {
+	if g.stopped || g.state != StateAwaitingReBalance {
 		return
 	}
 	if genId != g.generationID {
 		log.Warn("sync timeout for wrong generation")
 		return
 	}
-	if g.state != stateAwaitingReBalance {
+	if g.state != StateAwaitingReBalance {
 		return
 	}
 	removedLeader := false
@@ -470,10 +470,10 @@ func (g *group) Sync(memberID string, generationID int, assignments []Assignment
 		return
 	}
 	switch g.state {
-	case statePreReBalance:
+	case StatePreReBalance:
 		completionFunc(kafkaprotocol.ErrorCodeRebalanceInProgress, nil)
 		return
-	case stateAwaitingReBalance:
+	case StateAwaitingReBalance:
 		m, ok := g.members[memberID]
 		if !ok {
 			completionFunc(kafkaprotocol.ErrorCodeUnknownMemberID, nil)
@@ -506,7 +506,7 @@ func (g *group) Sync(memberID string, generationID int, assignments []Assignment
 		if syncWaitersCount == len(g.members) {
 			g.completeSync()
 		}
-	case stateActive:
+	case StateActive:
 		// Just return current assignment
 		var assignment []byte
 		for _, assignmentInfo := range g.assignments {
@@ -520,7 +520,7 @@ func (g *group) Sync(memberID string, generationID int, assignments []Assignment
 		}
 		completionFunc(kafkaprotocol.ErrorCodeNone, assignment)
 		return
-	case stateDead:
+	case StateDead:
 		log.Error("received SyncGroup for dead group")
 		completionFunc(kafkaprotocol.ErrorCodeUnknownServerError, nil)
 		return
@@ -545,7 +545,7 @@ func (g *group) completeSync() {
 	}
 	// cancel sync timeout
 	g.gc.cancelTimer(g.id)
-	g.state = stateActive
+	g.state = StateActive
 }
 
 func (g *group) Heartbeat(memberID string, generationID int) int {
@@ -555,12 +555,12 @@ func (g *group) Heartbeat(memberID string, generationID int) int {
 		return kafkaprotocol.ErrorCodeIllegalGeneration
 	}
 	switch g.state {
-	case stateEmpty:
+	case StateEmpty:
 		return kafkaprotocol.ErrorCodeUnknownMemberID
-	case statePreReBalance:
+	case StatePreReBalance:
 		// Re-balance is required - this will cause client to rejoin group
 		return kafkaprotocol.ErrorCodeRebalanceInProgress
-	case stateAwaitingReBalance, stateActive:
+	case StateAwaitingReBalance, StateActive:
 		member, ok := g.members[memberID]
 		if !ok {
 			return kafkaprotocol.ErrorCodeUnknownMemberID
@@ -599,13 +599,13 @@ func (g *group) Leave(leaveInfos []MemberLeaveInfo) int16 {
 			}
 			g.triggerReBalance()
 		} else {
-			g.state = stateEmpty
+			g.state = StateEmpty
 		}
 	}
 	return kafkaprotocol.ErrorCodeNone
 }
 
-func (g *group) getState() int {
+func (g *group) getState() GroupState {
 	g.lock.Lock()
 	defer g.lock.Unlock()
 	return g.state
@@ -617,7 +617,7 @@ func (g *group) sessionTimeoutExpired(memberID string) {
 	_, ok := g.pendingMemberIDs[memberID]
 	if ok {
 		g.removeMember(memberID)
-		if g.state == statePreReBalance {
+		if g.state == StatePreReBalance {
 			g.maybeCompleteJoin()
 		}
 		return
@@ -649,13 +649,13 @@ func (g *group) sessionTimeoutExpired(memberID string) {
 	}
 	if len(g.members) == 0 {
 		// No members left
-		g.state = stateEmpty
+		g.state = StateEmpty
 		return
 	}
-	if g.state == statePreReBalance {
+	if g.state == StatePreReBalance {
 		// We've removed a member - maybe we can complete the join now?
 		g.maybeCompleteJoin()
-	} else if g.state == stateActive || g.state == stateAwaitingReBalance {
+	} else if g.state == StateActive || g.state == StateAwaitingReBalance {
 		g.triggerReBalance()
 	}
 }

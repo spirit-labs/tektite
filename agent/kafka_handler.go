@@ -251,7 +251,7 @@ func setErrorForDeleteUserResponse(err error, resp *kafkaprotocol.DeleteUserResp
 	}
 }
 
-func (k *kafkaHandler) HandleOffsetDeleteRequest(hdr *kafkaprotocol.RequestHeader, req *kafkaprotocol.OffsetDeleteRequest, completionFunc func(resp *kafkaprotocol.OffsetDeleteResponse) error) error {
+func (k *kafkaHandler) HandleOffsetDeleteRequest(_ *kafkaprotocol.RequestHeader, req *kafkaprotocol.OffsetDeleteRequest, completionFunc func(resp *kafkaprotocol.OffsetDeleteResponse) error) error {
 	resp, err := k.agent.groupCoordinator.OffsetDelete(req)
 	if err != nil {
 		return err
@@ -259,9 +259,12 @@ func (k *kafkaHandler) HandleOffsetDeleteRequest(hdr *kafkaprotocol.RequestHeade
 	return completionFunc(resp)
 }
 
-func (k *kafkaHandler) HandleListGroupsRequest(hdr *kafkaprotocol.RequestHeader, req *kafkaprotocol.ListGroupsRequest, completionFunc func(resp *kafkaprotocol.ListGroupsResponse) error) error {
-	//TODO implement me
-	panic("implement me")
+func (k *kafkaHandler) HandleListGroupsRequest(_ *kafkaprotocol.RequestHeader, req *kafkaprotocol.ListGroupsRequest, completionFunc func(resp *kafkaprotocol.ListGroupsResponse) error) error {
+	resp, err := k.agent.groupCoordinator.ListGroups(req)
+	if err != nil {
+		return err
+	}
+	return completionFunc(resp)
 }
 
 func (k *kafkaHandler) HandleDescribeGroupsRequest(hdr *kafkaprotocol.RequestHeader, req *kafkaprotocol.DescribeGroupsRequest, completionFunc func(resp *kafkaprotocol.DescribeGroupsResponse) error) error {

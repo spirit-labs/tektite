@@ -200,6 +200,22 @@ func TestConsumerGroups(t *testing.T) {
 	require.NoError(t, err)
 	leaveGroupResp = r.(*kafkaprotocol.LeaveGroupResponse)
 	require.Equal(t, kafkaprotocol.ErrorCodeNone, int(leaveGroupResp.ErrorCode))
+
+	listGroupsReq := &kafkaprotocol.ListGroupsRequest{
+		StatesFilter: []*string{common.StrPtr("empty")},
+		TypesFilter:  []*string{common.StrPtr("consumer")},
+	}
+	listGroupResp := &kafkaprotocol.ListGroupsResponse{}
+	r, err = conn.SendRequest(listGroupsReq, kafkaprotocol.ApiKeyListGroups, 5, listGroupResp)
+	require.NoError(t, err)
+	listGroupResp = r.(*kafkaprotocol.ListGroupsResponse)
+	require.Equal(t, kafkaprotocol.ErrorCodeNone, int(listGroupResp.ErrorCode))
+	require.Equal(t, 1, len(listGroupResp.Groups))
+	groupResp := listGroupResp.Groups[0]
+	require.Equal(t, "empty", common.SafeDerefStringPtr(groupResp.GroupState))
+	require.Equal(t, "consumer", common.SafeDerefStringPtr(groupResp.GroupType))
+	require.Equal(t, "protocol-type-1", common.SafeDerefStringPtr(groupResp.ProtocolType))
+	require.Equal(t, groupID, common.SafeDerefStringPtr(groupResp.GroupId))
 }
 
 func TestFindCoordinatorError(t *testing.T) {

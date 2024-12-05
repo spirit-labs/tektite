@@ -129,7 +129,7 @@ var SupportedAPIVersions = []ApiVersionsResponseApiVersion{
 	{ApiKey: APIKeyInitProducerId, MinVersion: 0, MaxVersion: 0},
 	{ApiKey: APIKeySaslAuthenticate, MinVersion: 0, MaxVersion: 1},
 	{ApiKey: APIKeyOffsetDelete, MinVersion: 0, MaxVersion: 0},
-	{ApiKey: ApiKeyListGroups, MinVersion: 0, MaxVersion: 0},
+	{ApiKey: ApiKeyListGroups, MinVersion: 0, MaxVersion: 5},
 	{ApiKey: ApiKeyDescribeGroups, MinVersion: 0, MaxVersion: 0},
 	{ApiKey: ApiKeyDeleteGroups, MinVersion: 0, MaxVersion: 0},
 	{ApiKey: ApiKeyCreatePartitions, MinVersion: 0, MaxVersion: 0},
