@@ -601,6 +601,33 @@ func (c *Coordinator) DescribeGroups(req *kafkaprotocol.DescribeGroupsRequest) (
 	}, nil
 }
 
+func (c *Coordinator) DeleteGroups(req *kafkaprotocol.DeleteGroupsRequest) (*kafkaprotocol.DeleteGroupsResponse, error) {
+	c.lock.RLock()
+	defer c.lock.RUnlock()
+	if err := c.checkStarted(); err != nil {
+		return nil, err
+	}
+	resp := kafkaprotocol.DeleteGroupsResponse{}
+	for _, pGroupId := range req.GroupsNames {
+		groupID := common.SafeDerefStringPtr(pGroupId)
+		g, ok := c.groups[groupID]
+		var errCode int16
+		if !ok {
+			errCode = kafkaprotocol.ErrorCodeInvalidGroupID
+		} else {
+			errCode = int16(g.deleteAllOffsets())
+		}
+		if errCode == kafkaprotocol.ErrorCodeNone {
+			delete(c.groups, groupID)
+		}
+		resp.Results = append(resp.Results, kafkaprotocol.DeleteGroupsResponseDeletableGroupResult{
+			GroupId:   common.StrPtr(groupID),
+			ErrorCode: errCode,
+		})
+	}
+	return &resp, nil
+}
+
 func (c *Coordinator) getGroup(groupID string) (*group, bool) {
 	g, ok := c.groups[groupID]
 	return g, ok

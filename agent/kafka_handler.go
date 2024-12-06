@@ -94,7 +94,7 @@ func (k *kafkaHandler) HandleSyncGroupRequest(_ *kafkaprotocol.RequestHeader, re
 	return k.agent.groupCoordinator.HandleSyncGroupRequest(req, completionFunc)
 }
 
-func (k *kafkaHandler) HandleApiVersionsRequest(_ *kafkaprotocol.RequestHeader, req *kafkaprotocol.ApiVersionsRequest,
+func (k *kafkaHandler) HandleApiVersionsRequest(_ *kafkaprotocol.RequestHeader, _ *kafkaprotocol.ApiVersionsRequest,
 	completionFunc func(resp *kafkaprotocol.ApiVersionsResponse) error) error {
 	var resp kafkaprotocol.ApiVersionsResponse
 	resp.ApiKeys = kafkaprotocol.SupportedAPIVersions
@@ -269,7 +269,7 @@ func (k *kafkaHandler) HandleListGroupsRequest(_ *kafkaprotocol.RequestHeader, r
 	return completionFunc(resp)
 }
 
-func (k *kafkaHandler) HandleDescribeGroupsRequest(hdr *kafkaprotocol.RequestHeader, req *kafkaprotocol.DescribeGroupsRequest, completionFunc func(resp *kafkaprotocol.DescribeGroupsResponse) error) error {
+func (k *kafkaHandler) HandleDescribeGroupsRequest(_ *kafkaprotocol.RequestHeader, req *kafkaprotocol.DescribeGroupsRequest, completionFunc func(resp *kafkaprotocol.DescribeGroupsResponse) error) error {
 	resp, err := k.agent.groupCoordinator.DescribeGroups(req)
 	if err != nil {
 		return err
@@ -277,10 +277,13 @@ func (k *kafkaHandler) HandleDescribeGroupsRequest(hdr *kafkaprotocol.RequestHea
 	return completionFunc(resp)
 }
 
-func (k *kafkaHandler) HandleDeleteGroupsRequest(hdr *kafkaprotocol.RequestHeader,
+func (k *kafkaHandler) HandleDeleteGroupsRequest(_ *kafkaprotocol.RequestHeader,
 	req *kafkaprotocol.DeleteGroupsRequest, completionFunc func(resp *kafkaprotocol.DeleteGroupsResponse) error) error {
-	//TODO implement me
-	panic("implement me")
+	resp, err := k.agent.groupCoordinator.DeleteGroups(req)
+	if err != nil {
+		return err
+	}
+	return completionFunc(resp)
 }
 
 func (k *kafkaHandler) HandleCreatePartitionsRequest(_ *kafkaprotocol.RequestHeader,
@@ -346,12 +349,4 @@ func getErrorCodeAndMessageForCreatePartitionsResponse(err error) (int16, string
 		errCode = kafkaprotocol.ErrorCodeUnknownServerError
 	}
 	return errCode, errMsg
-}
-
-func setErrorForCreatePartitionsResponse(err error, resp *kafkaprotocol.CreatePartitionsResponse) {
-	errCode, errMsg := getErrorCodeAndMessageForCreatePartitionsResponse(err)
-	for i := 0; i < len(resp.Results); i++ {
-		resp.Results[i].ErrorCode = errCode
-		resp.Results[i].ErrorMessage = common.StrPtr(errMsg)
-	}
 }

@@ -1347,7 +1347,7 @@ func (sm *streamManager) deleteSlab(slabInfo *SlabInfo) {
 			// And we create an end marker - the end marker is the next slab id + a zero so as not to conflict with
 			// any tombstone on the next partition
 			// We write an end marker so that the sstable to be pushed will have a prefix tombstone and the end marker
-			// in the same sstable. When this gets merged into L1 it will overlap with all sstables in L1 with same partition
+			// in the same sstable. When this gets merged into L1 it will overlap with all sstables in L1 with same prefix
 			// and will delete all those entries, leaving just the tombstone and the end marker, and that will repeat through
 			// the levels of the database
 			endMarker := encoding.EncodeEntryPrefix(partitionHash, uint64(slabInfo.SlabID)+1, 25)

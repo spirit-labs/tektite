@@ -11,6 +11,7 @@ import (
 	"github.com/spirit-labs/tektite/kafkaprotocol"
 	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/transport"
+	"math"
 	"sync"
 	"time"
 )
@@ -45,8 +46,8 @@ type member struct {
 	new              bool
 	sessionTimeout   time.Duration
 	reBalanceTimeout time.Duration
-	clientID string
-	clientHost string
+	clientID         string
+	clientHost       string
 }
 
 func (g *group) Join(apiVersion int16, clientID string, clientHost string, memberID string, protocolType string, protocols []ProtocolInfo,
@@ -312,8 +313,8 @@ func (g *group) addMember(memberID string, protocols []ProtocolInfo, sessionTime
 		sessionTimeout:   sessionTimeout,
 		reBalanceTimeout: reBalanceTimeout,
 		new:              true,
-		clientID: clientID,
-		clientHost: clientHost,
+		clientID:         clientID,
+		clientHost:       clientHost,
 	}
 	g.updateSupportedProtocols(protocols, true)
 	delete(g.pendingMemberIDs, memberID)
@@ -729,9 +730,9 @@ func (g *group) offsetCommit(transactional bool, req *kafkaprotocol.OffsetCommit
 			// and we need to verify that the producer epoch for a group hasn't gone backwards (?)
 			var offsetKeyType byte
 			if transactional {
-				offsetKeyType = offsetKeyTransactional
+				offsetKeyType = OffsetKeyTransactional
 			} else {
-				offsetKeyType = offsetKeyPublic
+				offsetKeyType = OffsetKeyPublic
 			}
 			key := createOffsetKey(g.partHash, offsetKeyType, info.ID, int(partitionData.PartitionIndex))
 			value := make([]byte, 0, 8)
@@ -794,7 +795,7 @@ func (g *group) offsetDelete(req *kafkaprotocol.OffsetDeleteRequest, resp *kafka
 				resp.Topics[i].Partitions[j].ErrorCode = kafkaprotocol.ErrorCodeUnknownTopicOrPartition
 				continue
 			}
-			key := createOffsetKey(g.partHash, offsetKeyPublic, info.ID, int(partitionData.PartitionIndex))
+			key := createOffsetKey(g.partHash, OffsetKeyPublic, info.ID, int(partitionData.PartitionIndex))
 			kvs = append(kvs, common.KV{
 				Key:   key,
 				Value: nil,
@@ -851,9 +852,56 @@ func fillAllErrorCodesForOffsetDelete(req *kafkaprotocol.OffsetDeleteRequest, er
 	return &resp
 }
 
+func (g *group) deleteAllOffsets() int {
+	g.lock.Lock()
+	defer g.lock.Unlock()
+	// We write a prefix deletion
+	tombstoneKey := make([]byte, 0, 24)
+	tombstoneKey = append(tombstoneKey, g.partHash...)
+	tombstoneKey = encoding.EncodeVersion(tombstoneKey, math.MaxUint64)
+	endMarker := make([]byte, 0, 24)
+	endMarker = append(endMarker, common.IncBigEndianBytes(g.partHash)...)
+	endMarker = encoding.EncodeVersion(endMarker, math.MaxUint64)
+	tombeStoneKv := common.KV{
+		Key: tombstoneKey,
+	}
+	endMarkerKv := common.KV{
+		Key:   endMarker,
+		Value: []byte{'x'},
+	}
+	commitReq := common.DirectWriteRequest{
+		WriterKey:   g.offsetWriterKey,
+		WriterEpoch: g.groupEpoch,
+		KVs:         []common.KV{tombeStoneKv, endMarkerKv},
+	}
+	buff := commitReq.Serialize(createRequestBuffer())
+	pusherAddress, ok := cluster.ChooseMemberAddressForHash(g.partHash, g.gc.membership.Members)
+	if !ok {
+		// No available pushers
+		log.Warnf("cannot commit offsets as no members in cluster")
+		return kafkaprotocol.ErrorCodeCoordinatorNotAvailable
+	}
+	conn, err := g.gc.connCaches.GetConnection(pusherAddress)
+	if err != nil {
+		log.Warnf("failed to get table pusher connection %v", err)
+		return kafkaprotocol.ErrorCodeCoordinatorNotAvailable
+	}
+	_, err = conn.SendRPC(transport.HandlerIDTablePusherDirectWrite, buff)
+	if err != nil {
+		if common.IsUnavailableError(err) {
+			log.Warnf("failed to handle offset commit: %v", err)
+			return kafkaprotocol.ErrorCodeCoordinatorNotAvailable
+		} else {
+			log.Errorf("failed to handle offset commit: %v", err)
+			return kafkaprotocol.ErrorCodeUnknownServerError
+		}
+	}
+	return kafkaprotocol.ErrorCodeNone
+}
+
 const (
-	offsetKeyPublic        = byte(1)
-	offsetKeyTransactional = byte(2)
+	OffsetKeyPublic        = byte(1)
+	OffsetKeyTransactional = byte(2)
 )
 
 func createOffsetKey(partHash []byte, offsetKeyType byte, topicID int, partitionID int) []byte {
@@ -873,7 +921,7 @@ func createRequestBuffer() []byte {
 }
 
 func (g *group) loadOffset(topicID int, partitionID int) (int64, error) {
-	key := createOffsetKey(g.partHash, offsetKeyPublic, topicID, partitionID)
+	key := createOffsetKey(g.partHash, OffsetKeyPublic, topicID, partitionID)
 	cl, err := g.gc.clientCache.GetClient()
 	if err != nil {
 		return 0, err

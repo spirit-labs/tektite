@@ -4,6 +4,9 @@ import (
 	"github.com/spirit-labs/tektite/apiclient"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/kafkaprotocol"
+	log "github.com/spirit-labs/tektite/logger"
+	"github.com/spirit-labs/tektite/parthash"
+	"github.com/spirit-labs/tektite/queryutils"
 	"github.com/spirit-labs/tektite/topicmeta"
 	"github.com/stretchr/testify/require"
 	"net"
@@ -121,13 +124,13 @@ func TestConsumerGroups(t *testing.T) {
 	r, err = conn.SendRequest(offsetCommitReq, kafkaprotocol.APIKeyOffsetCommit, 2, offsetCommitResp)
 	require.NoError(t, err)
 	offsetCommitResp = r.(*kafkaprotocol.OffsetCommitResponse)
-
 	require.Equal(t, 1, len(offsetCommitResp.Topics))
 	require.Equal(t, 1, len(offsetCommitResp.Topics[0].Partitions))
 	partitionResp := offsetCommitResp.Topics[0].Partitions[0]
-
 	require.Equal(t, 23, int(partitionResp.PartitionIndex))
 	require.Equal(t, kafkaprotocol.ErrorCodeNone, int(partitionResp.ErrorCode))
+	offsets := getRowsForGroup(t, groupID, agent)
+	require.Equal(t, 1, len(offsets))
 
 	offsetFetchReq := &kafkaprotocol.OffsetFetchRequest{
 		GroupId: common.StrPtr(groupID),
@@ -235,6 +238,57 @@ func TestConsumerGroups(t *testing.T) {
 	require.Equal(t, "consumer", common.SafeDerefStringPtr(listGroupsResp.GroupType))
 	require.Equal(t, "protocol-type-1", common.SafeDerefStringPtr(listGroupsResp.ProtocolType))
 	require.Equal(t, groupID, common.SafeDerefStringPtr(listGroupsResp.GroupId))
+
+	// now delete group
+	deleteGroupsReq := &kafkaprotocol.DeleteGroupsRequest{
+		GroupsNames: []*string{common.StrPtr(groupID), common.StrPtr("unknown")},
+	}
+	deleteGroupsResp := &kafkaprotocol.DeleteGroupsResponse{}
+	r, err = conn.SendRequest(deleteGroupsReq, kafkaprotocol.ApiKeyDeleteGroups, 0, deleteGroupsResp)
+	require.NoError(t, err)
+	deleteGroupsResp = r.(*kafkaprotocol.DeleteGroupsResponse)
+	require.Equal(t, 2, len(deleteGroupsResp.Results))
+	res1 := deleteGroupsResp.Results[0]
+	require.Equal(t, kafkaprotocol.ErrorCodeNone, int(res1.ErrorCode))
+	require.Equal(t, groupID, common.SafeDerefStringPtr(res1.GroupId))
+	res2 := deleteGroupsResp.Results[1]
+	require.Equal(t, kafkaprotocol.ErrorCodeInvalidGroupID, int(res2.ErrorCode))
+	require.Equal(t, "unknown", common.SafeDerefStringPtr(res2.GroupId))
+
+	listGroupResp = &kafkaprotocol.ListGroupsResponse{}
+	r, err = conn.SendRequest(listGroupsReq, kafkaprotocol.ApiKeyListGroups, 5, listGroupResp)
+	require.NoError(t, err)
+	listGroupResp = r.(*kafkaprotocol.ListGroupsResponse)
+	require.Equal(t, kafkaprotocol.ErrorCodeNone, int(listGroupResp.ErrorCode))
+	require.Equal(t, 0, len(listGroupResp.Groups)) // should be deleted
+
+	// Now check no offset in database
+	offsets = getRowsForGroup(t, groupID, agent)
+	for _, kv := range offsets {
+		log.Infof("key: %v value: %v", kv.Key, kv.Value)
+	}
+	require.Equal(t, 0, len(offsets))
+}
+
+func getRowsForGroup(t *testing.T, groupID string, agent *Agent) []common.KV {
+	partHash, err := parthash.CreateHash([]byte("g." + groupID))
+	require.NoError(t, err)
+	controlClient, err := agent.controlClientCache.GetClient()
+	require.NoError(t, err)
+	iter, err := queryutils.CreateIteratorForKeyRange(partHash, common.IncBigEndianBytes(partHash), controlClient,
+		agent.TableGetter())
+	require.NoError(t, err)
+	defer iter.Close()
+	var kvs []common.KV
+	for {
+		ok, kv, err := iter.Next()
+		require.NoError(t, err)
+		if !ok {
+			break
+		}
+		kvs = append(kvs, kv)
+	}
+	return kvs
 }
 
 func TestFindCoordinatorError(t *testing.T) {
