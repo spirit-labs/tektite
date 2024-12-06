@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"github.com/spirit-labs/tektite/apiclient"
 	"testing"
 	"time"
 
@@ -24,7 +25,7 @@ func TestCreateDeleteTopics(t *testing.T) {
 	cfg := NewConf()
 	agent, _, tearDown := setupAgentWithoutTopics(t, cfg)
 	defer tearDown(t)
-	cl, err := NewKafkaApiClient()
+	cl, err := apiclient.NewKafkaApiClient()
 	require.NoError(t, err)
 	conn, err := cl.NewConnection(agent.Conf().KafkaListenerConfig.Address)
 	require.NoError(t, err)
@@ -90,7 +91,7 @@ func TestCreateDuplicateTopic(t *testing.T) {
 	cfg := NewConf()
 	agent, _, tearDown := setupAgentWithoutTopics(t, cfg)
 	defer tearDown(t)
-	cl, err := NewKafkaApiClient()
+	cl, err := apiclient.NewKafkaApiClient()
 	require.NoError(t, err)
 	conn, err := cl.NewConnection(agent.Conf().KafkaListenerConfig.Address)
 	require.NoError(t, err)
@@ -147,7 +148,7 @@ func TestDeleteNonExistentTopic(t *testing.T) {
 	cfg := NewConf()
 	agent, _, tearDown := setupAgentWithoutTopics(t, cfg)
 	defer tearDown(t)
-	cl, err := NewKafkaApiClient()
+	cl, err := apiclient.NewKafkaApiClient()
 	require.NoError(t, err)
 	conn, err := cl.NewConnection(agent.Conf().KafkaListenerConfig.Address)
 	require.NoError(t, err)
@@ -189,7 +190,7 @@ func TestInvalidTopicName(t *testing.T) {
 			cfg := NewConf()
 			agent, _, tearDown := setupAgentWithoutTopics(t, cfg)
 			defer tearDown(t)
-			cl, err := NewKafkaApiClient()
+			cl, err := apiclient.NewKafkaApiClient()
 			require.NoError(t, err)
 			conn, err := cl.NewConnection(agent.Conf().KafkaListenerConfig.Address)
 			require.NoError(t, err)
@@ -223,7 +224,7 @@ func TestControllerUnavailable(t *testing.T) {
 	cfg := NewConf()
 	agent, _, tearDown := setupAgentWithoutTopics(t, cfg)
 	defer tearDown(t)
-	cl, err := NewKafkaApiClient()
+	cl, err := apiclient.NewKafkaApiClient()
 	require.NoError(t, err)
 	conn, err := cl.NewConnection(agent.Conf().KafkaListenerConfig.Address)
 	require.NoError(t, err)
@@ -257,7 +258,7 @@ func TestInvalidRetentionTime(t *testing.T) {
 	cfg := NewConf()
 	agent, _, tearDown := setupAgentWithoutTopics(t, cfg)
 	defer tearDown(t)
-	cl, err := NewKafkaApiClient()
+	cl, err := apiclient.NewKafkaApiClient()
 	require.NoError(t, err)
 	conn, err := cl.NewConnection(agent.Conf().KafkaListenerConfig.Address)
 	require.NoError(t, err)

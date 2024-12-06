@@ -2,8 +2,6 @@ package agent
 
 import (
 	"fmt"
-	"net"
-	"time"
 
 	"github.com/pkg/errors"
 	"github.com/spirit-labs/tektite/cluster"
@@ -194,44 +192,44 @@ func selectNetworkInterface() (string, error) {
 }
 
 type Conf struct {
-	ClusterListenerConfig    ListenerConfig
-	ClusterClientTlsConfig   conf.ClientTlsConf
-	KafkaListenerConfig      ListenerConfig
-	ClusterMembershipConfig  cluster.MembershipConf
-	PusherConf               pusher.Conf
-	ControllerConf           control.Conf
-	CompactionWorkersConf    lsm.CompactionWorkerServiceConf
-	FetcherConf              fetcher.Conf
-	FetchCacheConf           fetchcache.Conf
-	GroupCoordinatorConf     group.Conf
-	MaxControllerClients     int
-	MaxConnectionsPerAddress int
-	AuthType                 kafkaserver.AuthenticationType
-	AllowScramNonceAsPrefix  bool
-	AddJunkOnScramNonce      bool
-  DefaultTopicRetentionTime time.Duration
+	ClusterListenerConfig     ListenerConfig
+	ClusterClientTlsConfig    conf.ClientTlsConf
+	KafkaListenerConfig       ListenerConfig
+	ClusterMembershipConfig   cluster.MembershipConf
+	PusherConf                pusher.Conf
+	ControllerConf            control.Conf
+	CompactionWorkersConf     lsm.CompactionWorkerServiceConf
+	FetcherConf               fetcher.Conf
+	FetchCacheConf            fetchcache.Conf
+	GroupCoordinatorConf      group.Conf
+	MaxControllerClients      int
+	MaxConnectionsPerAddress  int
+	AuthType                  kafkaserver.AuthenticationType
+	AllowScramNonceAsPrefix   bool
+	AddJunkOnScramNonce       bool
+	DefaultTopicRetentionTime time.Duration
 }
 
 func NewConf() Conf {
 	return Conf{
-		ClusterMembershipConfig:  cluster.NewMembershipConf(),
-		PusherConf:               pusher.NewConf(),
-		ControllerConf:           control.NewConf(),
-		CompactionWorkersConf:    lsm.NewCompactionWorkerServiceConf(),
-		FetcherConf:              fetcher.NewConf(),
-		FetchCacheConf:           fetchcache.NewConf(),
-		GroupCoordinatorConf:     group.NewConf(),
-		MaxControllerClients:     DefaultMaxControllerClients,
-		MaxConnectionsPerAddress: DefaultMaxConnectionsPerAddress,
-		AuthType:                 kafkaserver.AuthenticationTypeNone,
+		ClusterMembershipConfig:   cluster.NewMembershipConf(),
+		PusherConf:                pusher.NewConf(),
+		ControllerConf:            control.NewConf(),
+		CompactionWorkersConf:     lsm.NewCompactionWorkerServiceConf(),
+		FetcherConf:               fetcher.NewConf(),
+		FetchCacheConf:            fetchcache.NewConf(),
+		GroupCoordinatorConf:      group.NewConf(),
+		MaxControllerClients:      DefaultMaxControllerClients,
+		MaxConnectionsPerAddress:  DefaultMaxConnectionsPerAddress,
+		AuthType:                  kafkaserver.AuthenticationTypeNone,
 		DefaultTopicRetentionTime: DefaultDefaultTopicRetentionTime,
 	}
 }
 
 const (
-  DefaultDefaultTopicRetentionTime = 7 * 24 * time.Hour
-	DefaultMaxControllerClients     = 10
-	DefaultMaxConnectionsPerAddress = 10
+	DefaultDefaultTopicRetentionTime = 7 * 24 * time.Hour
+	DefaultMaxControllerClients      = 10
+	DefaultMaxConnectionsPerAddress  = 10
 )
 
 func (c *Conf) Validate() error {

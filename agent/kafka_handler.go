@@ -2,22 +2,17 @@ package agent
 
 import (
 	"fmt"
-	"regexp"
-	"strconv"
-	"time"
-
 	"github.com/pkg/errors"
-	"github.com/spirit-labs/tektite/common"
-	"github.com/spirit-labs/tektite/kafkaprotocol"
-	"github.com/spirit-labs/tektite/kafkaserver2"
-	"github.com/spirit-labs/tektite/topicmeta"
-  auth "github.com/spirit-labs/tektite/auth2"
+	auth "github.com/spirit-labs/tektite/auth2"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/kafkaprotocol"
 	"github.com/spirit-labs/tektite/kafkaserver2"
 	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/topicmeta"
+	"regexp"
+	"strconv"
 	"strings"
+	"time"
 )
 
 var validTopicChars = regexp.MustCompile(`^[a-zA-Z0-9._-]+$`)
@@ -87,7 +82,7 @@ func (k *kafkaHandler) validateAndCreateTopic(topicName string, topic kafkaproto
 		RetentionTime:  retentionTime,
 	}
 
-	err = acl.CreateTopic(topicInfo)
+	err = acl.CreateOrUpdateTopic(topicInfo, true)
 	if err != nil {
 		if extractErrorCode(err) == common.TopicAlreadyExists {
 			return kafkaprotocol.ErrorCodeTopicAlreadyExists, err.Error()
@@ -103,7 +98,7 @@ func isValidRetentionTime(retentionMs int) bool {
 }
 
 func (k *kafkaHandler) parseRetentionConfig(topic kafkaprotocol.CreateTopicsRequestCreatableTopic, topicName string) (time.Duration, []kafkaprotocol.CreateTopicsResponseCreatableTopicConfigs, int16, string) {
-	retentionTime := k.agent.cfg.DefaultDefaultTopicRetentionTime
+	retentionTime := k.agent.cfg.DefaultTopicRetentionTime
 	respConfigs := make([]kafkaprotocol.CreateTopicsResponseCreatableTopicConfigs, len(topic.Configs))
 	errCode := int16(0)
 	var errMsg string
@@ -114,7 +109,7 @@ func (k *kafkaHandler) parseRetentionConfig(topic kafkaprotocol.CreateTopicsRequ
 			if err == nil && isValidRetentionTime(retentionMs) {
 				retentionTime = time.Duration(retentionMs) * time.Millisecond
 			} else {
-				errCode = int16(kafkaprotocol.ErrorCodeUnknownServerError)
+				errCode = int16(kafkaprotocol.ErrorCodeInvalidTopicException)
 				errMsg = fmt.Sprintf("Invalid retention time for topic: %s", topicName)
 			}
 		}
