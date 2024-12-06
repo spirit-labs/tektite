@@ -232,7 +232,6 @@ func FetchMessages(maxMessages int, timeout time.Duration, consumer Consumer) ([
 	for i := 0; i < maxMessages; i++ {
 		msg, err := consumer.Fetch(timeout)
 		if err != nil {
-			log.Errorf("err is %v", err)
 			return nil, err
 		}
 		if msg == nil {

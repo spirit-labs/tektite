@@ -83,7 +83,6 @@ func testProduceConsume(t *testing.T, producerFactory ProducerFactory, consumerF
 	}()
 
 	received, err := FetchMessages(numMessages, 5*time.Second, consumer)
-	log.Errorf("err is %v", err)
 	require.NoError(t, err)
 
 	SortMessagesByKey(received)

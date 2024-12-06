@@ -53,13 +53,13 @@ func (s *SocketServer) Start() error {
 	if s.started {
 		return nil
 	}
+	s.acceptLoopExitGroup.Add(1)
 	list, err := s.createNetworkListener()
 	if err != nil {
 		return err
 	}
 	s.listener = list
 	s.started = true
-	s.acceptLoopExitGroup.Add(1)
 	common.Go(s.acceptLoop)
 	return nil
 }
@@ -148,8 +148,8 @@ func (s *SocketServer) acceptLoop() {
 			conn:     conn,
 			userConn: s.connFactory(conn),
 		}
-		s.connections.Store(c, struct{}{})
 		c.start()
+		s.connections.Store(c, struct{}{})
 	}
 }
 
