@@ -3,6 +3,10 @@ package control
 import (
 	"encoding/binary"
 	"fmt"
+	"sync"
+	"sync/atomic"
+	"time"
+
 	"github.com/pkg/errors"
 	"github.com/spirit-labs/tektite/cluster"
 	"github.com/spirit-labs/tektite/common"
@@ -13,9 +17,6 @@ import (
 	"github.com/spirit-labs/tektite/sst"
 	"github.com/spirit-labs/tektite/topicmeta"
 	"github.com/spirit-labs/tektite/transport"
-	"sync"
-	"sync/atomic"
-	"time"
 )
 
 /*

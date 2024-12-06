@@ -668,6 +668,60 @@ func HandleRequestBuffer(apiKey int16, buff []byte, handler RequestHandler, conn
 			_, err := conn.Write(respBuff)
 			return err
 		})
+    case 19:
+		var req CreateTopicsRequest
+		requestHeaderVersion, responseHeaderVersion := req.HeaderVersions(apiVersion)
+		var requestHeader RequestHeader
+		var offset int
+		if offset, err = requestHeader.Read(requestHeaderVersion, buff); err != nil {
+			return err
+		}
+		minVer, maxVer := req.SupportedApiVersions()
+		if err := checkSupportedVersion(apiKey, apiVersion, minVer, maxVer); err != nil {
+			return err
+		}
+		if _, err := req.Read(apiVersion, buff[offset:]); err != nil {
+			return err
+		}
+		responseHeader.CorrelationId = requestHeader.CorrelationId
+		err = handler.HandleCreateTopicsRequest(&requestHeader, &req, func(resp *CreateTopicsResponse) error {
+			respHeaderSize, hdrTagSizes := responseHeader.CalcSize(responseHeaderVersion, nil)
+			respSize, tagSizes := resp.CalcSize(apiVersion, nil)
+			totRespSize := respHeaderSize + respSize
+			respBuff := make([]byte, 0, 4+totRespSize)
+			respBuff = binary.BigEndian.AppendUint32(respBuff, uint32(totRespSize))
+			respBuff = responseHeader.Write(responseHeaderVersion, respBuff, hdrTagSizes)
+			respBuff = resp.Write(apiVersion, respBuff, tagSizes)
+			_, err := conn.Write(respBuff)
+			return err
+		})
+    case 20:
+		var req DeleteTopicsRequest
+		requestHeaderVersion, responseHeaderVersion := req.HeaderVersions(apiVersion)
+		var requestHeader RequestHeader
+		var offset int
+		if offset, err = requestHeader.Read(requestHeaderVersion, buff); err != nil {
+			return err
+		}
+		minVer, maxVer := req.SupportedApiVersions()
+		if err := checkSupportedVersion(apiKey, apiVersion, minVer, maxVer); err != nil {
+			return err
+		}
+		if _, err := req.Read(apiVersion, buff[offset:]); err != nil {
+			return err
+		}
+		responseHeader.CorrelationId = requestHeader.CorrelationId
+		err = handler.HandleDeleteTopicsRequest(&requestHeader, &req, func(resp *DeleteTopicsResponse) error {
+			respHeaderSize, hdrTagSizes := responseHeader.CalcSize(responseHeaderVersion, nil)
+			respSize, tagSizes := resp.CalcSize(apiVersion, nil)
+			totRespSize := respHeaderSize + respSize
+			respBuff := make([]byte, 0, 4+totRespSize)
+			respBuff = binary.BigEndian.AppendUint32(respBuff, uint32(totRespSize))
+			respBuff = responseHeader.Write(responseHeaderVersion, respBuff, hdrTagSizes)
+			respBuff = resp.Write(apiVersion, respBuff, tagSizes)
+			_, err := conn.Write(respBuff)
+			return err
+		})
     case 1000:
 		var req PutUserCredentialsRequest
 		requestHeaderVersion, responseHeaderVersion := req.HeaderVersions(apiVersion)
@@ -752,6 +806,8 @@ type RequestHandler interface {
     HandleAddPartitionsToTxnRequest(hdr *RequestHeader, req *AddPartitionsToTxnRequest, completionFunc func(resp *AddPartitionsToTxnResponse) error) error
     HandleTxnOffsetCommitRequest(hdr *RequestHeader, req *TxnOffsetCommitRequest, completionFunc func(resp *TxnOffsetCommitResponse) error) error
     HandleEndTxnRequest(hdr *RequestHeader, req *EndTxnRequest, completionFunc func(resp *EndTxnResponse) error) error
+    HandleCreateTopicsRequest(hdr *RequestHeader, req *CreateTopicsRequest, completionFunc func(resp *CreateTopicsResponse) error) error
+    HandleDeleteTopicsRequest(hdr *RequestHeader, req *DeleteTopicsRequest, completionFunc func(resp *DeleteTopicsResponse) error) error
     HandlePutUserCredentialsRequest(hdr *RequestHeader, req *PutUserCredentialsRequest, completionFunc func(resp *PutUserCredentialsResponse) error) error
     HandleDeleteUserRequest(hdr *RequestHeader, req *DeleteUserRequest, completionFunc func(resp *DeleteUserResponse) error) error
 }

@@ -2,6 +2,10 @@ package topicmeta
 
 import (
 	"encoding/binary"
+	"sync"
+	"sync/atomic"
+	"time"
+
 	"github.com/pkg/errors"
 	"github.com/spirit-labs/tektite/asl/encoding"
 	"github.com/spirit-labs/tektite/cluster"
@@ -13,9 +17,6 @@ import (
 	"github.com/spirit-labs/tektite/queryutils"
 	"github.com/spirit-labs/tektite/sst"
 	"github.com/spirit-labs/tektite/transport"
-	"sync"
-	"sync/atomic"
-	"time"
 )
 
 /*

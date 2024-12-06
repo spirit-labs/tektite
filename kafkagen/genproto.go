@@ -2,14 +2,15 @@ package kafkagen
 
 import (
 	"fmt"
-	"github.com/pkg/errors"
-	"github.com/spirit-labs/tektite/kafkaprotocol"
-	"github.com/yosuke-furukawa/json5/encoding/json5"
 	"os"
 	"regexp"
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/pkg/errors"
+	"github.com/spirit-labs/tektite/kafkaprotocol"
+	"github.com/yosuke-furukawa/json5/encoding/json5"
 )
 
 var StandardIncluded = []string{
@@ -63,6 +64,10 @@ var StandardIncluded = []string{
 	"TxnOffsetCommitResponse",
 	"EndTxnRequest",
 	"EndTxnResponse",
+	"CreateTopicsRequest",
+	"CreateTopicsResponse",
+	"DeleteTopicsRequest",
+	"DeleteTopicsResponse",
 }
 
 type SpecSet struct {
