@@ -1,6 +1,7 @@
 package transport
 
 import (
+	"github.com/pkg/errors"
 	log "github.com/spirit-labs/tektite/logger"
 	"sync"
 	"sync/atomic"
@@ -13,6 +14,7 @@ type ConnectionCache struct {
 	connFactory ConnectionFactory
 	connections []*connectionWrapper
 	pos         int64
+	closed      bool
 }
 
 func NewConnectionCache(address string, maxConnections int, connFactory ConnectionFactory) *ConnectionCache {
@@ -24,7 +26,10 @@ func NewConnectionCache(address string, maxConnections int, connFactory Connecti
 }
 
 func (cc *ConnectionCache) GetConnection() (Connection, error) {
-	cl, index := cc.getCachedConnection()
+	cl, index, err := cc.getCachedConnection()
+	if err != nil {
+		return nil, err
+	}
 	if cl != nil {
 		return cl, nil
 	}
@@ -42,6 +47,7 @@ func (cc *ConnectionCache) Close() {
 		}
 		cc.connections[i] = nil
 	}
+	cc.closed = true
 }
 
 func (cc *ConnectionCache) NumConnections() int {
@@ -56,12 +62,15 @@ func (cc *ConnectionCache) NumConnections() int {
 	return num
 }
 
-func (cc *ConnectionCache) getCachedConnection() (*connectionWrapper, int) {
+func (cc *ConnectionCache) getCachedConnection() (*connectionWrapper, int, error) {
 	cc.lock.RLock()
 	defer cc.lock.RUnlock()
+	if cc.closed {
+		return nil, 0, errors.New("connection cache is closed")
+	}
 	pos := atomic.AddInt64(&cc.pos, 1) - 1
 	index := int(pos) % len(cc.connections)
-	return cc.connections[index], index
+	return cc.connections[index], index, nil
 }
 
 func (cc *ConnectionCache) createConnection(index int) (*connectionWrapper, error) {

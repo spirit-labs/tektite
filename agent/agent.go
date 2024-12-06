@@ -218,6 +218,7 @@ func (a *Agent) Stop() error {
 		return err
 	}
 	a.controlClientCache.Close()
+	a.connCaches.Close()
 	if err := a.compactionWorkersService.Stop(); err != nil {
 		return err
 	}
@@ -243,7 +244,6 @@ func (a *Agent) Stop() error {
 	if err := a.controller.Stop(); err != nil {
 		return err
 	}
-	a.connCaches.Close()
 	a.started = false
 	return nil
 }

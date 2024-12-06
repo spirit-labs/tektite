@@ -1,6 +1,7 @@
 package control
 
 import (
+	"github.com/pkg/errors"
 	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/lsm"
 	"github.com/spirit-labs/tektite/offsets"
@@ -16,6 +17,7 @@ type ClientCache struct {
 	clients       []*clientWrapper
 	pos           int64
 	injectedError error
+	closed        bool
 }
 
 type ClientFactory func() (Client, error)
@@ -34,19 +36,25 @@ func (cc *ClientCache) SetInjectedError(err error) {
 }
 
 func (cc *ClientCache) GetClient() (Client, error) {
-	cl, index := cc.getCachedClient()
+	cl, index, err := cc.getCachedClient()
+	if err != nil {
+		return nil, err
+	}
 	if cl != nil {
 		return cl, nil
 	}
 	return cc.createClient(index)
 }
 
-func (cc *ClientCache) getCachedClient() (*clientWrapper, int) {
+func (cc *ClientCache) getCachedClient() (*clientWrapper, int, error) {
 	cc.lock.RLock()
 	defer cc.lock.RUnlock()
+	if cc.closed {
+		return nil, 0, errors.New("client cache is closed")
+	}
 	pos := atomic.AddInt64(&cc.pos, 1) - 1
 	index := int(pos) % len(cc.clients)
-	return cc.clients[index], index
+	return cc.clients[index], index, nil
 }
 
 func (cc *ClientCache) createClient(index int) (*clientWrapper, error) {
@@ -86,6 +94,7 @@ func (cc *ClientCache) Close() {
 			}
 		}
 	}
+	cc.closed = true
 }
 
 type clientWrapper struct {
