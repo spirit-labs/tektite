@@ -617,6 +617,9 @@ func (c *Coordinator) DeleteGroups(req *kafkaprotocol.DeleteGroupsRequest) (*kaf
 		} else {
 			errCode = int16(g.deleteAllOffsets())
 		}
+		if errCode == kafkaprotocol.ErrorCodeNone {
+			delete(c.groups, groupID)
+		}
 		resp.Results = append(resp.Results, kafkaprotocol.DeleteGroupsResponseDeletableGroupResult{
 			GroupId:   common.StrPtr(groupID),
 			ErrorCode: errCode,

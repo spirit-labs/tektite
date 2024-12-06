@@ -1719,7 +1719,7 @@ func TestOffsetCommit(t *testing.T) {
 }
 
 func createExpectedCommitKV(partHash []byte, topicID int, partitionID int, committedOffset int64) common.KV {
-	key := createOffsetKey(partHash, offsetKeyPublic, topicID, partitionID)
+	key := createOffsetKey(partHash, OffsetKeyPublic, topicID, partitionID)
 	val := make([]byte, 0, 9)
 	val = binary.BigEndian.AppendUint64(val, uint64(committedOffset))
 	val = common.AppendValueMetadata(val)
@@ -1837,7 +1837,7 @@ func TestOffsetDelete(t *testing.T) {
 }
 
 func createExpectedDeleteKV(partHash []byte, topicID int, partitionID int) common.KV {
-	key := createOffsetKey(partHash, offsetKeyPublic, topicID, partitionID)
+	key := createOffsetKey(partHash, OffsetKeyPublic, topicID, partitionID)
 	return common.KV{
 		Key:   key,
 		Value: []byte{},
@@ -2414,7 +2414,7 @@ func createOffsetsKvs(t *testing.T, infos []createOffsetsInfo, partHash []byte) 
 		for _, partitionData := range topicData.partInfos {
 			offset := partitionData.committedOffset
 			// key is [partition_hash, topic_id, partition_id] value is [offset]
-			key := createOffsetKey(partHash, offsetKeyPublic, topicData.topicID, partitionData.partitionID)
+			key := createOffsetKey(partHash, OffsetKeyPublic, topicData.topicID, partitionData.partitionID)
 			value := make([]byte, 8)
 			binary.BigEndian.PutUint64(value, uint64(offset))
 			kvs = append(kvs, common.KV{

@@ -46,6 +46,7 @@ type Agent struct {
 	manifold                 *membershipChangedManifold
 	partitionLeaders         map[string]map[int]map[int]int32
 	clusterMembershipFactory ClusterMembershipFactory
+	tableGetter              sst.TableGetter
 }
 
 func NewAgent(cfg Conf, objStore objstore.Client) (*Agent, error) {
@@ -107,6 +108,7 @@ func NewAgentWithFactories(cfg Conf, objStore objstore.Client, connectionFactory
 	}
 	agent.fetchCache = fetchCache
 	getter := &fetchCacheGetter{fetchCache: fetchCache}
+	agent.tableGetter = getter.get
 	agent.controller.SetTableGetter(getter.get)
 	tablePusher, err := pusher.NewTablePusher(cfg.PusherConf, agent.topicMetaCache, objStore, clientFactory, getter.get, partitionHashes, agent)
 	if err != nil {
@@ -272,6 +274,10 @@ func (a *Agent) KafkaListenAddress() string {
 
 func (a *Agent) ClusterListenAddress() string {
 	return a.transportServer.Address()
+}
+
+func (a *Agent) TableGetter() sst.TableGetter {
+	return a.tableGetter
 }
 
 type membershipChangedManifold struct {

@@ -730,9 +730,9 @@ func (g *group) offsetCommit(transactional bool, req *kafkaprotocol.OffsetCommit
 			// and we need to verify that the producer epoch for a group hasn't gone backwards (?)
 			var offsetKeyType byte
 			if transactional {
-				offsetKeyType = offsetKeyTransactional
+				offsetKeyType = OffsetKeyTransactional
 			} else {
-				offsetKeyType = offsetKeyPublic
+				offsetKeyType = OffsetKeyPublic
 			}
 			key := createOffsetKey(g.partHash, offsetKeyType, info.ID, int(partitionData.PartitionIndex))
 			value := make([]byte, 0, 8)
@@ -795,7 +795,7 @@ func (g *group) offsetDelete(req *kafkaprotocol.OffsetDeleteRequest, resp *kafka
 				resp.Topics[i].Partitions[j].ErrorCode = kafkaprotocol.ErrorCodeUnknownTopicOrPartition
 				continue
 			}
-			key := createOffsetKey(g.partHash, offsetKeyPublic, info.ID, int(partitionData.PartitionIndex))
+			key := createOffsetKey(g.partHash, OffsetKeyPublic, info.ID, int(partitionData.PartitionIndex))
 			kvs = append(kvs, common.KV{
 				Key:   key,
 				Value: nil,
@@ -900,8 +900,8 @@ func (g *group) deleteAllOffsets() int {
 }
 
 const (
-	offsetKeyPublic        = byte(1)
-	offsetKeyTransactional = byte(2)
+	OffsetKeyPublic        = byte(1)
+	OffsetKeyTransactional = byte(2)
 )
 
 func createOffsetKey(partHash []byte, offsetKeyType byte, topicID int, partitionID int) []byte {
@@ -921,7 +921,7 @@ func createRequestBuffer() []byte {
 }
 
 func (g *group) loadOffset(topicID int, partitionID int) (int64, error) {
-	key := createOffsetKey(g.partHash, offsetKeyPublic, topicID, partitionID)
+	key := createOffsetKey(g.partHash, OffsetKeyPublic, topicID, partitionID)
 	cl, err := g.gc.clientCache.GetClient()
 	if err != nil {
 		return 0, err
