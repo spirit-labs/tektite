@@ -33,6 +33,7 @@ It can also be configured to use TLS.
 */
 type SocketTransportServer struct {
 	lock         sync.RWMutex
+	handlersLock sync.RWMutex
 	handlers     map[int]RequestHandler
 	socketServer *sockserver.SocketServer
 	idSequence   int64
@@ -62,8 +63,8 @@ func (s *SocketTransportServer) Stop() error {
 }
 
 func (s *SocketTransportServer) RegisterHandler(handlerID int, handler RequestHandler) bool {
-	s.lock.Lock()
-	defer s.lock.Unlock()
+	s.handlersLock.Lock()
+	defer s.handlersLock.Unlock()
 	_, exists := s.handlers[handlerID]
 	if exists {
 		return false
@@ -76,8 +77,8 @@ func (s *SocketTransportServer) Address() string {
 }
 
 func (s *SocketTransportServer) getRequestHandler(handlerID int) (RequestHandler, bool) {
-	s.lock.RLock()
-	defer s.lock.RUnlock()
+	s.handlersLock.RLock()
+	defer s.handlersLock.RUnlock()
 	handler, exists := s.handlers[handlerID]
 	return handler, exists
 }

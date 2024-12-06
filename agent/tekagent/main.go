@@ -64,8 +64,8 @@ func run() error {
 		fmt.Println(fmt.Sprintf("signal: '%s' received. tektite agent will stop", sig.String()))
 		// hard stop if server Stop() hangs
 		tz := time.AfterFunc(30*time.Second, func() {
-			common.DumpStacks()
 			fmt.Println("tektite agent stop did not complete in time. system will exit")
+			common.DumpStacks()
 			swg.Done()
 			os.Exit(1)
 		})
