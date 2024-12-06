@@ -214,13 +214,15 @@ func (a *Agent) Stop() error {
 	if !a.started {
 		return nil
 	}
+	if err := a.kafkaServer.Stop(); err != nil {
+		return err
+	}
+	a.controlClientCache.Close()
+	a.connCaches.Close()
 	if err := a.compactionWorkersService.Stop(); err != nil {
 		return err
 	}
 	if err := a.transportServer.Stop(); err != nil {
-		return err
-	}
-	if err := a.kafkaServer.Stop(); err != nil {
 		return err
 	}
 	if err := a.txCoordinator.Stop(); err != nil {
@@ -242,8 +244,6 @@ func (a *Agent) Stop() error {
 	if err := a.controller.Stop(); err != nil {
 		return err
 	}
-	a.controlClientCache.Close()
-	a.connCaches.Close()
 	a.started = false
 	return nil
 }
