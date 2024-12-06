@@ -2,6 +2,7 @@ package agent
 
 import (
 	"errors"
+	"github.com/spirit-labs/tektite/apiclient"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/kafkaprotocol"
 	"github.com/spirit-labs/tektite/topicmeta"
@@ -35,7 +36,7 @@ func TestListOffsetInjectUnexpectedError(t *testing.T) {
 }
 
 func testListOffsets(t *testing.T, expectedOffset int64, offset int64, timestamp int64, expectedError error, expectedErrCode int) {
-	t.Parallel()
+
 	cfg := NewConf()
 	numAgents := 5
 	agents, tearDown := setupAgents(t, cfg, numAgents, func(i int) string {
@@ -45,7 +46,7 @@ func testListOffsets(t *testing.T, expectedOffset int64, offset int64, timestamp
 	numTopics := 10
 	setupNumTopics(t, numTopics, agents[0])
 
-	cl, err := NewKafkaApiClientWithClientID("")
+	cl, err := apiclient.NewKafkaApiClientWithClientID("")
 	require.NoError(t, err)
 	conn, err := cl.NewConnection(agents[0].Conf().KafkaListenerConfig.Address)
 	require.NoError(t, err)

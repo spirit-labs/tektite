@@ -2,8 +2,8 @@ package kafkaserver2
 
 import (
 	"encoding/binary"
-	"github.com/spirit-labs/tektite/asl/conf"
 	"github.com/spirit-labs/tektite/common"
+	"github.com/spirit-labs/tektite/conf"
 	"github.com/spirit-labs/tektite/kafkaprotocol"
 	"github.com/spirit-labs/tektite/testutils"
 	"github.com/stretchr/testify/require"
@@ -64,7 +64,7 @@ func TestProduce(t *testing.T) {
 	connHandlers := &testConnHandlers{response: &resp}
 	address, err := common.AddressWithPort("localhost")
 	require.NoError(t, err)
-	kafkaServer := NewKafkaServer(address, conf.TLSConfig{}, "", connHandlers.createHandler)
+	kafkaServer := NewKafkaServer(address, conf.TlsConf{}, AuthenticationTypeNone, connHandlers.createHandler)
 	err = kafkaServer.Start()
 	require.NoError(t, err)
 
@@ -325,5 +325,38 @@ func (t *testKafkaHandler) HandleTxnOffsetCommitRequest(hdr *kafkaprotocol.Reque
 
 func (t *testKafkaHandler) HandleEndTxnRequest(hdr *kafkaprotocol.RequestHeader, req *kafkaprotocol.EndTxnRequest, completionFunc func(resp *kafkaprotocol.EndTxnResponse) error) error {
 
+	panic("implement me")
+}
+
+func (t *testKafkaHandler) HandlePutUserCredentialsRequest(hdr *kafkaprotocol.RequestHeader, req *kafkaprotocol.PutUserCredentialsRequest, completionFunc func(resp *kafkaprotocol.PutUserCredentialsResponse) error) error {
+	panic("implement me")
+}
+
+func (t *testKafkaHandler) HandleDeleteUserRequest(hdr *kafkaprotocol.RequestHeader, req *kafkaprotocol.DeleteUserRequest, completionFunc func(resp *kafkaprotocol.DeleteUserResponse) error) error {
+	panic("implement me")
+}
+
+func (t *testKafkaHandler) HandleOffsetDeleteRequest(hdr *kafkaprotocol.RequestHeader, req *kafkaprotocol.OffsetDeleteRequest, completionFunc func(resp *kafkaprotocol.OffsetDeleteResponse) error) error {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (t *testKafkaHandler) HandleListGroupsRequest(hdr *kafkaprotocol.RequestHeader, req *kafkaprotocol.ListGroupsRequest, completionFunc func(resp *kafkaprotocol.ListGroupsResponse) error) error {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (t *testKafkaHandler) HandleDescribeGroupsRequest(hdr *kafkaprotocol.RequestHeader, req *kafkaprotocol.DescribeGroupsRequest, completionFunc func(resp *kafkaprotocol.DescribeGroupsResponse) error) error {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (t *testKafkaHandler) HandleDeleteGroupsRequest(hdr *kafkaprotocol.RequestHeader, req *kafkaprotocol.DeleteGroupsRequest, completionFunc func(resp *kafkaprotocol.DeleteGroupsResponse) error) error {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (t *testKafkaHandler) HandleCreatePartitionsRequest(hdr *kafkaprotocol.RequestHeader, req *kafkaprotocol.CreatePartitionsRequest, completionFunc func(resp *kafkaprotocol.CreatePartitionsResponse) error) error {
+	//TODO implement me
 	panic("implement me")
 }

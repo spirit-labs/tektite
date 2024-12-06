@@ -694,3 +694,38 @@ func (c *connection) HandleEndTxnRequest(hdr *kafkaprotocol.RequestHeader, req *
 	//TODO implement me
 	panic("implement me")
 }
+
+func (c *connection) HandlePutUserCredentialsRequest(hdr *kafkaprotocol.RequestHeader, req *kafkaprotocol.PutUserCredentialsRequest, completionFunc func(resp *kafkaprotocol.PutUserCredentialsResponse) error) error {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (c *connection) HandleDeleteUserRequest(hdr *kafkaprotocol.RequestHeader, req *kafkaprotocol.DeleteUserRequest, completionFunc func(resp *kafkaprotocol.DeleteUserResponse) error) error {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (c *connection) HandleOffsetDeleteRequest(hdr *kafkaprotocol.RequestHeader, req *kafkaprotocol.OffsetDeleteRequest, completionFunc func(resp *kafkaprotocol.OffsetDeleteResponse) error) error {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (c *connection) HandleListGroupsRequest(hdr *kafkaprotocol.RequestHeader, req *kafkaprotocol.ListGroupsRequest, completionFunc func(resp *kafkaprotocol.ListGroupsResponse) error) error {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (c *connection) HandleDescribeGroupsRequest(hdr *kafkaprotocol.RequestHeader, req *kafkaprotocol.DescribeGroupsRequest, completionFunc func(resp *kafkaprotocol.DescribeGroupsResponse) error) error {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (c *connection) HandleDeleteGroupsRequest(hdr *kafkaprotocol.RequestHeader, req *kafkaprotocol.DeleteGroupsRequest, completionFunc func(resp *kafkaprotocol.DeleteGroupsResponse) error) error {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (c *connection) HandleCreatePartitionsRequest(hdr *kafkaprotocol.RequestHeader, req *kafkaprotocol.CreatePartitionsRequest, completionFunc func(resp *kafkaprotocol.CreatePartitionsResponse) error) error {
+	//TODO implement me
+	panic("implement me")
+}

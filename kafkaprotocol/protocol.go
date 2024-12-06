@@ -1,6 +1,8 @@
 package kafkaprotocol
 
 const (
+	// Standard Kafka API keys
+
 	APIKeyProduce            = 0
 	APIKeyFetch              = 1
 	APIKeyListOffsets        = 2
@@ -12,6 +14,8 @@ const (
 	ApiKeyHeartbeat          = 12
 	ApiKeyLeaveGroup         = 13
 	ApiKeySyncGroup          = 14
+	ApiKeyDescribeGroups     = 15
+	ApiKeyListGroups         = 16
 	APIKeySaslHandshake      = 17
 	APIKeyAPIVersions        = 18
 	APIKeyCreateTopics       = 19
@@ -22,6 +26,14 @@ const (
 	APIKeyEndTxn             = 26
 	APIKeyTxnOffsetCommit    = 28
 	APIKeySaslAuthenticate   = 36
+	ApiKeyCreatePartitions   = 37
+	ApiKeyDeleteGroups       = 42
+	APIKeyOffsetDelete       = 47
+
+	// Custom API keys
+
+	ApiKeyPutUserCredentialsRequest = 1000
+	ApiKeyDeleteUserRequest         = 1001
 )
 
 const (
@@ -98,11 +110,13 @@ const (
 	ErrorCodeGroupIDNotFound                    = 69
 	ErrorCodeFetchSessionIDNotFound             = 70
 	ErrorCodeInvalidFetchSessionEpoch           = 71
+
+	ErrorCodeNoSuchUser = 1000
 )
 
 var SupportedAPIVersions = []ApiVersionsResponseApiVersion{
 	{ApiKey: APIKeyProduce, MinVersion: 3, MaxVersion: 3},
-	{ApiKey: APIKeyFetch, MinVersion: 4, MaxVersion: 4},
+	{ApiKey: APIKeyFetch, MinVersion: 2, MaxVersion: 4},
 	{ApiKey: APIKeyAPIVersions, MinVersion: 0, MaxVersion: 3},
 	{ApiKey: APIKeyMetadata, MinVersion: 1, MaxVersion: 1},
 	{ApiKey: APIKeyFindCoordinator, MinVersion: 0, MaxVersion: 0},
@@ -118,7 +132,11 @@ var SupportedAPIVersions = []ApiVersionsResponseApiVersion{
 	{ApiKey: APIKeySaslAuthenticate, MinVersion: 0, MaxVersion: 1},
 	{ApiKey: APIKeyCreateTopics, MinVersion: 0, MaxVersion: 5},
 	{ApiKey: APIKeyDeleteTopics, MinVersion: 0, MaxVersion: 5},
-
+	{ApiKey: APIKeyOffsetDelete, MinVersion: 0, MaxVersion: 0},
+	{ApiKey: ApiKeyListGroups, MinVersion: 0, MaxVersion: 5},
+	{ApiKey: ApiKeyDescribeGroups, MinVersion: 0, MaxVersion: 0},
+	{ApiKey: ApiKeyDeleteGroups, MinVersion: 0, MaxVersion: 0},
+	{ApiKey: ApiKeyCreatePartitions, MinVersion: 0, MaxVersion: 0},
 	/*
 		Transactions are currently incomplete
 		{ApiKey: APIKeyAddPartitionsToTxn, MinVersion: 3, MaxVersion: 3},
@@ -126,6 +144,13 @@ var SupportedAPIVersions = []ApiVersionsResponseApiVersion{
 		{ApiKey: APIKeyEndTxn, MinVersion: 3, MaxVersion: 3},
 		{ApiKey: APIKeyTxnOffsetCommit, MinVersion: 3, MaxVersion: 3},
 	*/
+	{ApiKey: ApiKeyPutUserCredentialsRequest, MinVersion: 0, MaxVersion: 0},
+	{ApiKey: ApiKeyDeleteUserRequest, MinVersion: 0, MaxVersion: 0},
+}
+
+var SupportedCustomAPIVersions = []ApiVersionsResponseApiVersion{
+	{ApiKey: ApiKeyPutUserCredentialsRequest, MinVersion: 0, MaxVersion: 0},
+	{ApiKey: ApiKeyDeleteUserRequest, MinVersion: 0, MaxVersion: 0},
 }
 
 type Records struct {

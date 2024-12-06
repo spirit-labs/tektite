@@ -315,6 +315,25 @@ func (g *GetTopicInfoRequest) Deserialize(buff []byte, offset int) int {
 	return offset
 }
 
+type GetTopicInfoByIDRequest struct {
+	LeaderVersion int
+	TopicID       int
+}
+
+func (g *GetTopicInfoByIDRequest) Serialize(buff []byte) []byte {
+	buff = binary.BigEndian.AppendUint64(buff, uint64(g.LeaderVersion))
+	buff = binary.BigEndian.AppendUint64(buff, uint64(g.TopicID))
+	return buff
+}
+
+func (g *GetTopicInfoByIDRequest) Deserialize(buff []byte, offset int) int {
+	g.LeaderVersion = int(binary.BigEndian.Uint64(buff[offset:]))
+	offset += 8
+	g.TopicID = int(binary.BigEndian.Uint64(buff[offset:]))
+	offset += 8
+	return offset
+}
+
 type GetTopicInfoResponse struct {
 	Sequence int
 	Exists   bool
@@ -339,17 +358,25 @@ func (g *GetTopicInfoResponse) Deserialize(buff []byte, offset int) int {
 	return g.Info.Deserialize(buff, offset)
 }
 
-type CreateTopicRequest struct {
+type CreateOrUpdateTopicRequest struct {
 	LeaderVersion int
+	Create        bool
 	Info          topicmeta.TopicInfo
 }
 
-func (g *CreateTopicRequest) Serialize(buff []byte) []byte {
+func (g *CreateOrUpdateTopicRequest) Serialize(buff []byte) []byte {
+	if g.Create {
+		buff = append(buff, 1)
+	} else {
+		buff = append(buff, 0)
+	}
 	buff = binary.BigEndian.AppendUint64(buff, uint64(g.LeaderVersion))
 	return g.Info.Serialize(buff)
 }
 
-func (g *CreateTopicRequest) Deserialize(buff []byte, offset int) int {
+func (g *CreateOrUpdateTopicRequest) Deserialize(buff []byte, offset int) int {
+	g.Create = buff[offset] == 1
+	offset++
 	g.LeaderVersion = int(binary.BigEndian.Uint64(buff[offset:]))
 	offset += 8
 	return g.Info.Deserialize(buff, offset)
@@ -379,13 +406,13 @@ func (g *DeleteTopicRequest) Deserialize(buff []byte, offset int) int {
 
 type GetGroupCoordinatorInfoRequest struct {
 	LeaderVersion int
-	GroupID       string
+	Key           string
 }
 
 func (g *GetGroupCoordinatorInfoRequest) Serialize(buff []byte) []byte {
 	buff = binary.BigEndian.AppendUint64(buff, uint64(g.LeaderVersion))
-	buff = binary.BigEndian.AppendUint32(buff, uint32(len(g.GroupID)))
-	buff = append(buff, g.GroupID...)
+	buff = binary.BigEndian.AppendUint32(buff, uint32(len(g.Key)))
+	buff = append(buff, g.Key...)
 	return buff
 }
 
@@ -394,7 +421,7 @@ func (g *GetGroupCoordinatorInfoRequest) Deserialize(buff []byte, offset int) in
 	offset += 8
 	ln := int(binary.BigEndian.Uint32(buff[offset:]))
 	offset += 4
-	g.GroupID = string(buff[offset : offset+ln])
+	g.Key = string(buff[offset : offset+ln])
 	offset += ln
 	return offset
 }
@@ -606,5 +633,73 @@ func (g *GetOffsetInfoResponse) Deserialize(buff []byte, offset int) int {
 			PartitionInfos: partInfos,
 		}
 	}
+	return offset
+}
+
+type PutUserCredentialsRequest struct {
+	LeaderVersion int
+	Username      string
+	StoredKey     []byte
+	ServerKey     []byte
+	Salt          string
+	Iters         int
+}
+
+func (p *PutUserCredentialsRequest) Serialize(buff []byte) []byte {
+	buff = binary.BigEndian.AppendUint64(buff, uint64(p.LeaderVersion))
+	buff = binary.BigEndian.AppendUint32(buff, uint32(len(p.Username)))
+	buff = append(buff, p.Username...)
+	buff = binary.BigEndian.AppendUint32(buff, uint32(len(p.StoredKey)))
+	buff = append(buff, p.StoredKey...)
+	buff = binary.BigEndian.AppendUint32(buff, uint32(len(p.ServerKey)))
+	buff = append(buff, p.ServerKey...)
+	buff = binary.BigEndian.AppendUint32(buff, uint32(len(p.Salt)))
+	buff = append(buff, p.Salt...)
+	buff = binary.BigEndian.AppendUint64(buff, uint64(p.Iters))
+	return buff
+}
+
+func (p *PutUserCredentialsRequest) Deserialize(buff []byte, offset int) int {
+	p.LeaderVersion = int(binary.BigEndian.Uint64(buff[offset:]))
+	offset += 8
+	ln := int(binary.BigEndian.Uint32(buff[offset:]))
+	offset += 4
+	p.Username = string(buff[offset : offset+ln])
+	offset += ln
+	ln = int(binary.BigEndian.Uint32(buff[offset:]))
+	offset += 4
+	p.StoredKey = common.ByteSliceCopy(buff[offset : offset+ln])
+	offset += ln
+	ln = int(binary.BigEndian.Uint32(buff[offset:]))
+	offset += 4
+	p.ServerKey = common.ByteSliceCopy(buff[offset : offset+ln])
+	offset += ln
+	ln = int(binary.BigEndian.Uint32(buff[offset:]))
+	offset += 4
+	p.Salt = string(buff[offset : offset+ln])
+	offset += ln
+	p.Iters = int(binary.BigEndian.Uint64(buff[offset:]))
+	offset += 8
+	return offset
+}
+
+type DeleteUserCredentialsRequest struct {
+	LeaderVersion int
+	Username      string
+}
+
+func (p *DeleteUserCredentialsRequest) Serialize(buff []byte) []byte {
+	buff = binary.BigEndian.AppendUint64(buff, uint64(p.LeaderVersion))
+	buff = binary.BigEndian.AppendUint32(buff, uint32(len(p.Username)))
+	return append(buff, p.Username...)
+}
+
+func (p *DeleteUserCredentialsRequest) Deserialize(buff []byte, offset int) int {
+	p.LeaderVersion = int(binary.BigEndian.Uint64(buff[offset:]))
+	offset += 8
+	ln := int(binary.BigEndian.Uint32(buff[offset:]))
+	offset += 4
+	p.Username = string(buff[offset : offset+ln])
+	offset += ln
 	return offset
 }

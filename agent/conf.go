@@ -6,34 +6,48 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
-	"github.com/spirit-labs/tektite/asl/conf"
 	"github.com/spirit-labs/tektite/cluster"
 	"github.com/spirit-labs/tektite/common"
+	"github.com/spirit-labs/tektite/conf"
 	"github.com/spirit-labs/tektite/control"
 	"github.com/spirit-labs/tektite/fetchcache"
 	"github.com/spirit-labs/tektite/fetcher"
 	"github.com/spirit-labs/tektite/group"
+	kafkaserver "github.com/spirit-labs/tektite/kafkaserver2"
 	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/lsm"
 	"github.com/spirit-labs/tektite/objstore/minio"
 	"github.com/spirit-labs/tektite/pusher"
 	"github.com/spirit-labs/tektite/topicmeta"
-	"github.com/spirit-labs/tektite/tx"
+	"net"
+	"time"
 )
 
 type CommandConf struct {
-	ObjStoreUsername                string `help:"username for the object store" required:""`
-	ObjStorePassword                string `help:"password for the object store" required:""`
-	ObjStoreURL                     string `help:"url of the object store" required:""`
-	ClusterName                     string `help:"name of the agent cluster" required:""`
-	Location                        string `help:"location (e.g. availability zone) that the agent runs in" required:""`
-	KafkaListenAddress              string `help:"address to listen on for kafka connections"`
-	InternalListenAddress           string `help:"address to listen on for internal connections"`
-	MembershipUpdateIntervalMs      int    `help:"interval between updating cluster membership in ms" default:"5000"`
-	MembershipEvictionIntervalMs    int    `help:"interval after which member will be evicted from the cluster" default:"20000"`
-	ConsumerGroupInitialJoinDelayMs int    `name:"consumer-group-initial-join-delay-ms" help:"initial delay to wait for more consumers to join a new consumer group before performing the first rebalance, in ms" default:"3000"`
+	ObjStoreUsername                string             `help:"username for the object store" required:""`
+	ObjStorePassword                string             `help:"password for the object store" required:""`
+	ObjStoreURL                     string             `help:"url of the object store" required:""`
+	ClusterName                     string             `help:"name of the agent cluster" required:""`
+	Location                        string             `help:"location (e.g. availability zone) that the agent runs in" required:""`
+	KafkaListenAddress              string             `help:"address to listen on for kafka connections"`
+	KafkaTlsConf                    conf.TlsConf       `help:"tls configuration for the Kafka api" embed:"" prefix:"kafka-tls-"`
+	InternalTlsConf                 conf.TlsConf       `help:"tls configuration for the internal connections" embed:"" prefix:"internal-tls-"`
+	InternalClientTlsConf           conf.ClientTlsConf `help:"client tls configuration for the internal connections" embed:"" prefix:"internal-client-tls-"`
+	InternalListenAddress           string             `help:"address to listen on for internal connections"`
+	MembershipUpdateIntervalMs      int                `help:"interval between updating cluster membership in ms" default:"5000"`
+	MembershipEvictionIntervalMs    int                `help:"interval after which member will be evicted from the cluster" default:"20000"`
+	ConsumerGroupInitialJoinDelayMs int                `name:"consumer-group-initial-join-delay-ms" help:"initial delay to wait for more consumers to join a new consumer group before performing the first rebalance, in ms" default:"3000"`
+	AuthenticationType              string             `help:"type of authentication. one of sasl/plain, sasl/scram-sha-512, mtls, none" default:"none"`
+	AllowScramNonceAsPrefix         bool
 
 	TopicName string `name:"topic-name" help:"name of the topic"`
+}
+
+var authTypeMapping = map[string]kafkaserver.AuthenticationType{
+	"none":               kafkaserver.AuthenticationTypeNone,
+	"sasl/plain":         kafkaserver.AuthenticationTypeSaslPlain,
+	"sasl/scram-sha-512": kafkaserver.AuthenticationTypeSaslScram512,
+	"mtls":               kafkaserver.AuthenticationTypeMTls,
 }
 
 const (
@@ -56,6 +70,9 @@ func CreateConfFromCommandConf(commandConf CommandConf) (Conf, error) {
 	} else {
 		kafkaAddress = commandConf.KafkaListenAddress
 	}
+	cfg.KafkaListenerConfig.Address = kafkaAddress
+	cfg.KafkaListenerConfig.TLSConfig = commandConf.KafkaTlsConf
+
 	var clusterAddress string
 	if commandConf.InternalListenAddress == "" {
 		if listenAddress != "" {
@@ -65,11 +82,14 @@ func CreateConfFromCommandConf(commandConf CommandConf) (Conf, error) {
 			}
 		}
 		clusterAddress = fmt.Sprintf("%s:%d", listenAddress, DefaultInternalPort)
+		cfg.ClusterListenerConfig.TLSConfig = commandConf.KafkaTlsConf
 	} else {
 		clusterAddress = commandConf.InternalListenAddress
+		cfg.ClusterListenerConfig.TLSConfig = commandConf.InternalTlsConf
 	}
-	cfg.KafkaListenerConfig.Address = kafkaAddress
 	cfg.ClusterListenerConfig.Address = clusterAddress
+	cfg.ClusterClientTlsConfig = commandConf.InternalClientTlsConf
+
 	dataBucketName := commandConf.ClusterName + "-data"
 	// configure cluster membership
 	cfg.ClusterMembershipConfig.BucketName = dataBucketName
@@ -112,6 +132,18 @@ func CreateConfFromCommandConf(commandConf CommandConf) (Conf, error) {
 		validateDurationMs("consumer-group-initial-join-delay-ms", commandConf.ConsumerGroupInitialJoinDelayMs, 0)
 	if err != nil {
 		return Conf{}, err
+	}
+	authType, ok := authTypeMapping[commandConf.AuthenticationType]
+	if !ok {
+		return Conf{}, errors.Errorf("invalid authentication-type: %s", commandConf.AuthenticationType)
+	}
+	cfg.AuthType = authType
+	cfg.AllowScramNonceAsPrefix = commandConf.AllowScramNonceAsPrefix
+	if cfg.AllowScramNonceAsPrefix {
+		log.Warnf("allow-scram-nonce-as-prefix is set to true to allow SCRAM handshakes to pass with older" +
+			" versions of librdkafka which have a bug where the nonce sent in the second SCRAM handshake request is a" +
+			" prefix of the required nonce. It is recommended to upgrade clients to later versions of librdkafka where possible" +
+			" and not to enable this setting.")
 	}
 	return cfg, nil
 }
@@ -162,37 +194,45 @@ func selectNetworkInterface() (string, error) {
 }
 
 type Conf struct {
-	ClusterListenerConfig            ListenerConfig
-	KafkaListenerConfig              ListenerConfig
-	ClusterMembershipConfig          cluster.MembershipConf
-	PusherConf                       pusher.Conf
-	ControllerConf                   control.Conf
-	CompactionWorkersConf            lsm.CompactionWorkerServiceConf
-	FetcherConf                      fetcher.Conf
-	FetchCacheConf                   fetchcache.Conf
-	GroupCoordinatorConf             group.Conf
-	TxCoordinatorConf                tx.Conf
-	MaxControllerClients             int
-	DefaultDefaultTopicRetentionTime time.Duration
+	ClusterListenerConfig    ListenerConfig
+	ClusterClientTlsConfig   conf.ClientTlsConf
+	KafkaListenerConfig      ListenerConfig
+	ClusterMembershipConfig  cluster.MembershipConf
+	PusherConf               pusher.Conf
+	ControllerConf           control.Conf
+	CompactionWorkersConf    lsm.CompactionWorkerServiceConf
+	FetcherConf              fetcher.Conf
+	FetchCacheConf           fetchcache.Conf
+	GroupCoordinatorConf     group.Conf
+	MaxControllerClients     int
+	MaxConnectionsPerAddress int
+	AuthType                 kafkaserver.AuthenticationType
+	AllowScramNonceAsPrefix  bool
+	AddJunkOnScramNonce      bool
+  DefaultTopicRetentionTime time.Duration
 }
 
 func NewConf() Conf {
 	return Conf{
-		ClusterMembershipConfig:          cluster.NewMembershipConf(),
-		PusherConf:                       pusher.NewConf(),
-		ControllerConf:                   control.NewConf(),
-		CompactionWorkersConf:            lsm.NewCompactionWorkerServiceConf(),
-		FetcherConf:                      fetcher.NewConf(),
-		FetchCacheConf:                   fetchcache.NewConf(),
-		GroupCoordinatorConf:             group.NewConf(),
-		TxCoordinatorConf:                tx.NewConf(),
-		MaxControllerClients:             DefaultMaxControllerClients,
-		DefaultDefaultTopicRetentionTime: DefaultDefaultTopicRetentionTime,
+		ClusterMembershipConfig:  cluster.NewMembershipConf(),
+		PusherConf:               pusher.NewConf(),
+		ControllerConf:           control.NewConf(),
+		CompactionWorkersConf:    lsm.NewCompactionWorkerServiceConf(),
+		FetcherConf:              fetcher.NewConf(),
+		FetchCacheConf:           fetchcache.NewConf(),
+		GroupCoordinatorConf:     group.NewConf(),
+		MaxControllerClients:     DefaultMaxControllerClients,
+		MaxConnectionsPerAddress: DefaultMaxConnectionsPerAddress,
+		AuthType:                 kafkaserver.AuthenticationTypeNone,
+		DefaultTopicRetentionTime: DefaultDefaultTopicRetentionTime,
 	}
 }
 
-const DefaultMaxControllerClients = 10
-const DefaultDefaultTopicRetentionTime = 7 * 24 * time.Hour
+const (
+  DefaultDefaultTopicRetentionTime = 7 * 24 * time.Hour
+	DefaultMaxControllerClients     = 10
+	DefaultMaxConnectionsPerAddress = 10
+)
 
 func (c *Conf) Validate() error {
 	if err := c.ClusterListenerConfig.Validate(); err != nil {
@@ -222,17 +262,13 @@ func (c *Conf) Validate() error {
 	if err := c.GroupCoordinatorConf.Validate(); err != nil {
 		return err
 	}
-	if err := c.TxCoordinatorConf.Validate(); err != nil {
-		return err
-	}
 	return nil
 }
 
 type ListenerConfig struct {
-	Address            string
-	AdvertisedAddress  string
-	TLSConfig          conf.TLSConfig
-	AuthenticationType string
+	Address           string
+	AdvertisedAddress string
+	TLSConfig         conf.TlsConf
 }
 
 func (l *ListenerConfig) Validate() error {
@@ -246,7 +282,7 @@ func (a *Agent) CreateTopicWithRetry(topicName string, partitions int) {
 	for {
 		if err := createTopic(topicName, partitions, a); err != nil {
 			if common.IsUnavailableError(err) {
-				log.Warnf("failed to create topic %v", err)
+				log.Debugf("failed to create topic %v", err)
 				time.Sleep(1 * time.Millisecond)
 				continue
 			}
@@ -274,8 +310,8 @@ func createTopic(topicName string, partitions int, agent *Agent) error {
 		}
 	}()
 
-	return cl.CreateTopic(topicmeta.TopicInfo{
+	return cl.CreateOrUpdateTopic(topicmeta.TopicInfo{
 		Name:           topicName,
 		PartitionCount: partitions,
-	})
+	}, true)
 }

@@ -643,7 +643,7 @@ func TestFetcherSinglePartitionNoWaitRequestMaxSizeExceeded(t *testing.T) {
 	verifyDefaultResponse(t, resp, batches[:2])
 }
 
-func TestFetcherSingleTopicMultiplePartitionsNoWaitRequestMaxSizeExceeded(t *testing.T) {
+func TestFetcherSingleTopicMultiplePartitionsNoWaitRequestMaxSizeExceededV3(t *testing.T) {
 	fetcher, topicProvider, controlClient, objStore := setupFetcher(t)
 	defer stopFetcher(t, fetcher)
 
@@ -651,7 +651,7 @@ func TestFetcherSingleTopicMultiplePartitionsNoWaitRequestMaxSizeExceeded(t *tes
 	setupForPartition(t, defaultTopicID, defaultTopicName, 24, 3000, 12999, 12999, 10, 2, topicProvider, controlClient, objStore)
 	setupForPartition(t, defaultTopicID, defaultTopicName, 25, 7000, 16999, 16999, 10, 2, topicProvider, controlClient, objStore)
 
-	maxBytes := len(batches1[0]) * 5
+	maxBytes := len(common.RemoveValueMetadata(batches1[0])) * 5
 
 	// The order in which partitions are fetched is not deterministic so we just validate total max size
 	req := kafkaprotocol.FetchRequest{
@@ -681,7 +681,7 @@ func TestFetcherSingleTopicMultiplePartitionsNoWaitRequestMaxSizeExceeded(t *tes
 			},
 		},
 	}
-	resp := sendFetch(t, &req, fetcher)
+	resp := sendFetchWithVersion(t, &req, fetcher, 3)
 
 	totSize := 0
 	for _, topicResp := range resp.Responses {
@@ -696,13 +696,60 @@ func TestFetcherSingleTopicMultiplePartitionsNoWaitRequestMaxSizeExceeded(t *tes
 	require.Equal(t, totSize, maxBytes)
 }
 
+func TestFetcherSingleTopicMultiplePartitionsNoWaitRequestMaxSizeExceededV2(t *testing.T) {
+	fetcher, topicProvider, controlClient, objStore := setupFetcher(t)
+	defer stopFetcher(t, fetcher)
+
+	batches1, _ := setupForPartition(t, defaultTopicID, defaultTopicName, 23, 1000, 100999,
+		100999, 100, 2, topicProvider, controlClient, objStore)
+
+	// version < 3 of fetch doesn't support max bytes so it defaults
+	expectedBytes := 0
+	for _, batch := range batches1 {
+		lb := len(common.RemoveValueMetadata(batch))
+		if expectedBytes+lb > defaultFetchMaxBytes {
+			break
+		}
+		expectedBytes += lb
+	}
+
+	req := kafkaprotocol.FetchRequest{
+		MaxWaitMs: 0,
+		MinBytes:  0,
+		Topics: []kafkaprotocol.FetchRequestFetchTopic{
+			{
+				Topic: common.StrPtr(defaultTopicName),
+				Partitions: []kafkaprotocol.FetchRequestFetchPartition{
+					{
+						Partition:         23,
+						FetchOffset:       1000,
+						PartitionMaxBytes: defaultMaxBytes,
+					},
+				},
+			},
+		},
+	}
+	resp := sendFetchWithVersion(t, &req, fetcher, 2)
+
+	totSize := 0
+	for _, topicResp := range resp.Responses {
+		for _, partResp := range topicResp.Partitions {
+			require.Equal(t, kafkaprotocol.ErrorCodeNone, int(partResp.ErrorCode))
+			for _, rec := range partResp.Records {
+				totSize += len(rec)
+			}
+		}
+	}
+	require.Equal(t, expectedBytes, totSize)
+}
+
 func TestFetcherSinglePartitionNoWaitAndMinBytesExactlyReached(t *testing.T) {
 	fetcher, topicProvider, controlClient, objStore := setupFetcher(t)
 	defer stopFetcher(t, fetcher)
 	batches, _ := setupDataDefault(t, 0, 9999, 9999, 10, 2, topicProvider, controlClient, objStore)
 	totBatchSizes := 0
 	for _, batch := range batches {
-		totBatchSizes += len(batch)
+		totBatchSizes += len(common.RemoveValueMetadata(batch))
 	}
 	resp := sendFetchDefault(t, 0, 0, totBatchSizes, defaultMaxBytes, defaultMaxBytes, fetcher)
 	// All batches should be fetched
@@ -728,7 +775,7 @@ func TestFetcherSinglePartitionMoreThanMinBytesReached(t *testing.T) {
 	batches, _ := setupDataDefault(t, 0, 9999, 9999, 10, 2, topicProvider, controlClient, objStore)
 	totBatchSizes := 0
 	for _, batch := range batches {
-		totBatchSizes += len(batch)
+		totBatchSizes += len(common.RemoveValueMetadata(batch))
 	}
 	resp := sendFetchDefault(t, 0, 0, totBatchSizes-1, defaultMaxBytes, defaultMaxBytes, fetcher)
 	// All batches should be fetched
@@ -800,13 +847,13 @@ func TestFetcherSinglePartitionMinBytesReachedExactlyMultiplePartitions(t *testi
 
 	totSize := 0
 	for _, batch := range batches1 {
-		totSize += len(batch)
+		totSize += len(common.RemoveValueMetadata(batch))
 	}
 	for _, batch := range batches2 {
-		totSize += len(batch)
+		totSize += len(common.RemoveValueMetadata(batch))
 	}
 	for _, batch := range batches3 {
-		totSize += len(batch)
+		totSize += len(common.RemoveValueMetadata(batch))
 	}
 
 	// The order in which partitions are fetched is not deterministic so we just validate total max size
@@ -1000,7 +1047,7 @@ func TestFetcherMinBytesExactlyReachedMultipleTopicsMultiplePartitions(t *testin
 
 	totSize := 0
 	for _, batch := range allBatches {
-		totSize += len(batch)
+		totSize += len(common.RemoveValueMetadata(batch))
 	}
 
 	req := kafkaprotocol.FetchRequest{
@@ -1234,7 +1281,7 @@ func TestFetcherRequestNotEnoughBytesAndNotificationAddsSufficientData(t *testin
 	}
 	var completionCalled atomic.Bool
 	resCh := make(chan *kafkaprotocol.FetchResponse, 1)
-	err := fetcher.HandleFetchRequest(&req, func(resp *kafkaprotocol.FetchResponse) error {
+	err := fetcher.HandleFetchRequest(3, &req, func(resp *kafkaprotocol.FetchResponse) error {
 		completionCalled.Store(true)
 		resCh <- resp
 		return nil
@@ -1302,7 +1349,7 @@ func TestFetcherRequestNotEnoughBytesAndNotificationsDontAddSufficientData(t *te
 
 	var completionCalled atomic.Bool
 	resCh := make(chan *kafkaprotocol.FetchResponse, 1)
-	err := fetcher.HandleFetchRequest(&req, func(resp *kafkaprotocol.FetchResponse) error {
+	err := fetcher.HandleFetchRequest(3, &req, func(resp *kafkaprotocol.FetchResponse) error {
 		completionCalled.Store(true)
 		resCh <- resp
 		return nil
@@ -2029,6 +2076,7 @@ func setupTable(t *testing.T, batchInfos []partitionBatchInfo, objStore objstore
 		key = encoding.KeyEncodeInt(key, info.offsetStart)
 		key = encoding.EncodeVersion(key, 0)
 		batch := testutils.CreateKafkaRecordBatchWithIncrementingKVs(int(info.offsetStart), info.numRecords)
+		batch = common.AppendValueMetadata(batch, int64(info.topicID), int64(info.partitionID))
 		batches = append(batches, batch)
 		kvs = append(kvs, common.KV{
 			Key:   key,
@@ -2139,8 +2187,12 @@ func sendFetchRequest(t *testing.T, topicName string, partitionID int, fetchOffs
 }
 
 func sendFetch(t *testing.T, req *kafkaprotocol.FetchRequest, fetcher *BatchFetcher) *kafkaprotocol.FetchResponse {
+	return sendFetchWithVersion(t, req, fetcher, 3)
+}
+
+func sendFetchWithVersion(t *testing.T, req *kafkaprotocol.FetchRequest, fetcher *BatchFetcher, apiVersion int16) *kafkaprotocol.FetchResponse {
 	ch := make(chan *kafkaprotocol.FetchResponse, 1)
-	err := fetcher.HandleFetchRequest(req, func(resp *kafkaprotocol.FetchResponse) error {
+	err := fetcher.HandleFetchRequest(apiVersion, req, func(resp *kafkaprotocol.FetchResponse) error {
 		ch <- resp
 		return nil
 	})
@@ -2169,7 +2221,14 @@ func verifySinglePartitionResponse(t *testing.T, resp *kafkaprotocol.FetchRespon
 	if len(batches) == 0 {
 		require.Equal(t, 0, len(partitionResp.Records))
 	} else {
-		require.Equal(t, batches, partitionResp.Records)
+		verifyBatchesSame(t, batches, partitionResp.Records)
+	}
+}
+
+func verifyBatchesSame(t *testing.T, expected [][]byte, batches [][]byte) {
+	require.Equal(t, len(expected), len(batches))
+	for i, exp := range expected {
+		require.Equal(t, common.RemoveValueMetadata(exp), batches[i])
 	}
 }
 
@@ -2317,11 +2376,15 @@ func (t *testControlClient) GetTopicInfo(topicName string) (topicmeta.TopicInfo,
 	panic("should not be called")
 }
 
+func (t *testControlClient) GetTopicInfoByID(topicID int) (topicmeta.TopicInfo, bool, error) {
+	panic("should not be called")
+}
+
 func (t *testControlClient) GetAllTopicInfos() ([]topicmeta.TopicInfo, error) {
 	panic("should not be called")
 }
 
-func (t *testControlClient) CreateTopic(topicInfo topicmeta.TopicInfo) error {
+func (t *testControlClient) CreateOrUpdateTopic(topicInfo topicmeta.TopicInfo, create bool) error {
 	panic("should not be called")
 }
 
@@ -2334,6 +2397,14 @@ func (t *testControlClient) GetCoordinatorInfo(key string) (memberID int32, addr
 }
 
 func (t *testControlClient) GenerateSequence(sequenceName string) (int64, error) {
+	panic("should not be called")
+}
+
+func (t *testControlClient) PutUserCredentials(username string, storedKey []byte, serverKey []byte, salt string, iters int) error {
+	panic("should not be called")
+}
+
+func (t *testControlClient) DeleteUserCredentials(username string) error {
 	panic("should not be called")
 }
 

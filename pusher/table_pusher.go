@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"github.com/pkg/errors"
 	"github.com/spirit-labs/tektite/asl/encoding"
-	"github.com/spirit-labs/tektite/cluster"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/control"
 	"github.com/spirit-labs/tektite/kafkaencoding"
@@ -167,7 +166,7 @@ func (t *TablePusher) scheduleWriteTimer(timeout time.Duration) {
 			}
 			// Unexpected error
 			log.Errorf("table pusher failed to write: %v", err)
-			t.handleUnexpectedError(err)
+			t.handleError(err)
 			return
 		}
 		t.scheduleWriteTimer(t.cfg.WriteTimeout)
@@ -361,7 +360,7 @@ func (t *TablePusher) HandleProduceRequest(req *kafkaprotocol.ProduceRequest,
 			// Close the client - it will be recreated on any retry
 			t.closeClient()
 			if !common.IsUnavailableError(err) {
-				t.handleUnexpectedError(err)
+				t.handleError(err)
 				return err
 			}
 			// Temporary unavailability of object store or controller - we will retry after a delay
@@ -420,7 +419,7 @@ func (t *TablePusher) HandleDirectWriteRequest(_ *transport.ConnectionContext, r
 	if err := checkRPCVersion(request); err != nil {
 		return err
 	}
-	var req DirectWriteRequest
+	var req common.DirectWriteRequest
 	req.Deserialize(request, 2)
 	t.addDirectKVs(&req, func(err error) {
 		if err := responseWriter(responseBuff, err); err != nil {
@@ -430,13 +429,13 @@ func (t *TablePusher) HandleDirectWriteRequest(_ *transport.ConnectionContext, r
 	return nil
 }
 
-func (t *TablePusher) AddDirectKVs(req *DirectWriteRequest, completionFunc func(err error)) {
+func (t *TablePusher) AddDirectKVs(req *common.DirectWriteRequest, completionFunc func(err error)) {
 	t.lock.Lock()
 	defer t.lock.Unlock()
 	t.addDirectKVs(req, completionFunc)
 }
 
-func (t *TablePusher) addDirectKVs(req *DirectWriteRequest, completionFunc func(err error)) {
+func (t *TablePusher) addDirectKVs(req *common.DirectWriteRequest, completionFunc func(err error)) {
 	lastEpoch, ok := t.directWriterEpochs[req.WriterKey]
 	if ok && req.WriterEpoch != lastEpoch {
 		msg := fmt.Sprintf("table pusher rejecting direct write from key %s as epoch is invalid", req.WriterKey)
@@ -496,12 +495,17 @@ func extractBatches(buff []byte) [][]byte {
 	return batches
 }
 
-func (t *TablePusher) handleUnexpectedError(err error) {
-	// unexpected error - call all completions with error, and stop
+func (t *TablePusher) handleError(err error) {
 	t.callCompletions(err)
 	t.reset()
-	t.started = false
-	t.stopping.Store(true)
+	// PartitionOutOfRange can occur if partition count is reduced but produced records for old partitions still in transit
+	// We don't want to stop inm that case
+	if !common.IsTektiteErrorWithCode(err, common.PartitionOutOfRange) {
+		// unexpected error - call all completions with error, and stop
+		log.Errorf("got unexpected error in table pusher, will stop. %v", err)
+		t.started = false
+		t.stopping.Store(true)
+	}
 }
 
 func (t *TablePusher) getClient() (ControlClient, error) {
@@ -524,6 +528,12 @@ func intCompare(i1, i2 int) int {
 	} else {
 		return 1
 	}
+}
+
+func (t *TablePusher) ForceWrite() error {
+	t.lock.Lock()
+	defer t.lock.Unlock()
+	return t.write()
 }
 
 func (t *TablePusher) write() error {
@@ -616,6 +626,7 @@ func (t *TablePusher) write() error {
 			if err != nil {
 				return err
 			}
+			log.Debugf("table pusher writing entry for topic %d partition %d", topOffset.TopicID, partInfo.PartitionID)
 			// The returned offset is the last offset
 			lastOffset := partInfo.Offset
 			offset := lastOffset - int64(getOffSetInfos[i].PartitionInfos[j].NumOffsets) + 1
@@ -639,7 +650,6 @@ func (t *TablePusher) write() error {
 							on which agent they came from. The LSM can then parallelize compaction of non overlapping groups of tables
 							thus allowing LSM compaction to scale with number of agents.
 					*/
-
 					key := make([]byte, 0, 33)
 					key = append(key, partitionHash...)
 					key = append(key, common.EntryTypeTopicData)
@@ -647,9 +657,11 @@ func (t *TablePusher) write() error {
 					key = encoding.EncodeVersion(key, 0)
 					// Fill in base offset
 					binary.BigEndian.PutUint64(records, uint64(offset))
+					// We encode topic id and partition id in the metdata at the end of the value
+					value := common.AppendValueMetadata(records, int64(topOffset.TopicID), int64(partInfo.PartitionID))
 					kvs = append(kvs, common.KV{
 						Key:   key,
-						Value: records,
+						Value: value,
 					})
 					offset += int64(kafkaencoding.NumRecords(records))
 				}
@@ -850,6 +862,7 @@ func (t *TablePusher) maybeSnapshotSequences() error {
 					// We store the offset - this lets us index back into the actual data so we can
 					// load latest sequence after the snapshot
 					value = binary.BigEndian.AppendUint64(value, uint64(seqInfo.offset))
+					value = common.AppendValueMetadata(value, int64(topicID), int64(partitionID))
 					kvs = append(kvs, common.KV{
 						Key:   key,
 						Value: value,
@@ -914,15 +927,4 @@ func (t *TablePusher) getLatestValueWithKey(key []byte) ([]byte, error) {
 		return nil, nil
 	}
 	return kv.Value, nil
-}
-
-func ChooseTablePusherForHash(partHash []byte, members []cluster.MembershipEntry) (string, bool) {
-	if len(members) == 0 {
-		return "", false
-	}
-	memberID := common.CalcMemberForHash(partHash, len(members))
-	data := members[memberID].Data
-	var memberData common.MembershipData
-	memberData.Deserialize(data, 0)
-	return memberData.ClusterListenAddress, true
 }

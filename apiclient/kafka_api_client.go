@@ -1,4 +1,4 @@
-package agent
+package apiclient
 
 import (
 	"encoding/binary"
@@ -11,7 +11,7 @@ import (
 
 type KafkaApiClient struct {
 	sockClient *sockserver.SocketClient
-	clientID string
+	clientID   string
 }
 
 func NewKafkaApiClient() (*KafkaApiClient, error) {
@@ -25,14 +25,14 @@ func NewKafkaApiClientWithClientID(clientID string) (*KafkaApiClient, error) {
 	}
 	return &KafkaApiClient{
 		sockClient: sockClient,
-		clientID: clientID,
+		clientID:   clientID,
 	}, nil
 }
 
 func (k *KafkaApiClient) NewConnection(address string) (*KafkaApiConnection, error) {
 	kc := &KafkaApiConnection{
 		respHandlers: make(map[int32]respHolder),
-		cl: k,
+		cl:           k,
 	}
 	socketConnection, err := k.sockClient.CreateConnection(address, kc.responseHandler)
 	if err != nil {
@@ -44,7 +44,7 @@ func (k *KafkaApiClient) NewConnection(address string) (*KafkaApiConnection, err
 
 type KafkaApiConnection struct {
 	lock             sync.Mutex
-	cl *KafkaApiClient
+	cl               *KafkaApiClient
 	correlationIDSeq int32
 	respHandlers     map[int32]respHolder
 	sockConnection   *sockserver.SocketConnection

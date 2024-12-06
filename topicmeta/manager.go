@@ -13,6 +13,7 @@ import (
 	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/lsm"
 	"github.com/spirit-labs/tektite/objstore"
+	"github.com/spirit-labs/tektite/parthash"
 	"github.com/spirit-labs/tektite/queryutils"
 	"github.com/spirit-labs/tektite/sst"
 	"github.com/spirit-labs/tektite/transport"
@@ -37,8 +38,8 @@ type Manager struct {
 	topicIDSequence  int64
 	stopping         atomic.Bool
 	membership       cluster.MembershipState
-	connFactory      transport.ConnectionFactory
-	connections      map[string]transport.Connection
+	connCaches       *transport.ConnCaches
+	dataPrefix       []byte
 }
 
 type lsmHolder interface {
@@ -47,7 +48,11 @@ type lsmHolder interface {
 }
 
 func NewManager(lsm lsmHolder, objStore objstore.Client, dataBucketName string,
-	dataFormat common.DataFormat, connFactory transport.ConnectionFactory) (*Manager, error) {
+	dataFormat common.DataFormat, connCaches *transport.ConnCaches) (*Manager, error) {
+	dataPrefix, err := parthash.CreateHash([]byte("topic.meta"))
+	if err != nil {
+		return nil, err
+	}
 	return &Manager{
 		lsm:              lsm,
 		objStore:         objStore,
@@ -55,8 +60,8 @@ func NewManager(lsm lsmHolder, objStore objstore.Client, dataBucketName string,
 		dataFormat:       dataFormat,
 		topicInfosByName: make(map[string]*TopicInfo),
 		topicInfosByID:   make(map[int]*TopicInfo),
-		connFactory:      connFactory,
-		connections:      make(map[string]transport.Connection),
+		connCaches:       connCaches,
+		dataPrefix:       dataPrefix,
 	}, nil
 }
 
@@ -130,23 +135,40 @@ func (m *Manager) GetTopicInfo(topicName string) (TopicInfo, int, bool, error) {
 	return *info, int(m.topicIDSequence), true, nil
 }
 
-func (m *Manager) CreateTopic(topicInfo TopicInfo) error {
+func (m *Manager) CreateOrUpdateTopic(topicInfo TopicInfo, create bool) (int, error) {
 	m.lock.Lock()
 	defer m.lock.Unlock()
-	_, ok := m.topicInfosByName[topicInfo.Name]
-	if ok {
-		return common.NewTektiteErrorf(common.TopicAlreadyExists, "topic: %s already exists", topicInfo.Name)
+	if topicInfo.PartitionCount < 1 {
+		return 0, common.NewTektiteErrorf(common.InvalidPartitionCount, "invalid partition count %d", topicInfo.PartitionCount)
 	}
-	topicInfo.ID = int(m.topicIDSequence)
-	log.Debugf("%p created topic with id %d name %s partitions %d", m, topicInfo.ID, topicInfo.Name, topicInfo.PartitionCount)
-	m.topicIDSequence++
+	info, ok := m.topicInfosByName[topicInfo.Name]
+	if create {
+		if ok {
+			return 0, common.NewTektiteErrorf(common.TopicAlreadyExists, "topic: %s already exists", topicInfo.Name)
+		}
+		topicInfo.ID = int(m.topicIDSequence)
+		log.Debugf("%p created topic with id %d name %s partitions %d", m, topicInfo.ID, topicInfo.Name, topicInfo.PartitionCount)
+		m.topicIDSequence++
+		if topicInfo.RetentionTime == 0 {
+			topicInfo.RetentionTime = -1
+		}
+	} else {
+		if !ok {
+			return 0, common.NewTektiteErrorf(common.TopicDoesNotExist, "topic: %s does not exist", topicInfo.Name)
+		}
+		if topicInfo.PartitionCount < info.PartitionCount {
+			return 0, common.NewTektiteErrorf(common.InvalidPartitionCount, "cannot reduce partition count")
+		}
+		topicInfo.ID = info.ID
+		topicInfo.RetentionTime = info.RetentionTime
+	}
 	if err := m.WriteTopic(topicInfo); err != nil {
-		return err
+		return 0, err
 	}
 	m.topicInfosByName[topicInfo.Name] = &topicInfo
 	m.topicInfosByID[topicInfo.ID] = &topicInfo
 	m.SendTopicNotification(transport.HandlerIDMetaLocalCacheTopicAdded, topicInfo)
-	return nil
+	return topicInfo.ID, nil
 }
 
 func (m *Manager) DeleteTopic(topicName string) error {
@@ -197,13 +219,12 @@ func (m *Manager) loadAllTopicsFromStorageWithRetry() ([]TopicInfo, error) {
 }
 
 func (m *Manager) loadAllTopicsFromStorage() ([]TopicInfo, error) {
-	prefix := createPrefix()
-	keyEnd := common.IncBigEndianBytes(prefix)
+	keyEnd := common.IncBigEndianBytes(m.dataPrefix)
 	tg := &tableGetter{
 		bucketName: m.dataBucketName,
 		objStore:   m.objStore,
 	}
-	mi, err := queryutils.CreateIteratorForKeyRange(prefix, keyEnd, m.lsm, tg.GetSSTable)
+	mi, err := queryutils.CreateIteratorForKeyRange(m.dataPrefix, keyEnd, m.lsm, tg.GetSSTable)
 	if err != nil {
 		return nil, err
 	}
@@ -238,18 +259,17 @@ func (m *Manager) loadAllTopicsFromStorage() ([]TopicInfo, error) {
 }
 
 func (m *Manager) WriteTopic(topicInfo TopicInfo) error {
-	prefix := createPrefix()
-	key := encoding.KeyEncodeInt(prefix, int64(topicInfo.ID))
+	key := encoding.KeyEncodeInt(m.dataPrefix, int64(topicInfo.ID))
 	key = encoding.EncodeVersion(key, 0)
 	// Encode a version number before the data
-	buff := binary.BigEndian.AppendUint16(nil, topicMetadataVersion)
-	value := topicInfo.Serialize(buff)
+	value := binary.BigEndian.AppendUint16(nil, topicMetadataVersion)
+	value = topicInfo.Serialize(value)
+	value = common.AppendValueMetadata(value)
 	return m.writeKV(common.KV{Key: key, Value: value})
 }
 
 func (m *Manager) WriteTopicDeletion(topicID int) error {
-	prefix := createPrefix()
-	key := encoding.KeyEncodeInt(prefix, int64(topicID))
+	key := encoding.KeyEncodeInt(m.dataPrefix, int64(topicID))
 	key = encoding.EncodeVersion(key, 0)
 	// Write a tombstone (nil value)
 	return m.writeKV(common.KV{Key: key})
@@ -311,14 +331,6 @@ func (m *Manager) putWithRetry(key string, value []byte) error {
 	}
 }
 
-func createPrefix() []byte {
-	// Note, the prefix here is 16 bytes, the first 8 bytes of which is the common.TopicMetadataSlabID
-	// All table prefixes must be 16 bytes to avoid collisions with partition hashes used for data
-	prefix := make([]byte, 16)
-	binary.BigEndian.PutUint64(prefix, common.TopicMetadataSlabID)
-	return prefix
-}
-
 type tableGetter struct {
 	bucketName string
 	objStore   objstore.Client
@@ -357,21 +369,14 @@ func (m *Manager) MembershipChanged(membership cluster.MembershipState) {
 }
 
 func (m *Manager) sendNotificationToAddress(handlerID int, address string, notif []byte) error {
-	conn, ok := m.connections[address]
-	if !ok {
-		var err error
-		conn, err = m.connFactory(address)
-		if err != nil {
-			return err
-		}
-		// cache it
-		m.connections[address] = conn
+	conn, err := m.connCaches.GetConnection(address)
+	if err != nil {
+		return err
 	}
 	if _, err := conn.SendRPC(handlerID, notif); err != nil {
 		if err2 := conn.Close(); err2 != nil {
 			// Ignore
 		}
-		delete(m.connections, address)
 		return err
 	}
 	return nil

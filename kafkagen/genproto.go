@@ -13,7 +13,7 @@ import (
 	"github.com/yosuke-furukawa/json5/encoding/json5"
 )
 
-var included = []string{
+var StandardIncluded = []string{
 	"RequestHeader",
 	"ResponseHeader",
 	"ProduceRequest",
@@ -28,6 +28,8 @@ var included = []string{
 	"OffsetCommitResponse",
 	"OffsetFetchRequest",
 	"OffsetFetchResponse",
+	"OffsetDeleteRequest",
+	"OffsetDeleteResponse",
 	"FindCoordinatorRequest",
 	"FindCoordinatorResponse",
 	"JoinGroupRequest",
@@ -37,6 +39,14 @@ var included = []string{
 	"LeaveGroupResponse",
 	"SyncGroupRequest",
 	"SyncGroupResponse",
+	"ListGroupsRequest",
+	"ListGroupsResponse",
+	"DescribeGroupsRequest",
+	"DescribeGroupsResponse",
+	"DeleteGroupsRequest",
+	"DeleteGroupsResponse",
+	"CreatePartitionsRequest",
+	"CreatePartitionsResponse",
 	"HeartbeatResponse",
 	"ApiVersionsRequest",
 	"ApiVersionsResponse",
@@ -60,22 +70,29 @@ var included = []string{
 	"DeleteTopicsResponse",
 }
 
-func Generate(specDir string, outDir string) error {
+type SpecSet struct {
+	SpecDir  string
+	Included []string
+}
+
+func Generate(specSets []SpecSet, outDir string) error {
 	var specs []MessageSpec
-	for _, messageName := range included {
-		fileName := fmt.Sprintf("%s/%s.json", specDir, messageName)
-		ms, err := loadMessageSpec(fileName)
-		if err != nil {
-			return err
-		}
-		specs = append(specs, ms)
-		src, err := generateMessage(ms)
-		if err != nil {
-			return err
-		}
-		goFileName := fmt.Sprintf("%s/%s", outDir, toSnakeCase(messageName)+".go")
-		if err := os.WriteFile(goFileName, []byte(src), 0644); err != nil {
-			return err
+	for _, specSet := range specSets {
+		for _, messageName := range specSet.Included {
+			fileName := fmt.Sprintf("%s/%s.json", specSet.SpecDir, messageName)
+			ms, err := loadMessageSpec(fileName)
+			if err != nil {
+				return err
+			}
+			specs = append(specs, ms)
+			src, err := generateMessage(ms)
+			if err != nil {
+				return err
+			}
+			goFileName := fmt.Sprintf("%s/%s", outDir, toSnakeCase(messageName)+".go")
+			if err := os.WriteFile(goFileName, []byte(src), 0644); err != nil {
+				return err
+			}
 		}
 	}
 	bufHandlerStr, err := generateHandler(specs)
@@ -410,6 +427,11 @@ func generateSupportedApiVersions(ms *MessageSpec, gc *genContext) error {
 
 func supportedVersions(apiKey int16) (int16, int16, bool) {
 	for _, ver := range kafkaprotocol.SupportedAPIVersions {
+		if ver.ApiKey == apiKey {
+			return ver.MinVersion, ver.MaxVersion, true
+		}
+	}
+	for _, ver := range kafkaprotocol.SupportedCustomAPIVersions {
 		if ver.ApiKey == apiKey {
 			return ver.MinVersion, ver.MaxVersion, true
 		}

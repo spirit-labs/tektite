@@ -22,16 +22,16 @@ type tableListeners struct {
 	listenerIDSequence      int
 	notifTimer              *time.Timer
 	membersMap              map[int32]struct{}
-	connectionFactory       transport.ConnectionFactory
+	connCaches              *transport.ConnCaches
 	started                 bool
 	leaderVersion           int
 }
 
 type tableAddedListener struct {
 	lock          sync.Mutex
-	connFactory   transport.ConnectionFactory
-	connection    transport.Connection
+	connCaches    *transport.ConnCaches
 	address       string
+	connection    transport.Connection
 	memberID      int32
 	resetSequence int64
 	sequence      int64
@@ -40,14 +40,14 @@ type tableAddedListener struct {
 
 const notificationWriteTimeout = 2 * time.Second
 
-func newTableListeners(notificationInterval time.Duration, connectionFactory transport.ConnectionFactory) *tableListeners {
+func newTableListeners(notificationInterval time.Duration, connCaches *transport.ConnCaches) *tableListeners {
 	return &tableListeners{
 		partitionListeners:      map[int]map[int][]int{},
 		tableAddedListeners:     map[int]*tableAddedListener{},
 		memberIDToListenerIDMap: map[int32]int{},
 		membersMap:              make(map[int32]struct{}),
 		notificationInterval:    notificationInterval,
-		connectionFactory:       connectionFactory,
+		connCaches:              connCaches,
 	}
 }
 
@@ -66,9 +66,6 @@ func (t *tableListeners) stop() {
 	defer t.lock.Unlock()
 	if !t.started {
 		return
-	}
-	for _, listener := range t.tableAddedListeners {
-		listener.closeConnection()
 	}
 	t.notifTimer.Stop()
 	t.started = false
@@ -166,9 +163,9 @@ func (t *tableListeners) maybeRegisterListenerForPartition(memberID int32, addre
 		t.listenerIDSequence++
 		t.memberIDToListenerIDMap[memberID] = id
 		t.tableAddedListeners[id] = &tableAddedListener{
-			connFactory: t.connectionFactory,
-			address:     address,
-			memberID:    memberID,
+			connCaches: t.connCaches,
+			address:    address,
+			memberID:   memberID,
 		}
 	}
 	partitionMap, ok := t.partitionListeners[topicID]
@@ -268,10 +265,11 @@ func (t *tableListeners) sendTableRegisteredNotification(tableIDs []sst.SSTableI
 }
 
 func (l *tableAddedListener) getConnection() (transport.Connection, error) {
+	// Note we must use the same connection for consecutive notifications to preserve ordering
 	if l.connection != nil {
 		return l.connection, nil
 	}
-	conn, err := l.connFactory(l.address)
+	conn, err := l.connCaches.GetConnection(l.address)
 	if err != nil {
 		return nil, err
 	}
@@ -285,12 +283,6 @@ func (l *tableAddedListener) getConnection() (transport.Connection, error) {
 }
 
 func (l *tableAddedListener) closeConnection() {
-	l.lock.Lock()
-	defer l.lock.Unlock()
-	l.closeConnectionNoLock()
-}
-
-func (l *tableAddedListener) closeConnectionNoLock() {
 	if l.connection != nil {
 		if err := l.connection.Close(); err != nil {
 			// Ignore
@@ -322,7 +314,7 @@ func (l *tableAddedListener) sendNotificationNoLock(buff []byte) error {
 	l.sequence++
 	l.lastSentTime = arista.NanoTime()
 	if err := conn.SendOneway(transport.HandlerIDFetcherTableRegisteredNotification, copied); err != nil {
-		l.closeConnectionNoLock()
+		l.closeConnection()
 		return err
 	}
 	return nil

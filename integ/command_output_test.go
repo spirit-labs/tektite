@@ -28,21 +28,39 @@ func TestAgentCommandHelp(t *testing.T) {
 		`Usage: tekagent --obj-store-username=STRING --obj-store-password=STRING --obj-store-url=STRING --cluster-name=STRING --location=STRING
 
 Flags:
-  -h, --help                                         Show context-sensitive help.
-      --obj-store-username=STRING                    username for the object store
-      --obj-store-password=STRING                    password for the object store
-      --obj-store-url=STRING                         url of the object store
-      --cluster-name=STRING                          name of the agent cluster
-      --location=STRING                              location (e.g. availability zone) that the agent runs in
-      --kafka-listen-address=STRING                  address to listen on for kafka connections
-      --internal-listen-address=STRING               address to listen on for internal connections
-      --membership-update-interval-ms=5000           interval between updating cluster membership in ms
-      --membership-eviction-interval-ms=20000        interval after which member will be evicted from the cluster
-      --consumer-group-initial-join-delay-ms=3000    initial delay to wait for more consumers to join a new consumer group before performing the first
-                                                     rebalance, in ms
-      --topic-name=STRING                            name of the topic
-      --log-format="console"                         format to write log lines in - one of: console, json
-      --log-level="info"                             lowest log level that will be emitted - one of: debug, info, warn, error`
+  -h, --help                                                  Show context-sensitive help.
+      --obj-store-username=STRING                             username for the object store
+      --obj-store-password=STRING                             password for the object store
+      --obj-store-url=STRING                                  url of the object store
+      --cluster-name=STRING                                   name of the agent cluster
+      --location=STRING                                       location (e.g. availability zone) that the agent runs in
+      --kafka-listen-address=STRING                           address to listen on for kafka connections
+      --kafka-tls-enabled                                     is TLS enabled?
+      --kafka-tls-server-cert-file=STRING                     path to tls server certificate file in pem format
+      --kafka-tls-server-private-key-file=STRING              path to tls server private key file in pem format
+      --kafka-tls-client-cert-file=STRING                     path to tls client certificate file in pem format
+      --kafka-tls-client-auth-type=STRING                     client certificate authentication mode. one of: no-client-cert, request-client-cert,
+                                                              require-any-client-cert, verify-client-cert-if-given, require-and-verify-client-cert
+      --internal-tls-enabled                                  is TLS enabled?
+      --internal-tls-server-cert-file=STRING                  path to tls server certificate file in pem format
+      --internal-tls-server-private-key-file=STRING           path to tls server private key file in pem format
+      --internal-tls-client-cert-file=STRING                  path to tls client certificate file in pem format
+      --internal-tls-client-auth-type=STRING                  client certificate authentication mode. one of: no-client-cert, request-client-cert,
+                                                              require-any-client-cert, verify-client-cert-if-given, require-and-verify-client-cert
+      --internal-client-tls-enabled                           is client TLS enabled?
+      --internal-client-tls-server-cert-file=STRING           path to tls server certificate file in pem format
+      --internal-client-tls-client-private-key-file=STRING    path to tls client private key file in pem format
+      --internal-client-tls-client-cert-file=STRING           path to tls client certificate file in pem format
+      --internal-listen-address=STRING                        address to listen on for internal connections
+      --membership-update-interval-ms=5000                    interval between updating cluster membership in ms
+      --membership-eviction-interval-ms=20000                 interval after which member will be evicted from the cluster
+      --consumer-group-initial-join-delay-ms=3000             initial delay to wait for more consumers to join a new consumer group before performing the first
+                                                              rebalance, in ms
+      --authentication-type="none"                            type of authentication. one of sasl/plain, sasl/scram-sha-512, mtls, none
+      --allow-scram-nonce-as-prefix
+      --topic-name=STRING                                     name of the topic
+      --log-format="console"                                  format to write log lines in - one of: console, json
+      --log-level="info"                                      lowest log level that will be emitted - one of: debug, info, warn, error`
 
 	mgr := NewManager()
 	out, err := mgr.RunAgentAndGetOutput("--help")

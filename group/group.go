@@ -6,11 +6,12 @@ import (
 	"fmt"
 	"github.com/google/uuid"
 	"github.com/spirit-labs/tektite/asl/encoding"
+	"github.com/spirit-labs/tektite/cluster"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/kafkaprotocol"
 	log "github.com/spirit-labs/tektite/logger"
-	"github.com/spirit-labs/tektite/pusher"
 	"github.com/spirit-labs/tektite/transport"
+	"math"
 	"sync"
 	"time"
 )
@@ -21,7 +22,7 @@ type group struct {
 	offsetWriterKey         string
 	partHash                []byte
 	lock                    sync.Mutex
-	state                   int
+	state                   GroupState
 	members                 map[string]*member
 	pendingMemberIDs        map[string]struct{}
 	leader                  string
@@ -45,13 +46,15 @@ type member struct {
 	new              bool
 	sessionTimeout   time.Duration
 	reBalanceTimeout time.Duration
+	clientID         string
+	clientHost       string
 }
 
-func (g *group) Join(apiVersion int16, clientID string, memberID string, protocolType string, protocols []ProtocolInfo,
+func (g *group) Join(apiVersion int16, clientID string, clientHost string, memberID string, protocolType string, protocols []ProtocolInfo,
 	sessionTimeout time.Duration, reBalanceTimeout time.Duration, completionFunc JoinCompletion) {
 	g.lock.Lock()
 	defer g.lock.Unlock()
-	if g.state != stateEmpty && !g.canSupportProtocols(protocols) {
+	if g.state != StateEmpty && !g.canSupportProtocols(protocols) {
 		completionFunc(JoinResult{ErrorCode: kafkaprotocol.ErrorCodeInconsistentGroupProtocol, MemberID: ""})
 		return
 	}
@@ -69,39 +72,39 @@ func (g *group) Join(apiVersion int16, clientID string, memberID string, protoco
 		}
 	}
 	switch g.state {
-	case stateEmpty:
+	case StateEmpty:
 		// The first to join is the leader
 		g.leader = memberID
 		g.protocolType = protocolType
-		g.addMember(memberID, protocols, sessionTimeout, reBalanceTimeout, completionFunc)
+		g.addMember(memberID, protocols, sessionTimeout, reBalanceTimeout, completionFunc, clientID, clientHost)
 		g.newMemberAdded = false
-		g.state = statePreReBalance
+		g.state = StatePreReBalance
 		// The first time the join stage is attempted we don't try to complete the join until after a delay - this
 		// handles the case when a system starts and many clients join around the same time - we want to avoid
 		// re-balancing too much.
 		g.scheduleInitialJoinDelay(g.getReBalanceTimeout())
-	case statePreReBalance:
+	case StatePreReBalance:
 		_, ok := g.members[memberID]
 		if ok {
 			// member already exists
 			g.updateMember(memberID, protocols, completionFunc)
 		} else {
 			// adding new member
-			g.addMember(memberID, protocols, sessionTimeout, reBalanceTimeout, completionFunc)
+			g.addMember(memberID, protocols, sessionTimeout, reBalanceTimeout, completionFunc, clientID, clientHost)
 		}
 		if g.initialJoinDelayExpired {
 			// If we have gone through join before we can potentially complete the join now, otherwise a timer
 			// will have already been set and join will complete when it fires
 			g.maybeCompleteJoin()
 		}
-	case stateAwaitingReBalance:
+	case StateAwaitingReBalance:
 		member, ok := g.members[memberID]
 		if !ok {
 			// Join new member
 			// For any members waiting sync we complete response with reBalance-in-progress and empty assignments
 			// Members will then re-join
 			g.resetSync()
-			g.addMember(memberID, protocols, sessionTimeout, reBalanceTimeout, completionFunc)
+			g.addMember(memberID, protocols, sessionTimeout, reBalanceTimeout, completionFunc, clientID, clientHost)
 		} else {
 			// existing member
 			if !protocolInfosEqual(member.protocols, protocols) {
@@ -113,10 +116,10 @@ func (g *group) Join(apiVersion int16, clientID string, memberID string, protoco
 				g.sendJoinResult(memberID, completionFunc)
 			}
 		}
-	case stateActive:
+	case StateActive:
 		_, ok := g.members[memberID]
 		if !ok {
-			g.addMember(memberID, protocols, sessionTimeout, reBalanceTimeout, completionFunc)
+			g.addMember(memberID, protocols, sessionTimeout, reBalanceTimeout, completionFunc, clientID, clientHost)
 			g.triggerReBalance()
 		} else {
 			// existing member
@@ -130,7 +133,7 @@ func (g *group) Join(apiVersion int16, clientID string, memberID string, protoco
 				g.sendJoinResult(memberID, completionFunc)
 			}
 		}
-	case stateDead:
+	case StateDead:
 		completionFunc(JoinResult{ErrorCode: kafkaprotocol.ErrorCodeCoordinatorNotAvailable, MemberID: memberID})
 		return
 	}
@@ -253,7 +256,7 @@ func (g *group) triggerReBalance() {
 	if len(g.members) == 0 {
 		panic("no members in group")
 	}
-	g.state = statePreReBalance
+	g.state = StatePreReBalance
 	g.gc.rescheduleTimer(g.id, g.getReBalanceTimeout(), func() {
 		g.handleJoinTimeout()
 	})
@@ -262,7 +265,7 @@ func (g *group) triggerReBalance() {
 func (g *group) handleJoinTimeout() {
 	g.lock.Lock()
 	defer g.lock.Unlock()
-	if g.stopped || g.state != statePreReBalance {
+	if g.stopped || g.state != StatePreReBalance {
 		return
 	}
 	// We waited long enough for the join to complete.
@@ -281,7 +284,7 @@ func (g *group) handleJoinTimeout() {
 	}
 	if len(g.members) == 0 {
 		// None left - transition to empty
-		g.state = stateEmpty
+		g.state = StateEmpty
 		g.generationID++
 		return
 	}
@@ -303,13 +306,15 @@ func (g *group) chooseNewLeader() string {
 }
 
 func (g *group) addMember(memberID string, protocols []ProtocolInfo, sessionTimeout time.Duration,
-	reBalanceTimeout time.Duration, completionFunc JoinCompletion) {
+	reBalanceTimeout time.Duration, completionFunc JoinCompletion, clientID string, clientHost string) {
 	g.members[memberID] = &member{
 		protocols:        protocols,
 		joinCompletion:   completionFunc,
 		sessionTimeout:   sessionTimeout,
 		reBalanceTimeout: reBalanceTimeout,
 		new:              true,
+		clientID:         clientID,
+		clientHost:       clientHost,
 	}
 	g.updateSupportedProtocols(protocols, true)
 	delete(g.pendingMemberIDs, memberID)
@@ -345,7 +350,7 @@ func (g *group) removeMember(memberID string) bool {
 	g.updateSupportedProtocols(member.protocols, false)
 	g.gc.cancelTimer(memberID)
 	if len(g.members) == 0 {
-		g.state = stateEmpty
+		g.state = StateEmpty
 		g.assignments = nil
 	}
 	return true
@@ -382,7 +387,7 @@ func (g *group) sendJoinResults() {
 			g.sessionTimeoutExpired(memberID)
 		})
 	}
-	g.state = stateAwaitingReBalance
+	g.state = StateAwaitingReBalance
 	// Now we can set a timer for sync timeout
 	genID := g.generationID
 	g.gc.rescheduleTimer(g.id, g.getReBalanceTimeout(), func() {
@@ -393,14 +398,14 @@ func (g *group) sendJoinResults() {
 func (g *group) handleSyncTimeout(genId int) {
 	g.lock.Lock()
 	defer g.lock.Unlock()
-	if g.stopped || g.state != stateAwaitingReBalance {
+	if g.stopped || g.state != StateAwaitingReBalance {
 		return
 	}
 	if genId != g.generationID {
 		log.Warn("sync timeout for wrong generation")
 		return
 	}
-	if g.state != stateAwaitingReBalance {
+	if g.state != StateAwaitingReBalance {
 		return
 	}
 	removedLeader := false
@@ -470,10 +475,10 @@ func (g *group) Sync(memberID string, generationID int, assignments []Assignment
 		return
 	}
 	switch g.state {
-	case statePreReBalance:
+	case StatePreReBalance:
 		completionFunc(kafkaprotocol.ErrorCodeRebalanceInProgress, nil)
 		return
-	case stateAwaitingReBalance:
+	case StateAwaitingReBalance:
 		m, ok := g.members[memberID]
 		if !ok {
 			completionFunc(kafkaprotocol.ErrorCodeUnknownMemberID, nil)
@@ -506,7 +511,7 @@ func (g *group) Sync(memberID string, generationID int, assignments []Assignment
 		if syncWaitersCount == len(g.members) {
 			g.completeSync()
 		}
-	case stateActive:
+	case StateActive:
 		// Just return current assignment
 		var assignment []byte
 		for _, assignmentInfo := range g.assignments {
@@ -520,7 +525,7 @@ func (g *group) Sync(memberID string, generationID int, assignments []Assignment
 		}
 		completionFunc(kafkaprotocol.ErrorCodeNone, assignment)
 		return
-	case stateDead:
+	case StateDead:
 		log.Error("received SyncGroup for dead group")
 		completionFunc(kafkaprotocol.ErrorCodeUnknownServerError, nil)
 		return
@@ -545,7 +550,7 @@ func (g *group) completeSync() {
 	}
 	// cancel sync timeout
 	g.gc.cancelTimer(g.id)
-	g.state = stateActive
+	g.state = StateActive
 }
 
 func (g *group) Heartbeat(memberID string, generationID int) int {
@@ -555,12 +560,12 @@ func (g *group) Heartbeat(memberID string, generationID int) int {
 		return kafkaprotocol.ErrorCodeIllegalGeneration
 	}
 	switch g.state {
-	case stateEmpty:
+	case StateEmpty:
 		return kafkaprotocol.ErrorCodeUnknownMemberID
-	case statePreReBalance:
+	case StatePreReBalance:
 		// Re-balance is required - this will cause client to rejoin group
 		return kafkaprotocol.ErrorCodeRebalanceInProgress
-	case stateAwaitingReBalance, stateActive:
+	case StateAwaitingReBalance, StateActive:
 		member, ok := g.members[memberID]
 		if !ok {
 			return kafkaprotocol.ErrorCodeUnknownMemberID
@@ -599,13 +604,13 @@ func (g *group) Leave(leaveInfos []MemberLeaveInfo) int16 {
 			}
 			g.triggerReBalance()
 		} else {
-			g.state = stateEmpty
+			g.state = StateEmpty
 		}
 	}
 	return kafkaprotocol.ErrorCodeNone
 }
 
-func (g *group) getState() int {
+func (g *group) getState() GroupState {
 	g.lock.Lock()
 	defer g.lock.Unlock()
 	return g.state
@@ -617,7 +622,7 @@ func (g *group) sessionTimeoutExpired(memberID string) {
 	_, ok := g.pendingMemberIDs[memberID]
 	if ok {
 		g.removeMember(memberID)
-		if g.state == statePreReBalance {
+		if g.state == StatePreReBalance {
 			g.maybeCompleteJoin()
 		}
 		return
@@ -649,13 +654,13 @@ func (g *group) sessionTimeoutExpired(memberID string) {
 	}
 	if len(g.members) == 0 {
 		// No members left
-		g.state = stateEmpty
+		g.state = StateEmpty
 		return
 	}
-	if g.state == statePreReBalance {
+	if g.state == StatePreReBalance {
 		// We've removed a member - maybe we can complete the join now?
 		g.maybeCompleteJoin()
-	} else if g.state == stateActive || g.state == stateAwaitingReBalance {
+	} else if g.state == StateActive || g.state == StateAwaitingReBalance {
 		g.triggerReBalance()
 	}
 }
@@ -725,13 +730,14 @@ func (g *group) offsetCommit(transactional bool, req *kafkaprotocol.OffsetCommit
 			// and we need to verify that the producer epoch for a group hasn't gone backwards (?)
 			var offsetKeyType byte
 			if transactional {
-				offsetKeyType = offsetKeyTransactional
+				offsetKeyType = OffsetKeyTransactional
 			} else {
-				offsetKeyType = offsetKeyPublic
+				offsetKeyType = OffsetKeyPublic
 			}
 			key := createOffsetKey(g.partHash, offsetKeyType, info.ID, int(partitionData.PartitionIndex))
-			value := make([]byte, 8)
-			binary.BigEndian.PutUint64(value, uint64(offset))
+			value := make([]byte, 0, 8)
+			value = binary.BigEndian.AppendUint64(value, uint64(offset))
+			value = common.AppendValueMetadata(value)
 			kvs = append(kvs, common.KV{
 				Key:   key,
 				Value: value,
@@ -740,19 +746,142 @@ func (g *group) offsetCommit(transactional bool, req *kafkaprotocol.OffsetCommit
 				partitionData.PartitionIndex, offset)
 		}
 	}
-	commitReq := pusher.DirectWriteRequest{
+	commitReq := common.DirectWriteRequest{
 		WriterKey:   g.offsetWriterKey,
 		WriterEpoch: g.groupEpoch,
 		KVs:         kvs,
 	}
 	buff := commitReq.Serialize(createRequestBuffer())
-	pusherAddress, ok := pusher.ChooseTablePusherForHash(g.partHash, g.gc.membership.Members)
+	pusherAddress, ok := cluster.ChooseMemberAddressForHash(g.partHash, g.gc.membership.Members)
 	if !ok {
 		// No available pushers
 		log.Warnf("cannot commit offsets as no members in cluster")
 		return kafkaprotocol.ErrorCodeCoordinatorNotAvailable
 	}
-	conn, err := g.gc.getConnection(pusherAddress)
+	conn, err := g.gc.connCaches.GetConnection(pusherAddress)
+	if err != nil {
+		log.Warnf("failed to get table pusher connection %v", err)
+		return kafkaprotocol.ErrorCodeCoordinatorNotAvailable
+	}
+	_, err = conn.SendRPC(transport.HandlerIDTablePusherDirectWrite, buff)
+	if err != nil {
+		if common.IsUnavailableError(err) {
+			log.Warnf("failed to handle offset commit: %v", err)
+			return kafkaprotocol.ErrorCodeCoordinatorNotAvailable
+		} else {
+			log.Errorf("failed to handle offset commit: %v", err)
+			return kafkaprotocol.ErrorCodeUnknownServerError
+		}
+	}
+	return kafkaprotocol.ErrorCodeNone
+}
+
+func (g *group) offsetDelete(req *kafkaprotocol.OffsetDeleteRequest, resp *kafkaprotocol.OffsetDeleteResponse) int {
+	g.lock.Lock()
+	defer g.lock.Unlock()
+	// Convert to KV pairs
+	var kvs []common.KV
+	for i, topicData := range req.Topics {
+		info, foundTopic, err := g.gc.topicProvider.GetTopicInfo(*topicData.Name)
+		if err != nil {
+			log.Errorf("failed to get topic info %v", err)
+			return kafkaprotocol.ErrorCodeUnknownServerError
+		}
+		if !foundTopic {
+			log.Warnf("group coordinator - offset commit: topic info not found %v", *topicData.Name)
+		}
+		for j, partitionData := range topicData.Partitions {
+			if !foundTopic {
+				resp.Topics[i].Partitions[j].ErrorCode = kafkaprotocol.ErrorCodeUnknownTopicOrPartition
+				continue
+			}
+			key := createOffsetKey(g.partHash, OffsetKeyPublic, info.ID, int(partitionData.PartitionIndex))
+			kvs = append(kvs, common.KV{
+				Key:   key,
+				Value: nil,
+			})
+			log.Debugf("group %s topic %d partition %d deleting offset", *req.GroupId, info.ID,
+				partitionData.PartitionIndex)
+		}
+	}
+	commitReq := common.DirectWriteRequest{
+		WriterKey:   g.offsetWriterKey,
+		WriterEpoch: g.groupEpoch,
+		KVs:         kvs,
+	}
+	buff := commitReq.Serialize(createRequestBuffer())
+	pusherAddress, ok := cluster.ChooseMemberAddressForHash(g.partHash, g.gc.membership.Members)
+	if !ok {
+		// No available pushers
+		log.Warnf("cannot commit offsets as no members in cluster")
+		return kafkaprotocol.ErrorCodeCoordinatorNotAvailable
+	}
+	conn, err := g.gc.connCaches.GetConnection(pusherAddress)
+	if err != nil {
+		log.Warnf("failed to get table pusher connection %v", err)
+		return kafkaprotocol.ErrorCodeCoordinatorNotAvailable
+	}
+	_, err = conn.SendRPC(transport.HandlerIDTablePusherDirectWrite, buff)
+	if err != nil {
+		if common.IsUnavailableError(err) {
+			log.Warnf("failed to handle offset commit: %v", err)
+			return kafkaprotocol.ErrorCodeCoordinatorNotAvailable
+		} else {
+			log.Errorf("failed to handle offset commit: %v", err)
+			return kafkaprotocol.ErrorCodeUnknownServerError
+		}
+	}
+	return kafkaprotocol.ErrorCodeNone
+}
+
+func fillAllErrorCodesForOffsetDelete(req *kafkaprotocol.OffsetDeleteRequest, errorCode int) *kafkaprotocol.OffsetDeleteResponse {
+	var resp kafkaprotocol.OffsetDeleteResponse
+	resp.Topics = make([]kafkaprotocol.OffsetDeleteResponseOffsetDeleteResponseTopic, len(req.Topics))
+	for i, topicData := range req.Topics {
+		resp.Topics[i].Name = req.Topics[i].Name
+		resp.Topics[i].Partitions = make([]kafkaprotocol.OffsetDeleteResponseOffsetDeleteResponsePartition, len(topicData.Partitions))
+		for j, partData := range topicData.Partitions {
+			resp.Topics[i].Partitions[j].PartitionIndex = partData.PartitionIndex
+		}
+	}
+	for i, topicData := range resp.Topics {
+		for j := range topicData.Partitions {
+			resp.Topics[i].Partitions[j].ErrorCode = int16(errorCode)
+		}
+	}
+	return &resp
+}
+
+func (g *group) deleteAllOffsets() int {
+	g.lock.Lock()
+	defer g.lock.Unlock()
+	// We write a prefix deletion
+	tombstoneKey := make([]byte, 0, 24)
+	tombstoneKey = append(tombstoneKey, g.partHash...)
+	tombstoneKey = encoding.EncodeVersion(tombstoneKey, math.MaxUint64)
+	endMarker := make([]byte, 0, 24)
+	endMarker = append(endMarker, common.IncBigEndianBytes(g.partHash)...)
+	endMarker = encoding.EncodeVersion(endMarker, math.MaxUint64)
+	tombeStoneKv := common.KV{
+		Key: tombstoneKey,
+	}
+	endMarkerKv := common.KV{
+		Key:   endMarker,
+		Value: []byte{'x'},
+	}
+	commitReq := common.DirectWriteRequest{
+		WriterKey:   g.offsetWriterKey,
+		WriterEpoch: g.groupEpoch,
+		KVs:         []common.KV{tombeStoneKv, endMarkerKv},
+	}
+	buff := commitReq.Serialize(createRequestBuffer())
+	pusherAddress, ok := cluster.ChooseMemberAddressForHash(g.partHash, g.gc.membership.Members)
+	if !ok {
+		// No available pushers
+		log.Warnf("cannot commit offsets as no members in cluster")
+		return kafkaprotocol.ErrorCodeCoordinatorNotAvailable
+	}
+	conn, err := g.gc.connCaches.GetConnection(pusherAddress)
 	if err != nil {
 		log.Warnf("failed to get table pusher connection %v", err)
 		return kafkaprotocol.ErrorCodeCoordinatorNotAvailable
@@ -771,8 +900,8 @@ func (g *group) offsetCommit(transactional bool, req *kafkaprotocol.OffsetCommit
 }
 
 const (
-	offsetKeyPublic        = byte(1)
-	offsetKeyTransactional = byte(2)
+	OffsetKeyPublic        = byte(1)
+	OffsetKeyTransactional = byte(2)
 )
 
 func createOffsetKey(partHash []byte, offsetKeyType byte, topicID int, partitionID int) []byte {
@@ -792,7 +921,7 @@ func createRequestBuffer() []byte {
 }
 
 func (g *group) loadOffset(topicID int, partitionID int) (int64, error) {
-	key := createOffsetKey(g.partHash, offsetKeyPublic, topicID, partitionID)
+	key := createOffsetKey(g.partHash, OffsetKeyPublic, topicID, partitionID)
 	cl, err := g.gc.clientCache.GetClient()
 	if err != nil {
 		return 0, err

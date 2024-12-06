@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/google/uuid"
+	"github.com/spirit-labs/tektite/apiclient"
 	"github.com/spirit-labs/tektite/asl/encoding"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/control"
@@ -65,7 +66,7 @@ func TestProduceSimple(t *testing.T) {
 		},
 	}
 
-	cl, err := NewKafkaApiClient()
+	cl, err := apiclient.NewKafkaApiClient()
 	require.NoError(t, err)
 
 	conn, err := cl.NewConnection(agent.Conf().KafkaListenerConfig.Address)
@@ -138,7 +139,7 @@ func TestProduceMultipleTopicsAndPartitions(t *testing.T) {
 		TopicData:       topicData,
 	}
 
-	cl, err := NewKafkaApiClient()
+	cl, err := apiclient.NewKafkaApiClient()
 	require.NoError(t, err)
 
 	conn, err := cl.NewConnection(agent.Conf().KafkaListenerConfig.Address)
@@ -202,7 +203,7 @@ func TestProduceMultipleBatches(t *testing.T) {
 	numBatches := 100
 	recordsPerBatch := 100
 
-	cl, err := NewKafkaApiClient()
+	cl, err := apiclient.NewKafkaApiClient()
 	require.NoError(t, err)
 
 	conn, err := cl.NewConnection(agent.Conf().KafkaListenerConfig.Address)
@@ -298,7 +299,7 @@ func TestProduceSimpleWithReload(t *testing.T) {
 		},
 	}
 
-	cl, err := NewKafkaApiClient()
+	cl, err := apiclient.NewKafkaApiClient()
 	require.NoError(t, err)
 
 	conn, err := cl.NewConnection(agent.Conf().KafkaListenerConfig.Address)
@@ -348,7 +349,7 @@ func TestProduceSimpleWithReload(t *testing.T) {
 		},
 	}
 
-	cl, err = NewKafkaApiClient()
+	cl, err = apiclient.NewKafkaApiClient()
 	require.NoError(t, err)
 
 	conn, err = cl.NewConnection(agent.Conf().KafkaListenerConfig.Address)
@@ -415,7 +416,7 @@ outer:
 				cl, err = controller.Client()
 			}
 			if err == nil {
-				err = cl.CreateTopic(info)
+				err = cl.CreateOrUpdateTopic(info, true)
 				if err == nil {
 					continue outer
 				}
@@ -483,7 +484,11 @@ func verifyBatchesWritten(t *testing.T, topicID int, partitionID int, offsetStar
 		expectedKey = encoding.EncodeVersion(expectedKey, 0)
 		require.Equal(t, kv.Key, expectedKey)
 		recordBatch := kv.Value
+		valueMetadata, recordBatch := common.ReadAndRemoveValueMetadata(recordBatch)
 		require.Equal(t, expectedBatch, recordBatch)
+		require.Equal(t, 2, len(valueMetadata))
+		require.Equal(t, topicID, int(valueMetadata[0]))
+		require.Equal(t, partitionID, int(valueMetadata[1]))
 		numRecords := kafkaencoding.NumRecords(recordBatch)
 		expectedOffset += numRecords
 	}

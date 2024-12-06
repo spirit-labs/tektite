@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"github.com/spirit-labs/tektite/apiclient"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/kafkaprotocol"
 	"github.com/stretchr/testify/require"
@@ -21,14 +22,14 @@ func TestApiVersionsRequestV3(t *testing.T) {
 }
 
 func testApiVersionsRequest(t *testing.T, apiVersion int16, req *kafkaprotocol.ApiVersionsRequest) {
-	t.Parallel()
+
 	cfg := NewConf()
 	agents, tearDown := setupAgents(t, cfg, 1, func(i int) string {
 		return "az1"
 	})
 	defer tearDown(t)
 
-	cl, err := NewKafkaApiClientWithClientID("")
+	cl, err := apiclient.NewKafkaApiClientWithClientID("")
 	require.NoError(t, err)
 	conn, err := cl.NewConnection(agents[0].Conf().KafkaListenerConfig.Address)
 	require.NoError(t, err)

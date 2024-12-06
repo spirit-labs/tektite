@@ -195,11 +195,22 @@ func (c *clientWrapper) GetTopicInfo(topicName string) (topicmeta.TopicInfo, int
 	return topicInfo, seq, exists, err
 }
 
-func (c *clientWrapper) CreateTopic(topicInfo topicmeta.TopicInfo) error {
+func (c *clientWrapper) GetTopicInfoByID(topicID int) (topicmeta.TopicInfo, bool, error) {
+	if c.injectedError != nil {
+		return topicmeta.TopicInfo{}, false, c.injectedError
+	}
+	topicInfo, exists, err := c.client.GetTopicInfoByID(topicID)
+	if err != nil {
+		c.closeConnection()
+	}
+	return topicInfo, exists, err
+}
+
+func (c *clientWrapper) CreateOrUpdateTopic(topicInfo topicmeta.TopicInfo, create bool) error {
 	if c.injectedError != nil {
 		return c.injectedError
 	}
-	err := c.client.CreateTopic(topicInfo)
+	err := c.client.CreateOrUpdateTopic(topicInfo, create)
 	if err != nil {
 		c.closeConnection()
 	}
@@ -237,6 +248,28 @@ func (c *clientWrapper) GenerateSequence(sequenceName string) (int64, error) {
 		c.closeConnection()
 	}
 	return seq, err
+}
+
+func (c *clientWrapper) PutUserCredentials(username string, storedKey []byte, serverKey []byte, salt string, iters int) error {
+	if c.injectedError != nil {
+		return c.injectedError
+	}
+	err := c.client.PutUserCredentials(username, storedKey, serverKey, salt, iters)
+	if err != nil {
+		c.closeConnection()
+	}
+	return err
+}
+
+func (c *clientWrapper) DeleteUserCredentials(username string) error {
+	if c.injectedError != nil {
+		return c.injectedError
+	}
+	err := c.client.DeleteUserCredentials(username)
+	if err != nil {
+		c.closeConnection()
+	}
+	return err
 }
 
 func (c *clientWrapper) closeConnection() {

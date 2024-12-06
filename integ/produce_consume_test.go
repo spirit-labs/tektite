@@ -1,29 +1,103 @@
 package integ
 
 import (
-	"bytes"
 	"context"
 	"fmt"
-	kafkago "github.com/confluentinc/confluent-kafka-go/v2/kafka"
 	"github.com/google/uuid"
+	"github.com/spirit-labs/tektite/kafka"
 	log "github.com/spirit-labs/tektite/logger"
 	miniocl "github.com/spirit-labs/tektite/objstore/minio"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go/modules/minio"
-	"sort"
-	"strconv"
 	"testing"
 	"time"
 )
 
-func TestProduceConsume(t *testing.T) {
+const (
+	serverKeyPath  = "testdata/serverkey.pem"
+	serverCertPath = "testdata/servercert.pem"
 
-	minioCfg, minioContainer := startMinio(t)
+	clientKeyPath  = "testdata/selfsignedclientkey.pem"
+	clientCertPath = "testdata/selfsignedclientcert.pem"
+)
+
+func TestProduceConsumeFranzNoTls(t *testing.T) {
+	testProduceConsume(t, NewFranzProducer, NewFranzConsumer, false, false)
+}
+
+func TestProduceConsumeFranzServerTls(t *testing.T) {
+	testProduceConsume(t, NewFranzProducer, NewFranzConsumer, true, false)
+}
+
+func TestProduceConsumeFranzServerAndClientTls(t *testing.T) {
+	testProduceConsume(t, NewFranzProducer, NewFranzConsumer, true, true)
+}
+
+func TestProduceConsumeKafkaGoNoTls(t *testing.T) {
+	testProduceConsume(t, NewKafkaGoProducer, NewKafkaGoConsumer, false, false)
+}
+
+func TestProduceConsumeKafkaGoServerTls(t *testing.T) {
+	testProduceConsume(t, NewKafkaGoProducer, NewKafkaGoConsumer, true, false)
+}
+
+func TestProduceConsumeKafkaGoServerAndClientTls(t *testing.T) {
+	testProduceConsume(t, NewKafkaGoProducer, NewKafkaGoConsumer, true, true)
+}
+
+func testProduceConsume(t *testing.T, producerFactory ProducerFactory, consumerFactory ConsumerFactory,
+	serverTls bool, clientTls bool) {
+
+	numAgents := 5
+	topicName := fmt.Sprintf("test-topic-%s", uuid.New().String())
+	agents, tearDown := startAgents(t, numAgents, topicName, serverTls, clientTls)
+	defer tearDown(t)
+
+	address := agents[0].kafkaListenAddress
+
+	producer := createProducer(t, producerFactory, address, serverTls, clientTls)
 	defer func() {
-		ctx := context.Background()
-		err := minioContainer.Terminate(ctx)
+		err := producer.Close()
 		require.NoError(t, err)
 	}()
+
+	numMessages := 10
+	var msgs []kafka.Message
+	for i := 0; i < numMessages; i++ {
+		key := []byte(fmt.Sprintf("key%05d", i))
+		value := []byte(fmt.Sprintf("value%05d", i))
+		msgs = append(msgs, kafka.Message{
+			Key:       key,
+			Value:     value,
+			TimeStamp: time.Now(),
+		})
+	}
+	err := producer.Produce(topicName, msgs)
+	require.NoError(t, err)
+
+	consumer := createConsumer(t, consumerFactory, address, topicName, "test_group", serverTls, clientTls)
+	require.NoError(t, err)
+	defer func() {
+		err := consumer.Close()
+		require.NoError(t, err)
+	}()
+
+	received, err := FetchMessages(numMessages, 5*time.Second, consumer)
+	log.Errorf("err is %v", err)
+	require.NoError(t, err)
+
+	SortMessagesByKey(received)
+
+	require.Equal(t, len(msgs), len(received))
+
+	for i, msg := range msgs {
+		require.Equal(t, msg.Key, received[i].Key)
+		require.Equal(t, msg.Value, received[i].Value)
+	}
+}
+
+func startMinioAndCreateBuckets(t *testing.T) (miniocl.Conf, *minio.MinioContainer) {
+	minioCfg, minioContainer := startMinio(t)
 	// create the buckets
 	client := miniocl.NewMinioClient(minioCfg)
 	err := client.Start()
@@ -32,136 +106,50 @@ func TestProduceConsume(t *testing.T) {
 	require.NoError(t, err)
 	err = client.MakeBucket(context.Background(), "test-cluster-controller-sm")
 	require.NoError(t, err)
+	return minioCfg, minioContainer
+}
+
+func startAgents(t *testing.T, numAgents int, topicName string, serverTls bool, clientAuth bool) ([]*AgentProcess, func(*testing.T)) {
+	minioCfg, minioContainer := startMinioAndCreateBuckets(t)
 
 	mgr := NewManager()
 
-	topicName := fmt.Sprintf("test-topic-%s", uuid.New().String())
+	tlsConf := ""
+	if serverTls {
+		tlsConf = fmt.Sprintf(" --kafka-tls-enabled=true --kafka-tls-server-cert-file=%s --kafka-tls-server-private-key-file=%s", serverCertPath, serverKeyPath)
+		tlsConf += fmt.Sprintf(" --internal-tls-enabled=true --internal-tls-server-cert-file=%s --internal-tls-server-private-key-file=%s", serverCertPath, serverKeyPath)
+		if clientAuth {
+			tlsConf += fmt.Sprintf(" --kafka-tls-client-cert-file=%s --kafka-tls-client-auth-type=require-and-verify-client-cert", clientCertPath)
+			tlsConf += fmt.Sprintf(" --internal-tls-client-cert-file=%s --internal-tls-client-auth-type=require-and-verify-client-cert", clientCertPath)
+			tlsConf += fmt.Sprintf(" --internal-client-tls-enabled=true --internal-client-tls-server-cert-file=%s "+
+				"--internal-client-tls-client-private-key-file=%s --internal-client-tls-client-cert-file=%s", serverCertPath, clientKeyPath, clientCertPath)
+		} else {
+			tlsConf += fmt.Sprintf(" --internal-client-tls-enabled=true --internal-client-tls-server-cert-file=%s", serverCertPath)
+		}
+	}
 
-	numAgents := 5
 	var agents []*AgentProcess
 	for i := 0; i < numAgents; i++ {
-
 		commandLine := fmt.Sprintf("--obj-store-username=minioadmin --obj-store-password=minioadmin --obj-store-url=%s ", minioCfg.Endpoint) +
 			"--cluster-name=test-cluster --location=az1 --kafka-listen-address=localhost:0 --internal-listen-address=localhost:0 " +
 			"--membership-update-interval-ms=100 --membership-eviction-interval-ms=2000 " +
 			"--consumer-group-initial-join-delay-ms=500 " +
 			`--log-level=info ` +
-			fmt.Sprintf("--topic-name=%s", topicName) //+
+			fmt.Sprintf("--topic-name=%s", topicName)
+		commandLine += tlsConf
+		log.Infof("command line: %s", commandLine)
 		agent, err := mgr.StartAgent(commandLine, false)
 		require.NoError(t, err)
 		agents = append(agents, agent)
 	}
-
-	log.Infof("creating producer")
-
-	address := agents[0].kafkaListenAddress
-	producer, err := kafkago.NewProducer(&kafkago.ConfigMap{
-		"partitioner":        "murmur2_random", // This matches the default hash algorithm we use, and same as Java client
-		"bootstrap.servers":  address,
-		"acks":               "all",
-		"enable.idempotence": strconv.FormatBool(true),
-		//"client.id":          fmt.Sprintf("tek_az=%s", clientAZ),
-		//"debug": "all",
-	})
-	require.NoError(t, err)
-
-	log.Infof("sending messages")
-
-	numMessages := 10
-	deliveryChan := make(chan kafkago.Event, numMessages)
-
-	var msgs []*kafkago.Message
-	for i := 0; i < numMessages; i++ {
-		key := []byte(fmt.Sprintf("key%05d", i))
-		value := []byte(fmt.Sprintf("value%05d", i))
-		err := producer.Produce(&kafkago.Message{
-			TopicPartition: kafkago.TopicPartition{Topic: &topicName, Partition: kafkago.PartitionAny},
-			Key:            key,
-			Value:          value},
-			deliveryChan,
-		)
-		require.NoError(t, err)
-		e := <-deliveryChan
-		m := e.(*kafkago.Message)
-		if m.TopicPartition.Error != nil {
-			require.NoError(t, m.TopicPartition.Error)
-		}
-		msgs = append(msgs, m)
-	}
-
-	log.Infof("sent messages")
-
-	log.Infof("now fetching")
-
-	cm := &kafkago.ConfigMap{
-		"bootstrap.servers":  address,
-		"group.id":           "test_group",
-		"auto.offset.reset":  "earliest",
-		"enable.auto.commit": false,
-		//"debug":              "all",
-	}
-	consumer, err := kafkago.NewConsumer(cm)
-	require.NoError(t, err)
-
-	err = consumer.Subscribe(topicName, nil)
-	require.NoError(t, err)
-
-	log.Infof("now reading messages")
-	var received []*kafkago.Message
-	start := time.Now()
-	for len(received) < numMessages {
-		msg, err := consumer.ReadMessage(5 * time.Second)
-		log.Infof("readMessage returned msg:%v err:%v", msg, err)
-		if err != nil {
-			if err.(kafkago.Error).Code() == kafkago.ErrTimedOut {
-				require.True(t, time.Now().Sub(start) <= 1*time.Hour, "timed out waiting to consume messages")
-				continue
-			}
+	return agents, func(t *testing.T) {
+		for _, agent := range agents {
+			err := agent.Stop()
 			require.NoError(t, err)
 		}
-		require.NotNil(t, msg)
-		received = append(received, msg)
-	}
-
-	log.Infof("fetched %d msgs", len(received))
-
-	// sort by key
-	sort.SliceStable(received, func(i, j int) bool {
-		return bytes.Compare(received[i].Key, received[j].Key) < 0
-	})
-
-	require.Equal(t, len(msgs), len(received))
-
-	for _, rec := range msgs {
-		log.Infof("sent message: %s %s", string(rec.Key), string(rec.Value))
-	}
-
-	for _, rec := range received {
-		log.Infof("received message: %s %s", string(rec.Key), string(rec.Value))
-	}
-
-	for i, msg := range msgs {
-		require.Equal(t, msg.Key, received[i].Key)
-		require.Equal(t, msg.Value, received[i].Value)
-	}
-
-	log.Infof("ending test")
-
-	log.Infof("closing producer")
-	producer.Close()
-
-	log.Infof("closing consumer")
-	err = consumer.Close()
-	require.NoError(t, err)
-
-	log.Infof("stopping agents")
-
-	for _, agent := range agents {
-		err := agent.Stop()
+		err := minioContainer.Terminate(context.Background())
 		require.NoError(t, err)
 	}
-
-	log.Infof("agents stopped")
 }
 
 func startMinio(t *testing.T) (miniocl.Conf, *minio.MinioContainer) {
@@ -178,4 +166,29 @@ func startMinio(t *testing.T) (miniocl.Conf, *minio.MinioContainer) {
 	cfg.Password = "minioadmin"
 	cfg.Endpoint = fmt.Sprintf("%s:%d", ip, port.Int())
 	return cfg, minioContainer
+}
+
+func createProducer(t *testing.T, factory ProducerFactory, address string, serverTls bool, clientTls bool) Producer {
+	clientKey := ""
+	clientCert := ""
+	if clientTls {
+		clientKey = clientKeyPath
+		clientCert = clientCertPath
+	}
+	producer, err := factory(address, serverTls, serverCertPath, clientCert, clientKey)
+	require.NoError(t, err)
+	return producer
+}
+
+func createConsumer(t *testing.T, factory ConsumerFactory, address string, topicName string, groupID string,
+	serverTls bool, clientTls bool) Consumer {
+	clientKey := ""
+	clientCert := ""
+	if clientTls {
+		clientKey = clientKeyPath
+		clientCert = clientCertPath
+	}
+	consumer, err := factory(address, topicName, groupID, serverTls, serverCertPath, clientCert, clientKey)
+	require.NoError(t, err)
+	return consumer
 }

@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"github.com/google/uuid"
+	"github.com/spirit-labs/tektite/asl/encoding"
 	"github.com/spirit-labs/tektite/cluster"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/control"
@@ -12,11 +13,11 @@ import (
 	"github.com/spirit-labs/tektite/lsm"
 	"github.com/spirit-labs/tektite/offsets"
 	"github.com/spirit-labs/tektite/parthash"
-	"github.com/spirit-labs/tektite/pusher"
 	"github.com/spirit-labs/tektite/sst"
 	"github.com/spirit-labs/tektite/topicmeta"
 	"github.com/spirit-labs/tektite/transport"
 	"github.com/stretchr/testify/require"
+	"math"
 	"sort"
 	"strings"
 	"sync"
@@ -127,7 +128,7 @@ func TestJoinMultipleMembersBeforeInitialDelay(t *testing.T) {
 		protocols := []ProtocolInfo{
 			{defaultProtocolName, protocolMetadata},
 		}
-		gc.joinGroup(0, groupID, defaultClientID, "", defaultProtocolType, protocols, defaultSessionTimeout, defaultRebalanceTimeout, func(result JoinResult) {
+		gc.joinGroup(0, groupID, defaultClientID, "some-host", "", defaultProtocolType, protocols, defaultSessionTimeout, defaultRebalanceTimeout, func(result JoinResult) {
 			memberMetaDataMap.Store(result.MemberID, protocolMetadata)
 			ch <- result
 			joinWg.Done()
@@ -186,7 +187,7 @@ func TestExtendInitialJoinDelayToRebalanceTimeout(t *testing.T) {
 		// We pause half the initial join delay each time, this should have the effect of extending the delay
 		time.Sleep(initialJoinDelay / 2)
 
-		gc.joinGroup(0, groupID, defaultClientID, "", defaultProtocolType, protocols, defaultSessionTimeout, rebalanceTimeout, func(result JoinResult) {
+		gc.joinGroup(0, groupID, defaultClientID, "some-host", "", defaultProtocolType, protocols, defaultSessionTimeout, rebalanceTimeout, func(result JoinResult) {
 			memberMetaDataMap.Store(result.MemberID, protocolMetadata)
 			ch <- result
 			wg.Done()
@@ -257,7 +258,7 @@ func testChooseProtocol(t *testing.T, infos [][]ProtocolInfo, expectedProtocol s
 	for i, protocolInfos := range infos {
 		ch := make(chan JoinResult, 1)
 		thePIs := protocolInfos
-		gc.joinGroup(0, groupID, defaultClientID, "", defaultProtocolType, thePIs, defaultSessionTimeout, defaultRebalanceTimeout, func(result JoinResult) {
+		gc.joinGroup(0, groupID, defaultClientID, "some-host", "", defaultProtocolType, thePIs, defaultSessionTimeout, defaultRebalanceTimeout, func(result JoinResult) {
 			ch <- result
 		})
 		chans[i] = ch
@@ -398,7 +399,7 @@ func TestJoinNewMemberWhileAwaitingRebalance(t *testing.T) {
 	protocols := []ProtocolInfo{{defaultProtocolName, []byte(fmt.Sprintf("metadata2-%d", i))}}
 	ch := make(chan JoinResult, 1)
 	chans2 = append(chans2, ch)
-	gc.joinGroup(0, groupID, defaultClientID, "", defaultProtocolType, protocols, defaultSessionTimeout, defaultRebalanceTimeout,
+	gc.joinGroup(0, groupID, defaultClientID, "some-host", "", defaultProtocolType, protocols, defaultSessionTimeout, defaultRebalanceTimeout,
 		func(result JoinResult) {
 			ch <- result
 		})
@@ -418,7 +419,7 @@ func TestJoinNewMemberWhileAwaitingRebalance(t *testing.T) {
 		chans2 = append(chans2, ch)
 		protocols := []ProtocolInfo{{defaultProtocolName, []byte(fmt.Sprintf("metadata2-%d", i))}}
 		expectedMeta[memberID] = protocols[0].Metadata
-		gc.joinGroup(0, groupID, defaultClientID, memberID, defaultProtocolType, protocols, defaultSessionTimeout, defaultRebalanceTimeout,
+		gc.joinGroup(0, groupID, defaultClientID, "some-host", memberID, defaultProtocolType, protocols, defaultSessionTimeout, defaultRebalanceTimeout,
 			func(result JoinResult) {
 				ch <- result
 			})
@@ -508,7 +509,7 @@ func TestExistingMembersRejoinWithDifferentProtocolMetadataWhileAwaitingRebalanc
 		chans2 = append(chans2, ch)
 		protocols := []ProtocolInfo{{defaultProtocolName, []byte(fmt.Sprintf("metadata2-%d", i))}}
 		expectedMeta[memberID] = protocols[0].Metadata
-		gc.joinGroup(0, groupID, defaultClientID, memberID, defaultProtocolType, protocols, defaultSessionTimeout, defaultRebalanceTimeout,
+		gc.joinGroup(0, groupID, defaultClientID, "some-host", memberID, defaultProtocolType, protocols, defaultSessionTimeout, defaultRebalanceTimeout,
 			func(result JoinResult) {
 				ch <- result
 			})
@@ -604,7 +605,7 @@ func TestExistingMembersRejoinWithSameProtocolMetadataWhileAwaitingRebalance(t *
 		p, ok := memberProtocols.Load(memberID)
 		require.True(t, ok)
 		protocols := p.([]ProtocolInfo)
-		gc.joinGroup(0, groupID, defaultClientID, memberID, defaultProtocolType, protocols, defaultSessionTimeout, defaultRebalanceTimeout,
+		gc.joinGroup(0, groupID, defaultClientID, "some-host", memberID, defaultProtocolType, protocols, defaultSessionTimeout, defaultRebalanceTimeout,
 			func(result JoinResult) {
 				ch <- result
 			})
@@ -711,7 +712,7 @@ func TestJoinNewMemberWhileActive(t *testing.T) {
 	protocols := []ProtocolInfo{{defaultProtocolName, []byte(fmt.Sprintf("metadata2-%d", i))}}
 	ch := make(chan JoinResult, 1)
 	chans2 = append(chans2, ch)
-	gc.joinGroup(0, groupID, defaultClientID, "", defaultProtocolType, protocols, defaultSessionTimeout, defaultRebalanceTimeout,
+	gc.joinGroup(0, groupID, defaultClientID, "some-host", "", defaultProtocolType, protocols, defaultSessionTimeout, defaultRebalanceTimeout,
 		func(result JoinResult) {
 			ch <- result
 		})
@@ -723,7 +724,7 @@ func TestJoinNewMemberWhileActive(t *testing.T) {
 		chans2 = append(chans2, ch)
 		protocols := []ProtocolInfo{{defaultProtocolName, []byte(fmt.Sprintf("metadata2-%d", i))}}
 		expectedMeta[memberID] = protocols[0].Metadata
-		gc.joinGroup(0, groupID, defaultClientID, memberID, defaultProtocolType, protocols, defaultSessionTimeout, defaultRebalanceTimeout,
+		gc.joinGroup(0, groupID, defaultClientID, "some-host", memberID, defaultProtocolType, protocols, defaultSessionTimeout, defaultRebalanceTimeout,
 			func(result JoinResult) {
 				ch <- result
 			})
@@ -811,7 +812,7 @@ func TestRejoinLeaderWhileActive(t *testing.T) {
 	ch := make(chan JoinResult, 1)
 	chans2 = append(chans2, ch)
 	expectedMeta[leader] = protocols[0].Metadata
-	gc.joinGroup(0, groupID, defaultClientID, leader, defaultProtocolType, protocols, defaultSessionTimeout, defaultRebalanceTimeout,
+	gc.joinGroup(0, groupID, defaultClientID, "some-host", leader, defaultProtocolType, protocols, defaultSessionTimeout, defaultRebalanceTimeout,
 		func(result JoinResult) {
 			ch <- result
 		})
@@ -830,7 +831,7 @@ func TestRejoinLeaderWhileActive(t *testing.T) {
 		chans2 = append(chans2, ch)
 		protocols := []ProtocolInfo{{defaultProtocolName, []byte(fmt.Sprintf("metadata2-%d", i))}}
 		expectedMeta[memberID] = protocols[0].Metadata
-		gc.joinGroup(0, groupID, defaultClientID, memberID, defaultProtocolType, protocols, defaultSessionTimeout, defaultRebalanceTimeout,
+		gc.joinGroup(0, groupID, defaultClientID, "some-host", memberID, defaultProtocolType, protocols, defaultSessionTimeout, defaultRebalanceTimeout,
 			func(result JoinResult) {
 				ch <- result
 			})
@@ -923,7 +924,7 @@ func TestRejoinNonLeaderWhileActive(t *testing.T) {
 		require.True(t, ok)
 		protocols := p.([]ProtocolInfo)
 		expectedMeta[memberID] = protocols[0].Metadata
-		gc.joinGroup(0, groupID, defaultClientID, memberID, defaultProtocolType, protocols, defaultSessionTimeout, defaultRebalanceTimeout,
+		gc.joinGroup(0, groupID, defaultClientID, "some-host", memberID, defaultProtocolType, protocols, defaultSessionTimeout, defaultRebalanceTimeout,
 			func(result JoinResult) {
 				ch <- result
 			})
@@ -961,11 +962,11 @@ func TestSyncInJoinPhaseFails(t *testing.T) {
 	protocols := []ProtocolInfo{
 		{defaultProtocolName, []byte("protocol1_bytes")},
 	}
-	gc.joinGroup(0, groupID, defaultClientID, "", defaultProtocolType, protocols,
+	gc.joinGroup(0, groupID, defaultClientID, "some-host", "", defaultProtocolType, protocols,
 		defaultSessionTimeout, defaultRebalanceTimeout, func(result JoinResult) {
 		})
 
-	// The group will now be in state statePreReBalance
+	// The group will now be in state StatePreReBalance
 
 	ch := make(chan int, 1)
 	gc.syncGroup(groupID, "some-member-id", 0, nil, func(errorCode int, assignment []byte) {
@@ -1032,10 +1033,10 @@ func setupJoinedGroupWithArgs(t *testing.T, numMembers int, groupID string, gc *
 	memberProtocols := sync.Map{}
 	for i := 0; i < numMembers; i++ {
 		protocols := []ProtocolInfo{{defaultProtocolName, []byte(fmt.Sprintf("metadata-%d", i))}}
-		gc.joinGroup(4, groupID, defaultClientID, "", defaultProtocolType, protocols, defaultSessionTimeout, rebalanceTimeout, func(result JoinResult) {
+		gc.joinGroup(4, groupID, defaultClientID, "some-host", "", defaultProtocolType, protocols, defaultSessionTimeout, rebalanceTimeout, func(result JoinResult) {
 			require.Equal(t, kafkaprotocol.ErrorCodeUnknownMemberID, result.ErrorCode)
 			go func() {
-				gc.joinGroup(0, groupID, defaultClientID, result.MemberID, defaultProtocolType, protocols, defaultSessionTimeout, rebalanceTimeout, func(result JoinResult) {
+				gc.joinGroup(0, groupID, defaultClientID, "some-host", result.MemberID, defaultProtocolType, protocols, defaultSessionTimeout, rebalanceTimeout, func(result JoinResult) {
 					if result.ErrorCode != kafkaprotocol.ErrorCodeNone {
 						panic(fmt.Sprintf("join returned error %d", result.ErrorCode))
 					}
@@ -1128,10 +1129,10 @@ func TestAddNewMembersAfterSync(t *testing.T) {
 		ch := make(chan JoinResult, 1)
 		chans = append(chans, ch)
 		protocols := []ProtocolInfo{{defaultProtocolName, []byte(fmt.Sprintf("metadata-%d", i+numInitialMembers))}}
-		gc.joinGroup(0, groupID, defaultClientID, "", "protocoltype1", protocols, defaultSessionTimeout, defaultRebalanceTimeout, func(result JoinResult) {
+		gc.joinGroup(0, groupID, defaultClientID, "some-host", "", "protocoltype1", protocols, defaultSessionTimeout, defaultRebalanceTimeout, func(result JoinResult) {
 			go func() {
 				// First should trigger a rebalance
-				gc.joinGroup(0, groupID, defaultClientID, result.MemberID, "protocoltype1", protocols, defaultSessionTimeout, defaultRebalanceTimeout, func(result JoinResult) {
+				gc.joinGroup(0, groupID, defaultClientID, "some-host", result.MemberID, "protocoltype1", protocols, defaultSessionTimeout, defaultRebalanceTimeout, func(result JoinResult) {
 					newMembersMap.Store(result.MemberID, struct{}{})
 					memberProtocols.Store(result.MemberID, protocols)
 					ch <- result
@@ -1155,7 +1156,7 @@ func TestAddNewMembersAfterSync(t *testing.T) {
 		o, ok := memberProtocols.Load(memberID)
 		require.True(t, ok)
 		protocols := o.([]ProtocolInfo)
-		gc.joinGroup(0, groupID, defaultClientID, memberID, "protocoltype1", protocols, defaultSessionTimeout, defaultRebalanceTimeout, func(result JoinResult) {
+		gc.joinGroup(0, groupID, defaultClientID, "some-host", memberID, "protocoltype1", protocols, defaultSessionTimeout, defaultRebalanceTimeout, func(result JoinResult) {
 			ch <- result
 		})
 		cnt++
@@ -1245,14 +1246,14 @@ func TestHeartbeatIllegalGeneration(t *testing.T) {
 	}
 	groupID := uuid.New().String()
 	ch := make(chan JoinResult, 1)
-	gc.joinGroup(0, groupID, defaultClientID, "", defaultProtocolType, protocols, defaultSessionTimeout,
+	gc.joinGroup(0, groupID, defaultClientID, "some-host", "", defaultProtocolType, protocols, defaultSessionTimeout,
 		defaultRebalanceTimeout, func(result JoinResult) {
 			ch <- result
 		})
 	res := <-ch
 
-	// Group should now be in state stateAwaitingReBalance - waiting for initial timeout before completing join
-	require.Equal(t, stateAwaitingReBalance, gc.getState(groupID))
+	// Group should now be in state StateAwaitingReBalance - waiting for initial timeout before completing join
+	require.Equal(t, StateAwaitingReBalance, gc.getState(groupID))
 
 	errorCode := gc.heartbeatGroup(groupID, res.MemberID, 100)
 	require.Equal(t, kafkaprotocol.ErrorCodeIllegalGeneration, errorCode)
@@ -1270,8 +1271,8 @@ func TestHeartbeatAwaitingRebalance(t *testing.T) {
 		return false
 	})
 
-	// Group should now be in state stateAwaitingReBalance
-	require.Equal(t, stateAwaitingReBalance, gc.getState(groupID))
+	// Group should now be in state StateAwaitingReBalance
+	require.Equal(t, StateAwaitingReBalance, gc.getState(groupID))
 
 	errorCode := gc.heartbeatGroup(groupID, memberID, 1)
 	require.Equal(t, kafkaprotocol.ErrorCodeNone, errorCode)
@@ -1294,8 +1295,8 @@ func TestHeartbeatWhileActive(t *testing.T) {
 		return false
 	})
 
-	// Group should now be in state stateAwaitingReBalance
-	require.Equal(t, stateActive, gc.getState(groupID))
+	// Group should now be in state StateAwaitingReBalance
+	require.Equal(t, StateActive, gc.getState(groupID))
 
 	errorCode := gc.heartbeatGroup(groupID, memberID, 1)
 	require.Equal(t, kafkaprotocol.ErrorCodeNone, errorCode)
@@ -1310,14 +1311,14 @@ func TestJoinTimeoutMembersRemovedAndJoinCompletes(t *testing.T) {
 	rebalanceTimeout := 1 * time.Second
 	members, memberProts := setupJoinedGroupWithArgs(t, numMembers, groupID, gc, rebalanceTimeout)
 	syncGroup(groupID, numMembers, members, gc)
-	require.Equal(t, stateActive, gc.getState(groupID))
+	require.Equal(t, StateActive, gc.getState(groupID))
 
 	// Add a new member to prompt a rebalance
 	var chans []chan JoinResult
 	protocols := []ProtocolInfo{{defaultProtocolName, []byte("metadata-11")}}
 	ch := make(chan JoinResult, 1)
 	chans = append(chans, ch)
-	gc.joinGroup(0, groupID, defaultClientID, "", defaultProtocolType, protocols, defaultSessionTimeout,
+	gc.joinGroup(0, groupID, defaultClientID, "some-host", "", defaultProtocolType, protocols, defaultSessionTimeout,
 		rebalanceTimeout, func(result JoinResult) {
 			ch <- result
 		})
@@ -1343,7 +1344,7 @@ func TestJoinTimeoutMembersRemovedAndJoinCompletes(t *testing.T) {
 		protocols := p.([]ProtocolInfo)
 		ch := make(chan JoinResult, 1)
 		chans = append(chans, ch)
-		gc.joinGroup(0, groupID, defaultClientID, memberID, defaultProtocolType, protocols, defaultSessionTimeout,
+		gc.joinGroup(0, groupID, defaultClientID, "some-host", memberID, defaultProtocolType, protocols, defaultSessionTimeout,
 			rebalanceTimeout, func(result JoinResult) {
 				ch <- result
 			})
@@ -1390,7 +1391,7 @@ func TestJoinTimeoutMembersRemovedIncludingLeaderAndJoinCompletes(t *testing.T) 
 	rebalanceTimeout := 1 * time.Second
 	members, memberProts := setupJoinedGroupWithArgs(t, numMembers, groupID, gc, rebalanceTimeout)
 	syncGroup(groupID, numMembers, members, gc)
-	require.Equal(t, stateActive, gc.getState(groupID))
+	require.Equal(t, StateActive, gc.getState(groupID))
 
 	// Add a new member to prompt a rebalance
 	var chans []chan JoinResult
@@ -1398,7 +1399,7 @@ func TestJoinTimeoutMembersRemovedIncludingLeaderAndJoinCompletes(t *testing.T) 
 	ch := make(chan JoinResult, 1)
 	chans = append(chans, ch)
 
-	gc.joinGroup(0, groupID, defaultClientID, "", defaultProtocolType, protocols, defaultSessionTimeout,
+	gc.joinGroup(0, groupID, defaultClientID, "some-host", "", defaultProtocolType, protocols, defaultSessionTimeout,
 		rebalanceTimeout, func(result JoinResult) {
 			ch <- result
 		})
@@ -1426,7 +1427,7 @@ func TestJoinTimeoutMembersRemovedIncludingLeaderAndJoinCompletes(t *testing.T) 
 		protocols := p.([]ProtocolInfo)
 		ch := make(chan JoinResult, 1)
 		chans = append(chans, ch)
-		gc.joinGroup(0, groupID, defaultClientID, memberID, defaultProtocolType, protocols, defaultSessionTimeout,
+		gc.joinGroup(0, groupID, defaultClientID, "some-host", memberID, defaultProtocolType, protocols, defaultSessionTimeout,
 			rebalanceTimeout, func(result JoinResult) {
 				ch <- result
 			})
@@ -1480,18 +1481,18 @@ func TestJoinTimeoutNoMembersRejoinTransitionsToEmpty(t *testing.T) {
 	rebalanceTimeout := 1 * time.Second
 	members, _ := setupJoinedGroupWithArgs(t, numMembers, groupID, gc, rebalanceTimeout)
 	syncGroup(groupID, numMembers, members, gc)
-	require.Equal(t, stateActive, gc.getState(groupID))
+	require.Equal(t, StateActive, gc.getState(groupID))
 
 	// Add a new member to prompt a rebalance
 	var chans []chan JoinResult
 	protocols := []ProtocolInfo{{defaultProtocolName, []byte("metadata-11")}}
 	ch := make(chan JoinResult, 1)
 	chans = append(chans, ch)
-	gc.joinGroup(0, groupID, defaultClientID, "", defaultProtocolType, protocols, defaultSessionTimeout,
+	gc.joinGroup(0, groupID, defaultClientID, "some-host", "", defaultProtocolType, protocols, defaultSessionTimeout,
 		rebalanceTimeout, func(result JoinResult) {
 			ch <- result
 		})
-	require.Equal(t, statePreReBalance, gc.getState(groupID))
+	require.Equal(t, StatePreReBalance, gc.getState(groupID))
 
 	// Now wait until that new member's session expires
 	time.Sleep(2 * newMemberJoinTimeout)
@@ -1501,7 +1502,7 @@ func TestJoinTimeoutNoMembersRejoinTransitionsToEmpty(t *testing.T) {
 
 	// At this point there should be only the old members in the group, and none have rejoined, so the join timeout
 	// should remove them all leaving an empty group
-	require.Equal(t, stateEmpty, gc.getState(groupID))
+	require.Equal(t, StateEmpty, gc.getState(groupID))
 }
 
 func TestRejoinLeaderTriggersRebalance(t *testing.T) {
@@ -1513,7 +1514,7 @@ func TestRejoinLeaderTriggersRebalance(t *testing.T) {
 	rebalanceTimeout := 1 * time.Second
 	members, memberProts := setupJoinedGroupWithArgs(t, numMembers, groupID, gc, rebalanceTimeout)
 	syncGroup(groupID, numMembers, members, gc)
-	require.Equal(t, stateActive, gc.getState(groupID))
+	require.Equal(t, StateActive, gc.getState(groupID))
 
 	var leader string
 	members.Range(func(key, value any) bool {
@@ -1527,15 +1528,15 @@ func TestRejoinLeaderTriggersRebalance(t *testing.T) {
 	})
 	p, ok := memberProts.Load(leader)
 	require.True(t, ok)
-	gc.joinGroup(0, groupID, defaultClientID, leader, defaultProtocolType, p.([]ProtocolInfo), defaultSessionTimeout,
+	gc.joinGroup(0, groupID, defaultClientID, "some-host", leader, defaultProtocolType, p.([]ProtocolInfo), defaultSessionTimeout,
 		rebalanceTimeout, func(result JoinResult) {})
-	require.Equal(t, statePreReBalance, gc.getState(groupID))
+	require.Equal(t, StatePreReBalance, gc.getState(groupID))
 }
 
 func addMemberWithSessionTimeout(gc *Coordinator, groupID string, sessionTimeout time.Duration) chan JoinResult {
 	protocols := []ProtocolInfo{{defaultProtocolName, []byte("foo")}}
 	ch := make(chan JoinResult, 1)
-	gc.joinGroup(0, groupID, defaultClientID, "", defaultProtocolType, protocols, sessionTimeout,
+	gc.joinGroup(0, groupID, defaultClientID, "some-host", "", defaultProtocolType, protocols, sessionTimeout,
 		defaultRebalanceTimeout, func(result JoinResult) {
 			ch <- result
 		})
@@ -1574,9 +1575,9 @@ func TestSessionTimeoutWhenActive(t *testing.T) {
 		isLeader := res.LeaderMemberID == res.MemberID
 		members.Store(res.MemberID, isLeader)
 	}
-	require.Equal(t, stateAwaitingReBalance, gc.getState(groupID))
+	require.Equal(t, StateAwaitingReBalance, gc.getState(groupID))
 	syncGroup(groupID, 3, &members, gc)
-	require.Equal(t, stateActive, gc.getState(groupID))
+	require.Equal(t, StateActive, gc.getState(groupID))
 	require.True(t, gc.groupHasMember(groupID, member1))
 	require.True(t, gc.groupHasMember(groupID, member2))
 	require.True(t, gc.groupHasMember(groupID, member3))
@@ -1596,7 +1597,7 @@ func TestSessionTimeoutWhenActive(t *testing.T) {
 	require.False(t, gc.groupHasMember(groupID, member2))
 	require.False(t, gc.groupHasMember(groupID, member3))
 
-	require.Equal(t, stateEmpty, gc.getState(groupID))
+	require.Equal(t, StateEmpty, gc.getState(groupID))
 }
 
 func TestOffsetCommit(t *testing.T) {
@@ -1642,7 +1643,7 @@ func TestOffsetCommit(t *testing.T) {
 	rebalanceTimeout := 1 * time.Second
 	members, _ := setupJoinedGroupWithArgs(t, numMembers, groupID, gc, rebalanceTimeout)
 	syncGroup(groupID, numMembers, members, gc)
-	require.Equal(t, stateActive, gc.getState(groupID))
+	require.Equal(t, StateActive, gc.getState(groupID))
 
 	var memberID string
 	members.Range(func(key, value any) bool {
@@ -1698,10 +1699,10 @@ func TestOffsetCommit(t *testing.T) {
 	require.Equal(t, 7, int(resp.Topics[1].Partitions[0].PartitionIndex))
 	require.Equal(t, kafkaprotocol.ErrorCodeNone, int(resp.Topics[0].Partitions[0].ErrorCode))
 
-	received, rcpVer := fp.getReceived()
+	received, rpcVer := fp.getReceived()
 	require.NotNil(t, received)
 
-	require.Equal(t, 1, int(rcpVer))
+	require.Equal(t, 1, int(rpcVer))
 
 	require.Equal(t, "g."+groupID, received.WriterKey)
 	require.Equal(t, 23, received.WriterEpoch)
@@ -1710,20 +1711,136 @@ func TestOffsetCommit(t *testing.T) {
 	require.NoError(t, err)
 
 	var expectedKVs []common.KV
-	expectedKVs = append(expectedKVs, createExpectedKV(partHash, 1234, 1, 12345))
-	expectedKVs = append(expectedKVs, createExpectedKV(partHash, 1234, 23, 456456))
-	expectedKVs = append(expectedKVs, createExpectedKV(partHash, 2234, 7, 345345))
+	expectedKVs = append(expectedKVs, createExpectedCommitKV(partHash, 1234, 1, 12345))
+	expectedKVs = append(expectedKVs, createExpectedCommitKV(partHash, 1234, 23, 456456))
+	expectedKVs = append(expectedKVs, createExpectedCommitKV(partHash, 2234, 7, 345345))
 
 	require.Equal(t, expectedKVs, received.KVs)
 }
 
-func createExpectedKV(partHash []byte, topicID int, partitionID int, committedOffset int64) common.KV {
-	key := createOffsetKey(partHash, offsetKeyPublic, topicID, partitionID)
-	val := make([]byte, 8)
-	binary.BigEndian.PutUint64(val, uint64(committedOffset))
+func createExpectedCommitKV(partHash []byte, topicID int, partitionID int, committedOffset int64) common.KV {
+	key := createOffsetKey(partHash, OffsetKeyPublic, topicID, partitionID)
+	val := make([]byte, 0, 9)
+	val = binary.BigEndian.AppendUint64(val, uint64(committedOffset))
+	val = common.AppendValueMetadata(val)
 	return common.KV{
 		Key:   key,
 		Value: val,
+	}
+}
+
+func TestOffsetDelete(t *testing.T) {
+	localTransports := transport.NewLocalTransports()
+	gc, controlClient, topicProvider, _ := createCoordinatorWithConnFactoryAndCfgSetter(t, localTransports.CreateConnection, nil)
+	defer stopCoordinator(t, gc)
+
+	fp := &fakePusherSink{}
+	transportServer, err := localTransports.NewLocalServer(uuid.New().String())
+	require.NoError(t, err)
+	transportServer.RegisterHandler(transport.HandlerIDTablePusherDirectWrite, fp.HandleDirectWrite)
+	memberData := common.MembershipData{
+		ClusterListenAddress: transportServer.Address(),
+	}
+	err = gc.MembershipChanged(0, cluster.MembershipState{
+		LeaderVersion:  1,
+		ClusterVersion: 1,
+		Members: []cluster.MembershipEntry{
+			{
+				ID:   0,
+				Data: memberData.Serialize(nil),
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	topicName1 := "test-topic1"
+	topicName2 := "test-topic2"
+	topicProvider.infos[topicName1] = topicmeta.TopicInfo{
+		ID:             1234,
+		Name:           topicName1,
+		PartitionCount: 100,
+	}
+	topicProvider.infos[topicName2] = topicmeta.TopicInfo{
+		ID:             2234,
+		Name:           topicName2,
+		PartitionCount: 100,
+	}
+	controlClient.groupEpoch = 23
+
+	groupID := uuid.New().String()
+	numMembers := 10
+	rebalanceTimeout := 1 * time.Second
+	members, _ := setupJoinedGroupWithArgs(t, numMembers, groupID, gc, rebalanceTimeout)
+	syncGroup(groupID, numMembers, members, gc)
+	require.Equal(t, StateActive, gc.getState(groupID))
+
+	req := kafkaprotocol.OffsetDeleteRequest{
+		GroupId: common.StrPtr(groupID),
+		Topics: []kafkaprotocol.OffsetDeleteRequestOffsetDeleteRequestTopic{
+			{
+				Name: common.StrPtr(topicName1),
+				Partitions: []kafkaprotocol.OffsetDeleteRequestOffsetDeleteRequestPartition{
+					{
+						PartitionIndex: 1,
+					},
+					{
+						PartitionIndex: 23,
+					},
+				},
+			},
+			{
+				Name: common.StrPtr(topicName2),
+				Partitions: []kafkaprotocol.OffsetDeleteRequestOffsetDeleteRequestPartition{
+					{
+						PartitionIndex: 7,
+					},
+				},
+			},
+		},
+	}
+
+	resp, err := gc.OffsetDelete(&req)
+	require.NoError(t, err)
+
+	require.Equal(t, 2, len(resp.Topics))
+	require.Equal(t, topicName1, *resp.Topics[0].Name)
+
+	require.Equal(t, 2, len(resp.Topics[0].Partitions))
+
+	require.Equal(t, 1, int(resp.Topics[0].Partitions[0].PartitionIndex))
+	require.Equal(t, kafkaprotocol.ErrorCodeNone, int(resp.Topics[0].Partitions[0].ErrorCode))
+	require.Equal(t, 23, int(resp.Topics[0].Partitions[1].PartitionIndex))
+	require.Equal(t, kafkaprotocol.ErrorCodeNone, int(resp.Topics[0].Partitions[1].ErrorCode))
+
+	require.Equal(t, 1, len(resp.Topics[1].Partitions))
+
+	require.Equal(t, 7, int(resp.Topics[1].Partitions[0].PartitionIndex))
+	require.Equal(t, kafkaprotocol.ErrorCodeNone, int(resp.Topics[0].Partitions[0].ErrorCode))
+
+	received, rpcVer := fp.getReceived()
+	require.NotNil(t, received)
+
+	require.Equal(t, 1, int(rpcVer))
+
+	require.Equal(t, "g."+groupID, received.WriterKey)
+	require.Equal(t, 23, received.WriterEpoch)
+
+	partHash, err := parthash.CreateHash([]byte("g." + groupID))
+	require.NoError(t, err)
+
+	var expectedKVs []common.KV
+	expectedKVs = append(expectedKVs, createExpectedDeleteKV(partHash, 1234, 1))
+	expectedKVs = append(expectedKVs, createExpectedDeleteKV(partHash, 1234, 23))
+	expectedKVs = append(expectedKVs, createExpectedDeleteKV(partHash, 2234, 7))
+
+	require.Equal(t, expectedKVs, received.KVs)
+}
+
+func createExpectedDeleteKV(partHash []byte, topicID int, partitionID int) common.KV {
+	key := createOffsetKey(partHash, OffsetKeyPublic, topicID, partitionID)
+	return common.KV{
+		Key:   key,
+		Value: []byte{},
 	}
 }
 
@@ -1750,7 +1867,7 @@ func TestOffsetFetch(t *testing.T) {
 	rebalanceTimeout := 1 * time.Second
 	members, _ := setupJoinedGroupWithArgs(t, numMembers, groupID, gc, rebalanceTimeout)
 	syncGroup(groupID, numMembers, members, gc)
-	require.Equal(t, stateActive, gc.getState(groupID))
+	require.Equal(t, StateActive, gc.getState(groupID))
 
 	g, ok := gc.getGroup(groupID)
 	require.True(t, ok)
@@ -1845,6 +1962,442 @@ func TestOffsetFetch(t *testing.T) {
 	require.Equal(t, -1, int(resp.Topics[1].Partitions[3].CommittedOffset))
 }
 
+var expectedGroups = []kafkaprotocol.ListGroupsResponseListedGroup{
+	{
+		GroupId:      common.StrPtr("group-1"),
+		GroupState:   common.StrPtr("empty"),
+		ProtocolType: common.StrPtr("protocol1"),
+		GroupType:    common.StrPtr("consumer"),
+	},
+	{
+		GroupId:      common.StrPtr("group-2"),
+		GroupState:   common.StrPtr("assigning"),
+		ProtocolType: common.StrPtr("protocol2"),
+		GroupType:    common.StrPtr("consumer"),
+	},
+	{
+		GroupId:      common.StrPtr("group-3"),
+		GroupState:   common.StrPtr("reconciling"),
+		ProtocolType: common.StrPtr("protocol3"),
+		GroupType:    common.StrPtr("consumer"),
+	},
+	{
+		GroupId:      common.StrPtr("group-4"),
+		GroupState:   common.StrPtr("stable"),
+		ProtocolType: common.StrPtr("protocol4"),
+		GroupType:    common.StrPtr("consumer"),
+	},
+	{
+		GroupId:      common.StrPtr("group-5"),
+		GroupState:   common.StrPtr("stable"),
+		ProtocolType: common.StrPtr("protocol5"),
+		GroupType:    common.StrPtr("consumer"),
+	},
+	{
+		GroupId:      common.StrPtr("group-6"),
+		GroupState:   common.StrPtr("dead"),
+		ProtocolType: common.StrPtr("protocol6"),
+		GroupType:    common.StrPtr("consumer"),
+	},
+}
+
+func TestListAllGroups(t *testing.T) {
+	testListGroups(t, nil, nil, expectedGroups)
+	testListGroups(t, []*string{}, []*string{}, expectedGroups)
+}
+
+func TestListSingleStateWithStateFilter(t *testing.T) {
+	var expected = []kafkaprotocol.ListGroupsResponseListedGroup{
+		{
+			GroupId:      common.StrPtr("group-4"),
+			GroupState:   common.StrPtr("stable"),
+			ProtocolType: common.StrPtr("protocol4"),
+			GroupType:    common.StrPtr("consumer"),
+		},
+		{
+			GroupId:      common.StrPtr("group-5"),
+			GroupState:   common.StrPtr("stable"),
+			ProtocolType: common.StrPtr("protocol5"),
+			GroupType:    common.StrPtr("consumer"),
+		},
+	}
+	testListGroups(t, []*string{common.StrPtr("stable")}, nil, expected)
+}
+
+func TestListSingleStateWithStateFilterCaseInsensitive(t *testing.T) {
+	var expected = []kafkaprotocol.ListGroupsResponseListedGroup{
+		{
+			GroupId:      common.StrPtr("group-4"),
+			GroupState:   common.StrPtr("stable"),
+			ProtocolType: common.StrPtr("protocol4"),
+			GroupType:    common.StrPtr("consumer"),
+		},
+		{
+			GroupId:      common.StrPtr("group-5"),
+			GroupState:   common.StrPtr("stable"),
+			ProtocolType: common.StrPtr("protocol5"),
+			GroupType:    common.StrPtr("consumer"),
+		},
+	}
+	testListGroups(t, []*string{common.StrPtr("STaBLE")}, nil, expected)
+}
+
+func TestListMultipleStatesWithStateFilter(t *testing.T) {
+	var expected = []kafkaprotocol.ListGroupsResponseListedGroup{
+		{
+			GroupId:      common.StrPtr("group-2"),
+			GroupState:   common.StrPtr("assigning"),
+			ProtocolType: common.StrPtr("protocol2"),
+			GroupType:    common.StrPtr("consumer"),
+		},
+		{
+			GroupId:      common.StrPtr("group-4"),
+			GroupState:   common.StrPtr("stable"),
+			ProtocolType: common.StrPtr("protocol4"),
+			GroupType:    common.StrPtr("consumer"),
+		},
+		{
+			GroupId:      common.StrPtr("group-5"),
+			GroupState:   common.StrPtr("stable"),
+			ProtocolType: common.StrPtr("protocol5"),
+			GroupType:    common.StrPtr("consumer"),
+		},
+		{
+			GroupId:      common.StrPtr("group-6"),
+			GroupState:   common.StrPtr("dead"),
+			ProtocolType: common.StrPtr("protocol6"),
+			GroupType:    common.StrPtr("consumer"),
+		},
+	}
+	testListGroups(t, []*string{common.StrPtr("stable"), common.StrPtr("assigning"), common.StrPtr("dead")},
+		nil, expected)
+	testListGroups(t, []*string{common.StrPtr("stable"), common.StrPtr("assigning"), common.StrPtr("dead")},
+		[]*string{common.StrPtr("consumer")}, expected)
+	testListGroups(t, []*string{common.StrPtr("stable"), common.StrPtr("assigning"), common.StrPtr("dead")},
+		[]*string{common.StrPtr("foo")}, nil)
+}
+
+func TestListGroupsWithTypeFilter(t *testing.T) {
+	testListGroups(t, nil, []*string{common.StrPtr("consumer")}, expectedGroups)
+	testListGroups(t, nil, []*string{common.StrPtr("COnsumer")}, expectedGroups)
+	testListGroups(t, nil, []*string{common.StrPtr("foo")}, nil)
+}
+
+func testListGroups(t *testing.T, statesFilter []*string, typesFilter []*string, expected []kafkaprotocol.ListGroupsResponseListedGroup) {
+	localTransports := transport.NewLocalTransports()
+	gc, _, _, _ := createCoordinatorWithConnFactoryAndCfgSetter(t, localTransports.CreateConnection, nil)
+
+	fp := &fakePusherSink{}
+	transportServer, err := localTransports.NewLocalServer(uuid.New().String())
+	require.NoError(t, err)
+	transportServer.RegisterHandler(transport.HandlerIDTablePusherDirectWrite, fp.HandleDirectWrite)
+	memberData := common.MembershipData{
+		ClusterListenAddress: transportServer.Address(),
+	}
+	err = gc.MembershipChanged(0, cluster.MembershipState{
+		LeaderVersion:  1,
+		ClusterVersion: 1,
+		Members: []cluster.MembershipEntry{
+			{
+				ID:   0,
+				Data: memberData.Serialize(nil),
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	// Directly create some groups in different states
+	gc.groups["group-1"] = &group{
+		id:           "group-1",
+		state:        StateEmpty,
+		protocolType: "protocol1",
+	}
+	gc.groups["group-2"] = &group{
+		id:           "group-2",
+		state:        StatePreReBalance,
+		protocolType: "protocol2",
+	}
+	gc.groups["group-3"] = &group{
+		id:           "group-3",
+		state:        StateAwaitingReBalance,
+		protocolType: "protocol3",
+	}
+	gc.groups["group-4"] = &group{
+		id:           "group-4",
+		state:        StateActive,
+		protocolType: "protocol4",
+	}
+	gc.groups["group-5"] = &group{
+		id:           "group-5",
+		state:        StateActive,
+		protocolType: "protocol5",
+	}
+	gc.groups["group-6"] = &group{
+		id:           "group-6",
+		state:        StateDead,
+		protocolType: "protocol6",
+	}
+
+	req := kafkaprotocol.ListGroupsRequest{
+		StatesFilter: statesFilter,
+		TypesFilter:  typesFilter,
+	}
+
+	resp, err := gc.ListGroups(&req)
+	require.NoError(t, err)
+
+	require.Equal(t, kafkaprotocol.ErrorCodeNone, int(resp.ErrorCode))
+	require.Equal(t, expected, resp.Groups)
+}
+
+func TestDescribeGroups(t *testing.T) {
+	localTransports := transport.NewLocalTransports()
+	gc, _, _, _ := createCoordinatorWithConnFactoryAndCfgSetter(t, localTransports.CreateConnection, nil)
+
+	fp := &fakePusherSink{}
+	transportServer, err := localTransports.NewLocalServer(uuid.New().String())
+	require.NoError(t, err)
+	transportServer.RegisterHandler(transport.HandlerIDTablePusherDirectWrite, fp.HandleDirectWrite)
+	memberData := common.MembershipData{
+		ClusterListenAddress: transportServer.Address(),
+	}
+	err = gc.MembershipChanged(0, cluster.MembershipState{
+		LeaderVersion:  1,
+		ClusterVersion: 1,
+		Members: []cluster.MembershipEntry{
+			{
+				ID:   0,
+				Data: memberData.Serialize(nil),
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	g1 := &group{
+		id:           "group-1",
+		state:        StateEmpty,
+		protocolName: "protocol1",
+		protocolType: "protocoltype1",
+	}
+	addMembersToGroup(g1, 5)
+	gc.groups["group-1"] = g1
+	g2 := &group{
+		id:           "group-2",
+		state:        StateActive,
+		protocolName: "protocol2",
+		protocolType: "protocoltype2",
+	}
+	addMembersToGroup(g2, 5)
+	gc.groups["group-2"] = g2
+	g3 := &group{
+		id:           "group-3",
+		state:        StateActive,
+		protocolName: "protocol3",
+		protocolType: "protocoltype3",
+	}
+	addMembersToGroup(g3, 5)
+	gc.groups["group-3"] = g3
+	g4 := &group{
+		id:           "group-4",
+		state:        StateDead,
+		protocolName: "protocol4",
+		protocolType: "protocoltype4",
+	}
+	addMembersToGroup(g4, 5)
+	gc.groups["group-4"] = g4
+
+	req := kafkaprotocol.DescribeGroupsRequest{
+		Groups: []*string{common.StrPtr(g1.id), common.StrPtr(g2.id), common.StrPtr(g3.id), common.StrPtr(g4.id)},
+	}
+
+	resp, err := gc.DescribeGroups(&req)
+	require.NoError(t, err)
+
+	verifyExpectedGroup(t, []*group{g1, g2, g3, g4}, resp.Groups)
+}
+
+func verifyExpectedGroup(t *testing.T, expectedGroups []*group, respGroups []kafkaprotocol.DescribeGroupsResponseDescribedGroup) {
+	require.Equal(t, len(expectedGroups), len(respGroups))
+	for i, g := range expectedGroups {
+		respGroup := respGroups[i]
+		require.Equal(t, kafkaprotocol.ErrorCodeNone, int(respGroup.ErrorCode))
+		require.Equal(t, g.id, common.SafeDerefStringPtr(respGroup.GroupId))
+		if g.state != StateDead {
+			require.Equal(t, 5, len(respGroup.Members))
+			members := respGroup.Members
+			sort.SliceStable(members, func(i, j int) bool {
+				return strings.Compare(common.SafeDerefStringPtr(members[i].MemberId),
+					common.SafeDerefStringPtr(members[j].MemberId)) < 0
+			})
+			for i, m := range members {
+				require.Equal(t, "clientID1", common.SafeDerefStringPtr(m.ClientId))
+				require.Equal(t, "clientHost1", common.SafeDerefStringPtr(m.ClientHost))
+				if g.state == StateActive {
+					require.Equal(t, fmt.Sprintf("assignment-%d", i), string(m.MemberAssignment))
+					require.Equal(t, "protocolmeta", string(m.MemberMetadata))
+				} else {
+					require.Nil(t, m.MemberAssignment)
+					require.Nil(t, m.MemberMetadata)
+				}
+			}
+		} else {
+			require.Equal(t, 0, len(respGroup.Members))
+		}
+	}
+}
+
+func addMembersToGroup(g *group, numMembers int) {
+	g.protocolType = "protocol1"
+	g.members = map[string]*member{}
+	for i := 0; i < numMembers; i++ {
+		memberID := fmt.Sprintf("member-%d", i)
+		g.members[memberID] = &member{
+			clientID:   "clientID1",
+			clientHost: "clientHost1",
+			protocols: []ProtocolInfo{
+				{
+					Name:     g.protocolName,
+					Metadata: []byte("protocolmeta"),
+				},
+			},
+		}
+		g.assignments = append(g.assignments, AssignmentInfo{
+			MemberID:   memberID,
+			Assignment: []byte(fmt.Sprintf("assignment-%d", i)),
+		})
+	}
+}
+
+func TestDescribeGroupsNoSuchGroup(t *testing.T) {
+	localTransports := transport.NewLocalTransports()
+	gc, _, _, _ := createCoordinatorWithConnFactoryAndCfgSetter(t, localTransports.CreateConnection, nil)
+
+	fp := &fakePusherSink{}
+	transportServer, err := localTransports.NewLocalServer(uuid.New().String())
+	require.NoError(t, err)
+	transportServer.RegisterHandler(transport.HandlerIDTablePusherDirectWrite, fp.HandleDirectWrite)
+	memberData := common.MembershipData{
+		ClusterListenAddress: transportServer.Address(),
+	}
+	err = gc.MembershipChanged(0, cluster.MembershipState{
+		LeaderVersion:  1,
+		ClusterVersion: 1,
+		Members: []cluster.MembershipEntry{
+			{
+				ID:   0,
+				Data: memberData.Serialize(nil),
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	g1 := &group{
+		id:           "group-1",
+		state:        StateActive,
+		protocolName: "protocol1",
+		protocolType: "protocoltype1",
+	}
+	addMembersToGroup(g1, 5)
+	gc.groups["group-1"] = g1
+
+	req := kafkaprotocol.DescribeGroupsRequest{
+		Groups: []*string{common.StrPtr(g1.id), common.StrPtr("unknown")},
+	}
+
+	resp, err := gc.DescribeGroups(&req)
+	require.NoError(t, err)
+
+	require.Equal(t, 2, len(resp.Groups))
+	verifyExpectedGroup(t, []*group{g1}, resp.Groups[:1])
+
+	eGroup := resp.Groups[1]
+	require.Equal(t, kafkaprotocol.ErrorCodeInvalidGroupID, int(eGroup.ErrorCode))
+	require.Equal(t, "unknown", common.SafeDerefStringPtr(eGroup.GroupId))
+}
+
+func TestDeleteGroups(t *testing.T) {
+	localTransports := transport.NewLocalTransports()
+	gc, controlClient, _, _ := createCoordinatorWithConnFactoryAndCfgSetter(t, localTransports.CreateConnection, nil)
+	defer stopCoordinator(t, gc)
+
+	fp := &fakePusherSink{}
+	transportServer, err := localTransports.NewLocalServer(uuid.New().String())
+	require.NoError(t, err)
+	transportServer.RegisterHandler(transport.HandlerIDTablePusherDirectWrite, fp.HandleDirectWrite)
+	memberData := common.MembershipData{
+		ClusterListenAddress: transportServer.Address(),
+	}
+	err = gc.MembershipChanged(0, cluster.MembershipState{
+		LeaderVersion:  1,
+		ClusterVersion: 1,
+		Members: []cluster.MembershipEntry{
+			{
+				ID:   0,
+				Data: memberData.Serialize(nil),
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	//topicName1 := "test-topic1"
+	//topicName2 := "test-topic2"
+	//topicProvider.infos[topicName1] = topicmeta.TopicInfo{
+	//	ID:             1234,
+	//	Name:           topicName1,
+	//	PartitionCount: 100,
+	//}
+	//topicProvider.infos[topicName2] = topicmeta.TopicInfo{
+	//	ID:             2234,
+	//	Name:           topicName2,
+	//	PartitionCount: 100,
+	//}
+	controlClient.groupEpoch = 23
+
+	groupID := uuid.New().String()
+	numMembers := 10
+	rebalanceTimeout := 1 * time.Second
+	members, _ := setupJoinedGroupWithArgs(t, numMembers, groupID, gc, rebalanceTimeout)
+	syncGroup(groupID, numMembers, members, gc)
+	require.Equal(t, StateActive, gc.getState(groupID))
+
+	req := kafkaprotocol.DeleteGroupsRequest{
+		GroupsNames: []*string{common.StrPtr(groupID)},
+	}
+
+	resp, err := gc.DeleteGroups(&req)
+	require.NoError(t, err)
+	require.Equal(t, 1, len(resp.Results))
+	require.Equal(t, kafkaprotocol.ErrorCodeNone, int(resp.Results[0].ErrorCode))
+	require.Equal(t, groupID, common.SafeDerefStringPtr(resp.Results[0].GroupId))
+
+	received, rpcVer := fp.getReceived()
+	require.NotNil(t, received)
+
+	require.Equal(t, 1, int(rpcVer))
+
+	require.Equal(t, "g."+groupID, received.WriterKey)
+	require.Equal(t, 23, received.WriterEpoch)
+
+	require.Equal(t, 2, len(received.KVs))
+
+	var expectedKVs []common.KV
+
+	partHash, err := parthash.CreateHash([]byte("g." + groupID))
+	require.NoError(t, err)
+
+	tombstoneKey := make([]byte, 0, 24)
+	tombstoneKey = append(tombstoneKey, partHash...)
+	tombstoneKey = encoding.EncodeVersion(tombstoneKey, math.MaxUint64)
+
+	endMarker := make([]byte, 0, 24)
+	endMarker = append(endMarker, common.IncBigEndianBytes(partHash)...)
+	endMarker = encoding.EncodeVersion(endMarker, math.MaxUint64)
+
+	expectedKVs = append(expectedKVs, common.KV{Key: tombstoneKey, Value: []byte{}}, common.KV{Key: endMarker, Value: []byte{'x'}})
+
+	require.Equal(t, expectedKVs, received.KVs)
+}
+
 type createOffsetsInfo struct {
 	topicID   int
 	partInfos []createOffsetsPartitionInfo
@@ -1861,7 +2414,7 @@ func createOffsetsKvs(t *testing.T, infos []createOffsetsInfo, partHash []byte) 
 		for _, partitionData := range topicData.partInfos {
 			offset := partitionData.committedOffset
 			// key is [partition_hash, topic_id, partition_id] value is [offset]
-			key := createOffsetKey(partHash, offsetKeyPublic, topicData.topicID, partitionData.partitionID)
+			key := createOffsetKey(partHash, OffsetKeyPublic, topicData.topicID, partitionData.partitionID)
 			value := make([]byte, 8)
 			binary.BigEndian.PutUint64(value, uint64(offset))
 			kvs = append(kvs, common.KV{
@@ -1895,7 +2448,7 @@ func callJoinGroupSync(gc *Coordinator, groupID string, clientID string, memberI
 func callJoinGroupSyncWithApiVersion(gc *Coordinator, groupID string, clientID string, memberID string, protocolType string, protocols []ProtocolInfo, sessionTimeout time.Duration,
 	rebalanceTimeout time.Duration, apiVersion int16) JoinResult {
 	ch := make(chan JoinResult, 1)
-	gc.joinGroup(apiVersion, groupID, clientID, memberID, protocolType, protocols, sessionTimeout, rebalanceTimeout, func(result JoinResult) {
+	gc.joinGroup(apiVersion, groupID, clientID, "some-host", memberID, protocolType, protocols, sessionTimeout, rebalanceTimeout, func(result JoinResult) {
 		ch <- result
 	})
 	return <-ch
@@ -1937,7 +2490,8 @@ func createCoordinatorWithConnFactoryAndCfgSetter(t *testing.T, connFactory tran
 		return controlClient, nil
 	}
 	controlClientCache := control.NewClientCache(10, controlFactory)
-	gc, err := NewCoordinator(cfg, topicProvider, controlClientCache, connFactory, tableGetter.getTable)
+	connCaches := transport.NewConnCaches(10, connFactory)
+	gc, err := NewCoordinator(cfg, topicProvider, controlClientCache, connCaches, tableGetter.getTable)
 	require.NoError(t, err)
 	gc.SetKafkaAddress(address)
 	err = gc.Start()
@@ -1949,21 +2503,21 @@ func createCoordinatorWithConnFactoryAndCfgSetter(t *testing.T, connFactory tran
 type fakePusherSink struct {
 	lock               sync.Mutex
 	receivedRPCVersion int16
-	received           *pusher.DirectWriteRequest
+	received           *common.DirectWriteRequest
 }
 
 func (f *fakePusherSink) HandleDirectWrite(_ *transport.ConnectionContext, request []byte, responseBuff []byte, responseWriter transport.ResponseWriter) error {
 	f.lock.Lock()
 	defer f.lock.Unlock()
 
-	f.received = &pusher.DirectWriteRequest{}
+	f.received = &common.DirectWriteRequest{}
 	f.receivedRPCVersion = int16(binary.BigEndian.Uint16(request))
 	f.received.Deserialize(request, 2)
 
 	return responseWriter(responseBuff, nil)
 }
 
-func (f *fakePusherSink) getReceived() (*pusher.DirectWriteRequest, int16) {
+func (f *fakePusherSink) getReceived() (*common.DirectWriteRequest, int16) {
 	f.lock.Lock()
 	defer f.lock.Unlock()
 	return f.received, f.receivedRPCVersion
@@ -2021,11 +2575,15 @@ func (t *testControlClient) GetTopicInfo(topicName string) (topicmeta.TopicInfo,
 	panic("should not be called")
 }
 
+func (t *testControlClient) GetTopicInfoByID(topicID int) (topicmeta.TopicInfo, bool, error) {
+	panic("should not be called")
+}
+
 func (t *testControlClient) GetAllTopicInfos() ([]topicmeta.TopicInfo, error) {
 	panic("should not be called")
 }
 
-func (t *testControlClient) CreateTopic(topicInfo topicmeta.TopicInfo) error {
+func (t *testControlClient) CreateOrUpdateTopic(topicInfo topicmeta.TopicInfo, create bool) error {
 	panic("should not be called")
 }
 
@@ -2041,32 +2599,16 @@ func (t *testControlClient) GenerateSequence(sequenceName string) (int64, error)
 	panic("should not be called")
 }
 
-func (t *testControlClient) Close() error {
+func (t *testControlClient) PutUserCredentials(username string, storedKey []byte, serverKey []byte, salt string, iters int) error {
 	panic("should not be called")
 }
 
-type testPusherClient struct {
-	lock              sync.Mutex
-	writtenKVs        []common.KV
-	writtenGroupID    string
-	writtenGroupEpoch int32
+func (t *testControlClient) DeleteUserCredentials(username string) error {
+	panic("should not be called")
 }
 
-func (t *testPusherClient) WriteOffsets(kvs []common.KV, groupID string, groupEpoch int32) error {
-	t.lock.Lock()
-	defer t.lock.Unlock()
-	t.writtenKVs = kvs
-	t.writtenGroupID = groupID
-	t.writtenGroupEpoch = groupEpoch
-	return nil
-}
-
-func (t *testPusherClient) getWrittenValues() ([]common.KV, string, int32) {
-	t.lock.Lock()
-	defer t.lock.Unlock()
-	copied := make([]common.KV, len(t.writtenKVs))
-	copy(copied, t.writtenKVs)
-	return copied, t.writtenGroupID, t.writtenGroupEpoch
+func (t *testControlClient) Close() error {
+	panic("should not be called")
 }
 
 type testTableGetter struct {

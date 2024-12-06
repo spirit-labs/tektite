@@ -185,14 +185,6 @@ func TestOffsetsCacheGetSingleNotStored(t *testing.T) {
 func TestOffsetsCacheGetMultiple(t *testing.T) {
 	oc := setupAndStartCache(t)
 
-	/*
-		kvs = append(kvs, createDataEntry(t, 7, 0, 1234))
-		kvs = append(kvs, createDataEntry(t, 7, 1, 3456))
-		kvs = append(kvs, createDataEntry(t, 7, 2, 0))
-		kvs = append(kvs, createDataEntry(t, 8, 0, 5678))
-		kvs = append(kvs, createDataEntry(t, 8, 1, 3456))
-	*/
-
 	offsets, _, err := oc.GenerateOffsets([]GenerateOffsetTopicInfo{
 		{
 			TopicID: 7,
@@ -1065,5 +1057,26 @@ func testMaybeReleaseOffsets(t *testing.T, shuffle bool) {
 	require.Equal(t, numTables, len(receivedTables))
 	for i, entry := range tabEntries {
 		require.Equal(t, entry.tableID, string(receivedTables[i]))
+	}
+}
+
+func TestResizePartitionCount(t *testing.T) {
+	oc := setupAndStartCache(t)
+
+	for partitionID := 4; partitionID < 100; partitionID++ {
+		_, _, err := oc.GetLastReadableOffset(7, partitionID)
+		require.Error(t, err)
+		require.True(t, common.IsTektiteErrorWithCode(err, common.PartitionOutOfRange))
+	}
+
+	ok, err := oc.ResizePartitionCount(7, 100)
+	require.NoError(t, err)
+	require.True(t, ok)
+
+	for partitionID := 4; partitionID < 100; partitionID++ {
+		lro, ok, err := oc.GetLastReadableOffset(7, 50)
+		require.NoError(t, err)
+		require.True(t, ok)
+		require.Equal(t, -1, int(lro))
 	}
 }

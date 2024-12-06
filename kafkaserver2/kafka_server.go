@@ -4,37 +4,48 @@ import (
 	"crypto/tls"
 	"encoding/binary"
 	"github.com/pkg/errors"
-	"github.com/spirit-labs/tektite/asl/conf"
-	"github.com/spirit-labs/tektite/auth"
+	auth "github.com/spirit-labs/tektite/auth2"
+	"github.com/spirit-labs/tektite/conf"
 	"github.com/spirit-labs/tektite/kafkaprotocol"
+	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/sockserver"
 	"net"
 	"sync"
 )
 
 type KafkaServer struct {
-	lock               sync.Mutex
-	address            string
-	tlsConf            conf.TLSConfig
-	socketServer       *sockserver.SocketServer
-	saslAuthManager    *auth.SaslAuthManager
-	authenticationType string
-	handlerFactory     HandlerFactory
-	started            bool
+	lock            sync.Mutex
+	address         string
+	tlsConf         conf.TlsConf
+	socketServer    *sockserver.SocketServer
+	saslAuthManager *auth.SaslAuthManager
+	authType        AuthenticationType
+	handlerFactory  HandlerFactory
+	started         bool
 }
 
 type HandlerFactory func(ctx ConnectionContext) kafkaprotocol.RequestHandler
 
 type ConnectionContext interface {
-	AuthContext() auth.Context
+	AuthContext() *auth.Context
+	ClientHost() string
 }
 
-func NewKafkaServer(address string, tlsConf conf.TLSConfig, authenticationType string, handlerFactory HandlerFactory) *KafkaServer {
+type AuthenticationType int
+
+const (
+	AuthenticationTypeNone         AuthenticationType = iota
+	AuthenticationTypeSaslPlain    AuthenticationType = iota
+	AuthenticationTypeSaslScram512 AuthenticationType = iota
+	AuthenticationTypeMTls         AuthenticationType = iota
+)
+
+func NewKafkaServer(address string, tlsConf conf.TlsConf, authType AuthenticationType, handlerFactory HandlerFactory) *KafkaServer {
 	return &KafkaServer{
-		address:            address,
-		tlsConf:            tlsConf,
-		authenticationType: authenticationType,
-		handlerFactory:     handlerFactory,
+		address:        address,
+		tlsConf:        tlsConf,
+		authType:       authType,
+		handlerFactory: handlerFactory,
 	}
 }
 
@@ -70,8 +81,40 @@ func (k *KafkaServer) ListenAddress() string {
 	return k.socketServer.Address()
 }
 
+type ConnectionInfo struct {
+	ClientAddress string
+	Authenticated bool
+	Principal     string
+}
+
+func (k *KafkaServer) ConnectionInfos() []ConnectionInfo {
+	k.lock.Lock()
+	defer k.lock.Unlock()
+	conns := k.socketServer.Connections()
+	infos := make([]ConnectionInfo, 0, len(conns))
+	for _, conn := range conns {
+		kconn := conn.(*kafkaConnection)
+		infos = append(infos, ConnectionInfo{
+			ClientAddress: kconn.conn.RemoteAddr().String(),
+			Authenticated: kconn.authContext.Authenticated,
+			Principal:     kconn.authContext.Principal,
+		})
+	}
+	return infos
+}
+
 func (k *KafkaServer) createConnection(conn net.Conn) sockserver.ServerConnection {
-	kc := &kafkaConnection{s: k, conn: conn}
+	remoteAddr := conn.RemoteAddr().String()
+	clientHost, _, err := net.SplitHostPort(remoteAddr)
+	if err != nil {
+		log.Warnf("failed to split client host and port: %v", err)
+		clientHost = "unknown"
+	}
+	kc := &kafkaConnection{
+		s:          k,
+		conn:       conn,
+		clientHost: clientHost,
+	}
 	handler := k.handlerFactory(kc)
 	kc.handler = handler
 	return kc
@@ -83,25 +126,31 @@ type kafkaConnection struct {
 	conn        net.Conn
 	authContext auth.Context
 	handler     kafkaprotocol.RequestHandler
+	clientHost  string
 }
 
-func (c *kafkaConnection) AuthContext() auth.Context {
-	return c.authContext
+func (c *kafkaConnection) AuthContext() *auth.Context {
+	return &c.authContext
+}
+
+func (c *kafkaConnection) ClientHost() string {
+	return c.clientHost
 }
 
 func (c *kafkaConnection) HandleMessage(message []byte) error {
-	if !c.authContext.Authenticated && c.s.authenticationType == auth.AuthenticationTLS {
+	if !c.authContext.Authenticated && c.s.authType == AuthenticationTypeMTls {
 		if err := c.authoriseWithClientCert(); err != nil {
 			return err
 		}
 	}
 	apiKey := int16(binary.BigEndian.Uint16(message))
-	authType := c.s.authenticationType
-	authenticated := authType == "" || apiKey == kafkaprotocol.APIKeyAPIVersions ||
+	authType := c.s.authType
+	log.Debugf("handling api key: %d auth type is %d authenticated is %t", apiKey, authType, c.authContext.Authenticated)
+	authenticated := authType == AuthenticationTypeNone || apiKey == kafkaprotocol.APIKeyAPIVersions ||
 		apiKey == kafkaprotocol.APIKeySaslHandshake || apiKey == kafkaprotocol.APIKeySaslAuthenticate ||
 		c.authContext.Authenticated
 	if !authenticated {
-		return errors.Errorf("cannot handle Kafka apiKey: %d as authentication type is %s but connection has not been authenticated", apiKey, authType)
+		return errors.Errorf("cannot handle Kafka apiKey: %d as authentication type is %d but connection has not been authenticated", apiKey, authType)
 	}
 	return kafkaprotocol.HandleRequestBuffer(apiKey, message, c.handler, c.conn)
 }
@@ -121,7 +170,8 @@ func (c *kafkaConnection) authoriseWithClientCert() error {
 		return errors.New("client has provided more than one certificate - please make sure only one cerftificate is provided")
 	}
 	principal := pcs[0].Subject.String()
-	c.authContext.Principal = &principal
+	log.Infof("setting auth principal to %s", principal)
+	c.authContext.Principal = principal
 	c.authContext.Authenticated = true
 	return nil
 }

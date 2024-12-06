@@ -1,0 +1,11 @@
+{
+  "apiKey": 1001,
+  "type": "request",
+  "name": "DeleteUserRequest",
+  "validVersions": "0",
+  "flexibleVersions": "none",
+  "fields": [
+    { "name": "Username", "type": "string", "versions": "0+", "entityType": "username",
+      "about": "The username of the user to delete."}
+  ]
+}

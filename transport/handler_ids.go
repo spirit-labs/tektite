@@ -10,10 +10,13 @@ const (
 	HandlerIDControllerPollForJob
 	HandlerIDControllerGetAllTopicInfos
 	HandlerIDControllerGetTopicInfo
+	HandlerIDControllerGetTopicInfoByID
 	HandlerIDControllerCreateTopic
 	HandlerIDControllerDeleteTopic
 	HandlerIDControllerGetGroupCoordinatorInfo
 	HandlerIDControllerGenerateSequence
+	HandlerIDControllerPutUserCredentials
+	HandlerIDControllerDeleteUserCredentials
 	HandlerIDMetaLocalCacheTopicAdded
 	HandlerIDMetaLocalCacheTopicDeleted
 	HandlerIDFetchCacheGetTableBytes

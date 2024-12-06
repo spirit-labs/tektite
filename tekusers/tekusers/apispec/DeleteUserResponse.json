@@ -1,0 +1,13 @@
+{
+  "apiKey": 1001,
+  "type": "response",
+  "name": "DeleteUserResponse",
+  "validVersions": "0",
+  "flexibleVersions": "none",
+  "fields": [
+    { "name": "ErrorCode", "type": "int16", "versions": "0+", "entityType": "errorCode",
+      "about": "The error code."},
+    { "name": "ErrorMessage", "type": "string", "versions": "0+", "nullableVersions": "0+", "ignorable": true,
+      "about": "The error message, or null if there was no error."}
+  ]
+}

@@ -5,13 +5,16 @@ import (
 	"bytes"
 	"fmt"
 	"github.com/pkg/errors"
+	"github.com/spirit-labs/tektite/kafka"
 	log "github.com/spirit-labs/tektite/logger"
 	"io"
 	"os"
 	"os/exec"
+	"sort"
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 )
 
 type Manager struct {
@@ -51,6 +54,8 @@ func (m *Manager) removeAgent(id int) {
 }
 
 type AgentProcess struct {
+	lock                 sync.Mutex
+	started              bool
 	mgr                  *Manager
 	id                   int
 	args                 []string
@@ -95,6 +100,11 @@ func (m *Manager) RunAgentAndGetOutput(args string) ([]string, error) {
 }
 
 func (a *AgentProcess) Start() error {
+	a.lock.Lock()
+	defer a.lock.Unlock()
+	if a.started {
+		return errors.New("already started")
+	}
 	cmd := exec.Command("../bin/tekagent", a.args...)
 	cmd.Env = append(os.Environ(), "COLUMNS=160")
 	out, err := cmd.StdoutPipe()
@@ -118,10 +128,16 @@ func (a *AgentProcess) Start() error {
 	// We wait until the agent has started running , so the signal handler has been set otherwise if we stop it quickly
 	// the signal won't be intercepted
 	a.startWG.Wait()
+	a.started = true
 	return nil
 }
 
 func (a *AgentProcess) Stop() error {
+	a.lock.Lock()
+	defer a.lock.Unlock()
+	if !a.started {
+		return errors.New("not started")
+	}
 	// Send a SIGINT signal
 	if err := a.cmd.Process.Signal(syscall.SIGINT); err != nil {
 		return err
@@ -169,7 +185,8 @@ func (a *AgentProcess) outputLoop(outChan chan []string) error {
 }
 
 func init() {
-	if err := checkBinary(); err != nil {
+	// We must make sure agent binary is up-to-date before running integration tests
+	if err := buildBinary(); err != nil {
 		log.Errorf("failed to build agent binary: %v", err)
 	}
 }
@@ -178,15 +195,57 @@ func init() {
 func checkBinary() error {
 	_, err := os.Stat("../bin/tekagent")
 	if os.IsNotExist(err) {
-		log.Infof("building agent binary")
-		cmd := exec.Command("go", "build", "-o", "../bin", "../agent/tekagent")
-		var out bytes.Buffer
-		cmd.Stdout = &out
-		cmd.Stderr = &out
-		if err := cmd.Run(); err != nil {
-			log.Errorf("failed to build agent binary:\n%s", out.String())
-			return err
-		}
+		return buildBinary()
 	}
 	return nil
+}
+
+func buildBinary() error {
+	log.Infof("building agent binary")
+	cmd := exec.Command("go", "build", "-o", "../bin", "../agent/tekagent")
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &out
+	if err := cmd.Run(); err != nil {
+		log.Errorf("failed to build agent binary:\n%s", out.String())
+		return err
+	}
+	return nil
+}
+
+type ProducerFactory func(address string, tlsEnabled bool, serverCertFile string, clientCertFile string, clientPrivateKeyFile string) (Producer, error)
+
+type Producer interface {
+	Produce(topicName string, messages []kafka.Message) error
+	Close() error
+}
+
+type ConsumerFactory func(address string, topicName string, groupID string, tlsEnabled bool, serverCertFile string, clientCertFile string, clientPrivateKeyFile string) (Consumer, error)
+
+type Consumer interface {
+	Fetch(timeout time.Duration) (*kafka.Message, error)
+	Close() error
+}
+
+func FetchMessages(maxMessages int, timeout time.Duration, consumer Consumer) ([]kafka.Message, error) {
+	var received []kafka.Message
+	for i := 0; i < maxMessages; i++ {
+		msg, err := consumer.Fetch(timeout)
+		if err != nil {
+			log.Errorf("err is %v", err)
+			return nil, err
+		}
+		if msg == nil {
+			// no more messages available
+			break
+		}
+		received = append(received, *msg)
+	}
+	return received, nil
+}
+
+func SortMessagesByKey(messages []kafka.Message) {
+	sort.SliceStable(messages, func(i, j int) bool {
+		return bytes.Compare(messages[i].Key, messages[j].Key) < 0
+	})
 }

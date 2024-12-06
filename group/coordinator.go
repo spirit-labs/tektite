@@ -13,25 +13,25 @@ import (
 	"github.com/spirit-labs/tektite/topicmeta"
 	"github.com/spirit-labs/tektite/transport"
 	"net"
+	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
 
 type Coordinator struct {
-	cfg            Conf
-	lock           sync.RWMutex
-	started        bool
-	kafkaAddress   string
-	topicProvider  topicInfoProvider
-	clientCache    *control.ClientCache
-	connFactory    transport.ConnectionFactory
-	connCachesLock sync.RWMutex
-	connCaches     map[string]*transport.ConnectionCache
-	tableGetter    sst.TableGetter
-	groups         map[string]*group
-	timers         sync.Map
-	membership     cluster.MembershipState
+	cfg           Conf
+	lock          sync.RWMutex
+	started       bool
+	kafkaAddress  string
+	topicProvider topicInfoProvider
+	clientCache   *control.ClientCache
+	connCaches    *transport.ConnCaches
+	tableGetter   sst.TableGetter
+	groups        map[string]*group
+	timers        sync.Map
+	membership    cluster.MembershipState
 }
 
 type topicInfoProvider interface {
@@ -39,24 +39,22 @@ type topicInfoProvider interface {
 }
 
 type Conf struct {
-	MinSessionTimeout              time.Duration
-	MaxSessionTimeout              time.Duration
-	DefaultRebalanceTimeout        time.Duration
-	DefaultSessionTimeout          time.Duration
-	InitialJoinDelay               time.Duration
-	NewMemberJoinTimeout           time.Duration
-	MaxPusherConnectionsPerAddress int
+	MinSessionTimeout       time.Duration
+	MaxSessionTimeout       time.Duration
+	DefaultRebalanceTimeout time.Duration
+	DefaultSessionTimeout   time.Duration
+	InitialJoinDelay        time.Duration
+	NewMemberJoinTimeout    time.Duration
 }
 
 func NewConf() Conf {
 	return Conf{
-		MinSessionTimeout:              DefaultMinSessionTimeout,
-		MaxSessionTimeout:              DefaultMaxSessionTimeout,
-		DefaultRebalanceTimeout:        DeafultDefaultRebalanceTimeout,
-		DefaultSessionTimeout:          DefaultDefaultSessionTimeout,
-		InitialJoinDelay:               DefaultInitialJoinDelay,
-		NewMemberJoinTimeout:           DefaultNewMemberJoinTimeout,
-		MaxPusherConnectionsPerAddress: DefaultMaxPusherConnectionsPerAddresss,
+		MinSessionTimeout:       DefaultMinSessionTimeout,
+		MaxSessionTimeout:       DefaultMaxSessionTimeout,
+		DefaultRebalanceTimeout: DeafultDefaultRebalanceTimeout,
+		DefaultSessionTimeout:   DefaultDefaultSessionTimeout,
+		InitialJoinDelay:        DefaultInitialJoinDelay,
+		NewMemberJoinTimeout:    DefaultNewMemberJoinTimeout,
 	}
 }
 
@@ -65,25 +63,23 @@ func (c *Conf) Validate() error {
 }
 
 const (
-	DefaultMinSessionTimeout               = 6 * time.Second
-	DefaultMaxSessionTimeout               = 30 * time.Minute
-	DefaultInitialJoinDelay                = 3 * time.Second
-	DefaultNewMemberJoinTimeout            = 5 * time.Minute
-	DefaultMaxPusherConnectionsPerAddresss = 10
-	DeafultDefaultRebalanceTimeout         = 5 * time.Minute
-	DefaultDefaultSessionTimeout           = 45 * time.Second
+	DefaultMinSessionTimeout       = 6 * time.Second
+	DefaultMaxSessionTimeout       = 30 * time.Minute
+	DefaultInitialJoinDelay        = 3 * time.Second
+	DefaultNewMemberJoinTimeout    = 5 * time.Minute
+	DeafultDefaultRebalanceTimeout = 5 * time.Minute
+	DefaultDefaultSessionTimeout   = 45 * time.Second
 )
 
 func NewCoordinator(cfg Conf, topicProvider topicInfoProvider, controlClientCache *control.ClientCache,
-	connFactory transport.ConnectionFactory, tableGetter sst.TableGetter) (*Coordinator, error) {
+	connCaches *transport.ConnCaches, tableGetter sst.TableGetter) (*Coordinator, error) {
 	return &Coordinator{
 		cfg:           cfg,
 		groups:        map[string]*group{},
 		topicProvider: topicProvider,
 		clientCache:   controlClientCache,
-		connFactory:   connFactory,
 		tableGetter:   tableGetter,
-		connCaches:    map[string]*transport.ConnectionCache{},
+		connCaches:    connCaches,
 	}, nil
 }
 
@@ -193,7 +189,7 @@ func (c *Coordinator) findCoordinator(key string) (int32, string, error) {
 	return memberID, address, err
 }
 
-func (c *Coordinator) HandleJoinGroupRequest(hdr *kafkaprotocol.RequestHeader, req *kafkaprotocol.JoinGroupRequest,
+func (c *Coordinator) HandleJoinGroupRequest(clientHost string, hdr *kafkaprotocol.RequestHeader, req *kafkaprotocol.JoinGroupRequest,
 	completionFunc func(resp *kafkaprotocol.JoinGroupResponse) error) error {
 	infos := make([]ProtocolInfo, len(req.Protocols))
 	for i, protoInfo := range req.Protocols {
@@ -211,7 +207,7 @@ func (c *Coordinator) HandleJoinGroupRequest(hdr *kafkaprotocol.RequestHeader, r
 		sessionTimeout = time.Duration(req.SessionTimeoutMs) * time.Millisecond
 	}
 	c.joinGroup(hdr.RequestApiVersion, common.SafeDerefStringPtr(req.GroupId),
-		common.SafeDerefStringPtr(hdr.ClientId), common.SafeDerefStringPtr(req.MemberId), common.SafeDerefStringPtr(req.ProtocolType),
+		common.SafeDerefStringPtr(hdr.ClientId), clientHost, common.SafeDerefStringPtr(req.MemberId), common.SafeDerefStringPtr(req.ProtocolType),
 		infos, sessionTimeout, rebalanceTimeout, func(result JoinResult) {
 			var resp kafkaprotocol.JoinGroupResponse
 			resp.ErrorCode = int16(result.ErrorCode)
@@ -239,8 +235,9 @@ func (c *Coordinator) HandleJoinGroupRequest(hdr *kafkaprotocol.RequestHeader, r
 	return nil
 }
 
-func (c *Coordinator) joinGroup(apiVersion int16, groupID string, clientID string, memberID string, protocolType string,
-	protocols []ProtocolInfo, sessionTimeout time.Duration, reBalanceTimeout time.Duration, completionFunc JoinCompletion) {
+func (c *Coordinator) joinGroup(apiVersion int16, groupID string, clientID string, clientHost string, memberID string,
+	protocolType string, protocols []ProtocolInfo, sessionTimeout time.Duration, reBalanceTimeout time.Duration,
+	completionFunc JoinCompletion) {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
 	if err := c.checkStarted(); err != nil {
@@ -272,7 +269,7 @@ func (c *Coordinator) joinGroup(apiVersion int16, groupID string, clientID strin
 		}
 		g = c.createGroup(groupID, groupEpoch)
 	}
-	g.Join(apiVersion, clientID, memberID, protocolType, protocols, sessionTimeout, reBalanceTimeout, completionFunc)
+	g.Join(apiVersion, clientID, clientHost, memberID, protocolType, protocols, sessionTimeout, reBalanceTimeout, completionFunc)
 }
 
 func (c *Coordinator) HandleSyncGroupRequest(req *kafkaprotocol.SyncGroupRequest,
@@ -440,6 +437,33 @@ func (c *Coordinator) OffsetCommitTransactional(req *kafkaprotocol.TxnOffsetComm
 	return tResp, nil
 }
 
+func (c *Coordinator) OffsetDelete(req *kafkaprotocol.OffsetDeleteRequest) (*kafkaprotocol.OffsetDeleteResponse, error) {
+	c.lock.RLock()
+	defer c.lock.RUnlock()
+	if err := c.checkStarted(); err != nil {
+		return nil, err
+	}
+	var resp kafkaprotocol.OffsetDeleteResponse
+	resp.Topics = make([]kafkaprotocol.OffsetDeleteResponseOffsetDeleteResponseTopic, len(req.Topics))
+	for i, topicData := range req.Topics {
+		resp.Topics[i].Name = req.Topics[i].Name
+		resp.Topics[i].Partitions = make([]kafkaprotocol.OffsetDeleteResponseOffsetDeleteResponsePartition, len(topicData.Partitions))
+		for j, partData := range topicData.Partitions {
+			resp.Topics[i].Partitions[j].PartitionIndex = partData.PartitionIndex
+		}
+	}
+	groupID := *req.GroupId
+	g, ok := c.getGroup(groupID)
+	if !ok {
+		return fillAllErrorCodesForOffsetDelete(req, kafkaprotocol.ErrorCodeGroupIDNotFound), nil
+	}
+	errCode := g.offsetDelete(req, &resp)
+	if errCode != kafkaprotocol.ErrorCodeNone {
+		return fillAllErrorCodesForOffsetDelete(req, errCode), nil
+	}
+	return &resp, nil
+}
+
 func (c *Coordinator) CompleteTx(groupID string, pid int64, abort bool) error {
 	return nil
 }
@@ -469,6 +493,141 @@ func (c *Coordinator) OffsetFetch(req *kafkaprotocol.OffsetFetchRequest) (*kafka
 	return &resp, nil
 }
 
+func (c *Coordinator) ListGroups(req *kafkaprotocol.ListGroupsRequest) (*kafkaprotocol.ListGroupsResponse, error) {
+	c.lock.RLock()
+	defer c.lock.RUnlock()
+	if err := c.checkStarted(); err != nil {
+		return nil, err
+	}
+	var respGroups []kafkaprotocol.ListGroupsResponseListedGroup
+	for _, g := range c.groups {
+		gsString := groupStateToString(g.state)
+		if matchesFilters(req.StatesFilter, gsString) &&
+			matchesFilters(req.TypesFilter, "consumer") {
+			respGroups = append(respGroups, kafkaprotocol.ListGroupsResponseListedGroup{
+				GroupId:      common.StrPtr(g.id),
+				ProtocolType: common.StrPtr(g.protocolType),
+				GroupState:   common.StrPtr(gsString),
+				GroupType:    common.StrPtr("consumer"),
+			})
+		}
+	}
+	// sort by group id
+	sort.SliceStable(respGroups, func(i, j int) bool {
+		return strings.Compare(common.SafeDerefStringPtr(respGroups[i].GroupId),
+			common.SafeDerefStringPtr(respGroups[j].GroupId)) < 0
+	})
+	return &kafkaprotocol.ListGroupsResponse{
+		Groups: respGroups,
+	}, nil
+}
+
+func matchesFilters(filters []*string, s string) bool {
+	if len(filters) == 0 {
+		return true
+	}
+	s = strings.ToLower(s)
+	for _, filter := range filters {
+		f := common.SafeDerefStringPtr(filter)
+		f = strings.ToLower(strings.TrimSpace(f))
+		if f == s {
+			return true
+		}
+	}
+	return false
+}
+
+func (c *Coordinator) DescribeGroups(req *kafkaprotocol.DescribeGroupsRequest) (*kafkaprotocol.DescribeGroupsResponse, error) {
+	c.lock.RLock()
+	defer c.lock.RUnlock()
+	if err := c.checkStarted(); err != nil {
+		return nil, err
+	}
+	var respGroups []kafkaprotocol.DescribeGroupsResponseDescribedGroup
+	for _, pGroupID := range req.Groups {
+		groupID := common.SafeDerefStringPtr(pGroupID)
+		g, ok := c.groups[groupID]
+		if !ok {
+			respGroups = append(respGroups, kafkaprotocol.DescribeGroupsResponseDescribedGroup{
+				GroupId:   common.StrPtr(groupID),
+				ErrorCode: kafkaprotocol.ErrorCodeInvalidGroupID,
+			})
+		} else {
+			groupState := groupStateToString(g.state)
+			respGroup := kafkaprotocol.DescribeGroupsResponseDescribedGroup{
+				GroupId:      common.StrPtr(g.id),
+				ProtocolType: common.StrPtr(g.protocolType),
+				GroupState:   common.StrPtr(groupState),
+			}
+			if g.state == StateActive {
+				respGroup.ProtocolData = common.StrPtr(g.protocolName)
+			}
+			if g.state != StateDead {
+				assignmentMap := make(map[string]AssignmentInfo, len(g.members))
+				for _, info := range g.assignments {
+					assignmentMap[info.MemberID] = info
+				}
+				memberInfos := g.createMemberInfos()
+				memberInfosMap := make(map[string]MemberInfo, len(memberInfos))
+				for _, memberInfo := range memberInfos {
+					memberInfosMap[memberInfo.MemberID] = memberInfo
+				}
+				for memberID, m := range g.members {
+					respMember := kafkaprotocol.DescribeGroupsResponseDescribedGroupMember{
+						MemberId:   common.StrPtr(memberID),
+						ClientId:   common.StrPtr(m.clientID),
+						ClientHost: common.StrPtr(m.clientHost),
+					}
+					if g.state == StateActive {
+						assignInfo, ok := assignmentMap[memberID]
+						if !ok {
+							panic("cannot find assignment for group")
+						}
+						respMember.MemberAssignment = assignInfo.Assignment
+						memberInfo, ok := memberInfosMap[memberID]
+						if !ok {
+							panic("cannot find member info for group")
+						}
+						respMember.MemberMetadata = memberInfo.MetaData
+					}
+					respGroup.Members = append(respGroup.Members, respMember)
+				}
+			}
+			respGroups = append(respGroups, respGroup)
+		}
+	}
+	return &kafkaprotocol.DescribeGroupsResponse{
+		Groups: respGroups,
+	}, nil
+}
+
+func (c *Coordinator) DeleteGroups(req *kafkaprotocol.DeleteGroupsRequest) (*kafkaprotocol.DeleteGroupsResponse, error) {
+	c.lock.RLock()
+	defer c.lock.RUnlock()
+	if err := c.checkStarted(); err != nil {
+		return nil, err
+	}
+	resp := kafkaprotocol.DeleteGroupsResponse{}
+	for _, pGroupId := range req.GroupsNames {
+		groupID := common.SafeDerefStringPtr(pGroupId)
+		g, ok := c.groups[groupID]
+		var errCode int16
+		if !ok {
+			errCode = kafkaprotocol.ErrorCodeInvalidGroupID
+		} else {
+			errCode = int16(g.deleteAllOffsets())
+		}
+		if errCode == kafkaprotocol.ErrorCodeNone {
+			delete(c.groups, groupID)
+		}
+		resp.Results = append(resp.Results, kafkaprotocol.DeleteGroupsResponseDeletableGroupResult{
+			GroupId:   common.StrPtr(groupID),
+			ErrorCode: errCode,
+		})
+	}
+	return &resp, nil
+}
+
 func (c *Coordinator) getGroup(groupID string) (*group, bool) {
 	g, ok := c.groups[groupID]
 	return g, ok
@@ -482,7 +641,7 @@ func (c *Coordinator) sendSyncError(completionFunc SyncCompletion, errorCode int
 	completionFunc(errorCode, nil)
 }
 
-func (c *Coordinator) getState(groupID string) int {
+func (c *Coordinator) getState(groupID string) GroupState {
 	g, ok := c.groups[groupID]
 	if !ok {
 		return -1
@@ -520,7 +679,7 @@ func (c *Coordinator) createGroup(groupID string, groupEpoch int) *group {
 		groupEpoch:              groupEpoch,
 		partHash:                partHash,
 		offsetWriterKey:         offsetWriterKey,
-		state:                   stateEmpty,
+		state:                   StateEmpty,
 		members:                 map[string]*member{},
 		pendingMemberIDs:        map[string]struct{}{},
 		supportedProtocolCounts: map[string]int{},
@@ -548,45 +707,37 @@ func (c *Coordinator) rescheduleTimer(timerKey string, delay time.Duration, acti
 	c.setTimer(timerKey, delay, action)
 }
 
-func (c *Coordinator) getConnection(address string) (transport.Connection, error) {
-	connCache, ok := c.getConnCache(address)
-	if !ok {
-		connCache = c.createConnCache(address)
-	}
-	return connCache.GetConnection()
-}
-
-func (c *Coordinator) getConnCache(address string) (*transport.ConnectionCache, bool) {
-	c.connCachesLock.RLock()
-	defer c.connCachesLock.RUnlock()
-	connCache, ok := c.connCaches[address]
-	return connCache, ok
-}
-
-func (c *Coordinator) createConnCache(address string) *transport.ConnectionCache {
-	c.connCachesLock.Lock()
-	defer c.connCachesLock.Unlock()
-	connCache, ok := c.connCaches[address]
-	if ok {
-		return connCache
-	}
-	connCache = transport.NewConnectionCache(address, c.cfg.MaxPusherConnectionsPerAddress, c.connFactory)
-	c.connCaches[address] = connCache
-	return connCache
-}
-
 func createCoordinatorKey(groupID string) string {
 	// prefix with 'g.' to disambiguate with transaction coordinator keys
 	return "g." + groupID
 }
 
+type GroupState int
+
 const (
-	stateEmpty             = 0
-	statePreReBalance      = 1
-	stateAwaitingReBalance = 2
-	stateActive            = 3
-	stateDead              = 4
+	StateEmpty             = GroupState(0)
+	StatePreReBalance      = GroupState(1)
+	StateAwaitingReBalance = GroupState(2)
+	StateActive            = GroupState(3)
+	StateDead              = GroupState(4)
 )
+
+func groupStateToString(gs GroupState) string {
+	switch gs {
+	case StateEmpty:
+		return "empty"
+	case StatePreReBalance:
+		return "assigning"
+	case StateAwaitingReBalance:
+		return "reconciling"
+	case StateActive:
+		return "stable"
+	case StateDead:
+		return "dead"
+	default:
+		panic("unknown group state")
+	}
+}
 
 type MemberInfo struct {
 	MemberID string
