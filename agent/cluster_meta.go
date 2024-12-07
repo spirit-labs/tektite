@@ -13,6 +13,27 @@ import (
 	"strings"
 )
 
+func (a *Agent) HandleDescribeClusterRequest(completionFunc func(resp *kafkaprotocol.DescribeClusterResponse) error) error {
+	resp := &kafkaprotocol.DescribeClusterResponse{
+		EndpointType: 1,
+		ClusterId:    common.StrPtr(a.cfg.ClusterName),
+		ControllerId: a.MemberID(),
+		Brokers:      nil,
+	}
+	clusterMetadata := a.controller.GetClusterMeta()
+	resp.Brokers = make([]kafkaprotocol.DescribeClusterResponseDescribeClusterBroker, len(clusterMetadata))
+	for i, agentMeta := range clusterMetadata {
+		resp.Brokers[i].BrokerId = agentMeta.ID
+		host, port, err := addressToHostPort(agentMeta.KafkaAddress)
+		if err != nil {
+			return err
+		}
+		resp.Brokers[i].Host = common.StrPtr(host)
+		resp.Brokers[i].Port = port
+	}
+	return completionFunc(resp)
+}
+
 func (a *Agent) HandleMetadataRequest(hdr *kafkaprotocol.RequestHeader, req *kafkaprotocol.MetadataRequest) (*kafkaprotocol.MetadataResponse, error) {
 	resp := &kafkaprotocol.MetadataResponse{}
 	resp.Topics = make([]kafkaprotocol.MetadataResponseMetadataResponseTopic, len(req.Topics))
@@ -70,20 +91,17 @@ func getAgentsInAz(az string, agents []control.AgentMeta) []control.AgentMeta {
 	return agentsInSameAz
 }
 
-func (a *Agent) handleMetadataRequest(hdr *kafkaprotocol.RequestHeader, req *kafkaprotocol.MetadataRequest, resp *kafkaprotocol.MetadataResponse) error {
+func (a *Agent) getAgentsInSameAz(hdr *kafkaprotocol.RequestHeader) ([]control.AgentMeta, error) {
 	clientID := common.SafeDerefStringPtr(hdr.ClientId)
 	az := getAZFromClientID(clientID)
 	if az == "" {
 		log.Warnf("Kafka client connecting with a ClientID (\"%s\") which does not contain availability zone. This means there may be unwanted cross AZ traffic. Please append tek_az=<availability zone> to the client id.",
 			clientID)
 	}
-	client, err := a.controlClientCache.GetClient()
-	if err != nil {
-		return err
-	}
+
 	clusterMetadata := a.controller.GetClusterMeta()
 	if len(clusterMetadata) == 0 {
-		return errors.New("no cluster metadata available")
+		return nil, errors.New("no cluster metadata available")
 	}
 	// Find agents in same AZ
 	agents := getAgentsInAz(az, clusterMetadata)
@@ -93,21 +111,29 @@ func (a *Agent) handleMetadataRequest(hdr *kafkaprotocol.RequestHeader, req *kaf
 		log.Warnf("There are no agents available for request availability zone: %s - availability zone %s will be chosen instead", az, azOther)
 		agents = getAgentsInAz(azOther, clusterMetadata)
 	}
+	return agents, nil
+}
+
+func (a *Agent) handleMetadataRequest(hdr *kafkaprotocol.RequestHeader, req *kafkaprotocol.MetadataRequest, resp *kafkaprotocol.MetadataResponse) error {
+	agents, err := a.getAgentsInSameAz(hdr)
+	if err != nil {
+		return err
+	}
 	resp.Brokers = make([]kafkaprotocol.MetadataResponseMetadataResponseBroker, len(agents))
 	for i, agent := range agents {
-		host, sPort, err := net.SplitHostPort(agent.KafkaAddress)
-		if err != nil {
-			return err
-		}
-		port, err := strconv.Atoi(sPort)
+		host, port, err := addressToHostPort(agent.KafkaAddress)
 		if err != nil {
 			return err
 		}
 		resp.Brokers[i] = kafkaprotocol.MetadataResponseMetadataResponseBroker{
 			Host:   &host,
-			Port:   int32(port),
+			Port:   port,
 			NodeId: agent.ID,
 		}
+	}
+	client, err := a.controlClientCache.GetClient()
+	if err != nil {
+		return err
 	}
 	// In version 1 and higher, an empty array indicates "request metadata for no topics," and a null array is used to
 	// indicate "request metadata for all topics."
@@ -144,6 +170,18 @@ func (a *Agent) handleMetadataRequest(hdr *kafkaprotocol.RequestHeader, req *kaf
 		}
 	}
 	return err
+}
+
+func addressToHostPort(address string) (string, int32, error) {
+	host, sPort, err := net.SplitHostPort(address)
+	if err != nil {
+		return "", 0, err
+	}
+	port, err := strconv.Atoi(sPort)
+	if err != nil {
+		return "", 0, err
+	}
+	return host, int32(port), nil
 }
 
 func (a *Agent) IsLeader(topicID int, partitionID int) (bool, error) {

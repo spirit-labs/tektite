@@ -72,6 +72,8 @@ var StandardIncluded = []string{
 	"DescribeConfigsResponse",
 	"AlterConfigsRequest",
 	"AlterConfigsResponse",
+	"DescribeClusterRequest",
+	"DescribeClusterResponse",
 }
 
 type SpecSet struct {

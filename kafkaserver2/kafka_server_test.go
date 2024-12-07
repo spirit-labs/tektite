@@ -370,3 +370,8 @@ func (t *testKafkaHandler) HandleAlterConfigsRequest(hdr *kafkaprotocol.RequestH
 	//TODO implement me
 	panic("implement me")
 }
+
+func (t *testKafkaHandler) HandleDescribeClusterRequest(hdr *kafkaprotocol.RequestHeader, req *kafkaprotocol.DescribeClusterRequest, completionFunc func(resp *kafkaprotocol.DescribeClusterResponse) error) error {
+	//TODO implement me
+	panic("implement me")
+}

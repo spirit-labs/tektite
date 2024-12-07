@@ -739,3 +739,8 @@ func (c *connection) HandleAlterConfigsRequest(hdr *kafkaprotocol.RequestHeader,
 	//TODO implement me
 	panic("implement me")
 }
+
+func (c *connection) HandleDescribeClusterRequest(hdr *kafkaprotocol.RequestHeader, req *kafkaprotocol.DescribeClusterRequest, completionFunc func(resp *kafkaprotocol.DescribeClusterResponse) error) error {
+	//TODO implement me
+	panic("implement me")
+}
