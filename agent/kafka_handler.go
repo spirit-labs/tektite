@@ -534,3 +534,8 @@ func (k *kafkaHandler) HandleAlterConfigsRequest(hdr *kafkaprotocol.RequestHeade
 	}
 	return completionFunc(resp)
 }
+
+func (k *kafkaHandler) HandleDescribeClusterRequest(_ *kafkaprotocol.RequestHeader,
+	_ *kafkaprotocol.DescribeClusterRequest, completionFunc func(resp *kafkaprotocol.DescribeClusterResponse) error) error {
+	return k.agent.HandleDescribeClusterRequest(completionFunc)
+}

@@ -31,6 +31,7 @@ const (
 	ApiKeyCreatePartitions   = 37
 	ApiKeyDeleteGroups       = 42
 	APIKeyOffsetDelete       = 47
+	ApiKeyDescribeCluster    = 60
 
 	// Custom API keys
 
@@ -150,6 +151,7 @@ var SupportedAPIVersions = []ApiVersionsResponseApiVersion{
 	{ApiKey: ApiKeyDeleteUserRequest, MinVersion: 0, MaxVersion: 0},
 	{ApiKey: ApiKeyDescribeConfigs, MinVersion: 1, MaxVersion: 1},
 	{ApiKey: ApiKeyAlterConfigs, MinVersion: 0, MaxVersion: 0},
+	{ApiKey: ApiKeyDescribeCluster, MinVersion: 0, MaxVersion: 0},
 }
 
 var SupportedCustomAPIVersions = []ApiVersionsResponseApiVersion{

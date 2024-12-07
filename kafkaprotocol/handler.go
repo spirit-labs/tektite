@@ -776,6 +776,33 @@ func HandleRequestBuffer(apiKey int16, buff []byte, handler RequestHandler, conn
 			_, err := conn.Write(respBuff)
 			return err
 		})
+    case 60:
+		var req DescribeClusterRequest
+		requestHeaderVersion, responseHeaderVersion := req.HeaderVersions(apiVersion)
+		var requestHeader RequestHeader
+		var offset int
+		if offset, err = requestHeader.Read(requestHeaderVersion, buff); err != nil {
+			return err
+		}
+		minVer, maxVer := req.SupportedApiVersions()
+		if err := checkSupportedVersion(apiKey, apiVersion, minVer, maxVer); err != nil {
+			return err
+		}
+		if _, err := req.Read(apiVersion, buff[offset:]); err != nil {
+			return err
+		}
+		responseHeader.CorrelationId = requestHeader.CorrelationId
+		err = handler.HandleDescribeClusterRequest(&requestHeader, &req, func(resp *DescribeClusterResponse) error {
+			respHeaderSize, hdrTagSizes := responseHeader.CalcSize(responseHeaderVersion, nil)
+			respSize, tagSizes := resp.CalcSize(apiVersion, nil)
+			totRespSize := respHeaderSize + respSize
+			respBuff := make([]byte, 0, 4+totRespSize)
+			respBuff = binary.BigEndian.AppendUint32(respBuff, uint32(totRespSize))
+			respBuff = responseHeader.Write(responseHeaderVersion, respBuff, hdrTagSizes)
+			respBuff = resp.Write(apiVersion, respBuff, tagSizes)
+			_, err := conn.Write(respBuff)
+			return err
+		})
     case 1000:
 		var req PutUserCredentialsRequest
 		requestHeaderVersion, responseHeaderVersion := req.HeaderVersions(apiVersion)
@@ -864,6 +891,7 @@ type RequestHandler interface {
     HandleDeleteTopicsRequest(hdr *RequestHeader, req *DeleteTopicsRequest, completionFunc func(resp *DeleteTopicsResponse) error) error
     HandleDescribeConfigsRequest(hdr *RequestHeader, req *DescribeConfigsRequest, completionFunc func(resp *DescribeConfigsResponse) error) error
     HandleAlterConfigsRequest(hdr *RequestHeader, req *AlterConfigsRequest, completionFunc func(resp *AlterConfigsResponse) error) error
+    HandleDescribeClusterRequest(hdr *RequestHeader, req *DescribeClusterRequest, completionFunc func(resp *DescribeClusterResponse) error) error
     HandlePutUserCredentialsRequest(hdr *RequestHeader, req *PutUserCredentialsRequest, completionFunc func(resp *PutUserCredentialsResponse) error) error
     HandleDeleteUserRequest(hdr *RequestHeader, req *DeleteUserRequest, completionFunc func(resp *DeleteUserResponse) error) error
 }

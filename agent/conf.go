@@ -90,6 +90,7 @@ func CreateConfFromCommandConf(commandConf CommandConf) (Conf, error) {
 
 	dataBucketName := commandConf.ClusterName + "-data"
 	// configure cluster membership
+	cfg.ClusterName = commandConf.ClusterName
 	cfg.ClusterMembershipConfig.BucketName = dataBucketName
 	cfg.ClusterMembershipConfig.KeyPrefix = "membership"
 	updateInterval, err :=
@@ -208,10 +209,12 @@ type Conf struct {
 	AllowScramNonceAsPrefix   bool
 	AddJunkOnScramNonce       bool
 	DefaultTopicRetentionTime time.Duration
+	ClusterName               string
 }
 
 func NewConf() Conf {
 	return Conf{
+		ClusterName:               DefaultClusterName,
 		ClusterMembershipConfig:   cluster.NewMembershipConf(),
 		PusherConf:                pusher.NewConf(),
 		ControllerConf:            control.NewConf(),
@@ -227,6 +230,7 @@ func NewConf() Conf {
 }
 
 const (
+	DefaultClusterName               = "tektite-cluster"
 	DefaultDefaultTopicRetentionTime = 7 * 24 * time.Hour
 	DefaultMaxControllerClients      = 10
 	DefaultMaxConnectionsPerAddress  = 10

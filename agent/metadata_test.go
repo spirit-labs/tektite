@@ -337,3 +337,48 @@ func splitHostPort(t *testing.T, address string) (string, int) {
 	require.NoError(t, err)
 	return host, port
 }
+
+func TestDescribeCluster(t *testing.T) {
+	cfg := NewConf()
+	numAgents := 5
+	agents, tearDown := setupAgents(t, cfg, numAgents, func(i int) string {
+		return "az1"
+	})
+	defer tearDown(t)
+	numTopics := 10
+	setupNumTopics(t, numTopics, agents[0])
+
+	cl, err := apiclient.NewKafkaApiClient()
+	require.NoError(t, err)
+	conn, err := cl.NewConnection(agents[0].Conf().KafkaListenerConfig.Address)
+	require.NoError(t, err)
+	defer func() {
+		err := conn.Close()
+		require.NoError(t, err)
+	}()
+
+	req := &kafkaprotocol.DescribeClusterRequest{}
+
+	resp := &kafkaprotocol.DescribeClusterResponse{}
+	r, err := conn.SendRequest(req, kafkaprotocol.ApiKeyDescribeCluster, 0, resp)
+	require.NoError(t, err)
+	resp, ok := r.(*kafkaprotocol.DescribeClusterResponse)
+	require.True(t, ok)
+
+	require.Equal(t, len(agents), len(resp.Brokers))
+	sort.SliceStable(agents, func(i, j int) bool {
+		return agents[i].MemberID() < agents[j].MemberID()
+	})
+	brokersCp := make([]kafkaprotocol.DescribeClusterResponseDescribeClusterBroker, len(resp.Brokers))
+	copy(brokersCp, resp.Brokers)
+	sort.SliceStable(brokersCp, func(i, j int) bool {
+		return brokersCp[i].BrokerId < brokersCp[j].BrokerId
+	})
+	for i, agent := range agents {
+		broker := brokersCp[i]
+		require.Equal(t, agent.MemberID(), broker.BrokerId)
+		address, port := splitHostPort(t, agent.cfg.KafkaListenerConfig.Address)
+		require.Equal(t, address, common.SafeDerefStringPtr(broker.Host))
+		require.Equal(t, port, int(broker.Port))
+	}
+}
