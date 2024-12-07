@@ -505,3 +505,32 @@ func (k *kafkaHandler) parseRetentionConfig(topic kafkaprotocol.CreateTopicsRequ
 	}
 	return retentionTime, respConfigs, errCode, errMsg
 }
+
+func (k *kafkaHandler) HandleDescribeConfigsRequest(hdr *kafkaprotocol.RequestHeader,
+	req *kafkaprotocol.DescribeConfigsRequest, completionFunc func(resp *kafkaprotocol.DescribeConfigsResponse) error) error {
+	resp := &kafkaprotocol.DescribeConfigsResponse{
+		Results: make([]kafkaprotocol.DescribeConfigsResponseDescribeConfigsResult, len(req.Resources)),
+	}
+	// We currently do not return any configs via the api
+	for i, resource := range req.Resources {
+		resp.Results[i].ResourceType = resource.ResourceType
+		resp.Results[i].ResourceName = resource.ResourceName
+		resp.Results[i].Configs = []kafkaprotocol.DescribeConfigsResponseDescribeConfigsResourceResult{}
+	}
+	return completionFunc(resp)
+}
+
+func (k *kafkaHandler) HandleAlterConfigsRequest(hdr *kafkaprotocol.RequestHeader,
+	req *kafkaprotocol.AlterConfigsRequest, completionFunc func(resp *kafkaprotocol.AlterConfigsResponse) error) error {
+	resp := &kafkaprotocol.AlterConfigsResponse{
+		Responses: make([]kafkaprotocol.AlterConfigsResponseAlterConfigsResourceResponse, len(req.Resources)),
+	}
+	// We currently do not return any configs via the api
+	for i, resource := range req.Resources {
+		resp.Responses[i].ResourceType = resource.ResourceType
+		resp.Responses[i].ResourceName = resource.ResourceName
+		resp.Responses[i].ErrorCode = kafkaprotocol.ErrorCodeInvalidConfig
+		resp.Responses[i].ErrorMessage = common.StrPtr("changing config not supported")
+	}
+	return completionFunc(resp)
+}

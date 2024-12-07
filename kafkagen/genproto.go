@@ -68,6 +68,10 @@ var StandardIncluded = []string{
 	"CreateTopicsResponse",
 	"DeleteTopicsRequest",
 	"DeleteTopicsResponse",
+	"DescribeConfigsRequest",
+	"DescribeConfigsResponse",
+	"AlterConfigsRequest",
+	"AlterConfigsResponse",
 }
 
 type SpecSet struct {

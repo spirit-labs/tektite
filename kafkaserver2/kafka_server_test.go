@@ -360,3 +360,13 @@ func (t *testKafkaHandler) HandleCreatePartitionsRequest(hdr *kafkaprotocol.Requ
 	//TODO implement me
 	panic("implement me")
 }
+
+func (t *testKafkaHandler) HandleDescribeConfigsRequest(hdr *kafkaprotocol.RequestHeader, req *kafkaprotocol.DescribeConfigsRequest, completionFunc func(resp *kafkaprotocol.DescribeConfigsResponse) error) error {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (t *testKafkaHandler) HandleAlterConfigsRequest(hdr *kafkaprotocol.RequestHeader, req *kafkaprotocol.AlterConfigsRequest, completionFunc func(resp *kafkaprotocol.AlterConfigsResponse) error) error {
+	//TODO implement me
+	panic("implement me")
+}
