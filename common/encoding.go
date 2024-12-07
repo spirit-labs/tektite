@@ -1,6 +1,8 @@
 package common
 
-import "encoding/binary"
+import (
+	"encoding/binary"
+)
 
 const (
 	EntryTypeTopicData      = 0

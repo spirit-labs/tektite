@@ -11,7 +11,6 @@ import (
 	"github.com/spirit-labs/tektite/kafkaprotocol"
 	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/transport"
-	"math"
 	"sync"
 	"time"
 )
@@ -856,23 +855,11 @@ func (g *group) deleteAllOffsets() int {
 	g.lock.Lock()
 	defer g.lock.Unlock()
 	// We write a prefix deletion
-	tombstoneKey := make([]byte, 0, 24)
-	tombstoneKey = append(tombstoneKey, g.partHash...)
-	tombstoneKey = encoding.EncodeVersion(tombstoneKey, math.MaxUint64)
-	endMarker := make([]byte, 0, 24)
-	endMarker = append(endMarker, common.IncBigEndianBytes(g.partHash)...)
-	endMarker = encoding.EncodeVersion(endMarker, math.MaxUint64)
-	tombeStoneKv := common.KV{
-		Key: tombstoneKey,
-	}
-	endMarkerKv := common.KV{
-		Key:   endMarker,
-		Value: []byte{'x'},
-	}
+	kvs := encoding.CreatePrefixDeletionKVs(g.partHash)
 	commitReq := common.DirectWriteRequest{
 		WriterKey:   g.offsetWriterKey,
 		WriterEpoch: g.groupEpoch,
-		KVs:         []common.KV{tombeStoneKv, endMarkerKv},
+		KVs:         kvs,
 	}
 	buff := commitReq.Serialize(createRequestBuffer())
 	pusherAddress, ok := cluster.ChooseMemberAddressForHash(g.partHash, g.gc.membership.Members)

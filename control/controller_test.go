@@ -8,12 +8,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/google/uuid"
+	"github.com/spirit-labs/tektite/asl/encoding"
 	"github.com/spirit-labs/tektite/cluster"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/lsm"
 	"github.com/spirit-labs/tektite/objstore"
 	"github.com/spirit-labs/tektite/objstore/dev"
 	"github.com/spirit-labs/tektite/offsets"
+	"github.com/spirit-labs/tektite/parthash"
 	"github.com/spirit-labs/tektite/sst"
 	"github.com/spirit-labs/tektite/topicmeta"
 	"github.com/spirit-labs/tektite/transport"
@@ -341,13 +343,38 @@ func TestControllerGroupEpochs(t *testing.T) {
 	}
 }
 
-func TestControllerCreateGetDeleteTopics(t *testing.T) {
-	objStore := dev.NewInMemStore(0)
+func setupControllerWithPusherSink(t *testing.T, objStore objstore.Client) (*Controller, *fakePusherSink, func(t *testing.T)) {
 	controllers, _, tearDown := setupControllersWithObjectStore(t, 1, objStore)
 
-	updateMembership(t, 1, 1, controllers, 0)
+	controller := controllers[0]
+	fp := &fakePusherSink{}
+	controller.transportServer.RegisterHandler(transport.HandlerIDTablePusherDirectWrite, fp.HandleDirectWrite)
+	controller.SetTableGetter(func(tableID sst.SSTableID) (*sst.SSTable, error) {
+		buff, err := objStore.Get(context.Background(), "tektite-data", string(tableID))
+		if err != nil {
+			return nil, err
+		}
+		if len(buff) == 0 {
+			return nil, nil
+		}
+		tab := sst.SSTable{}
+		tab.Deserialize(buff, 0)
+		return &tab, nil
+	})
 
-	cl, err := controllers[0].Client()
+	return controller, fp, tearDown
+}
+
+func TestControllerCreateGetDeleteTopics(t *testing.T) {
+
+	objStore := dev.NewInMemStore(0)
+
+	controller, fp, tearDown := setupControllerWithPusherSink(t, objStore)
+	defer tearDown(t)
+
+	updateMembership(t, 1, 1, []*Controller{controller}, 0)
+
+	cl, err := controller.Client()
 	require.NoError(t, err)
 
 	numTopics := 100
@@ -376,9 +403,10 @@ func TestControllerCreateGetDeleteTopics(t *testing.T) {
 	err = cl.Close()
 	require.NoError(t, err)
 	tearDown(t)
-	controllers, _, tearDown = setupControllersWithObjectStore(t, 1, objStore)
-	updateMembership(t, 1, 1, controllers, 0)
-	cl, err = controllers[0].Client()
+	controller, fp, tearDown = setupControllerWithPusherSink(t, objStore)
+	defer tearDown(t)
+	updateMembership(t, 1, 1, []*Controller{controller}, 0)
+	cl, err = controller.Client()
 	require.NoError(t, err)
 
 	// Topics should still be there
@@ -389,6 +417,7 @@ func TestControllerCreateGetDeleteTopics(t *testing.T) {
 		require.Equal(t, info, received)
 	}
 
+	var expectedKvs []common.KV
 	// Now delete half of them
 	for i := 0; i < len(infos)/2; i++ {
 		info := infos[i]
@@ -397,6 +426,24 @@ func TestControllerCreateGetDeleteTopics(t *testing.T) {
 		_, _, exists, err := cl.GetTopicInfo(info.Name)
 		require.NoError(t, err)
 		require.False(t, exists)
+
+		for partitionID := 0; partitionID < info.PartitionCount; partitionID++ {
+			prefix, err := parthash.CreatePartitionHash(info.ID, partitionID)
+			require.NoError(t, err)
+			expectedKvs = append(expectedKvs, encoding.CreatePrefixDeletionKVs(prefix)...)
+		}
+	}
+	// make sure there are prefix deletions for the partitions
+	receivedKvs := fp.getAllKvs()
+	require.Equal(t, len(expectedKvs), len(receivedKvs))
+	for i, expected := range expectedKvs {
+		received := receivedKvs[i]
+		require.Equal(t, expected.Key, received.Key)
+		if len(expected.Value) == 0 {
+			require.Equal(t, 0, len(received.Value))
+		} else {
+			require.Equal(t, expected.Value, received.Value)
+		}
 	}
 
 	// Rest should still be there
@@ -412,9 +459,10 @@ func TestControllerCreateGetDeleteTopics(t *testing.T) {
 	err = cl.Close()
 	require.NoError(t, err)
 	tearDown(t)
-	controllers, _, tearDown = setupControllersWithObjectStore(t, 1, objStore)
-	updateMembership(t, 1, 1, controllers, 0)
-	cl, err = controllers[0].Client()
+	controller, fp, tearDown = setupControllerWithPusherSink(t, objStore)
+	defer tearDown(t)
+	updateMembership(t, 1, 1, []*Controller{controller}, 0)
+	cl, err = controller.Client()
 	require.NoError(t, err)
 
 	for i, info := range infos {
@@ -443,10 +491,11 @@ func TestControllerCreateGetDeleteTopics(t *testing.T) {
 	err = cl.Close()
 	require.NoError(t, err)
 	tearDown(t)
-	controllers, _, tearDown = setupControllersWithObjectStore(t, 1, objStore)
+	controller, fp, tearDown = setupControllerWithPusherSink(t, objStore)
 	defer tearDown(t)
-	updateMembership(t, 1, 1, controllers, 0)
-	cl, err = controllers[0].Client()
+	updateMembership(t, 1, 1, []*Controller{controller}, 0)
+	cl, err = controller.Client()
+	require.NoError(t, err)
 	require.NoError(t, err)
 	defer func() {
 		err = cl.Close()
@@ -696,6 +745,7 @@ type fakePusherSink struct {
 	lock               sync.Mutex
 	receivedRPCVersion int16
 	received           *common.DirectWriteRequest
+	allKvs             []common.KV
 }
 
 func (f *fakePusherSink) HandleDirectWrite(_ *transport.ConnectionContext, request []byte, responseBuff []byte, responseWriter transport.ResponseWriter) error {
@@ -706,6 +756,8 @@ func (f *fakePusherSink) HandleDirectWrite(_ *transport.ConnectionContext, reque
 	f.receivedRPCVersion = int16(binary.BigEndian.Uint16(request))
 	f.received.Deserialize(request, 2)
 
+	f.allKvs = append(f.allKvs, f.received.KVs...)
+
 	return responseWriter(responseBuff, nil)
 }
 
@@ -713,6 +765,12 @@ func (f *fakePusherSink) getReceived() (*common.DirectWriteRequest, int16) {
 	f.lock.Lock()
 	defer f.lock.Unlock()
 	return f.received, f.receivedRPCVersion
+}
+
+func (f *fakePusherSink) getAllKvs() []common.KV {
+	f.lock.Lock()
+	defer f.lock.Unlock()
+	return f.allKvs
 }
 
 func TestControllerGetAllTopicInfos(t *testing.T) {

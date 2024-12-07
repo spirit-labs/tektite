@@ -126,3 +126,22 @@ func ReadDecimalFromBuffer(buffer []byte, offset int) (types.Decimal, int) {
 		Num: decimal128.New(int64(hi), lo),
 	}, offset
 }
+
+func CreatePrefixDeletionKVs(prefix []byte) []common.KV {
+	tombstoneKey := make([]byte, 0, 24)
+	tombstoneKey = append(tombstoneKey, prefix...)
+	tombstoneKey = EncodeVersion(tombstoneKey, math.MaxUint64)
+	endMarker := make([]byte, 0, 24)
+	endMarker = append(endMarker, common.IncBigEndianBytes(prefix)...)
+	endMarker = EncodeVersion(endMarker, math.MaxUint64)
+	tombStoneKv := common.KV{
+		Key: tombstoneKey,
+	}
+	endMarkerKv := common.KV{
+		Key:   endMarker,
+		Value: []byte{'x'},
+	}
+	return []common.KV{
+		tombStoneKv, endMarkerKv,
+	}
+}

@@ -3,6 +3,8 @@ package control
 import (
 	"encoding/binary"
 	"fmt"
+	"github.com/spirit-labs/tektite/asl/encoding"
+	"github.com/spirit-labs/tektite/parthash"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -542,7 +544,12 @@ func (c *Controller) handleCreateOrUpdateTopic(_ *transport.ConnectionContext, r
 
 func (c *Controller) handleDeleteTopic(_ *transport.ConnectionContext, request []byte, responseBuff []byte, responseWriter transport.ResponseWriter) error {
 	c.lock.RLock()
-	defer c.lock.RUnlock()
+	unlocked := false
+	defer func() {
+		if !unlocked {
+			c.lock.RUnlock()
+		}
+	}()
 	if !c.requestChecks(request, responseWriter) {
 		return nil
 	}
@@ -551,8 +558,32 @@ func (c *Controller) handleDeleteTopic(_ *transport.ConnectionContext, request [
 	if err := c.checkLeaderVersion(req.LeaderVersion); err != nil {
 		return responseWriter(nil, err)
 	}
-	err := c.topicMetaManager.DeleteTopic(req.TopicName)
+	info, _, ok, err := c.topicMetaManager.GetTopicInfo(req.TopicName)
 	if err != nil {
+		return responseWriter(nil, err)
+	}
+	if !ok {
+		err := common.NewTektiteErrorf(common.TopicDoesNotExist, "topic: %s does not exist", req.TopicName)
+		return responseWriter(nil, err)
+	}
+	err = c.topicMetaManager.DeleteTopic(req.TopicName)
+	if err != nil {
+		return responseWriter(nil, err)
+	}
+	// delete all the data
+	var kvs []common.KV
+	for i := 0; i < info.PartitionCount; i++ {
+		partHash, err := parthash.CreatePartitionHash(info.ID, i)
+		if err != nil {
+			return responseWriter(nil, err)
+		}
+		kvs = append(kvs, encoding.CreatePrefixDeletionKVs(partHash)...)
+	}
+	// Must unlock before sending direct write to avoid deadlock with table pusher calling back into controller
+	// to register table
+	c.lock.RUnlock()
+	unlocked = true
+	if err := c.sendDirectWrite(kvs); err != nil {
 		return responseWriter(nil, err)
 	}
 	return responseWriter(responseBuff, nil)
