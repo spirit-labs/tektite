@@ -729,3 +729,13 @@ func (c *connection) HandleCreatePartitionsRequest(hdr *kafkaprotocol.RequestHea
 	//TODO implement me
 	panic("implement me")
 }
+
+func (c *connection) HandleDescribeConfigsRequest(hdr *kafkaprotocol.RequestHeader, req *kafkaprotocol.DescribeConfigsRequest, completionFunc func(resp *kafkaprotocol.DescribeConfigsResponse) error) error {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (c *connection) HandleAlterConfigsRequest(hdr *kafkaprotocol.RequestHeader, req *kafkaprotocol.AlterConfigsRequest, completionFunc func(resp *kafkaprotocol.AlterConfigsResponse) error) error {
+	//TODO implement me
+	panic("implement me")
+}

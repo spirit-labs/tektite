@@ -25,6 +25,8 @@ const (
 	APIKeyAddOffsetsToTxn    = 25
 	APIKeyEndTxn             = 26
 	APIKeyTxnOffsetCommit    = 28
+	ApiKeyDescribeConfigs    = 32
+	ApiKeyAlterConfigs       = 33
 	APIKeySaslAuthenticate   = 36
 	ApiKeyCreatePartitions   = 37
 	ApiKeyDeleteGroups       = 42
@@ -146,6 +148,8 @@ var SupportedAPIVersions = []ApiVersionsResponseApiVersion{
 	*/
 	{ApiKey: ApiKeyPutUserCredentialsRequest, MinVersion: 0, MaxVersion: 0},
 	{ApiKey: ApiKeyDeleteUserRequest, MinVersion: 0, MaxVersion: 0},
+	{ApiKey: ApiKeyDescribeConfigs, MinVersion: 1, MaxVersion: 1},
+	{ApiKey: ApiKeyAlterConfigs, MinVersion: 0, MaxVersion: 0},
 }
 
 var SupportedCustomAPIVersions = []ApiVersionsResponseApiVersion{
