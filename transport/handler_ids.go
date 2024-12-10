@@ -17,6 +17,10 @@ const (
 	HandlerIDControllerGenerateSequence
 	HandlerIDControllerPutUserCredentials
 	HandlerIDControllerDeleteUserCredentials
+	HandlerIDControllerAuthorise
+	HandlerIDControllerCreateAcls
+	HandlerIDControllerListAcls
+	HandlerIDControllerDeleteAcls
 	HandlerIDMetaLocalCacheTopicAdded
 	HandlerIDMetaLocalCacheTopicDeleted
 	HandlerIDFetchCacheGetTableBytes

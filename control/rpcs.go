@@ -2,6 +2,7 @@ package control
 
 import (
 	"encoding/binary"
+	"github.com/spirit-labs/tektite/acls"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/lsm"
 	"github.com/spirit-labs/tektite/offsets"
@@ -701,5 +702,158 @@ func (p *DeleteUserCredentialsRequest) Deserialize(buff []byte, offset int) int 
 	offset += 4
 	p.Username = string(buff[offset : offset+ln])
 	offset += ln
+	return offset
+}
+
+type AuthoriseRequest struct {
+	LeaderVersion int
+	Principal     string
+	ResourceType  acls.ResourceType
+	ResourceName  string
+	Operation     acls.Operation
+}
+
+func (a *AuthoriseRequest) Serialize(buff []byte) []byte {
+	buff = binary.BigEndian.AppendUint64(buff, uint64(a.LeaderVersion))
+	buff = binary.BigEndian.AppendUint32(buff, uint32(len(a.Principal)))
+	buff = append(buff, a.Principal...)
+	buff = append(buff, byte(a.ResourceType))
+	buff = binary.BigEndian.AppendUint32(buff, uint32(len(a.ResourceName)))
+	buff = append(buff, a.ResourceName...)
+	return append(buff, byte(a.Operation))
+}
+
+func (a *AuthoriseRequest) Deserialize(buff []byte, offset int) int {
+	a.LeaderVersion = int(binary.BigEndian.Uint64(buff[offset:]))
+	offset += 8
+	lp := int(binary.BigEndian.Uint32(buff[offset:]))
+	offset += 4
+	a.Principal = string(buff[offset : offset+lp])
+	offset += lp
+	a.ResourceType = acls.ResourceType(buff[offset])
+	offset++
+	lr := int(binary.BigEndian.Uint32(buff[offset:]))
+	offset += 4
+	a.ResourceName = string(buff[offset : offset+lr])
+	offset += lr
+	a.Operation = acls.Operation(buff[offset])
+	offset++
+	return offset
+}
+
+type AuthoriseResponse struct {
+	Authorised bool
+}
+
+func (a *AuthoriseResponse) Serialize(buff []byte) []byte {
+	if a.Authorised {
+		buff = append(buff, 1)
+	} else {
+		buff = append(buff, 0)
+	}
+	return buff
+}
+
+func (a *AuthoriseResponse) Deserialize(buff []byte, offset int) int {
+	a.Authorised = buff[offset] == 1
+	return offset + 1
+}
+
+type CreateAclsRequest struct {
+	LeaderVersion int
+	AclEntries    []acls.AclEntry
+}
+
+func (a *CreateAclsRequest) Serialize(buff []byte) []byte {
+	buff = binary.BigEndian.AppendUint64(buff, uint64(a.LeaderVersion))
+	buff = binary.BigEndian.AppendUint32(buff, uint32(len(a.AclEntries)))
+	for _, acl := range a.AclEntries {
+		buff = acl.Serialize(buff)
+	}
+	return buff
+}
+
+func (a *CreateAclsRequest) Deserialize(buff []byte, offset int) int {
+	a.LeaderVersion = int(binary.BigEndian.Uint64(buff[offset:]))
+	offset += 8
+	la := int(binary.BigEndian.Uint32(buff[offset:]))
+	offset += 4
+	a.AclEntries = make([]acls.AclEntry, la)
+	for i := 0; i < la; i++ {
+		offset = a.AclEntries[i].Deserialize(buff, offset)
+	}
+	return offset
+}
+
+type ListOrDeleteAclsRequest struct {
+	LeaderVersion      int
+	ResourceType       acls.ResourceType
+	ResourceNameFilter string
+	PatternTypeFilter  acls.ResourcePatternType
+	Principal          string
+	Host               string
+	Operation          acls.Operation
+	Permission         acls.Permission
+}
+
+func (a *ListOrDeleteAclsRequest) Serialize(buff []byte) []byte {
+	buff = binary.BigEndian.AppendUint64(buff, uint64(a.LeaderVersion))
+	buff = append(buff, byte(a.ResourceType))
+	buff = binary.BigEndian.AppendUint32(buff, uint32(len(a.ResourceNameFilter)))
+	buff = append(buff, a.ResourceNameFilter...)
+	buff = append(buff, byte(a.PatternTypeFilter))
+	buff = binary.BigEndian.AppendUint32(buff, uint32(len(a.Principal)))
+	buff = append(buff, a.Principal...)
+	buff = binary.BigEndian.AppendUint32(buff, uint32(len(a.Host)))
+	buff = append(buff, a.Host...)
+	buff = append(buff, byte(a.Operation))
+	return append(buff, byte(a.Permission))
+}
+
+func (a *ListOrDeleteAclsRequest) Deserialize(buff []byte, offset int) int {
+	a.LeaderVersion = int(binary.BigEndian.Uint64(buff[offset:]))
+	offset += 8
+	a.ResourceType = acls.ResourceType(buff[offset])
+	offset++
+	l := int(binary.BigEndian.Uint32(buff[offset:]))
+	offset += 4
+	a.ResourceNameFilter = string(buff[offset : offset+l])
+	offset += l
+	a.PatternTypeFilter = acls.ResourcePatternType(buff[offset])
+	offset++
+	l = int(binary.BigEndian.Uint32(buff[offset:]))
+	offset += 4
+	a.Principal = string(buff[offset : offset+l])
+	offset += l
+	l = int(binary.BigEndian.Uint32(buff[offset:]))
+	offset += 4
+	a.Host = string(buff[offset : offset+l])
+	offset += l
+	a.Operation = acls.Operation(buff[offset])
+	offset++
+	a.Permission = acls.Permission(buff[offset])
+	offset++
+	return offset
+}
+
+type ListAclsResponse struct {
+	AclEntries []acls.AclEntry
+}
+
+func (a *ListAclsResponse) Serialize(buff []byte) []byte {
+	buff = binary.BigEndian.AppendUint32(buff, uint32(len(a.AclEntries)))
+	for _, acl := range a.AclEntries {
+		buff = acl.Serialize(buff)
+	}
+	return buff
+}
+
+func (a *ListAclsResponse) Deserialize(buff []byte, offset int) int {
+	la := int(binary.BigEndian.Uint32(buff[offset:]))
+	offset += 4
+	a.AclEntries = make([]acls.AclEntry, la)
+	for i := 0; i < la; i++ {
+		offset = a.AclEntries[i].Deserialize(buff, offset)
+	}
 	return offset
 }

@@ -1,6 +1,7 @@
 package control
 
 import (
+	"github.com/spirit-labs/tektite/acls"
 	"github.com/spirit-labs/tektite/lsm"
 	"github.com/spirit-labs/tektite/offsets"
 	"github.com/spirit-labs/tektite/sst"
@@ -558,6 +559,114 @@ func TestSerializeDeserializeDeleteUserCredentialsRequest(t *testing.T) {
 	buff = append(buff, 1, 2, 3)
 	buff = req.Serialize(buff)
 	var req2 DeleteUserCredentialsRequest
+	off := req2.Deserialize(buff, 3)
+	require.Equal(t, req, req2)
+	require.Equal(t, off, len(buff))
+}
+
+func TestSerializeDeserializeAuthoriseRequest(t *testing.T) {
+	req := AuthoriseRequest{
+		LeaderVersion: 23424,
+		Principal:     "joe bloggs",
+		ResourceType:  acls.ResourceTypeTopic,
+		ResourceName:  "armadillo-topic",
+		Operation:     acls.OperationCreate,
+	}
+	var buff []byte
+	buff = append(buff, 1, 2, 3)
+	buff = req.Serialize(buff)
+	var req2 AuthoriseRequest
+	off := req2.Deserialize(buff, 3)
+	require.Equal(t, req, req2)
+	require.Equal(t, off, len(buff))
+}
+
+func TestSerializeDeserializeAuthoriseResponse(t *testing.T) {
+	testSerializeDeserializeAuthoriseResponse(t, false)
+	testSerializeDeserializeAuthoriseResponse(t, true)
+}
+
+func testSerializeDeserializeAuthoriseResponse(t *testing.T, authorised bool) {
+	req := AuthoriseResponse{
+		Authorised: authorised,
+	}
+	var buff []byte
+	buff = append(buff, 1, 2, 3)
+	buff = req.Serialize(buff)
+	var req2 AuthoriseResponse
+	off := req2.Deserialize(buff, 3)
+	require.Equal(t, req, req2)
+	require.Equal(t, off, len(buff))
+}
+
+func TestSerializeDeserializeCreateAclsRequest(t *testing.T) {
+	req := CreateAclsRequest{
+		LeaderVersion: 123123,
+		AclEntries: []acls.AclEntry{
+			{
+				Principal: "john", ResourceType: acls.ResourceTypeTopic, ResourceName: "topic1",
+				Operation: acls.OperationRead, Permission: acls.PermissionAllow,
+			},
+			{
+				Principal: "george", ResourceType: acls.ResourceTypeGroup, ResourceName: "group1",
+				Operation: acls.OperationAlter, Permission: acls.PermissionDeny,
+			},
+			{
+				Principal: "paul", ResourceType: acls.ResourceTypeCluster, ResourceName: "cluster1",
+				Operation: acls.OperationAny, Permission: acls.PermissionAllow,
+			},
+		},
+	}
+	var buff []byte
+	buff = append(buff, 1, 2, 3)
+	buff = req.Serialize(buff)
+	var req2 CreateAclsRequest
+	off := req2.Deserialize(buff, 3)
+	require.Equal(t, req, req2)
+	require.Equal(t, off, len(buff))
+}
+
+func TestSerializeDeserializeListAcls(t *testing.T) {
+	req := ListOrDeleteAclsRequest{
+		LeaderVersion:      123123,
+		ResourceType:       acls.ResourceTypeTransactionalID,
+		ResourceNameFilter: "foo.bar",
+		PatternTypeFilter:  acls.ResourcePatternTypePrefixed,
+		Principal:          "joe bloggs",
+		Host:               "some-host",
+		Operation:          acls.OperationCreate,
+		Permission:         acls.PermissionDeny,
+	}
+	var buff []byte
+	buff = append(buff, 1, 2, 3)
+	buff = req.Serialize(buff)
+	var req2 ListOrDeleteAclsRequest
+	off := req2.Deserialize(buff, 3)
+	require.Equal(t, req, req2)
+	require.Equal(t, off, len(buff))
+}
+
+func TestSerializeDeserializeListAclsResponse(t *testing.T) {
+	req := ListAclsResponse{
+		AclEntries: []acls.AclEntry{
+			{
+				Principal: "john", ResourceType: acls.ResourceTypeTopic, ResourceName: "topic1",
+				Operation: acls.OperationRead, Permission: acls.PermissionAllow,
+			},
+			{
+				Principal: "george", ResourceType: acls.ResourceTypeGroup, ResourceName: "group1",
+				Operation: acls.OperationAlter, Permission: acls.PermissionDeny,
+			},
+			{
+				Principal: "paul", ResourceType: acls.ResourceTypeCluster, ResourceName: "cluster1",
+				Operation: acls.OperationAny, Permission: acls.PermissionAllow,
+			},
+		},
+	}
+	var buff []byte
+	buff = append(buff, 1, 2, 3)
+	buff = req.Serialize(buff)
+	var req2 ListAclsResponse
 	off := req2.Deserialize(buff, 3)
 	require.Equal(t, req, req2)
 	require.Equal(t, off, len(buff))

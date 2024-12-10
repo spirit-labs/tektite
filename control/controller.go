@@ -43,6 +43,7 @@ type Controller struct {
 	clusterStateSameAZ         []AgentMeta
 	tableListeners             *tableListeners
 	groupCoordinatorController *CoordinatorController
+	aclManager                 *AclManager
 	tableGetter                sst.TableGetter
 	sequences                  *Sequences
 	memberID                   int32
@@ -97,7 +98,10 @@ func (c *Controller) Start() error {
 	c.transportServer.RegisterHandler(transport.HandlerIDControllerGenerateSequence, c.handleGenerateSequence)
 	c.transportServer.RegisterHandler(transport.HandlerIDControllerPutUserCredentials, c.handlePutUserCredentials)
 	c.transportServer.RegisterHandler(transport.HandlerIDControllerDeleteUserCredentials, c.handleDeleteUserCredentials)
-
+	c.transportServer.RegisterHandler(transport.HandlerIDControllerAuthorise, c.handleAuthorise)
+	c.transportServer.RegisterHandler(transport.HandlerIDControllerCreateAcls, c.handleCreateAcls)
+	c.transportServer.RegisterHandler(transport.HandlerIDControllerDeleteAcls, c.handleDeleteAcls)
+	c.transportServer.RegisterHandler(transport.HandlerIDControllerListAcls, c.handleListAcls)
 	c.tableListeners.start()
 	c.started = true
 	return nil
@@ -142,6 +146,12 @@ func (c *Controller) stop() error {
 	if c.sequences != nil {
 		c.sequences.Stop()
 		c.sequences = nil
+	}
+	if c.aclManager != nil {
+		if err := c.aclManager.Stop(); err != nil {
+			return err
+		}
+		c.aclManager = nil
 	}
 	c.currentMembership = cluster.MembershipState{}
 	c.started = false
@@ -190,6 +200,14 @@ func (c *Controller) MembershipChanged(thisMemberID int32, newState cluster.Memb
 			c.offsetsCache = cache
 			c.sequences = NewSequences(lsmHolder, c.tableGetter, c.objStoreClient, c.cfg.SSTableBucketName,
 				c.cfg.DataFormat, int64(c.cfg.SequencesBlockSize))
+			aclManager, err := NewAclManager(c.tableGetter, c.sendDirectWrite, c.lsmHolder)
+			if err != nil {
+				return err
+			}
+			if err = aclManager.Start(); err != nil {
+				return err
+			}
+			c.aclManager = aclManager
 		}
 	} else {
 		// This controller is not leader
@@ -689,6 +707,108 @@ func (c *Controller) handleDeleteUserCredentials(_ *transport.ConnectionContext,
 		return responseWriter(nil, err)
 	}
 	return responseWriter(responseBuff, nil)
+}
+
+func (c *Controller) handleAuthorise(ctx *transport.ConnectionContext, request []byte, responseBuff []byte,
+	responseWriter transport.ResponseWriter) error {
+	c.lock.RLock()
+	defer c.lock.RUnlock()
+	if !c.requestChecks(request, responseWriter) {
+		return nil
+	}
+	var req AuthoriseRequest
+	req.Deserialize(request, 2)
+	if err := c.checkLeaderVersion(req.LeaderVersion); err != nil {
+		return responseWriter(nil, err)
+	}
+	var resp AuthoriseResponse
+	authorised, err := c.aclManager.Authorise(req.Principal, req.ResourceType, req.ResourceName, req.Operation,
+		ctx.ClientAddress)
+	if err != nil {
+		return responseWriter(nil, err)
+	}
+	resp.Authorised = authorised
+	return responseWriter(resp.Serialize(responseBuff), nil)
+}
+
+func (c *Controller) handleCreateAcls(_ *transport.ConnectionContext, request []byte, responseBuff []byte,
+	responseWriter transport.ResponseWriter) error {
+	c.lock.RLock()
+	unlocked := false
+	defer func() {
+		if !unlocked {
+			c.lock.RUnlock()
+		}
+	}()
+	if !c.requestChecks(request, responseWriter) {
+		return nil
+	}
+	var req CreateAclsRequest
+	req.Deserialize(request, 2)
+	if err := c.checkLeaderVersion(req.LeaderVersion); err != nil {
+		return responseWriter(nil, err)
+	}
+	// We release the controller lock before executing the createAcls - as this causes an indirect call
+	// back into the controller via the table pusher when the KVs are written, and this can otherwise deadlock
+	// if MembershipChanged is trying to get the W lock.
+	c.lock.RUnlock()
+	unlocked = true
+	if err := c.aclManager.CreateAcls(req.AclEntries); err != nil {
+		return responseWriter(nil, err)
+	}
+	return responseWriter(responseBuff, nil)
+}
+
+func (c *Controller) handleDeleteAcls(_ *transport.ConnectionContext, request []byte, responseBuff []byte,
+	responseWriter transport.ResponseWriter) error {
+	c.lock.RLock()
+	unlocked := false
+	defer func() {
+		if !unlocked {
+			c.lock.RUnlock()
+		}
+	}()
+	if !c.requestChecks(request, responseWriter) {
+		return nil
+	}
+	var req ListOrDeleteAclsRequest
+	req.Deserialize(request, 2)
+	if err := c.checkLeaderVersion(req.LeaderVersion); err != nil {
+		return responseWriter(nil, err)
+	}
+	// We release the controller lock before executing the createAcls - as this causes an indirect call
+	// back into the controller via the table pusher when the KVs are written, and this can otherwise deadlock
+	// if MembershipChanged is trying to get the W lock.
+	c.lock.RUnlock()
+	unlocked = true
+	if err := c.aclManager.DeleteAcls(req.ResourceType, req.ResourceNameFilter, req.PatternTypeFilter, req.Principal,
+		req.Host, req.Operation, req.Permission); err != nil {
+		return responseWriter(nil, err)
+	}
+	return responseWriter(responseBuff, nil)
+}
+
+func (c *Controller) handleListAcls(_ *transport.ConnectionContext, request []byte, responseBuff []byte,
+	responseWriter transport.ResponseWriter) error {
+	c.lock.RLock()
+	defer c.lock.RUnlock()
+	if !c.requestChecks(request, responseWriter) {
+		return nil
+	}
+	var req ListOrDeleteAclsRequest
+	req.Deserialize(request, 2)
+	if err := c.checkLeaderVersion(req.LeaderVersion); err != nil {
+		return responseWriter(nil, err)
+	}
+	aclEntries, err := c.aclManager.ListAcls(req.ResourceType, req.ResourceNameFilter, req.PatternTypeFilter, req.Principal,
+		req.Host, req.Operation, req.Permission)
+	if err != nil {
+		return responseWriter(nil, err)
+	}
+	resp := ListAclsResponse{
+		AclEntries: aclEntries,
+	}
+	return responseWriter(resp.Serialize(responseBuff), nil)
 }
 
 func (c *Controller) requestChecks(request []byte, responseWriter transport.ResponseWriter) bool {

@@ -803,6 +803,87 @@ func HandleRequestBuffer(apiKey int16, buff []byte, handler RequestHandler, conn
 			_, err := conn.Write(respBuff)
 			return err
 		})
+    case 30:
+		var req CreateAclsRequest
+		requestHeaderVersion, responseHeaderVersion := req.HeaderVersions(apiVersion)
+		var requestHeader RequestHeader
+		var offset int
+		if offset, err = requestHeader.Read(requestHeaderVersion, buff); err != nil {
+			return err
+		}
+		minVer, maxVer := req.SupportedApiVersions()
+		if err := checkSupportedVersion(apiKey, apiVersion, minVer, maxVer); err != nil {
+			return err
+		}
+		if _, err := req.Read(apiVersion, buff[offset:]); err != nil {
+			return err
+		}
+		responseHeader.CorrelationId = requestHeader.CorrelationId
+		err = handler.HandleCreateAclsRequest(&requestHeader, &req, func(resp *CreateAclsResponse) error {
+			respHeaderSize, hdrTagSizes := responseHeader.CalcSize(responseHeaderVersion, nil)
+			respSize, tagSizes := resp.CalcSize(apiVersion, nil)
+			totRespSize := respHeaderSize + respSize
+			respBuff := make([]byte, 0, 4+totRespSize)
+			respBuff = binary.BigEndian.AppendUint32(respBuff, uint32(totRespSize))
+			respBuff = responseHeader.Write(responseHeaderVersion, respBuff, hdrTagSizes)
+			respBuff = resp.Write(apiVersion, respBuff, tagSizes)
+			_, err := conn.Write(respBuff)
+			return err
+		})
+    case 31:
+		var req DeleteAclsRequest
+		requestHeaderVersion, responseHeaderVersion := req.HeaderVersions(apiVersion)
+		var requestHeader RequestHeader
+		var offset int
+		if offset, err = requestHeader.Read(requestHeaderVersion, buff); err != nil {
+			return err
+		}
+		minVer, maxVer := req.SupportedApiVersions()
+		if err := checkSupportedVersion(apiKey, apiVersion, minVer, maxVer); err != nil {
+			return err
+		}
+		if _, err := req.Read(apiVersion, buff[offset:]); err != nil {
+			return err
+		}
+		responseHeader.CorrelationId = requestHeader.CorrelationId
+		err = handler.HandleDeleteAclsRequest(&requestHeader, &req, func(resp *DeleteAclsResponse) error {
+			respHeaderSize, hdrTagSizes := responseHeader.CalcSize(responseHeaderVersion, nil)
+			respSize, tagSizes := resp.CalcSize(apiVersion, nil)
+			totRespSize := respHeaderSize + respSize
+			respBuff := make([]byte, 0, 4+totRespSize)
+			respBuff = binary.BigEndian.AppendUint32(respBuff, uint32(totRespSize))
+			respBuff = responseHeader.Write(responseHeaderVersion, respBuff, hdrTagSizes)
+			respBuff = resp.Write(apiVersion, respBuff, tagSizes)
+			_, err := conn.Write(respBuff)
+			return err
+		})
+    case 29:
+		var req DescribeAclsRequest
+		requestHeaderVersion, responseHeaderVersion := req.HeaderVersions(apiVersion)
+		var requestHeader RequestHeader
+		var offset int
+		if offset, err = requestHeader.Read(requestHeaderVersion, buff); err != nil {
+			return err
+		}
+		minVer, maxVer := req.SupportedApiVersions()
+		if err := checkSupportedVersion(apiKey, apiVersion, minVer, maxVer); err != nil {
+			return err
+		}
+		if _, err := req.Read(apiVersion, buff[offset:]); err != nil {
+			return err
+		}
+		responseHeader.CorrelationId = requestHeader.CorrelationId
+		err = handler.HandleDescribeAclsRequest(&requestHeader, &req, func(resp *DescribeAclsResponse) error {
+			respHeaderSize, hdrTagSizes := responseHeader.CalcSize(responseHeaderVersion, nil)
+			respSize, tagSizes := resp.CalcSize(apiVersion, nil)
+			totRespSize := respHeaderSize + respSize
+			respBuff := make([]byte, 0, 4+totRespSize)
+			respBuff = binary.BigEndian.AppendUint32(respBuff, uint32(totRespSize))
+			respBuff = responseHeader.Write(responseHeaderVersion, respBuff, hdrTagSizes)
+			respBuff = resp.Write(apiVersion, respBuff, tagSizes)
+			_, err := conn.Write(respBuff)
+			return err
+		})
     case 1000:
 		var req PutUserCredentialsRequest
 		requestHeaderVersion, responseHeaderVersion := req.HeaderVersions(apiVersion)
@@ -892,6 +973,9 @@ type RequestHandler interface {
     HandleDescribeConfigsRequest(hdr *RequestHeader, req *DescribeConfigsRequest, completionFunc func(resp *DescribeConfigsResponse) error) error
     HandleAlterConfigsRequest(hdr *RequestHeader, req *AlterConfigsRequest, completionFunc func(resp *AlterConfigsResponse) error) error
     HandleDescribeClusterRequest(hdr *RequestHeader, req *DescribeClusterRequest, completionFunc func(resp *DescribeClusterResponse) error) error
+    HandleCreateAclsRequest(hdr *RequestHeader, req *CreateAclsRequest, completionFunc func(resp *CreateAclsResponse) error) error
+    HandleDeleteAclsRequest(hdr *RequestHeader, req *DeleteAclsRequest, completionFunc func(resp *DeleteAclsResponse) error) error
+    HandleDescribeAclsRequest(hdr *RequestHeader, req *DescribeAclsRequest, completionFunc func(resp *DescribeAclsResponse) error) error
     HandlePutUserCredentialsRequest(hdr *RequestHeader, req *PutUserCredentialsRequest, completionFunc func(resp *PutUserCredentialsResponse) error) error
     HandleDeleteUserRequest(hdr *RequestHeader, req *DeleteUserRequest, completionFunc func(resp *DeleteUserResponse) error) error
 }
