@@ -14,50 +14,50 @@ type Authorizer interface {
 type ResourceType int8
 
 const (
-	ResourceTypeUnknown         = 0
-	ResourceTypeAny             = 1
-	ResourceTypeTopic           = 2
-	ResourceTypeGroup           = 3
-	ResourceTypeCluster         = 4
-	ResourceTypeTransactionalID = 5
-	ResourceTypeDelegationToken = 6
+	ResourceTypeUnknown         = ResourceType(0)
+	ResourceTypeAny             = ResourceType(1)
+	ResourceTypeTopic           = ResourceType(2)
+	ResourceTypeGroup           = ResourceType(3)
+	ResourceTypeCluster         = ResourceType(4)
+	ResourceTypeTransactionalID = ResourceType(5)
+	ResourceTypeDelegationToken = ResourceType(6)
 )
 
 type Operation int8
 
 const (
-	OperationUnknown         = 0
-	OperationAny             = 1 // Only used in filters when --listing
-	OperationAll             = 2 // Only used in stored ACLs represents access to all operations
-	OperationRead            = 3
-	OperationWrite           = 4
-	OperationCreate          = 5
-	OperationDelete          = 6
-	OperationAlter           = 7
-	OperationDescribe        = 8
-	OperationClusterAction   = 9
-	OperationDescribeConfigs = 10
-	OperationAlterConfigs    = 11
-	OperationIdempotentWrite = 12
+	OperationUnknown         = Operation(0)
+	OperationAny             = Operation(1) // Only used in filters when --listing
+	OperationAll             = Operation(2) // Only used in stored ACLs represents access to all operations
+	OperationRead            = Operation(3)
+	OperationWrite           = Operation(4)
+	OperationCreate          = Operation(5)
+	OperationDelete          = Operation(6)
+	OperationAlter           = Operation(7)
+	OperationDescribe        = Operation(8)
+	OperationClusterAction   = Operation(9)
+	OperationDescribeConfigs = Operation(10)
+	OperationAlterConfigs    = Operation(11)
+	OperationIdempotentWrite = Operation(12)
 )
 
 type Permission int8
 
 const (
-	PermissionUnknown = 0
-	PermissionAny     = 1
-	PermissionDeny    = 2
-	PermissionAllow   = 3
+	PermissionUnknown = Permission(0)
+	PermissionAny     = Permission(1)
+	PermissionDeny    = Permission(2)
+	PermissionAllow   =  Permission(3)
 )
 
 type ResourcePatternType int8
 
 const (
-	ResourcePatternTypeUnknown  = 0
-	ResourcePatternTypeAny      = 1 // ACL will match any resource name
-	ResourcePatternTypeMatch    = 2 // Only used when listing/deleting - ACLS will match against literal, prefix or wildcard
-	ResourcePatternTypeLiteral  = 3 // This is the default - acl is exact match on name
-	ResourcePatternTypePrefixed = 4 // ACL resource name is a prefix - will match any resource which has this prefix
+	ResourcePatternTypeUnknown  = ResourcePatternType(0)
+	ResourcePatternTypeAny      = ResourcePatternType(1) // ACL will match any resource name
+	ResourcePatternTypeMatch    = ResourcePatternType(2) // Only used when listing/deleting - ACLS will match against literal, prefix or wildcard
+	ResourcePatternTypeLiteral  = ResourcePatternType(3) // This is the default - acl is exact match on name
+	ResourcePatternTypePrefixed = ResourcePatternType(4) // ACL resource name is a prefix - will match any resource which has this prefix
 )
 
 /*
@@ -113,25 +113,6 @@ func (a *AclEntry) Deserialize(buff []byte, offset int) int {
 	a.Permission = Permission(buff[offset])
 	offset++
 	return offset
-}
-
-type AclManager struct {
-}
-
-/*
-AclManager will live on controller
-It will store acls in the database
-It will load them all on startup
-It will cache them all in memory
-It will provide an API to create/update/delete
-It will provide an API to authorize
-
-In the user auth context, we can cache the acls for the user - keyed on resource type/name, and get from controller
-if not there. Timeout after 5 mins. (make it configurable)
-*/
-
-func (a *AclManager) CreateAcl(entry AclEntry) {
-
 }
 
 type ControlClient interface {
@@ -213,8 +194,6 @@ func (u *UserAuthCache) authoriseFromCache(resourceType ResourceType, resourceNa
 }
 
 func (u *UserAuthCache) authoriseFromCache0(resourceType ResourceType, resourceName string, operation Operation, now uint64) (authorised bool, cached bool) {
-	u.lock.RLock()
-	defer u.lock.RUnlock()
 	resourceTypeMap, ok := u.authorisations[int8(resourceType)]
 	if ok {
 		authorizations, ok := resourceTypeMap[resourceName]
