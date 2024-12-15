@@ -29,13 +29,13 @@ func TestAcls(t *testing.T) {
 	var creations []kafkaprotocol.CreateAclsRequestAclCreation
 	for i := 0; i < numAcls; i++ {
 		creations = append(creations, kafkaprotocol.CreateAclsRequestAclCreation{
-			ResourceType:        acls.ResourceTypeTopic,
+			ResourceType:        int8(acls.ResourceTypeTopic),
 			ResourceName:        common.StrPtr(fmt.Sprintf("topic-%05d", i)),
-			ResourcePatternType: acls.ResourcePatternTypeLiteral,
+			ResourcePatternType: int8(acls.ResourcePatternTypeLiteral),
 			Principal:           common.StrPtr(fmt.Sprintf("User:user-%d", i)),
 			Host:                common.StrPtr(generateFakeIPAddress()),
-			Operation:           acls.OperationRead,
-			PermissionType:      acls.PermissionAllow,
+			Operation:           int8(acls.OperationRead),
+			PermissionType:      int8(acls.PermissionAllow),
 		})
 	}
 
