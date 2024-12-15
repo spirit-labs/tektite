@@ -2,6 +2,7 @@ package fetchcache
 
 import (
 	"encoding/binary"
+	"fmt"
 	"github.com/dgraph-io/ristretto"
 	"github.com/pkg/errors"
 	"github.com/spirit-labs/tektite/cluster"
@@ -125,8 +126,10 @@ func (c *Cache) MembershipChanged(_ int32, membership cluster.MembershipState) e
 		newMembers[member.ID] = member
 		_, exists := c.members[member.ID]
 		if !exists {
-			// member added
-			c.consist.Add(data.ClusterListenAddress)
+			// We prefix with the member id - because if an agent is quickly bounced, then there can be more than one
+			// member with the same cluster listener address until the old member gets evicted after timeout
+			// which would make the value in the hash ring non unique
+			c.consist.Add(createRingValue(member.ID, data.ClusterListenAddress))
 		}
 	}
 	for memberID, member := range c.members {
@@ -134,7 +137,7 @@ func (c *Cache) MembershipChanged(_ int32, membership cluster.MembershipState) e
 		if !exists {
 			// member removed
 			data := extractMembershipData(&member)
-			removed := c.consist.Remove(data.ClusterListenAddress)
+			removed := c.consist.Remove(createRingValue(member.ID, data.ClusterListenAddress))
 			if !removed {
 				panic("failed to remove member from consistent ring")
 			}
@@ -142,6 +145,10 @@ func (c *Cache) MembershipChanged(_ int32, membership cluster.MembershipState) e
 	}
 	c.members = newMembers
 	return nil
+}
+
+func createRingValue(memberID int32, clusterListenerAddress string) string {
+	return fmt.Sprintf("%09d-%s", memberID, clusterListenerAddress)
 }
 
 func extractMembershipData(member *cluster.MembershipEntry) *common.MembershipData {
@@ -183,7 +190,13 @@ func (c *Cache) GetTableBytes(key []byte) ([]byte, error) {
 }
 
 func (c *Cache) getTargetForKey(key []byte) (string, bool) {
-	return c.consist.Get(key)
+	value, hasTarget := c.consist.Get(key)
+	if !hasTarget {
+		return "", false
+	}
+	// trim the member id part
+	target := value[10:]
+	return target, true
 }
 
 func (c *Cache) handleGetTableBytes(_ *transport.ConnectionContext, request []byte, responseBuff []byte,

@@ -3,6 +3,7 @@ package transport
 import (
 	"crypto/tls"
 	"encoding/binary"
+	"fmt"
 	"github.com/pkg/errors"
 	"github.com/spirit-labs/tektite/asl/errwrap"
 	"github.com/spirit-labs/tektite/common"
@@ -92,9 +93,23 @@ func (s *SocketTransportServer) newConnection(conn net.Conn) sockserver.ServerCo
 }
 
 type SocketTransportServerConn struct {
-	id   int
-	s    *SocketTransportServer
-	conn net.Conn
+	id     int
+	s      *SocketTransportServer
+	conn   net.Conn
+	clHost string
+}
+
+func (c *SocketTransportServerConn) clientHost() string {
+	if c.clHost != "" {
+		return c.clHost
+	}
+	addr := c.conn.RemoteAddr().String()
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return fmt.Sprintf("invalid-address:%s", addr)
+	}
+	c.clHost = host
+	return host
 }
 
 func (c *SocketTransportServerConn) HandleMessage(buff []byte) error {
@@ -118,7 +133,7 @@ func (c *SocketTransportServerConn) HandleMessage(buff []byte) error {
 		5. the operation specific response bytes
 	*/
 	responseBuff := make([]byte, 15, responseBuffInitialSize)
-	return handler(&ConnectionContext{ConnectionID: c.id}, buff[18:], responseBuff, func(response []byte, err error) error {
+	return handler(&ConnectionContext{ConnectionID: c.id, ClientAddress: c.clientHost()}, buff[18:], responseBuff, func(response []byte, err error) error {
 		if err != nil {
 			response = encodeErrorResponse(responseBuff, err)
 		}
@@ -296,6 +311,10 @@ func (s *SocketTransportConnection) formatRequest(handlerID int, request []byte)
 	binary.BigEndian.PutUint64(buff[14:], uint64(handlerID))
 	copy(buff[22:], request)
 	return buff
+}
+
+func (s *SocketTransportConnection) NetConn() net.Conn {
+	return s.conn
 }
 
 type responseHolder struct {

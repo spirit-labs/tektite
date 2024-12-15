@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"github.com/pkg/errors"
+	"github.com/spirit-labs/tektite/acls"
 	"github.com/spirit-labs/tektite/asl/encoding"
 	"github.com/spirit-labs/tektite/cluster"
 	"github.com/spirit-labs/tektite/common"
@@ -2282,7 +2283,6 @@ type testControlClient struct {
 	memberID            int32
 	resetSequence       int64
 }
-
 func (t *testControlClient) clearQueryRes() {
 	t.lock.Lock()
 	defer t.lock.Unlock()
@@ -2405,6 +2405,22 @@ func (t *testControlClient) PutUserCredentials(username string, storedKey []byte
 }
 
 func (t *testControlClient) DeleteUserCredentials(username string) error {
+	panic("should not be called")
+}
+
+func (t *testControlClient) Authorise(principal string, resourceType acls.ResourceType, resourceName string, operation acls.Operation) (bool, error) {
+	panic("should not be called")
+}
+
+func (t *testControlClient) CreateAcls(aclEntries []acls.AclEntry) error {
+	panic("should not be called")
+}
+
+func (t *testControlClient) ListAcls(resourceType acls.ResourceType, resourceNameFilter string, patternTypeFilter acls.ResourcePatternType, principal string, host string, operation acls.Operation, permission acls.Permission) ([]acls.AclEntry, error) {
+	panic("should not be called")
+}
+
+func (t *testControlClient) DeleteAcls(resourceType acls.ResourceType, resourceNameFilter string, patternTypeFilter acls.ResourcePatternType, principal string, host string, operation acls.Operation, permission acls.Permission) error {
 	panic("should not be called")
 }
 

@@ -119,5 +119,5 @@ func (m *ApiVersionsRequest) HeaderVersions(version int16) (int16, int16) {
 }
 
 func (m *ApiVersionsRequest) SupportedApiVersions() (int16, int16) {
-    return 0, 3
+    return 0, 4
 }

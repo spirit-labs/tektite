@@ -107,6 +107,11 @@ func (s *SocketServer) stop() error {
 }
 
 func (s *SocketServer) Address() string {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+	if !s.started {
+		panic("socket server not started")
+	}
 	return s.listenAddress
 }
 

@@ -4,7 +4,6 @@ package integration
 
 import (
 	"encoding/binary"
-	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	"github.com/spirit-labs/tektite/asl/conf"
 	"github.com/spirit-labs/tektite/asl/server"
@@ -301,15 +300,4 @@ type serializable interface {
 
 func stringPtr(s string) *string {
 	return &s
-}
-
-func randomUUID() []byte {
-	u, err := uuid.New().MarshalBinary()
-	if err != nil {
-		panic(err)
-	}
-	if len(u) != 16 {
-		panic("invalid uuid")
-	}
-	return u
 }

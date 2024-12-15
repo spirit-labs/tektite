@@ -345,8 +345,12 @@ func TestControllerGroupEpochs(t *testing.T) {
 
 func setupControllerWithPusherSink(t *testing.T, objStore objstore.Client) (*Controller, *fakePusherSink, func(t *testing.T)) {
 	controllers, _, tearDown := setupControllersWithObjectStore(t, 1, objStore)
-
 	controller := controllers[0]
+	fp := addFakePusherSinkToController(t, controller, objStore)
+	return controller, fp, tearDown
+}
+
+func addFakePusherSinkToController(t *testing.T, controller *Controller, objStore objstore.Client) *fakePusherSink {
 	fp := &fakePusherSink{}
 	controller.transportServer.RegisterHandler(transport.HandlerIDTablePusherDirectWrite, fp.HandleDirectWrite)
 	controller.SetTableGetter(func(tableID sst.SSTableID) (*sst.SSTable, error) {
@@ -361,8 +365,7 @@ func setupControllerWithPusherSink(t *testing.T, objStore objstore.Client) (*Con
 		tab.Deserialize(buff, 0)
 		return &tab, nil
 	})
-
-	return controller, fp, tearDown
+	return fp
 }
 
 func TestControllerCreateGetDeleteTopics(t *testing.T) {

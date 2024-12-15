@@ -3,6 +3,7 @@ package control
 import (
 	"encoding/binary"
 	"github.com/pkg/errors"
+	"github.com/spirit-labs/tektite/acls"
 	"github.com/spirit-labs/tektite/lsm"
 	"github.com/spirit-labs/tektite/offsets"
 	"github.com/spirit-labs/tektite/topicmeta"
@@ -43,6 +44,16 @@ type Client interface {
 	PutUserCredentials(username string, storedKey []byte, serverKey []byte, salt string, iters int) error
 
 	DeleteUserCredentials(username string) error
+
+	Authorise(principal string, resourceType acls.ResourceType, resourceName string, operation acls.Operation) (bool, error)
+
+	CreateAcls(aclEntries []acls.AclEntry) error
+
+	ListAcls(resourceType acls.ResourceType, resourceNameFilter string, patternTypeFilter acls.ResourcePatternType,
+		principal string, host string, operation acls.Operation, permission acls.Permission) ([]acls.AclEntry, error)
+
+	DeleteAcls(resourceType acls.ResourceType, resourceNameFilter string, patternTypeFilter acls.ResourcePatternType,
+		principal string, host string, operation acls.Operation, permission acls.Permission) error
 
 	Close() error
 }
@@ -336,6 +347,90 @@ func (c *client) DeleteUserCredentials(username string) error {
 	}
 	buff := req.Serialize(createRequestBuffer())
 	_, err = conn.SendRPC(transport.HandlerIDControllerDeleteUserCredentials, buff)
+	return err
+}
+
+func (c *client) Authorise(principal string, resourceType acls.ResourceType, resourceName string,
+	operation acls.Operation) (bool, error) {
+	conn, err := c.getConnection()
+	if err != nil {
+		return false, err
+	}
+	req := AuthoriseRequest{
+		LeaderVersion: c.leaderVersion,
+		Principal:     principal,
+		ResourceType:  resourceType,
+		ResourceName:  resourceName,
+		Operation:     operation,
+	}
+	buff := req.Serialize(createRequestBuffer())
+	respBuff, err := conn.SendRPC(transport.HandlerIDControllerAuthorise, buff)
+	if err != nil {
+		return false, err
+	}
+	var resp AuthoriseResponse
+	resp.Deserialize(respBuff, 0)
+	return resp.Authorised, nil
+}
+
+func (c *client) CreateAcls(aclEntries []acls.AclEntry) error {
+	conn, err := c.getConnection()
+	if err != nil {
+		return err
+	}
+	req := CreateAclsRequest{
+		LeaderVersion: c.leaderVersion,
+		AclEntries:    aclEntries,
+	}
+	buff := req.Serialize(createRequestBuffer())
+	_, err = conn.SendRPC(transport.HandlerIDControllerCreateAcls, buff)
+	return err
+}
+
+func (c *client) ListAcls(resourceType acls.ResourceType, resourceNameFilter string, patternTypeFilter acls.ResourcePatternType,
+	principal string, host string, operation acls.Operation, permission acls.Permission) ([]acls.AclEntry, error) {
+	conn, err := c.getConnection()
+	if err != nil {
+		return nil, err
+	}
+	req := ListOrDeleteAclsRequest{
+		LeaderVersion:      c.leaderVersion,
+		ResourceType:       resourceType,
+		ResourceNameFilter: resourceNameFilter,
+		PatternTypeFilter:  patternTypeFilter,
+		Principal:          principal,
+		Host:               host,
+		Operation:          operation,
+		Permission:         permission,
+	}
+	buff := req.Serialize(createRequestBuffer())
+	respBuff, err := conn.SendRPC(transport.HandlerIDControllerListAcls, buff)
+	if err != nil {
+		return nil, err
+	}
+	var resp ListAclsResponse
+	resp.Deserialize(respBuff, 0)
+	return resp.AclEntries, nil
+}
+
+func (c *client) DeleteAcls(resourceType acls.ResourceType, resourceNameFilter string, patternTypeFilter acls.ResourcePatternType,
+	principal string, host string, operation acls.Operation, permission acls.Permission) error {
+	conn, err := c.getConnection()
+	if err != nil {
+		return err
+	}
+	req := ListOrDeleteAclsRequest{
+		LeaderVersion:      c.leaderVersion,
+		ResourceType:       resourceType,
+		ResourceNameFilter: resourceNameFilter,
+		PatternTypeFilter:  patternTypeFilter,
+		Principal:          principal,
+		Host:               host,
+		Operation:          operation,
+		Permission:         permission,
+	}
+	buff := req.Serialize(createRequestBuffer())
+	_, err = conn.SendRPC(transport.HandlerIDControllerDeleteAcls, buff)
 	return err
 }
 

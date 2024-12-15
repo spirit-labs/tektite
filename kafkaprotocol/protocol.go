@@ -25,6 +25,9 @@ const (
 	APIKeyAddOffsetsToTxn    = 25
 	APIKeyEndTxn             = 26
 	APIKeyTxnOffsetCommit    = 28
+	ApiKeyDescribeAcls       = 29
+	ApiKeyCreateAcls         = 30
+	ApiKeyDeleteAcls         = 31
 	ApiKeyDescribeConfigs    = 32
 	ApiKeyAlterConfigs       = 33
 	APIKeySaslAuthenticate   = 36
@@ -120,7 +123,7 @@ const (
 var SupportedAPIVersions = []ApiVersionsResponseApiVersion{
 	{ApiKey: APIKeyProduce, MinVersion: 3, MaxVersion: 3},
 	{ApiKey: APIKeyFetch, MinVersion: 2, MaxVersion: 4},
-	{ApiKey: APIKeyAPIVersions, MinVersion: 0, MaxVersion: 3},
+	{ApiKey: APIKeyAPIVersions, MinVersion: 0, MaxVersion: 4},
 	{ApiKey: APIKeyMetadata, MinVersion: 1, MaxVersion: 1},
 	{ApiKey: APIKeyFindCoordinator, MinVersion: 0, MaxVersion: 0},
 	{ApiKey: ApiKeyJoinGroup, MinVersion: 0, MaxVersion: 0},
@@ -152,6 +155,9 @@ var SupportedAPIVersions = []ApiVersionsResponseApiVersion{
 	{ApiKey: ApiKeyDescribeConfigs, MinVersion: 1, MaxVersion: 1},
 	{ApiKey: ApiKeyAlterConfigs, MinVersion: 0, MaxVersion: 0},
 	{ApiKey: ApiKeyDescribeCluster, MinVersion: 0, MaxVersion: 0},
+	{ApiKey: ApiKeyCreateAcls, MinVersion: 3, MaxVersion: 3},
+	{ApiKey: ApiKeyDeleteAcls, MinVersion: 3, MaxVersion: 3},
+	{ApiKey: ApiKeyDescribeAcls, MinVersion: 3, MaxVersion: 3},
 }
 
 var SupportedCustomAPIVersions = []ApiVersionsResponseApiVersion{

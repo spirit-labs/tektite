@@ -744,3 +744,18 @@ func (c *connection) HandleDescribeClusterRequest(hdr *kafkaprotocol.RequestHead
 	//TODO implement me
 	panic("implement me")
 }
+
+func (c *connection) HandleCreateAclsRequest(hdr *kafkaprotocol.RequestHeader, req *kafkaprotocol.CreateAclsRequest, completionFunc func(resp *kafkaprotocol.CreateAclsResponse) error) error {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (c *connection) HandleDeleteAclsRequest(hdr *kafkaprotocol.RequestHeader, req *kafkaprotocol.DeleteAclsRequest, completionFunc func(resp *kafkaprotocol.DeleteAclsResponse) error) error {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (c *connection) HandleDescribeAclsRequest(hdr *kafkaprotocol.RequestHeader, req *kafkaprotocol.DescribeAclsRequest, completionFunc func(resp *kafkaprotocol.DescribeAclsResponse) error) error {
+	//TODO implement me
+	panic("implement me")
+}

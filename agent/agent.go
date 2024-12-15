@@ -134,8 +134,8 @@ func NewAgentWithFactories(cfg Conf, objStore objstore.Client, connectionFactory
 		agent.topicMetaCache, partitionHashes)
 	agent.kafkaServer = kafkaserver2.NewKafkaServer(cfg.KafkaListenerConfig.Address,
 		cfg.KafkaListenerConfig.TLSConfig, cfg.AuthType, agent.newKafkaHandler)
-	agent.manifold = &membershipChangedManifold{listeners: []MembershipListener{agent.controller.MembershipChanged,
-		bf.MembershipChanged, fetchCache.MembershipChanged, groupCoord.MembershipChanged}}
+	agent.manifold = &membershipChangedManifold{listeners: []MembershipListener{fetchCache.MembershipChanged,
+		agent.controller.MembershipChanged, bf.MembershipChanged, groupCoord.MembershipChanged}}
 	agent.clusterMembershipFactory = clusterMembershipFactory
 	agent.transportServer = transportServer
 	clFactory := func() (lsm.ControllerClient, error) {

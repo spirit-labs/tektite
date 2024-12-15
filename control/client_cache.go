@@ -2,6 +2,7 @@ package control
 
 import (
 	"github.com/pkg/errors"
+	"github.com/spirit-labs/tektite/acls"
 	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/lsm"
 	"github.com/spirit-labs/tektite/offsets"
@@ -275,6 +276,55 @@ func (c *clientWrapper) DeleteUserCredentials(username string) error {
 		return c.injectedError
 	}
 	err := c.client.DeleteUserCredentials(username)
+	if err != nil {
+		c.closeConnection()
+	}
+	return err
+}
+
+func (c *clientWrapper) Authorise(principal string, resourceType acls.ResourceType, resourceName string,
+	operation acls.Operation) (bool, error) {
+	if c.injectedError != nil {
+		return false, c.injectedError
+	}
+	authorised, err := c.client.Authorise(principal, resourceType, resourceName, operation)
+	if err != nil {
+		c.closeConnection()
+	}
+	return authorised, err
+}
+
+func (c *clientWrapper) CreateAcls(aclEntries []acls.AclEntry) error {
+	if c.injectedError != nil {
+		return c.injectedError
+	}
+	err := c.client.CreateAcls(aclEntries)
+	if err != nil {
+		c.closeConnection()
+	}
+	return err
+}
+
+func (c *clientWrapper) ListAcls(resourceType acls.ResourceType, resourceNameFilter string, patternTypeFilter acls.ResourcePatternType,
+	principal string, host string, operation acls.Operation, permission acls.Permission) ([]acls.AclEntry, error) {
+	if c.injectedError != nil {
+		return nil, c.injectedError
+	}
+	aclEntries, err := c.client.ListAcls(resourceType, resourceNameFilter, patternTypeFilter, principal, host,
+		operation, permission)
+	if err != nil {
+		c.closeConnection()
+	}
+	return aclEntries, err
+}
+
+func (c *clientWrapper) DeleteAcls(resourceType acls.ResourceType, resourceNameFilter string, patternTypeFilter acls.ResourcePatternType,
+	principal string, host string, operation acls.Operation, permission acls.Permission) error {
+	if c.injectedError != nil {
+		return c.injectedError
+	}
+	err := c.client.DeleteAcls(resourceType, resourceNameFilter, patternTypeFilter, principal, host,
+		operation, permission)
 	if err != nil {
 		c.closeConnection()
 	}

@@ -209,7 +209,7 @@ func (m *Manager) loadAllTopicsFromStorageWithRetry() ([]TopicInfo, error) {
 			return infos, nil
 		}
 		if m.stopping.Load() {
-			return nil, errors.New("offsetloader is stopping")
+			return nil, errors.New("topicmeta manager is stopping")
 		}
 		if common.IsUnavailableError(err) {
 			log.Warnf("Unable to load topics to unavailability, will retry after delay: %v", err)

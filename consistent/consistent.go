@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
+	log "github.com/spirit-labs/tektite/logger"
 	"sort"
 	"sync"
 )
@@ -23,7 +24,7 @@ We create multiple virtual nodes for each member rather than just hashing the me
 uniform distribution. Increasing the virtualFactor increase uniformity at the expense of memory usage and processing time
 in adding/removing members.
 The HashRing currently uses SHA-256 hashing to hash keys and virtual nodes.
- */
+*/
 type HashRing struct {
 	lock          sync.RWMutex
 	virtualFactor int
@@ -43,6 +44,7 @@ func NewConsistentHash(virtualFactor int) *HashRing {
 func (c *HashRing) Add(member string) {
 	c.lock.Lock()
 	defer c.lock.Unlock()
+	log.Infof("adding member %s to hashring", member)
 	hashes := make([]uint64, c.virtualFactor)
 	for i := 0; i < c.virtualFactor; i++ {
 		key := []byte(fmt.Sprintf("%s-%d", member, i))
@@ -88,6 +90,7 @@ func (c *HashRing) Get(key []byte) (string, bool) {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
 	if len(c.sorted) == 0 {
+		log.Infof("nothing in hash ring")
 		return "", false
 	}
 	h := hash(key)
