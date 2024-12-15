@@ -1678,14 +1678,6 @@ func callJoinGroupSyncWithApiVersion(gc *GroupCoordinator, groupID string, clien
 	return res
 }
 
-func newTestConsumerInfoProvider(slabID int, mappingID string, partitions int, numProcessors int) ConsumerInfoProvider {
-	partitionScheme := opers.NewPartitionScheme(mappingID, partitions, false, numProcessors)
-	return &testConsumerInfoProvider{
-		slabID:          slabID,
-		partitionScheme: &partitionScheme,
-	}
-}
-
 type testConsumerInfoProvider struct {
 	slabID          int
 	partitionScheme *opers.PartitionScheme

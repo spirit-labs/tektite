@@ -843,11 +843,6 @@ func createIterator(t *testing.T, lm *LevelManager, keyStart []byte, keyEnd []by
 	return mi
 }
 
-func buildAndRegisterTableWithKeyRange(t *testing.T, name string, rangeStart int, rangeEnd int,
-	cloudStore objstore.Client) ([]byte, []byte) {
-	return buildAndRegisterTableWithKeyRangeAndVersion(t, name, rangeStart, rangeEnd, cloudStore, false, nil, 0)
-}
-
 func buildAndRegisterTableWithKeyRangeWithPrefix(t *testing.T, name string, rangeStart int, rangeEnd int,
 	cloudStore objstore.Client, keyPrefix []byte) ([]byte, []byte) {
 	return buildAndRegisterTableWithKeyRangeAndVersion(t, name, rangeStart, rangeEnd, cloudStore, false, keyPrefix, 0)

@@ -1,7 +1,6 @@
 package cl_test
 
 import (
-	"context"
 	"fmt"
 	kafkago "github.com/confluentinc/confluent-kafka-go/v2/kafka"
 	"github.com/spirit-labs/tektite/agent"
@@ -11,7 +10,6 @@ import (
 	"github.com/spirit-labs/tektite/testutils"
 	"github.com/spirit-labs/tektite/topicmeta"
 	"github.com/stretchr/testify/require"
-	"os"
 	"strconv"
 	"testing"
 	"time"
@@ -155,28 +153,6 @@ func createTopic(t *testing.T, topicName string, partitions int, agent *agent.Ag
 		Name:           topicName,
 		PartitionCount: partitions,
 	}, true)
-}
-
-func createTopicUsingAdminClient(t *testing.T, topicName string, partitions int, producer *kafkago.Producer) {
-	admin, err := kafkago.NewAdminClientFromProducer(producer)
-	require.NoError(t, err)
-	results, err := admin.CreateTopics(
-		context.Background(),
-		// Multiple topics can be created simultaneously
-		// by providing more TopicSpecification structs here.
-		[]kafkago.TopicSpecification{{
-			Topic:             topicName,
-			NumPartitions:     partitions,
-			ReplicationFactor: 3}},
-	)
-	if err != nil {
-		fmt.Printf("Failed to create topic: %v\n", err)
-		os.Exit(1)
-	}
-	for _, res := range results {
-		require.NoError(t, res.Error)
-	}
-	admin.Close()
 }
 
 func waitForMembers(t *testing.T, numMembers int, agents ...*agent.Agent) {

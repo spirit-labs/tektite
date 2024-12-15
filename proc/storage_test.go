@@ -418,11 +418,6 @@ func writeKVsWithTombstones(t *testing.T, store Store, keyStart int, numPairs in
 	writeKVsWithParams(t, store, keyStart, numPairs, "", true)
 }
 
-func writeKVsWithValueSuffix(t *testing.T, store Store, keyStart int, numPairs int, valueSuffix string) {
-	t.Helper()
-	writeKVsWithParams(t, store, keyStart, numPairs, valueSuffix, false)
-}
-
 func writeKVsWithParams(t testing.TB, store Store, keyStart int, numPairs int, valueSuffix string,
 	tombstones bool) {
 	t.Helper()
@@ -442,21 +437,6 @@ func writeKVsWithParams(t testing.TB, store Store, keyStart int, numPairs int, v
 	}
 	err := store.Write(batch)
 	require.NoError(t, err)
-}
-
-func prepareRanges(numEntries int, rangeSize int, rangeGap int) []rng {
-	entries := make([]rng, 0, numEntries)
-	start := 0
-	for i := 0; i < numEntries; i++ {
-		ks := fmt.Sprintf("prefix/key-%010d", i)
-		ke := fmt.Sprintf("prefix/value-%010d", i)
-		start += rangeSize + rangeGap
-		entries = append(entries, rng{
-			keyStart: []byte(ks),
-			keyEnd:   []byte(ke),
-		})
-	}
-	return entries
 }
 
 type rng struct {
