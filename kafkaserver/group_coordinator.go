@@ -744,13 +744,12 @@ func (g *group) createMemberInfos() []MemberInfo {
 				break
 			}
 		}
-		if meta == nil {
-			panic("cannot find protocol")
+		if meta != nil {
+			memberInfos = append(memberInfos, MemberInfo{
+				MemberID: memberID,
+				MetaData: meta,
+			})
 		}
-		memberInfos = append(memberInfos, MemberInfo{
-			MemberID: memberID,
-			MetaData: meta,
-		})
 	}
 	return memberInfos
 }

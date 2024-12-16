@@ -1,7 +1,9 @@
 package fetcher
 
 import (
+	"github.com/spirit-labs/tektite/acls"
 	"github.com/spirit-labs/tektite/asl/encoding"
+	auth "github.com/spirit-labs/tektite/auth2"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/iteration"
 	"github.com/spirit-labs/tektite/kafkaencoding"
@@ -29,7 +31,7 @@ type FetchState struct {
 	first           bool
 }
 
-func newFetchState(batchFetcher *BatchFetcher, req *kafkaprotocol.FetchRequest, readExec *readExecutor,
+func newFetchState(authContext *auth.Context, batchFetcher *BatchFetcher, req *kafkaprotocol.FetchRequest, readExec *readExecutor,
 	completionFunc func(response *kafkaprotocol.FetchResponse) error) (*FetchState, error) {
 	fetchState := &FetchState{
 		bf:              batchFetcher,
@@ -50,6 +52,13 @@ func newFetchState(batchFetcher *BatchFetcher, req *kafkaprotocol.FetchRequest, 
 		if err != nil {
 			return nil, err
 		}
+		authorised := true
+		if topicExists && authContext != nil {
+			authorised, err = authContext.Authorize(acls.ResourceTypeTopic, topicName, acls.OperationRead)
+			if err != nil {
+				return nil, err
+			}
+		}
 		topicPartitionFetchStates := map[int]*PartitionFetchState{}
 		if topicExists {
 			topicPartitionFetchStates = map[int]*PartitionFetchState{}
@@ -66,6 +75,8 @@ func newFetchState(batchFetcher *BatchFetcher, req *kafkaprotocol.FetchRequest, 
 			partitionID := int(partitionData.Partition)
 			if !topicExists {
 				partitionResponses[j].ErrorCode = int16(kafkaprotocol.ErrorCodeUnknownTopicOrPartition)
+			} else if !authorised {
+				partitionResponses[j].ErrorCode = int16(kafkaprotocol.ErrorCodeTopicAuthorizationFailed)
 			} else if partitionID < 0 || partitionID >= topicInfo.PartitionCount {
 				partitionResponses[j].ErrorCode = int16(kafkaprotocol.ErrorCodeUnknownTopicOrPartition)
 			} else {

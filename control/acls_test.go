@@ -7,7 +7,6 @@ import (
 	"github.com/spirit-labs/tektite/asl/encoding"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/conf"
-	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/objstore"
 	"github.com/spirit-labs/tektite/objstore/dev"
 	"github.com/spirit-labs/tektite/parthash"
@@ -234,6 +233,35 @@ func testAuthorisePrincipalName(t *testing.T, cl Client, _ *Controller) {
 	authed, err = cl.Authorise("User:AlIcE", acls.ResourceTypeTopic, "test-topic", acls.OperationRead)
 	require.NoError(t, err)
 	require.False(t, authed)
+}
+
+func testAuthoriseAllPrincipals(t *testing.T, cl Client, _ *Controller) {
+	entry := acls.AclEntry{
+		Principal:           "User:*",
+		Permission:          acls.PermissionAllow,
+		Operation:           acls.OperationAll,
+		Host:                "*",
+		ResourceType:        acls.ResourceTypeTopic,
+		ResourceName:        "*",
+		ResourcePatternType: acls.ResourcePatternTypeLiteral,
+	}
+	err := cl.CreateAcls([]acls.AclEntry{entry})
+	require.NoError(t, err)
+	authed, err := cl.Authorise("User:alice", acls.ResourceTypeTopic, "test-topic", acls.OperationRead)
+	require.NoError(t, err)
+	require.True(t, authed)
+	authed, err = cl.Authorise("User:alice", acls.ResourceTypeTopic, "test-topic", acls.OperationWrite)
+	require.NoError(t, err)
+	require.True(t, authed)
+	authed, err = cl.Authorise("User:alice", acls.ResourceTypeTopic, "test-topic2", acls.OperationCreate)
+	require.NoError(t, err)
+	require.True(t, authed)
+	authed, err = cl.Authorise("User:bob", acls.ResourceTypeTopic, "test-topic", acls.OperationRead)
+	require.NoError(t, err)
+	require.True(t, authed)
+	authed, err = cl.Authorise("User:dave", acls.ResourceTypeTopic, "test-topic", acls.OperationRead)
+	require.NoError(t, err)
+	require.True(t, authed)
 }
 
 func testAuthoriseHost(t *testing.T, cl Client, _ *Controller) {
@@ -1309,6 +1337,7 @@ var aclTestCases = []tcHolder{
 	{testName: "testAuthoriseAclWithOperationAnyAndSingleDeny", testCase: testAuthoriseAclWithOperationAllAndSingleDeny},
 	{testName: "testAuthoriseIndividualAndDenyAll", testCase: testAuthoriseIndividualAndDenyAll},
 	{testName: "testAuthorisePrincipalName", testCase: testAuthorisePrincipalName},
+	{testName: "testAuthoriseAllPrincipals", testCase: testAuthoriseAllPrincipals},
 	{testName: "testAuthoriseHost", testCase: testAuthoriseHost},
 	{testName: "testDenyHost", testCase: testDenyHost},
 	{testName: "testAuthoriseResourceType", testCase: testAuthoriseResourceType},
@@ -1365,7 +1394,6 @@ func setupControllerForAclTest(t *testing.T, objStore objstore.Client) (*Control
 }
 
 func deleteAllAcls(t *testing.T, cl Client, controller *Controller) {
-	log.Infof("deleting all")
 	err := cl.DeleteAcls(acls.ResourceTypeAny, "", acls.ResourcePatternTypeAny, "", "",
 		acls.OperationAny, acls.PermissionAny)
 	require.NoError(t, err)

@@ -79,9 +79,6 @@ func run() error {
 	if err := ag.Start(); err != nil {
 		return err
 	}
-	if cfg.Conf.TopicName != "" {
-		ag.CreateTopicWithRetry(cfg.Conf.TopicName, 100)
-	}
 	fmt.Println(fmt.Sprintf("started tektite agent with kafka listener:%s and internal listener:%s",
 		ag.KafkaListenAddress(), ag.ClusterListenAddress()))
 	swg.Wait()

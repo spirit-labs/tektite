@@ -1,6 +1,8 @@
 package agent
 
 import (
+	"github.com/spirit-labs/tektite/acls"
+	auth "github.com/spirit-labs/tektite/auth2"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/kafkaencoding"
 	"github.com/spirit-labs/tektite/kafkaprotocol"
@@ -8,8 +10,8 @@ import (
 	"github.com/spirit-labs/tektite/offsets"
 )
 
-func (a *Agent) HandleListOffsetsRequest(req *kafkaprotocol.ListOffsetsRequest) *kafkaprotocol.ListOffsetsResponse {
-	resp, err := a.handleListOffsetsRequest(req)
+func (a *Agent) HandleListOffsetsRequest(authContext *auth.Context, req *kafkaprotocol.ListOffsetsRequest) *kafkaprotocol.ListOffsetsResponse {
+	resp, err := a.handleListOffsetsRequest(authContext, req)
 	if err != nil {
 		// Send back unknown topic for unavailable error as client will retry
 		errCode := kafkaencoding.ErrorCodeForError(err, kafkaprotocol.ErrorCodeUnknownTopicOrPartition)
@@ -25,7 +27,7 @@ func (a *Agent) HandleListOffsetsRequest(req *kafkaprotocol.ListOffsetsRequest) 
 	return resp
 }
 
-func (a *Agent) handleListOffsetsRequest(req *kafkaprotocol.ListOffsetsRequest) (*kafkaprotocol.ListOffsetsResponse, error) {
+func (a *Agent) handleListOffsetsRequest(authContext *auth.Context, req *kafkaprotocol.ListOffsetsRequest) (*kafkaprotocol.ListOffsetsResponse, error) {
 	client, err := a.controlClientCache.GetClient()
 	if err != nil {
 		return nil, err
@@ -51,13 +53,23 @@ func (a *Agent) handleListOffsetsRequest(req *kafkaprotocol.ListOffsetsRequest) 
 		if err != nil {
 			return &resp, err
 		}
+		errCode := int16(kafkaprotocol.ErrorCodeNone)
 		if !exists {
 			log.Warnf("list_offsets: unknown topic: %s", topicName)
+			errCode = kafkaprotocol.ErrorCodeUnknownTopicOrPartition
+		} else if authContext != nil {
+			authorised, err := authContext.Authorize(acls.ResourceTypeTopic, topicName, acls.OperationDescribe)
+			if err != nil {
+				return &resp, err
+			}
+			if !authorised {
+				errCode = kafkaprotocol.ErrorCodeTopicAuthorizationFailed
+			}
 		}
 		var getOffsetTopicInfo offsets.GetOffsetTopicInfo
 		for j, partInfo := range topicInfo.Partitions {
-			if !exists {
-				resp.Topics[i].Partitions[j].ErrorCode = kafkaprotocol.ErrorCodeUnknownTopicOrPartition
+			if errCode != int16(kafkaprotocol.ErrorCodeNone) {
+				resp.Topics[i].Partitions[j].ErrorCode = errCode
 			} else if partInfo.Timestamp == -2 || partInfo.Timestamp == -4 {
 				// earliest - just return zero - this should be ok as if first offset is > 0 then iterator will
 				// just skip to that on fetch

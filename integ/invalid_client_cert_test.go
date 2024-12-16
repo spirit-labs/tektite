@@ -16,13 +16,11 @@ func TestInvalidClientCert(t *testing.T) {
 		require.NoError(t, err)
 	}()
 
-	topicName := "test-topic"
 	commandLine := fmt.Sprintf("--obj-store-username=minioadmin --obj-store-password=minioadmin --obj-store-url=%s ", minioCfg.Endpoint) +
 		"--cluster-name=test-cluster --location=az1 --kafka-listen-address=localhost:0 --internal-listen-address=localhost:0 " +
 		"--membership-update-interval-ms=100 --membership-eviction-interval-ms=2000 " +
 		"--consumer-group-initial-join-delay-ms=500 " +
 		`--log-level=info ` +
-		fmt.Sprintf("--topic-name=%s", topicName) +
 		fmt.Sprintf(" --kafka-tls-enabled=true --kafka-tls-server-cert-file=%s --kafka-tls-server-private-key-file=%s",
 			serverCertPath, serverKeyPath) +
 		fmt.Sprintf(" --kafka-tls-client-cert-file=%s --kafka-tls-client-auth-type=require-and-verify-client-cert",

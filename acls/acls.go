@@ -2,14 +2,7 @@ package acls
 
 import (
 	"encoding/binary"
-	"github.com/spirit-labs/tektite/asl/arista"
-	"sync"
-	"time"
 )
-
-type Authorizer interface {
-	Authorize(principal string, resourceType ResourceType, resourceName string, operation Operation) bool
-}
 
 type ResourceType int8
 
@@ -22,6 +15,8 @@ const (
 	ResourceTypeTransactionalID = ResourceType(5)
 	ResourceTypeDelegationToken = ResourceType(6)
 )
+
+const ClusterResourceName = "kafka-cluster"
 
 type Operation int8
 
@@ -47,7 +42,7 @@ const (
 	PermissionUnknown = Permission(0)
 	PermissionAny     = Permission(1)
 	PermissionDeny    = Permission(2)
-	PermissionAllow   =  Permission(3)
+	PermissionAllow   = Permission(3)
 )
 
 type ResourcePatternType int8
@@ -113,97 +108,4 @@ func (a *AclEntry) Deserialize(buff []byte, offset int) int {
 	a.Permission = Permission(buff[offset])
 	offset++
 	return offset
-}
-
-type ControlClient interface {
-	Authorise(principal string, resourceType ResourceType, resourceName string, operation Operation) (bool, error)
-}
-
-type ControlClientFactory func() (ControlClient, error)
-
-type UserAuthCache struct {
-	lock                 sync.RWMutex
-	principal            string
-	authTimeout          time.Duration
-	authorisations       map[int8]map[string][]ResourceAuthorization
-	controlClientFactory ControlClientFactory
-}
-
-func NewUserAuthCache(principal string, controlClientFactory ControlClientFactory, authTimeout time.Duration) *UserAuthCache {
-	return &UserAuthCache{
-		principal:            principal,
-		authorisations:       make(map[int8]map[string][]ResourceAuthorization),
-		controlClientFactory: controlClientFactory,
-		authTimeout:          authTimeout,
-	}
-}
-
-type ResourceAuthorization struct {
-	operation  Operation
-	authorised bool
-	authTime   uint64
-}
-
-func (u *UserAuthCache) Authorize(resourceType ResourceType, resourceName string, operation Operation) (bool, error) {
-	now := arista.NanoTime()
-	authorised, cached := u.authoriseFromCache(resourceType, resourceName, operation, now)
-	if cached {
-		return authorised, nil
-	}
-	u.lock.Lock()
-	defer u.lock.Unlock()
-	// authorise from cache again to avoid race between dropping rlock and getting wlock
-	authorised, cached = u.authoriseFromCache0(resourceType, resourceName, operation, now)
-	if cached {
-		return authorised, nil
-	}
-	conn, err := u.controlClientFactory()
-	if err != nil {
-		return false, err
-	}
-	authorised, err = conn.Authorise(u.principal, resourceType, resourceName, operation)
-	if err != nil {
-		return false, err
-	}
-	resourceTypeMap, ok := u.authorisations[int8(resourceType)]
-	if !ok {
-		resourceTypeMap = map[string][]ResourceAuthorization{}
-		u.authorisations[int8(resourceType)] = resourceTypeMap
-	}
-	authorisations := resourceTypeMap[resourceName]
-	var authsPruned []ResourceAuthorization
-	for _, auth := range authorisations {
-		// Remove the auth if same operation as could be an expired one, and we don't want duplicates
-		if auth.operation != operation {
-			authsPruned = append(authsPruned, auth)
-		}
-	}
-	authsPruned = append(authsPruned, ResourceAuthorization{
-		operation:  operation,
-		authorised: authorised,
-		authTime:   arista.NanoTime(),
-	})
-	resourceTypeMap[resourceName] = authsPruned
-	return authorised, nil
-}
-
-func (u *UserAuthCache) authoriseFromCache(resourceType ResourceType, resourceName string, operation Operation, now uint64) (authorised bool, cached bool) {
-	u.lock.RLock()
-	defer u.lock.RUnlock()
-	return u.authoriseFromCache0(resourceType, resourceName, operation, now)
-}
-
-func (u *UserAuthCache) authoriseFromCache0(resourceType ResourceType, resourceName string, operation Operation, now uint64) (authorised bool, cached bool) {
-	resourceTypeMap, ok := u.authorisations[int8(resourceType)]
-	if ok {
-		authorizations, ok := resourceTypeMap[resourceName]
-		if ok {
-			for _, auth := range authorizations {
-				if auth.operation == operation && now-auth.authTime < uint64(u.authTimeout.Nanoseconds()) {
-					return auth.authorised, true
-				}
-			}
-		}
-	}
-	return false, false
 }

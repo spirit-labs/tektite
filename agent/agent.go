@@ -47,6 +47,7 @@ type Agent struct {
 	partitionLeaders         map[string]map[int]map[int]int32
 	clusterMembershipFactory ClusterMembershipFactory
 	tableGetter              sst.TableGetter
+	authCaches *auth.UserAuthCaches
 }
 
 func NewAgent(cfg Conf, objStore objstore.Client) (*Agent, error) {
@@ -87,6 +88,9 @@ func NewAgentWithFactories(cfg Conf, objStore objstore.Client, connectionFactory
 	}
 	agent.connCaches = transport.NewConnCaches(cfg.MaxConnectionsPerAddress, connectionFactory)
 	agent.controller = control.NewController(cfg.ControllerConf, objStore, agent.connCaches, connectionFactory, transportServer)
+	agent.authCaches = auth.NewUserAuthCaches(cfg.UserAuthCacheTimeout, func() (auth.ControlClient, error) {
+		return agent.controller.Client()
+	})
 	agent.controlClientCache = control.NewClientCache(cfg.MaxControllerClients, agent.controller.Client)
 	agent.topicMetaCache = topicmeta.NewLocalCache(func() (topicmeta.ControllerClient, error) {
 		cl, err := agent.controller.Client()
@@ -133,7 +137,7 @@ func NewAgentWithFactories(cfg Conf, objStore objstore.Client, connectionFactory
 	agent.txCoordinator = tx.NewCoordinator(agent.controlClientCache, getter.get, agent.connCaches,
 		agent.topicMetaCache, partitionHashes)
 	agent.kafkaServer = kafkaserver2.NewKafkaServer(cfg.KafkaListenerConfig.Address,
-		cfg.KafkaListenerConfig.TLSConfig, cfg.AuthType, agent.newKafkaHandler)
+		cfg.KafkaListenerConfig.TLSConfig, cfg.AuthType, agent.newKafkaHandler, agent.authCaches)
 	agent.manifold = &membershipChangedManifold{listeners: []MembershipListener{fetchCache.MembershipChanged,
 		agent.controller.MembershipChanged, bf.MembershipChanged, groupCoord.MembershipChanged}}
 	agent.clusterMembershipFactory = clusterMembershipFactory

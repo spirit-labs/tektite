@@ -120,7 +120,6 @@ func (a *AclManager) CreateAcls(aclEntries []acls.AclEntry) error {
 		value = aclEntry.Serialize(value)
 		value = common.AppendValueMetadata(value)
 		kvs = append(kvs, common.KV{Key: key, Value: value})
-		log.Infof("ck: %v", key)
 		entriesToAdd[seq] = aclEntry
 	}
 	if err := a.kvWriter(kvs); err != nil {
@@ -170,7 +169,7 @@ func validateCreatedAcl(entry acls.AclEntry) error {
 	if entry.Host != "*" {
 		ip := net.ParseIP(entry.Host)
 		if ip == nil {
-			return errors.Errorf("ACL entry has invalid host: %s - must be valid IP address", entry.Host)
+			return errors.Errorf("ACL entry has invalid host: %s - must be valid IP address or '*'", entry.Host)
 		}
 	}
 	if !strings.HasPrefix(entry.Principal, "User:") {
@@ -213,7 +212,6 @@ func (a *AclManager) DeleteAcls(resourceType acls.ResourceType, resourceNameFilt
 		if matches(resourceType, resourceNameFilter, patternTypeFilter, principal, host, operation, permission,
 			existing) {
 			key := a.createAclKey(seq)
-			log.Infof("dk: %v", key)
 			kvs = append(kvs, common.KV{Key: key, Value: nil})
 			seqsToRemove = append(seqsToRemove, seq)
 		}
@@ -267,7 +265,7 @@ func matches(resourceType acls.ResourceType, resourceNameFilter string,
 	if !matchesResource(resourceType, resourceNameFilter, patternTypeFilter, entry) {
 		return false
 	}
-	if principal != "" && principal != entry.Principal {
+	if principal != "" && principal != entry.Principal && entry.Principal != "User:*" {
 		return false
 	}
 	if host != "" && entry.Host != "*" && host != entry.Host {
@@ -367,7 +365,6 @@ func (m *AclManager) loadAcls0() (map[int64]acls.AclEntry, error) {
 		lastSequence, _ = encoding.KeyDecodeInt(kv.Key, 16)
 		allEntries[lastSequence] = entry
 	}
-	log.Infof("loaded %d acl entries", len(allEntries))
 	m.entrySequence = lastSequence + 1
 	return allEntries, nil
 }

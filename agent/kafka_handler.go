@@ -3,6 +3,7 @@ package agent
 import (
 	"fmt"
 	"github.com/pkg/errors"
+	"github.com/spirit-labs/tektite/acls"
 	auth "github.com/spirit-labs/tektite/auth2"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/kafkaprotocol"
@@ -44,22 +45,22 @@ func extractErrorCode(err error) common.ErrCode {
 
 func (k *kafkaHandler) HandleProduceRequest(_ *kafkaprotocol.RequestHeader, req *kafkaprotocol.ProduceRequest,
 	completionFunc func(resp *kafkaprotocol.ProduceResponse) error) error {
-	return k.agent.tablePusher.HandleProduceRequest(req, completionFunc)
+	return k.agent.tablePusher.HandleProduceRequest(k.authContext, req, completionFunc)
 }
 
 func (k *kafkaHandler) HandleFetchRequest(hdr *kafkaprotocol.RequestHeader, req *kafkaprotocol.FetchRequest,
 	completionFunc func(resp *kafkaprotocol.FetchResponse) error) error {
-	return k.agent.batchFetcher.HandleFetchRequest(hdr.RequestApiVersion, req, completionFunc)
+	return k.agent.batchFetcher.HandleFetchRequest(k.authContext, hdr.RequestApiVersion, req, completionFunc)
 }
 
 func (k *kafkaHandler) HandleListOffsetsRequest(_ *kafkaprotocol.RequestHeader, req *kafkaprotocol.ListOffsetsRequest,
 	completionFunc func(resp *kafkaprotocol.ListOffsetsResponse) error) error {
-	return completionFunc(k.agent.HandleListOffsetsRequest(req))
+	return completionFunc(k.agent.HandleListOffsetsRequest(k.authContext, req))
 }
 
 func (k *kafkaHandler) HandleMetadataRequest(hdr *kafkaprotocol.RequestHeader, req *kafkaprotocol.MetadataRequest,
 	completionFunc func(resp *kafkaprotocol.MetadataResponse) error) error {
-	resp, err := k.agent.HandleMetadataRequest(hdr, req)
+	resp, err := k.agent.HandleMetadataRequest(k.authContext, hdr, req)
 	if err != nil {
 		return err
 	}
@@ -68,7 +69,7 @@ func (k *kafkaHandler) HandleMetadataRequest(hdr *kafkaprotocol.RequestHeader, r
 
 func (k *kafkaHandler) HandleOffsetCommitRequest(_ *kafkaprotocol.RequestHeader,
 	req *kafkaprotocol.OffsetCommitRequest, completionFunc func(resp *kafkaprotocol.OffsetCommitResponse) error) error {
-	resp, err := k.agent.groupCoordinator.OffsetCommit(req)
+	resp, err := k.agent.groupCoordinator.OffsetCommit(k.authContext, req)
 	if err != nil {
 		return err
 	}
@@ -77,7 +78,7 @@ func (k *kafkaHandler) HandleOffsetCommitRequest(_ *kafkaprotocol.RequestHeader,
 
 func (k *kafkaHandler) HandleOffsetFetchRequest(_ *kafkaprotocol.RequestHeader, req *kafkaprotocol.OffsetFetchRequest,
 	completionFunc func(resp *kafkaprotocol.OffsetFetchResponse) error) error {
-	resp, err := k.agent.groupCoordinator.OffsetFetch(req)
+	resp, err := k.agent.groupCoordinator.OffsetFetch(k.authContext, req)
 	if err != nil {
 		return err
 	}
@@ -87,27 +88,27 @@ func (k *kafkaHandler) HandleOffsetFetchRequest(_ *kafkaprotocol.RequestHeader, 
 func (k *kafkaHandler) HandleFindCoordinatorRequest(_ *kafkaprotocol.RequestHeader,
 	req *kafkaprotocol.FindCoordinatorRequest,
 	completionFunc func(resp *kafkaprotocol.FindCoordinatorResponse) error) error {
-	return k.agent.groupCoordinator.HandleFindCoordinatorRequest(req, completionFunc)
+	return k.agent.groupCoordinator.HandleFindCoordinatorRequest(k.authContext, req, completionFunc)
 }
 
 func (k *kafkaHandler) HandleJoinGroupRequest(hdr *kafkaprotocol.RequestHeader, req *kafkaprotocol.JoinGroupRequest,
 	completionFunc func(resp *kafkaprotocol.JoinGroupResponse) error) error {
-	return k.agent.groupCoordinator.HandleJoinGroupRequest(k.clientHost, hdr, req, completionFunc)
+	return k.agent.groupCoordinator.HandleJoinGroupRequest(k.authContext, k.clientHost, hdr, req, completionFunc)
 }
 
 func (k *kafkaHandler) HandleHeartbeatRequest(_ *kafkaprotocol.RequestHeader, req *kafkaprotocol.HeartbeatRequest,
 	completionFunc func(resp *kafkaprotocol.HeartbeatResponse) error) error {
-	return k.agent.groupCoordinator.HandleHeartbeatRequest(req, completionFunc)
+	return k.agent.groupCoordinator.HandleHeartbeatRequest(k.authContext, req, completionFunc)
 }
 
 func (k *kafkaHandler) HandleLeaveGroupRequest(_ *kafkaprotocol.RequestHeader, req *kafkaprotocol.LeaveGroupRequest,
 	completionFunc func(resp *kafkaprotocol.LeaveGroupResponse) error) error {
-	return k.agent.groupCoordinator.HandleLeaveGroupRequest(req, completionFunc)
+	return k.agent.groupCoordinator.HandleLeaveGroupRequest(k.authContext, req, completionFunc)
 }
 
 func (k *kafkaHandler) HandleSyncGroupRequest(_ *kafkaprotocol.RequestHeader, req *kafkaprotocol.SyncGroupRequest,
 	completionFunc func(resp *kafkaprotocol.SyncGroupResponse) error) error {
-	return k.agent.groupCoordinator.HandleSyncGroupRequest(req, completionFunc)
+	return k.agent.groupCoordinator.HandleSyncGroupRequest(k.authContext, req, completionFunc)
 }
 
 func (k *kafkaHandler) HandleApiVersionsRequest(_ *kafkaprotocol.RequestHeader, _ *kafkaprotocol.ApiVersionsRequest,
@@ -134,7 +135,7 @@ func (k *kafkaHandler) HandleAddPartitionsToTxnRequest(_ *kafkaprotocol.RequestH
 
 func (k *kafkaHandler) HandleTxnOffsetCommitRequest(_ *kafkaprotocol.RequestHeader,
 	req *kafkaprotocol.TxnOffsetCommitRequest, completionFunc func(resp *kafkaprotocol.TxnOffsetCommitResponse) error) error {
-	resp, err := k.agent.groupCoordinator.OffsetCommitTransactional(req)
+	resp, err := k.agent.groupCoordinator.OffsetCommitTransactional(k.authContext, req)
 	if err != nil {
 		return err
 	}
@@ -169,8 +170,7 @@ func (k *kafkaHandler) HandleSaslAuthenticateRequest(_ *kafkaprotocol.RequestHea
 			resp.AuthBytes = saslRespBytes
 			if complete {
 				principal := conv.Principal()
-				k.authContext.Principal = principal
-				k.authContext.Authenticated = true
+				k.authContext.SetAuthenticated(principal, k.agent.authCaches.GetAuthCache(principal))
 			}
 		}
 	}
@@ -278,7 +278,7 @@ func (k *kafkaHandler) HandleOffsetDeleteRequest(_ *kafkaprotocol.RequestHeader,
 }
 
 func (k *kafkaHandler) HandleListGroupsRequest(_ *kafkaprotocol.RequestHeader, req *kafkaprotocol.ListGroupsRequest, completionFunc func(resp *kafkaprotocol.ListGroupsResponse) error) error {
-	resp, err := k.agent.groupCoordinator.ListGroups(req)
+	resp, err := k.agent.groupCoordinator.ListGroups(k.authContext, req)
 	if err != nil {
 		return err
 	}
@@ -286,7 +286,7 @@ func (k *kafkaHandler) HandleListGroupsRequest(_ *kafkaprotocol.RequestHeader, r
 }
 
 func (k *kafkaHandler) HandleDescribeGroupsRequest(_ *kafkaprotocol.RequestHeader, req *kafkaprotocol.DescribeGroupsRequest, completionFunc func(resp *kafkaprotocol.DescribeGroupsResponse) error) error {
-	resp, err := k.agent.groupCoordinator.DescribeGroups(req)
+	resp, err := k.agent.groupCoordinator.DescribeGroups(k.authContext, req)
 	if err != nil {
 		return err
 	}
@@ -295,7 +295,7 @@ func (k *kafkaHandler) HandleDescribeGroupsRequest(_ *kafkaprotocol.RequestHeade
 
 func (k *kafkaHandler) HandleDeleteGroupsRequest(_ *kafkaprotocol.RequestHeader,
 	req *kafkaprotocol.DeleteGroupsRequest, completionFunc func(resp *kafkaprotocol.DeleteGroupsResponse) error) error {
-	resp, err := k.agent.groupCoordinator.DeleteGroups(req)
+	resp, err := k.agent.groupCoordinator.DeleteGroups(k.authContext, req)
 	if err != nil {
 		return err
 	}
@@ -312,39 +312,51 @@ func (k *kafkaHandler) HandleCreatePartitionsRequest(_ *kafkaprotocol.RequestHea
 	}
 	for i, topic := range req.Topics {
 		cl, err := k.agent.controlClientCache.GetClient()
+		errCode := int16(kafkaprotocol.ErrorCodeNone)
+		var errMsg string
 		if err != nil {
-			errCode, errMsg := getErrorCodeAndMessageForCreatePartitionsResponse(err)
-			resp.Results[i].ErrorCode = errCode
-			resp.Results[i].ErrorMessage = common.StrPtr(errMsg)
-			continue
-		}
-		topicName := common.SafeDerefStringPtr(topic.Name)
-		if req.ValidateOnly {
-			info, _, exists, err := cl.GetTopicInfo(topicName)
-			if err != nil {
-				errCode, errMsg := getErrorCodeAndMessageForCreatePartitionsResponse(err)
-				resp.Results[i].ErrorCode = errCode
-				resp.Results[i].ErrorMessage = common.StrPtr(errMsg)
-			} else {
-				if !exists {
-					resp.Results[i].ErrorCode = kafkaprotocol.ErrorCodeUnknownTopicOrPartition
-					resp.Results[i].ErrorMessage = common.StrPtr(fmt.Sprintf("unknown topic: %s", topicName))
+			errCode, errMsg = getErrorCodeAndMessageForCreatePartitionsResponse(err)
+		} else {
+			topicName := common.SafeDerefStringPtr(topic.Name)
+			if k.authContext != nil {
+				authorised, err := k.authContext.Authorize(acls.ResourceTypeTopic, topicName, acls.OperationAlter)
+				if err != nil {
+					errCode, errMsg = getErrorCodeAndMessageForCreatePartitionsResponse(err)
+				}
+				if !authorised {
+					errCode = kafkaprotocol.ErrorCodeTopicAuthorizationFailed
+					errMsg = "not authorised to create partitions"
+				}
+			}
+			if errCode == kafkaprotocol.ErrorCodeNone {
+				if req.ValidateOnly {
+					info, _, exists, err := cl.GetTopicInfo(topicName)
+					if err != nil {
+						errCode, errMsg = getErrorCodeAndMessageForCreatePartitionsResponse(err)
+					} else {
+						if !exists {
+							errCode = kafkaprotocol.ErrorCodeUnknownTopicOrPartition
+							errMsg = fmt.Sprintf("unknown topic: %s", topicName)
+						} else {
+							if int(topic.Count) < info.PartitionCount {
+								errCode = kafkaprotocol.ErrorCodeInvalidPartitions
+								errMsg = "cannot reduce partition count"
+							}
+						}
+					}
 				} else {
-					if int(topic.Count) < info.PartitionCount {
-						resp.Results[i].ErrorCode = kafkaprotocol.ErrorCodeInvalidPartitions
-						resp.Results[i].ErrorMessage = common.StrPtr("cannot reduce partition count")
+					if err := cl.CreateOrUpdateTopic(topicmeta.TopicInfo{
+						Name:           common.SafeDerefStringPtr(topic.Name),
+						PartitionCount: int(topic.Count),
+					}, false); err != nil {
+						errCode, errMsg = getErrorCodeAndMessageForCreatePartitionsResponse(err)
 					}
 				}
 			}
-		} else {
-			if err := cl.CreateOrUpdateTopic(topicmeta.TopicInfo{
-				Name:           common.SafeDerefStringPtr(topic.Name),
-				PartitionCount: int(topic.Count),
-			}, false); err != nil {
-				errCode, errMsg := getErrorCodeAndMessageForCreatePartitionsResponse(err)
-				resp.Results[i].ErrorCode = errCode
-				resp.Results[i].ErrorMessage = common.StrPtr(errMsg)
-			}
+		}
+		if errCode != kafkaprotocol.ErrorCodeNone {
+			resp.Results[i].ErrorCode = errCode
+			resp.Results[i].ErrorMessage = common.StrPtr(errMsg)
 		}
 	}
 	return completionFunc(&resp)
@@ -377,7 +389,7 @@ func (k *kafkaHandler) HandleCreateTopicsRequest(_ *kafkaprotocol.RequestHeader,
 		topicName := common.SafeDerefStringPtr(topic.Name)
 		retentionTime, respConfigs, errCode, errMsg := k.parseRetentionConfig(topic, topicName)
 		if errCode == kafkaprotocol.ErrorCodeNone { // No error from config parsing
-			errCode, errMsg = k.validateAndCreateTopic(topicName, topic, retentionTime)
+			errCode, errMsg = k.validateAndCreateTopic(k.authContext, topicName, topic, retentionTime)
 		}
 		res := kafkaprotocol.CreateTopicsResponseCreatableTopicResult{
 			Name:          topic.Name,
@@ -393,7 +405,7 @@ func (k *kafkaHandler) HandleCreateTopicsRequest(_ *kafkaprotocol.RequestHeader,
 	return completionFunc(resp)
 }
 
-func (k *kafkaHandler) HandleDeleteTopicsRequest(hdr *kafkaprotocol.RequestHeader, req *kafkaprotocol.DeleteTopicsRequest, completionFunc func(resp *kafkaprotocol.DeleteTopicsResponse) error) error {
+func (k *kafkaHandler) HandleDeleteTopicsRequest(_ *kafkaprotocol.RequestHeader, req *kafkaprotocol.DeleteTopicsRequest, completionFunc func(resp *kafkaprotocol.DeleteTopicsResponse) error) error {
 	resp := &kafkaprotocol.DeleteTopicsResponse{
 		ThrottleTimeMs: 0,
 		Responses:      make([]kafkaprotocol.DeleteTopicsResponseDeletableTopicResult, len(req.TopicNames)),
@@ -401,18 +413,31 @@ func (k *kafkaHandler) HandleDeleteTopicsRequest(hdr *kafkaprotocol.RequestHeade
 	for i, topicName := range req.TopicNames {
 		var errMsg string
 		errCode := kafkaprotocol.ErrorCodeNone
-		acl, err := k.agent.controlClientCache.GetClient()
-		if err != nil {
-			errMsg = err.Error()
-			errCode = kafkaprotocol.ErrorCodeCoordinatorNotAvailable
-		} else {
-			err = acl.DeleteTopic(common.SafeDerefStringPtr(topicName))
+		topName := common.SafeDerefStringPtr(topicName)
+		if k.authContext != nil {
+			authorised, err := k.authContext.Authorize(acls.ResourceTypeTopic, topName, acls.OperationDelete)
 			if err != nil {
 				errMsg = err.Error()
-				if extractErrorCode(err) == common.TopicDoesNotExist {
-					errCode = kafkaprotocol.ErrorCodeUnknownTopicOrPartition
-				} else {
-					errCode = kafkaprotocol.ErrorCodeInvalidTopicException
+				errCode = kafkaprotocol.ErrorCodeCoordinatorNotAvailable
+			} else if !authorised {
+				errMsg = "not authorised to delete topic"
+				errCode = kafkaprotocol.ErrorCodeTopicAuthorizationFailed
+			}
+		}
+		if errCode == kafkaprotocol.ErrorCodeNone {
+			acl, err := k.agent.controlClientCache.GetClient()
+			if err != nil {
+				errMsg = err.Error()
+				errCode = kafkaprotocol.ErrorCodeCoordinatorNotAvailable
+			} else {
+				err = acl.DeleteTopic(topName)
+				if err != nil {
+					errMsg = err.Error()
+					if extractErrorCode(err) == common.TopicDoesNotExist {
+						errCode = kafkaprotocol.ErrorCodeUnknownTopicOrPartition
+					} else {
+						errCode = kafkaprotocol.ErrorCodeInvalidTopicException
+					}
 				}
 			}
 		}
@@ -447,8 +472,23 @@ func checkTopicNameValid(name string) error {
 	return nil
 }
 
-func (k *kafkaHandler) validateAndCreateTopic(topicName string, topic kafkaprotocol.CreateTopicsRequestCreatableTopic,
+func (k *kafkaHandler) validateAndCreateTopic(authContext *auth.Context, topicName string, topic kafkaprotocol.CreateTopicsRequestCreatableTopic,
 	retentionTime time.Duration) (int16, string) {
+	if authContext != nil {
+		authorised, err := authContext.Authorize(acls.ResourceTypeTopic, topicName, acls.OperationCreate)
+		if err != nil {
+			return kafkaprotocol.ErrorCodeCoordinatorNotAvailable, err.Error()
+		}
+		if !authorised {
+			authorised, err = authContext.Authorize(acls.ResourceTypeCluster, acls.ClusterResourceName, acls.OperationCreate)
+			if err != nil {
+				return kafkaprotocol.ErrorCodeCoordinatorNotAvailable, err.Error()
+			}
+		}
+		if !authorised {
+			return kafkaprotocol.ErrorCodeTopicAuthorizationFailed, fmt.Sprintf("not authorised to create topic %s", topicName)
+		}
+	}
 	err := checkTopicNameValid(topicName)
 	if err != nil {
 		return int16(kafkaprotocol.ErrorCodeInvalidTopicException),
@@ -506,7 +546,7 @@ func (k *kafkaHandler) parseRetentionConfig(topic kafkaprotocol.CreateTopicsRequ
 	return retentionTime, respConfigs, errCode, errMsg
 }
 
-func (k *kafkaHandler) HandleDescribeConfigsRequest(hdr *kafkaprotocol.RequestHeader,
+func (k *kafkaHandler) HandleDescribeConfigsRequest(_ *kafkaprotocol.RequestHeader,
 	req *kafkaprotocol.DescribeConfigsRequest, completionFunc func(resp *kafkaprotocol.DescribeConfigsResponse) error) error {
 	resp := &kafkaprotocol.DescribeConfigsResponse{
 		Results: make([]kafkaprotocol.DescribeConfigsResponseDescribeConfigsResult, len(req.Resources)),
@@ -520,7 +560,7 @@ func (k *kafkaHandler) HandleDescribeConfigsRequest(hdr *kafkaprotocol.RequestHe
 	return completionFunc(resp)
 }
 
-func (k *kafkaHandler) HandleAlterConfigsRequest(hdr *kafkaprotocol.RequestHeader,
+func (k *kafkaHandler) HandleAlterConfigsRequest(_ *kafkaprotocol.RequestHeader,
 	req *kafkaprotocol.AlterConfigsRequest, completionFunc func(resp *kafkaprotocol.AlterConfigsResponse) error) error {
 	resp := &kafkaprotocol.AlterConfigsResponse{
 		Responses: make([]kafkaprotocol.AlterConfigsResponseAlterConfigsResourceResponse, len(req.Resources)),

@@ -47,7 +47,7 @@ func TestFindCoordinator(t *testing.T) {
 		Key: common.StrPtr(groupID),
 	}
 	respCh := make(chan *kafkaprotocol.FindCoordinatorResponse, 1)
-	err := gc.HandleFindCoordinatorRequest(&req, func(resp *kafkaprotocol.FindCoordinatorResponse) error {
+	err := gc.HandleFindCoordinatorRequest(nil, &req, func(resp *kafkaprotocol.FindCoordinatorResponse) error {
 		respCh <- resp
 		return nil
 	})
@@ -1682,7 +1682,7 @@ func TestOffsetCommit(t *testing.T) {
 		},
 	}
 
-	resp, err := gc.OffsetCommit(&req)
+	resp, err := gc.OffsetCommit(nil, &req)
 	require.NoError(t, err)
 
 	require.Equal(t, 2, len(resp.Topics))
@@ -1925,7 +1925,7 @@ func TestOffsetFetch(t *testing.T) {
 			},
 		},
 	}
-	resp, err := gc.OffsetFetch(&req)
+	resp, err := gc.OffsetFetch(nil, &req)
 	require.NoError(t, err)
 	require.Equal(t, 2, len(resp.Topics))
 	require.Equal(t, topicName1, *resp.Topics[0].Name)
@@ -2144,7 +2144,7 @@ func testListGroups(t *testing.T, statesFilter []*string, typesFilter []*string,
 		TypesFilter:  typesFilter,
 	}
 
-	resp, err := gc.ListGroups(&req)
+	resp, err := gc.ListGroups(nil, &req)
 	require.NoError(t, err)
 
 	require.Equal(t, kafkaprotocol.ErrorCodeNone, int(resp.ErrorCode))
@@ -2211,7 +2211,7 @@ func TestDescribeGroups(t *testing.T) {
 		Groups: []*string{common.StrPtr(g1.id), common.StrPtr(g2.id), common.StrPtr(g3.id), common.StrPtr(g4.id)},
 	}
 
-	resp, err := gc.DescribeGroups(&req)
+	resp, err := gc.DescribeGroups(nil, &req)
 	require.NoError(t, err)
 
 	verifyExpectedGroup(t, []*group{g1, g2, g3, g4}, resp.Groups)
@@ -2305,7 +2305,7 @@ func TestDescribeGroupsNoSuchGroup(t *testing.T) {
 		Groups: []*string{common.StrPtr(g1.id), common.StrPtr("unknown")},
 	}
 
-	resp, err := gc.DescribeGroups(&req)
+	resp, err := gc.DescribeGroups(nil, &req)
 	require.NoError(t, err)
 
 	require.Equal(t, 2, len(resp.Groups))
@@ -2365,7 +2365,7 @@ func TestDeleteGroups(t *testing.T) {
 		GroupsNames: []*string{common.StrPtr(groupID)},
 	}
 
-	resp, err := gc.DeleteGroups(&req)
+	resp, err := gc.DeleteGroups(nil, &req)
 	require.NoError(t, err)
 	require.Equal(t, 1, len(resp.Results))
 	require.Equal(t, kafkaprotocol.ErrorCodeNone, int(resp.Results[0].ErrorCode))

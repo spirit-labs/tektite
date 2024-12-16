@@ -2,6 +2,8 @@ package agent
 
 import (
 	"errors"
+	"github.com/spirit-labs/tektite/acls"
+	auth "github.com/spirit-labs/tektite/auth2"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/control"
 	"github.com/spirit-labs/tektite/kafkaencoding"
@@ -34,13 +36,14 @@ func (a *Agent) HandleDescribeClusterRequest(completionFunc func(resp *kafkaprot
 	return completionFunc(resp)
 }
 
-func (a *Agent) HandleMetadataRequest(hdr *kafkaprotocol.RequestHeader, req *kafkaprotocol.MetadataRequest) (*kafkaprotocol.MetadataResponse, error) {
+func (a *Agent) HandleMetadataRequest(authContext *auth.Context, hdr *kafkaprotocol.RequestHeader,
+	req *kafkaprotocol.MetadataRequest) (*kafkaprotocol.MetadataResponse, error) {
 	resp := &kafkaprotocol.MetadataResponse{}
 	resp.Topics = make([]kafkaprotocol.MetadataResponseMetadataResponseTopic, len(req.Topics))
 	for i, topicData := range req.Topics {
 		resp.Topics[i].Name = topicData.Name
 	}
-	err := a.handleMetadataRequest(hdr, req, resp)
+	err := a.handleMetadataRequest(authContext, hdr, req, resp)
 	if err != nil {
 		log.Warnf("failed to handle metadata request: %v", err)
 		if len(resp.Topics) > 0 {
@@ -114,7 +117,7 @@ func (a *Agent) getAgentsInSameAz(hdr *kafkaprotocol.RequestHeader) ([]control.A
 	return agents, nil
 }
 
-func (a *Agent) handleMetadataRequest(hdr *kafkaprotocol.RequestHeader, req *kafkaprotocol.MetadataRequest, resp *kafkaprotocol.MetadataResponse) error {
+func (a *Agent) handleMetadataRequest(authContext *auth.Context, hdr *kafkaprotocol.RequestHeader, req *kafkaprotocol.MetadataRequest, resp *kafkaprotocol.MetadataResponse) error {
 	agents, err := a.getAgentsInSameAz(hdr)
 	if err != nil {
 		return err
@@ -143,13 +146,23 @@ func (a *Agent) handleMetadataRequest(hdr *kafkaprotocol.RequestHeader, req *kaf
 		if err != nil {
 			return err
 		}
-		resp.Topics = make([]kafkaprotocol.MetadataResponseMetadataResponseTopic, len(topicInfos))
-		for i, topicInfo := range topicInfos {
-			top, err := a.populateTopicMetadata(&topicInfo, agents)
-			if err != nil {
-				return err
+		resp.Topics = make([]kafkaprotocol.MetadataResponseMetadataResponseTopic, 0, len(topicInfos))
+		for _, topicInfo := range topicInfos {
+			authorised := true
+			if authContext != nil {
+				// Only return topics user is authorised to see
+				authorised, err = authContext.Authorize(acls.ResourceTypeTopic, topicInfo.Name, acls.OperationDescribe)
+				if err != nil {
+					return err
+				}
 			}
-			resp.Topics[i] = *top
+			if authorised {
+				top, err := a.populateTopicMetadata(&topicInfo, agents)
+				if err != nil {
+					return err
+				}
+				resp.Topics = append(resp.Topics, *top)
+			}
 		}
 	} else {
 		for i, top := range req.Topics {
@@ -161,11 +174,23 @@ func (a *Agent) handleMetadataRequest(hdr *kafkaprotocol.RequestHeader, req *kaf
 			if !exists {
 				resp.Topics[i].ErrorCode = kafkaprotocol.ErrorCodeUnknownTopicOrPartition
 			} else {
-				top, err := a.populateTopicMetadata(&topicInfo, agents)
-				if err != nil {
-					return err
+				authorised := true
+				if authContext != nil {
+					authorised, err = authContext.Authorize(acls.ResourceTypeTopic, topicName, acls.OperationDescribe)
+					if err != nil {
+						return err
+					}
+					if !authorised {
+						resp.Topics[i].ErrorCode = kafkaprotocol.ErrorCodeTopicAuthorizationFailed
+					}
 				}
-				resp.Topics[i] = *top
+				if authorised {
+					top, err := a.populateTopicMetadata(&topicInfo, agents)
+					if err != nil {
+						return err
+					}
+					resp.Topics[i] = *top
+				}
 			}
 		}
 	}

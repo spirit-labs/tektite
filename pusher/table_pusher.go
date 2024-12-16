@@ -5,7 +5,9 @@ import (
 	"encoding/binary"
 	"fmt"
 	"github.com/pkg/errors"
+	"github.com/spirit-labs/tektite/acls"
 	"github.com/spirit-labs/tektite/asl/encoding"
+	auth "github.com/spirit-labs/tektite/auth2"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/control"
 	"github.com/spirit-labs/tektite/kafkaencoding"
@@ -215,7 +217,7 @@ func setPartitionError(errorCode int, errorMsg string, partitionResponse *kafkap
 	partitionResponse.ErrorMessage = &errorMsg
 }
 
-func (t *TablePusher) HandleProduceRequest(req *kafkaprotocol.ProduceRequest,
+func (t *TablePusher) HandleProduceRequest(authContext *auth.Context, req *kafkaprotocol.ProduceRequest,
 	completionFunc func(resp *kafkaprotocol.ProduceResponse) error) error {
 	var resp kafkaprotocol.ProduceResponse
 	resp.Responses = make([]kafkaprotocol.ProduceResponseTopicProduceResponse, len(req.TopicData))
@@ -225,14 +227,41 @@ func (t *TablePusher) HandleProduceRequest(req *kafkaprotocol.ProduceRequest,
 	}
 	t.lock.Lock()
 	defer t.lock.Unlock()
+	txAuthed := true
+	if req.TransactionalId != nil && authContext != nil {
+		transactionalID := common.SafeDerefStringPtr(req.TransactionalId)
+		var err error
+		txAuthed, err = authContext.Authorize(acls.ResourceTypeTransactionalID, transactionalID, acls.OperationWrite)
+		if err != nil {
+			fillAllErrors(&resp, kafkaprotocol.ErrorCodeUnknownServerError, err.Error())
+			return completionFunc(&resp)
+		}
+	}
 	recordsAdded := false
 	for i, topicData := range req.TopicData {
 		resp.Responses[i].Name = topicData.Name
 		partitionResponses := make([]kafkaprotocol.ProduceResponsePartitionProduceResponse, len(topicData.PartitionData))
 		resp.Responses[i].PartitionResponses = partitionResponses
-		topicInfo, topicExists, err := t.topicProvider.GetTopicInfo(*topicData.Name)
-		var errCode int
+		topicName := common.SafeDerefStringPtr(topicData.Name)
+		topicInfo, topicExists, err := t.topicProvider.GetTopicInfo(topicName)
+		errCode := kafkaprotocol.ErrorCodeNone
 		var errMsg string
+		if err == nil {
+			if !topicExists {
+				errCode = kafkaprotocol.ErrorCodeUnknownTopicOrPartition
+				errMsg = fmt.Sprintf("unknown topic: %s", topicName)
+			} else if !txAuthed {
+				errCode = kafkaprotocol.ErrorCodeTransactionalIDAuthorizationFailed
+				errMsg = "not authorised to produce to transactional id"
+			} else if authContext != nil {
+				var authorised bool
+				authorised, err = authContext.Authorize(acls.ResourceTypeTopic, topicName, acls.OperationWrite)
+				if err == nil && !authorised {
+					errCode = kafkaprotocol.ErrorCodeTopicAuthorizationFailed
+					errMsg = fmt.Sprintf("not authorised to write to topic: %s", topicName)
+				}
+			}
+		}
 		if err != nil {
 			if common.IsUnavailableError(err) {
 				// Send back unknown topic as client will retry
@@ -242,9 +271,6 @@ func (t *TablePusher) HandleProduceRequest(req *kafkaprotocol.ProduceRequest,
 			} else {
 				errCode = kafkaprotocol.ErrorCodeUnknownServerError
 			}
-		} else if !topicExists {
-			errCode = kafkaprotocol.ErrorCodeUnknownTopicOrPartition
-			errMsg = fmt.Sprintf("unknown topic: %s", common.SafeDerefStringPtr(topicData.Name))
 		}
 		var topicMap map[int][]bufferedRecords
 	partitions:
@@ -421,6 +447,9 @@ func (t *TablePusher) HandleDirectWriteRequest(_ *transport.ConnectionContext, r
 	}
 	var req common.DirectWriteRequest
 	req.Deserialize(request, 2)
+	if len(req.KVs) == 0 {
+		return errors.Errorf("zero length direct kvs submitted")
+	}
 	t.addDirectKVs(&req, func(err error) {
 		if err := responseWriter(responseBuff, err); err != nil {
 			log.Errorf("failed to write response: %v", err)
@@ -475,8 +504,10 @@ func (t *TablePusher) failDirectWrites(writerKey string) {
 			writerKey)
 		completion(err)
 	}
+	// TODO we could maybe store all three of these in a single struct in a single map?
 	delete(t.directKVs, writerKey)
 	delete(t.directCompletions, writerKey)
+	delete(t.directWriterEpochs, writerKey)
 	t.numDirectKVsToCommit -= len(kvs)
 }
 
@@ -610,8 +641,13 @@ func (t *TablePusher) write() error {
 			t.failDirectWrites(groupID)
 		}
 	}
+	numRemainingKvs := len(offs) + t.numDirectKVsToCommit
+	if numRemainingKvs == 0 {
+		// After failing direct writes there may be nothing to do
+		return nil
+	}
 	// Create KVs for the batches
-	kvs := make([]common.KV, 0, len(offs)+t.numDirectKVsToCommit)
+	kvs := make([]common.KV, 0, numRemainingKvs)
 	// Add any offsets to commit
 	for _, offsetKVs := range t.directKVs {
 		kvs = append(kvs, offsetKVs...)
@@ -703,7 +739,6 @@ func (t *TablePusher) write() error {
 	if err := client.RegisterL0Table(seq, regEntry); err != nil {
 		return err
 	}
-	log.Debugf("table pusher successfully pushed and registered table with id %s", tableID)
 	// Send back completions
 	t.callCompletions(nil)
 	// reset - the state
