@@ -5,7 +5,9 @@ import (
 	"encoding/binary"
 	"fmt"
 	"github.com/google/uuid"
+	"github.com/spirit-labs/tektite/acls"
 	"github.com/spirit-labs/tektite/asl/encoding"
+	auth "github.com/spirit-labs/tektite/auth2"
 	"github.com/spirit-labs/tektite/cluster"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/kafkaprotocol"
@@ -435,13 +437,12 @@ func (g *group) createMemberInfos() []MemberInfo {
 				break
 			}
 		}
-		if meta == nil {
-			panic("cannot find protocol")
+		if meta != nil {
+			memberInfos = append(memberInfos, MemberInfo{
+				MemberID: memberID,
+				MetaData: meta,
+			})
 		}
-		memberInfos = append(memberInfos, MemberInfo{
-			MemberID: memberID,
-			MetaData: meta,
-		})
 	}
 	return memberInfos
 }
@@ -697,7 +698,7 @@ func fillAllErrorCodesForOffsetFetch(resp *kafkaprotocol.OffsetFetchResponse, er
 	}
 }
 
-func (g *group) offsetCommit(transactional bool, req *kafkaprotocol.OffsetCommitRequest, resp *kafkaprotocol.OffsetCommitResponse) int {
+func (g *group) offsetCommit(authContext *auth.Context, transactional bool, req *kafkaprotocol.OffsetCommitRequest, resp *kafkaprotocol.OffsetCommitResponse) int {
 	g.lock.Lock()
 	defer g.lock.Unlock()
 	if int(req.GenerationIdOrMemberEpoch) != g.generationID {
@@ -710,7 +711,8 @@ func (g *group) offsetCommit(transactional bool, req *kafkaprotocol.OffsetCommit
 	// Convert to KV pairs
 	var kvs []common.KV
 	for i, topicData := range req.Topics {
-		info, foundTopic, err := g.gc.topicProvider.GetTopicInfo(*topicData.Name)
+		topicName := common.SafeDerefStringPtr(topicData.Name)
+		info, foundTopic, err := g.gc.topicProvider.GetTopicInfo(topicName)
 		if err != nil {
 			log.Errorf("failed to get topic info %v", err)
 			return kafkaprotocol.ErrorCodeUnknownServerError
@@ -718,9 +720,21 @@ func (g *group) offsetCommit(transactional bool, req *kafkaprotocol.OffsetCommit
 		if !foundTopic {
 			log.Warnf("group coordinator - offset commit: topic info not found %v", *topicData.Name)
 		}
+		authorised := true
+		if authContext != nil {
+			authorised, err = authContext.Authorize(acls.ResourceTypeTopic, topicName, acls.OperationRead)
+			if err != nil {
+				log.Errorf("failed to authorise %v", err)
+				return kafkaprotocol.ErrorCodeUnknownServerError
+			}
+		}
 		for j, partitionData := range topicData.Partitions {
 			if !foundTopic {
 				resp.Topics[i].Partitions[j].ErrorCode = kafkaprotocol.ErrorCodeUnknownTopicOrPartition
+				continue
+			}
+			if !authorised {
+				resp.Topics[i].Partitions[j].ErrorCode = kafkaprotocol.ErrorCodeTopicAuthorizationFailed
 				continue
 			}
 			offset := partitionData.CommittedOffset
@@ -744,6 +758,10 @@ func (g *group) offsetCommit(transactional bool, req *kafkaprotocol.OffsetCommit
 			log.Debugf("group %s topic %d partition %d committing offset %d", *req.GroupId, info.ID,
 				partitionData.PartitionIndex, offset)
 		}
+	}
+	if len(kvs) == 0 {
+		// All the individual partitions errored
+		return kafkaprotocol.ErrorCodeNone
 	}
 	commitReq := common.DirectWriteRequest{
 		WriterKey:   g.offsetWriterKey,
@@ -949,7 +967,7 @@ func (g *group) loadOffset(topicID int, partitionID int) (int64, error) {
 	return offset, nil
 }
 
-func (g *group) offsetFetch(req *kafkaprotocol.OffsetFetchRequest, resp *kafkaprotocol.OffsetFetchResponse) {
+func (g *group) offsetFetch(authContext *auth.Context, req *kafkaprotocol.OffsetFetchRequest, resp *kafkaprotocol.OffsetFetchResponse) {
 	g.lock.Lock()
 	defer g.lock.Unlock()
 	for i, topicData := range req.Topics {
@@ -962,6 +980,14 @@ func (g *group) offsetFetch(req *kafkaprotocol.OffsetFetchRequest, resp *kafkapr
 		} else if !foundTopic {
 			log.Warnf("group coordinator - offset fetch: topic info not found %v", *topicData.Name)
 			errCode = kafkaprotocol.ErrorCodeUnknownTopicOrPartition
+		} else if authContext != nil {
+			authorised, err := authContext.Authorize(acls.ResourceTypeTopic, topicName, acls.OperationDescribe)
+			if err != nil {
+				log.Errorf("failed to authorise %v", err)
+				errCode = kafkaprotocol.ErrorCodeUnknownServerError
+			} else if !authorised {
+				errCode = kafkaprotocol.ErrorCodeTopicAuthorizationFailed
+			}
 		}
 		for j, partitionID := range topicData.PartitionIndexes {
 			if errCode != kafkaprotocol.ErrorCodeNone {
@@ -970,7 +996,6 @@ func (g *group) offsetFetch(req *kafkaprotocol.OffsetFetchRequest, resp *kafkapr
 			}
 			offset, err := g.loadOffset(topicInfo.ID, int(partitionID))
 			if err != nil {
-				var errCode int
 				if common.IsUnavailableError(err) {
 					log.Warnf("failed to load offset %v", err)
 					errCode = kafkaprotocol.ErrorCodeCoordinatorNotAvailable
@@ -978,7 +1003,7 @@ func (g *group) offsetFetch(req *kafkaprotocol.OffsetFetchRequest, resp *kafkapr
 					log.Errorf("failed to load offset %v", err)
 					errCode = kafkaprotocol.ErrorCodeUnknownServerError
 				}
-				resp.Topics[i].Partitions[j].ErrorCode = int16(errCode)
+				resp.Topics[i].Partitions[j].ErrorCode = errCode
 				continue
 			}
 			resp.Topics[i].Partitions[j].CommittedOffset = offset

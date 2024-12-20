@@ -3,12 +3,14 @@ package integ
 import (
 	"context"
 	"fmt"
+	kafkago "github.com/confluentinc/confluent-kafka-go/v2/kafka"
 	"github.com/google/uuid"
 	"github.com/spirit-labs/tektite/kafka"
 	log "github.com/spirit-labs/tektite/logger"
 	miniocl "github.com/spirit-labs/tektite/objstore/minio"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go/modules/minio"
+	"strconv"
 	"testing"
 	"time"
 )
@@ -50,8 +52,10 @@ func testProduceConsume(t *testing.T, producerFactory ProducerFactory, consumerF
 
 	numAgents := 5
 	topicName := fmt.Sprintf("test-topic-%s", uuid.New().String())
-	agents, tearDown := startAgents(t, numAgents, topicName, serverTls, clientTls)
+	agents, tearDown := startAgents(t, numAgents, serverTls, clientTls)
 	defer tearDown(t)
+
+	createTopic(t, topicName, 100, agents[0].kafkaListenAddress, serverTls, clientTls)
 
 	address := agents[0].kafkaListenAddress
 
@@ -108,7 +112,7 @@ func startMinioAndCreateBuckets(t *testing.T) (miniocl.Conf, *minio.MinioContain
 	return minioCfg, minioContainer
 }
 
-func startAgents(t *testing.T, numAgents int, topicName string, serverTls bool, clientAuth bool) ([]*AgentProcess, func(*testing.T)) {
+func startAgents(t *testing.T, numAgents int, serverTls bool, clientAuth bool) ([]*AgentProcess, func(*testing.T)) {
 	minioCfg, minioContainer := startMinioAndCreateBuckets(t)
 
 	mgr := NewManager()
@@ -133,10 +137,9 @@ func startAgents(t *testing.T, numAgents int, topicName string, serverTls bool, 
 			"--cluster-name=test-cluster --location=az1 --kafka-listen-address=localhost:0 --internal-listen-address=localhost:0 " +
 			"--membership-update-interval-ms=100 --membership-eviction-interval-ms=2000 " +
 			"--consumer-group-initial-join-delay-ms=500 " +
-			`--log-level=info ` +
-			fmt.Sprintf("--topic-name=%s", topicName)
+			`--log-level=info`
 		commandLine += tlsConf
-		log.Infof("command line: %s", commandLine)
+		log.Debugf("command line: %s", commandLine)
 		agent, err := mgr.StartAgent(commandLine, false)
 		require.NoError(t, err)
 		agents = append(agents, agent)
@@ -149,6 +152,19 @@ func startAgents(t *testing.T, numAgents int, topicName string, serverTls bool, 
 		err := minioContainer.Terminate(context.Background())
 		require.NoError(t, err)
 	}
+}
+
+func createTopic(t *testing.T, topicName string, partitions int, address string, serverTls bool, clientTls bool) {
+	adminClient, err := newAdminProducer(address, serverTls, clientTls)
+	require.NoError(t, err)
+	defer adminClient.Close()
+	_, err = adminClient.CreateTopics(context.Background(), []kafkago.TopicSpecification{
+		{
+			Topic:         topicName,
+			NumPartitions: partitions,
+		},
+	})
+	require.NoError(t, err)
 }
 
 func startMinio(t *testing.T) (miniocl.Conf, *minio.MinioContainer) {
@@ -190,4 +206,23 @@ func createConsumer(t *testing.T, factory ConsumerFactory, address string, topic
 	consumer, err := factory(address, topicName, groupID, serverTls, serverCertPath, clientCert, clientKey)
 	require.NoError(t, err)
 	return consumer
+}
+
+func newAdminProducer(address string, serverTls bool, clientTls bool) (*kafkago.AdminClient, error) {
+	clientKey := ""
+	clientCert := ""
+	if clientTls {
+		clientKey = clientKeyPath
+		clientCert = clientCertPath
+	}
+	cm := kafkago.ConfigMap{
+		"partitioner":        "murmur2_random", // This matches the default hash algorithm we use, and same as Java client
+		"bootstrap.servers":  address,
+		"acks":               "all",
+		"enable.idempotence": strconv.FormatBool(true),
+	}
+	if serverTls {
+		cm = configureConfigureForTls(cm, serverCertPath, clientCert, clientKey)
+	}
+	return kafkago.NewAdminClient(&cm)
 }

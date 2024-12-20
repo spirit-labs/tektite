@@ -5,7 +5,6 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/spirit-labs/tektite/cluster"
-	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/conf"
 	"github.com/spirit-labs/tektite/control"
 	"github.com/spirit-labs/tektite/fetchcache"
@@ -16,7 +15,6 @@ import (
 	"github.com/spirit-labs/tektite/lsm"
 	"github.com/spirit-labs/tektite/objstore/minio"
 	"github.com/spirit-labs/tektite/pusher"
-	"github.com/spirit-labs/tektite/topicmeta"
 	"net"
 	"time"
 )
@@ -37,8 +35,7 @@ type CommandConf struct {
 	ConsumerGroupInitialJoinDelayMs int                `name:"consumer-group-initial-join-delay-ms" help:"initial delay to wait for more consumers to join a new consumer group before performing the first rebalance, in ms" default:"3000"`
 	AuthenticationType              string             `help:"type of authentication. one of sasl/plain, sasl/scram-sha-512, mtls, none" default:"none"`
 	AllowScramNonceAsPrefix         bool
-
-	TopicName string `name:"topic-name" help:"name of the topic"`
+	UserAuthCacheTimeout time.Duration `help:"maximum time for which a user authorisation is cached" default:"5m"`
 }
 
 var authTypeMapping = map[string]kafkaserver.AuthenticationType{
@@ -144,6 +141,7 @@ func CreateConfFromCommandConf(commandConf CommandConf) (Conf, error) {
 			" prefix of the required nonce. It is recommended to upgrade clients to later versions of librdkafka where possible" +
 			" and not to enable this setting.")
 	}
+	cfg.UserAuthCacheTimeout = commandConf.UserAuthCacheTimeout
 	return cfg, nil
 }
 
@@ -210,6 +208,7 @@ type Conf struct {
 	AddJunkOnScramNonce       bool
 	DefaultTopicRetentionTime time.Duration
 	ClusterName               string
+	UserAuthCacheTimeout time.Duration
 }
 
 func NewConf() Conf {
@@ -226,6 +225,7 @@ func NewConf() Conf {
 		MaxConnectionsPerAddress:  DefaultMaxConnectionsPerAddress,
 		AuthType:                  kafkaserver.AuthenticationTypeNone,
 		DefaultTopicRetentionTime: DefaultDefaultTopicRetentionTime,
+		UserAuthCacheTimeout: DefaultUserAuthCacheTimeout,
 	}
 }
 
@@ -234,6 +234,7 @@ const (
 	DefaultDefaultTopicRetentionTime = 7 * 24 * time.Hour
 	DefaultMaxControllerClients      = 10
 	DefaultMaxConnectionsPerAddress  = 10
+	DefaultUserAuthCacheTimeout = 5 * time.Minute
 )
 
 func (c *Conf) Validate() error {
@@ -276,44 +277,4 @@ type ListenerConfig struct {
 func (l *ListenerConfig) Validate() error {
 	// TODO
 	return nil
-}
-
-// FIXME - get rid of these once create/delete topic is complete
-
-func (a *Agent) CreateTopicWithRetry(topicName string, partitions int) {
-	for {
-		if err := createTopic(topicName, partitions, a); err != nil {
-			if common.IsUnavailableError(err) {
-				log.Debugf("failed to create topic %v", err)
-				time.Sleep(1 * time.Millisecond)
-				continue
-			}
-			if err != nil {
-				log.Errorf("failed to create topic %s: %v", topicName, err)
-				return
-			}
-		} else {
-			log.Infof("agent created topic %s", topicName)
-			return
-		}
-	}
-}
-
-func createTopic(topicName string, partitions int, agent *Agent) error {
-	controller := agent.Controller()
-	cl, err := controller.Client()
-	if err != nil {
-		return err
-	}
-	defer func() {
-		err := cl.Close()
-		if err != nil {
-			panic(err)
-		}
-	}()
-
-	return cl.CreateOrUpdateTopic(topicmeta.TopicInfo{
-		Name:           topicName,
-		PartitionCount: partitions,
-	}, true)
 }

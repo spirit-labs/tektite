@@ -2,6 +2,7 @@ package agent
 
 import (
 	"github.com/spirit-labs/tektite/acls"
+	auth "github.com/spirit-labs/tektite/auth2"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/kafkaprotocol"
 	log "github.com/spirit-labs/tektite/logger"
@@ -10,13 +11,18 @@ import (
 
 func (k *kafkaHandler) HandleDescribeAclsRequest(hdr *kafkaprotocol.RequestHeader,
 	req *kafkaprotocol.DescribeAclsRequest, completionFunc func(resp *kafkaprotocol.DescribeAclsResponse) error) error {
-	log.Infof("HandleDescribeAclsRequest %v", req)
-	log.Infof("resourceType:%d resourceName:%s resourcePatternType:%d principal:%s host:%s operation:%d permissionType:%d ",
+	log.Debugf("resourceType:%d resourceName:%s resourcePatternType:%d principal:%s host:%s operation:%d permissionType:%d ",
 		req.ResourceTypeFilter, common.SafeDerefStringPtr(req.ResourceNameFilter),
 		req.PatternTypeFilter, common.SafeDerefStringPtr(req.PrincipalFilter),
 		common.SafeDerefStringPtr(req.HostFilter), req.Operation,
 		req.PermissionType)
 	resp := &kafkaprotocol.DescribeAclsResponse{}
+	errCode, errMsg := authoriseAcls(k.authContext, acls.OperationDescribe)
+	if errCode != kafkaprotocol.ErrorCodeNone {
+		resp.ErrorCode = int16(errCode)
+		resp.ErrorMessage = common.StrPtr(errMsg)
+		return completionFunc(resp)
+	}
 	entries, err := k.describeAcls(acls.ResourceType(req.ResourceTypeFilter), common.SafeDerefStringPtr(req.ResourceNameFilter),
 		acls.ResourcePatternType(req.PatternTypeFilter), common.SafeDerefStringPtr(req.PrincipalFilter), common.SafeDerefStringPtr(req.HostFilter),
 		acls.Operation(req.Operation), acls.Permission(req.PermissionType))
@@ -82,44 +88,62 @@ func (k *kafkaHandler) describeAcls(resourceType acls.ResourceType, resourceName
 	return cl.ListAcls(resourceType, resourceNameFilter, patternTypeFilter, principal, host, operation, permission)
 }
 
+func authoriseAcls(authContext *auth.Context, operation acls.Operation) (int, string) {
+	errCode := kafkaprotocol.ErrorCodeNone
+	var errMsg string
+	if authContext != nil {
+		authorised, err := authContext.Authorize(acls.ResourceTypeCluster, acls.ClusterResourceName, operation)
+		if err != nil {
+			log.Errorf("failed to authorize: %v", err)
+			errCode = kafkaprotocol.ErrorCodeUnknownServerError
+			errMsg = err.Error()
+		} else if !authorised {
+			errCode = kafkaprotocol.ErrorCodeClusterAuthorizationFailed
+			errMsg = "not authorised to create acls"
+		}
+	}
+	return errCode, errMsg
+}
+
 func (k *kafkaHandler) HandleCreateAclsRequest(hdr *kafkaprotocol.RequestHeader,
 	req *kafkaprotocol.CreateAclsRequest, completionFunc func(resp *kafkaprotocol.CreateAclsResponse) error) error {
-	log.Infof("in HandleCreateAclsRequest, num entries %d %v", len(req.Creations), req)
-	aclEntries := make([]acls.AclEntry, 0, len(req.Creations))
-	for _, creation := range req.Creations {
-		log.Infof("resourceType:%d resourceName:%s resourcePatternType:%d principal:%s host:%s operation:%d permissionType:%d ",
-			creation.ResourceType, common.SafeDerefStringPtr(creation.ResourceName),
-			creation.ResourcePatternType, common.SafeDerefStringPtr(creation.Principal),
-			common.SafeDerefStringPtr(creation.Host), creation.Operation,
-			creation.PermissionType)
-		entry := acls.AclEntry{
-			Principal:           common.SafeDerefStringPtr(creation.Principal),
-			Permission:          acls.Permission(creation.PermissionType),
-			Operation:           acls.Operation(creation.Operation),
-			Host:                common.SafeDerefStringPtr(creation.Host),
-			ResourceType:        acls.ResourceType(creation.ResourceType),
-			ResourceName:        common.SafeDerefStringPtr(creation.ResourceName),
-			ResourcePatternType: acls.ResourcePatternType(creation.ResourcePatternType),
+	errCode, errMsg := authoriseAcls(k.authContext, acls.OperationAlter)
+	if errCode == kafkaprotocol.ErrorCodeNone {
+		aclEntries := make([]acls.AclEntry, 0, len(req.Creations))
+		for _, creation := range req.Creations {
+			log.Debugf("resourceType:%d resourceName:%s resourcePatternType:%d principal:%s host:%s operation:%d permissionType:%d ",
+				creation.ResourceType, common.SafeDerefStringPtr(creation.ResourceName),
+				creation.ResourcePatternType, common.SafeDerefStringPtr(creation.Principal),
+				common.SafeDerefStringPtr(creation.Host), creation.Operation,
+				creation.PermissionType)
+			entry := acls.AclEntry{
+				Principal:           common.SafeDerefStringPtr(creation.Principal),
+				Permission:          acls.Permission(creation.PermissionType),
+				Operation:           acls.Operation(creation.Operation),
+				Host:                common.SafeDerefStringPtr(creation.Host),
+				ResourceType:        acls.ResourceType(creation.ResourceType),
+				ResourceName:        common.SafeDerefStringPtr(creation.ResourceName),
+				ResourcePatternType: acls.ResourcePatternType(creation.ResourcePatternType),
+			}
+			aclEntries = append(aclEntries, entry)
 		}
-		aclEntries = append(aclEntries, entry)
+		if err := k.createAcls(aclEntries); err != nil {
+			errMsg = err.Error()
+			if common.IsUnavailableError(err) {
+				log.Warnf("failed to create acls: %v", err)
+				errCode = kafkaprotocol.ErrorCodeLeaderNotAvailable
+			} else {
+				log.Errorf("failed to create acls: %v", err)
+				errCode = kafkaprotocol.ErrorCodeUnknownServerError
+			}
+		}
 	}
 	resp := kafkaprotocol.CreateAclsResponse{
 		Results: make([]kafkaprotocol.CreateAclsResponseAclCreationResult, len(req.Creations)),
 	}
-	log.Infof("sending create acls request: %v", aclEntries)
-	if err := k.createAcls(aclEntries); err != nil {
-		var errCode int16
-		if common.IsUnavailableError(err) {
-			log.Warnf("failed to create acls: %v", err)
-			errCode = kafkaprotocol.ErrorCodeLeaderNotAvailable
-		} else {
-			log.Errorf("failed to create acls: %v", err)
-			errCode = kafkaprotocol.ErrorCodeUnknownServerError
-		}
-		for i := 0; i < len(resp.Results); i++ {
-			resp.Results[i].ErrorCode = errCode
-			resp.Results[i].ErrorMessage = common.StrPtr(err.Error())
-		}
+	for i := 0; i < len(resp.Results); i++ {
+		resp.Results[i].ErrorCode = int16(errCode)
+		resp.Results[i].ErrorMessage = common.StrPtr(errMsg)
 	}
 	return completionFunc(&resp)
 }
@@ -134,8 +158,16 @@ func (k *kafkaHandler) createAcls(aclEntries []acls.AclEntry) error {
 
 func (k *kafkaHandler) HandleDeleteAclsRequest(hdr *kafkaprotocol.RequestHeader,
 	req *kafkaprotocol.DeleteAclsRequest, completionFunc func(resp *kafkaprotocol.DeleteAclsResponse) error) error {
+	errCode, errMsg := authoriseAcls(k.authContext, acls.OperationAlter)
 	resp := kafkaprotocol.DeleteAclsResponse{
 		FilterResults: make([]kafkaprotocol.DeleteAclsResponseDeleteAclsFilterResult, len(req.Filters)),
+	}
+	if errCode != kafkaprotocol.ErrorCodeNone {
+		for i := 0; i < len(resp.FilterResults); i++ {
+			resp.FilterResults[i].ErrorCode = int16(errCode)
+			resp.FilterResults[i].ErrorMessage = common.StrPtr(errMsg)
+		}
+		return completionFunc(&resp)
 	}
 	cl, err := k.agent.controlClientCache.GetClient()
 	if err != nil {
@@ -146,7 +178,7 @@ func (k *kafkaHandler) HandleDeleteAclsRequest(hdr *kafkaprotocol.RequestHeader,
 		}
 	} else {
 		for i, filter := range req.Filters {
-			log.Infof("delete acl: resourceType:%d resourceName:%s resourcePatternType:%d principal:%s host:%s operation:%d permissionType:%d ",
+			log.Debugf("delete acl: resourceType:%d resourceName:%s resourcePatternType:%d principal:%s host:%s operation:%d permissionType:%d ",
 				filter.ResourceTypeFilter, common.SafeDerefStringPtr(filter.ResourceNameFilter),
 				filter.PatternTypeFilter, common.SafeDerefStringPtr(filter.PrincipalFilter),
 				common.SafeDerefStringPtr(filter.HostFilter), filter.Operation,

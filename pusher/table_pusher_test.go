@@ -604,7 +604,7 @@ func TestTablePusherHandleProduceBatchSimple(t *testing.T) {
 		},
 	}
 	respCh := make(chan *kafkaprotocol.ProduceResponse, 1)
-	err = pusher.HandleProduceRequest(&req, func(resp *kafkaprotocol.ProduceResponse) error {
+	err = pusher.HandleProduceRequest(nil, &req, func(resp *kafkaprotocol.ProduceResponse) error {
 		respCh <- resp
 		return nil
 	})
@@ -708,7 +708,7 @@ func TestTablePusherHandleProduceBatchNotLeader(t *testing.T) {
 		},
 	}
 	respCh := make(chan *kafkaprotocol.ProduceResponse, 1)
-	err = pusher.HandleProduceRequest(&req, func(resp *kafkaprotocol.ProduceResponse) error {
+	err = pusher.HandleProduceRequest(nil, &req, func(resp *kafkaprotocol.ProduceResponse) error {
 		respCh <- resp
 		return nil
 	})
@@ -828,7 +828,7 @@ func TestTablePusherHandleProduceBatchMultipleTopicsAndPartitions(t *testing.T) 
 		},
 	}
 	respCh := make(chan *kafkaprotocol.ProduceResponse, 1)
-	err = pusher.HandleProduceRequest(&req, func(resp *kafkaprotocol.ProduceResponse) error {
+	err = pusher.HandleProduceRequest(nil, &req, func(resp *kafkaprotocol.ProduceResponse) error {
 		respCh <- resp
 		return nil
 	})
@@ -1006,7 +1006,7 @@ func TestTablePusherPushWhenBufferIsFull(t *testing.T) {
 	}
 	var batch1Complete atomic.Bool
 	respCh1 := make(chan *kafkaprotocol.ProduceResponse, 1)
-	err = pusher.HandleProduceRequest(&req1, func(resp *kafkaprotocol.ProduceResponse) error {
+	err = pusher.HandleProduceRequest(nil, &req1, func(resp *kafkaprotocol.ProduceResponse) error {
 		batch1Complete.Store(true)
 		respCh1 <- resp
 		return nil
@@ -1039,7 +1039,7 @@ func TestTablePusherPushWhenBufferIsFull(t *testing.T) {
 		},
 	}
 	respCh2 := make(chan *kafkaprotocol.ProduceResponse, 1)
-	err = pusher.HandleProduceRequest(&req2, func(resp *kafkaprotocol.ProduceResponse) error {
+	err = pusher.HandleProduceRequest(nil, &req2, func(resp *kafkaprotocol.ProduceResponse) error {
 		respCh2 <- resp
 		return nil
 	})
@@ -1127,7 +1127,7 @@ func TestTablePusherPushWhenTimeoutIsExceeded(t *testing.T) {
 	}
 	var batchComplete atomic.Bool
 	respCh := make(chan *kafkaprotocol.ProduceResponse, 1)
-	err = pusher.HandleProduceRequest(&req, func(resp *kafkaprotocol.ProduceResponse) error {
+	err = pusher.HandleProduceRequest(nil, &req, func(resp *kafkaprotocol.ProduceResponse) error {
 		batchComplete.Store(true)
 		respCh <- resp
 		return nil
@@ -1281,7 +1281,7 @@ func TestTablePusherHandleProduceBatchMixtureErrorsAndSuccesses(t *testing.T) {
 		},
 	}
 	respCh := make(chan *kafkaprotocol.ProduceResponse, 1)
-	err = pusher.HandleProduceRequest(&req, func(resp *kafkaprotocol.ProduceResponse) error {
+	err = pusher.HandleProduceRequest(nil, &req, func(resp *kafkaprotocol.ProduceResponse) error {
 		respCh <- resp
 		return nil
 	})
@@ -1465,7 +1465,7 @@ func TestTablePusherUnexpectedError(t *testing.T) {
 		},
 	}
 	respCh := make(chan *kafkaprotocol.ProduceResponse, 1)
-	err = pusher.HandleProduceRequest(&req, func(resp *kafkaprotocol.ProduceResponse) error {
+	err = pusher.HandleProduceRequest(nil, &req, func(resp *kafkaprotocol.ProduceResponse) error {
 		respCh <- resp
 		return nil
 	})
@@ -1556,7 +1556,7 @@ func TestTablePusherTemporaryUnavailability(t *testing.T) {
 	}
 	respCh1 := make(chan *kafkaprotocol.ProduceResponse, 1)
 	completionCalled1 := atomic.Bool{}
-	err = pusher.HandleProduceRequest(&req1, func(resp *kafkaprotocol.ProduceResponse) error {
+	err = pusher.HandleProduceRequest(nil, &req1, func(resp *kafkaprotocol.ProduceResponse) error {
 		completionCalled1.Store(true)
 		respCh1 <- resp
 		return nil
@@ -1584,7 +1584,7 @@ func TestTablePusherTemporaryUnavailability(t *testing.T) {
 	}
 	respCh2 := make(chan *kafkaprotocol.ProduceResponse, 1)
 	completionCalled2 := atomic.Bool{}
-	err = pusher.HandleProduceRequest(&req2, func(resp *kafkaprotocol.ProduceResponse) error {
+	err = pusher.HandleProduceRequest(nil, &req2, func(resp *kafkaprotocol.ProduceResponse) error {
 		completionCalled2.Store(true)
 		respCh2 <- resp
 		return nil
@@ -1920,7 +1920,7 @@ func sendBatchWithDedupReturnChannel(t *testing.T, pusher *TablePusher, producer
 		},
 	}
 	respCh := make(chan *kafkaprotocol.ProduceResponse, 1)
-	err := pusher.HandleProduceRequest(&req, func(resp *kafkaprotocol.ProduceResponse) error {
+	err := pusher.HandleProduceRequest(nil, &req, func(resp *kafkaprotocol.ProduceResponse) error {
 		respCh <- resp
 		return nil
 	})

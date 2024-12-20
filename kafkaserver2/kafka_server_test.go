@@ -2,6 +2,8 @@ package kafkaserver2
 
 import (
 	"encoding/binary"
+	"github.com/spirit-labs/tektite/acls"
+	auth "github.com/spirit-labs/tektite/auth2"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/conf"
 	"github.com/spirit-labs/tektite/kafkaprotocol"
@@ -10,6 +12,7 @@ import (
 	"net"
 	"sync"
 	"testing"
+	"time"
 )
 
 func init() {
@@ -64,7 +67,10 @@ func TestProduce(t *testing.T) {
 	connHandlers := &testConnHandlers{response: &resp}
 	address, err := common.AddressWithPort("localhost")
 	require.NoError(t, err)
-	kafkaServer := NewKafkaServer(address, conf.TlsConf{}, AuthenticationTypeNone, connHandlers.createHandler)
+	authCaches := auth.NewUserAuthCaches(1*time.Hour, func() (auth.ControlClient, error) {
+		return &dummyControlClient{}, nil
+	})
+	kafkaServer := NewKafkaServer(address, conf.TlsConf{}, AuthenticationTypeNone, connHandlers.createHandler, authCaches)
 	err = kafkaServer.Start()
 	require.NoError(t, err)
 
@@ -93,6 +99,13 @@ func TestProduce(t *testing.T) {
 
 	require.Equal(t, &requestHeader, receivedHdr)
 	require.Equal(t, &req, receivedReq)
+}
+
+type dummyControlClient struct {
+}
+
+func (d *dummyControlClient) Authorise(principal string, resourceType acls.ResourceType, resourceName string, operation acls.Operation) (bool, error) {
+	return true, nil
 }
 
 type testConnHandlers struct {

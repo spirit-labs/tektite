@@ -1282,7 +1282,7 @@ func TestFetcherRequestNotEnoughBytesAndNotificationAddsSufficientData(t *testin
 	}
 	var completionCalled atomic.Bool
 	resCh := make(chan *kafkaprotocol.FetchResponse, 1)
-	err := fetcher.HandleFetchRequest(3, &req, func(resp *kafkaprotocol.FetchResponse) error {
+	err := fetcher.HandleFetchRequest(nil,3, &req, func(resp *kafkaprotocol.FetchResponse) error {
 		completionCalled.Store(true)
 		resCh <- resp
 		return nil
@@ -1350,7 +1350,7 @@ func TestFetcherRequestNotEnoughBytesAndNotificationsDontAddSufficientData(t *te
 
 	var completionCalled atomic.Bool
 	resCh := make(chan *kafkaprotocol.FetchResponse, 1)
-	err := fetcher.HandleFetchRequest(3, &req, func(resp *kafkaprotocol.FetchResponse) error {
+	err := fetcher.HandleFetchRequest(nil,3, &req, func(resp *kafkaprotocol.FetchResponse) error {
 		completionCalled.Store(true)
 		resCh <- resp
 		return nil
@@ -2193,7 +2193,7 @@ func sendFetch(t *testing.T, req *kafkaprotocol.FetchRequest, fetcher *BatchFetc
 
 func sendFetchWithVersion(t *testing.T, req *kafkaprotocol.FetchRequest, fetcher *BatchFetcher, apiVersion int16) *kafkaprotocol.FetchResponse {
 	ch := make(chan *kafkaprotocol.FetchResponse, 1)
-	err := fetcher.HandleFetchRequest(apiVersion, req, func(resp *kafkaprotocol.FetchResponse) error {
+	err := fetcher.HandleFetchRequest(nil, apiVersion, req, func(resp *kafkaprotocol.FetchResponse) error {
 		ch <- resp
 		return nil
 	})

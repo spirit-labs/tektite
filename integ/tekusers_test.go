@@ -17,7 +17,7 @@ func TestTekUsers(t *testing.T) {
 	require.NoError(t, err)
 
 	numAgents := 3
-	agents, tearDown := startAgents(t, numAgents, "foo", false, false)
+	agents, tearDown := startAgents(t, numAgents, false, false)
 	defer tearDown(t)
 
 	var addresses strings.Builder
@@ -54,7 +54,7 @@ func TestTekUsersHelp(t *testing.T) {
 	require.NoError(t, err)
 
 	numAgents := 3
-	agents, tearDown := startAgents(t, numAgents, "foo", false, false)
+	agents, tearDown := startAgents(t, numAgents, false, false)
 	defer tearDown(t)
 
 	var addresses strings.Builder

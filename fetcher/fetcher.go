@@ -1,6 +1,7 @@
 package fetcher
 
 import (
+	auth "github.com/spirit-labs/tektite/auth2"
 	"github.com/spirit-labs/tektite/cluster"
 	"github.com/spirit-labs/tektite/control"
 	"github.com/spirit-labs/tektite/kafkaprotocol"
@@ -131,7 +132,7 @@ func (b *BatchFetcher) HandleTableRegisteredNotification(_ *transport.Connection
 	return b.recentTables.handleTableRegisteredNotification(notif)
 }
 
-func (b *BatchFetcher) HandleFetchRequest(apiVersion int16, req *kafkaprotocol.FetchRequest,
+func (b *BatchFetcher) HandleFetchRequest(authContext *auth.Context, apiVersion int16, req *kafkaprotocol.FetchRequest,
 	completionFunc func(resp *kafkaprotocol.FetchResponse) error) error {
 	if apiVersion < 3 {
 		// Version 3 of api introduces max bytes, so we default it for earlier versions
@@ -141,7 +142,7 @@ func (b *BatchFetcher) HandleFetchRequest(apiVersion int16, req *kafkaprotocol.F
 	readExec := &b.readExecs[pos%int64(len(b.readExecs))]
 	// No need to shuffle partitions as golang map has non-deterministic iteration order - this ensures we don't have
 	// the same partition getting all the data and others starving
-	fetchState, err := newFetchState(b, req, readExec, completionFunc)
+	fetchState, err := newFetchState(authContext, b, req, readExec, completionFunc)
 	if err != nil {
 		return err
 	}

@@ -8,8 +8,6 @@ import (
 	"github.com/spirit-labs/tektite/asl/encoding"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/control"
-
-	//"github.com/spirit-labs/tektite/control"
 	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/parthash"
 	"github.com/spirit-labs/tektite/sst"

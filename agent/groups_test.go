@@ -4,7 +4,6 @@ import (
 	"github.com/spirit-labs/tektite/apiclient"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/kafkaprotocol"
-	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/parthash"
 	"github.com/spirit-labs/tektite/queryutils"
 	"github.com/spirit-labs/tektite/topicmeta"
@@ -264,9 +263,6 @@ func TestConsumerGroups(t *testing.T) {
 
 	// Now check no offset in database
 	offsets = getRowsForGroup(t, groupID, agent)
-	for _, kv := range offsets {
-		log.Infof("key: %v value: %v", kv.Key, kv.Value)
-	}
 	require.Equal(t, 0, len(offsets))
 }
 

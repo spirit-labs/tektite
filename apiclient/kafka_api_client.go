@@ -3,6 +3,7 @@ package apiclient
 import (
 	"encoding/binary"
 	"github.com/pkg/errors"
+	"github.com/spirit-labs/tektite/client"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/kafkaprotocol"
 	"github.com/spirit-labs/tektite/sockserver"
@@ -15,11 +16,19 @@ type KafkaApiClient struct {
 }
 
 func NewKafkaApiClient() (*KafkaApiClient, error) {
-	return NewKafkaApiClientWithClientID("some-client-id")
+	return newKafkaApiClient("some-client-id", nil)
 }
 
 func NewKafkaApiClientWithClientID(clientID string) (*KafkaApiClient, error) {
-	sockClient, err := sockserver.NewSocketClient(nil)
+	return newKafkaApiClient(clientID, nil)
+}
+
+func NewKafkaApiClientWithTls(tlsConf *client.TLSConfig) (*KafkaApiClient, error) {
+	return newKafkaApiClient("some-client_id", tlsConf)
+}
+
+func newKafkaApiClient(clientID string, tlsConf *client.TLSConfig) (*KafkaApiClient, error) {
+	sockClient, err := sockserver.NewSocketClient(tlsConf)
 	if err != nil {
 		return nil, err
 	}

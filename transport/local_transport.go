@@ -144,6 +144,7 @@ func (l *LocalConnection) closeChannel() {
 		return
 	}
 	close(l.msgChan)
+	l.stopped = true
 }
 
 func NewLocalTransports() *LocalTransports {

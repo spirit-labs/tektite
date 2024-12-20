@@ -8,6 +8,7 @@ import (
 	"github.com/segmentio/kafka-go/sasl"
 	saslplain "github.com/segmentio/kafka-go/sasl/plain"
 	"github.com/segmentio/kafka-go/sasl/scram"
+	"github.com/spirit-labs/tektite/acls"
 	auth "github.com/spirit-labs/tektite/auth2"
 	"github.com/spirit-labs/tektite/conf"
 	"github.com/spirit-labs/tektite/kafkaserver2"
@@ -40,6 +41,7 @@ func TestKafkaAuthMtls(t *testing.T) {
 	})
 	defer tearDown(t)
 	agent := agents[0]
+	createAllowAllAcls(t, agent)
 
 	clientTLSConfig := conf.ClientTlsConf{
 		Enabled:              true,
@@ -55,7 +57,7 @@ func TestKafkaAuthMtls(t *testing.T) {
 		TLS:       tlsc,
 	}
 	address := agent.cfg.KafkaListenerConfig.Address
-	topicName := makeTopic(t, agent)
+	topicName := makeRandomTopic(t, agent)
 	conn, err := dialer.DialLeader(context.Background(), "tcp", address, topicName, 0)
 	require.NoError(t, err)
 
@@ -78,6 +80,7 @@ func TestKafkaAuthSaslPlain(t *testing.T) {
 	})
 	defer tearDown(t)
 	agent := agents[0]
+	createAllowAllAcls(t, agent)
 
 	clientTLSConfig := conf.ClientTlsConf{
 		Enabled:        true,
@@ -124,7 +127,7 @@ func TestKafkaAuthSaslPlain(t *testing.T) {
 		DualStack: true,
 		TLS:       tlsc,
 	}
-	topicName := makeTopic(t, agent)
+	topicName := makeRandomTopic(t, agent)
 	address := agent.cfg.KafkaListenerConfig.Address
 	_, err = dialer.DialLeader(context.Background(), "tcp", address, topicName, 0)
 	require.Error(t, err)
@@ -156,6 +159,7 @@ func testKafkaAuthSaslScram(t *testing.T, allowNonceAsPrefix bool) {
 	})
 	defer tearDown(t)
 	agent := agents[0]
+	createAllowAllAcls(t, agent)
 
 	clientTLSConfig := conf.ClientTlsConf{
 		Enabled:        true,
@@ -201,7 +205,7 @@ func testKafkaAuthSaslScram(t *testing.T, allowNonceAsPrefix bool) {
 		DualStack: true,
 		TLS:       tlsc,
 	}
-	topicName := makeTopic(t, agent)
+	topicName := makeRandomTopic(t, agent)
 	address := agent.cfg.KafkaListenerConfig.Address
 	_, err = dialer.DialLeader(context.Background(), "tcp", address, topicName, 0)
 	require.Error(t, err)
@@ -223,6 +227,7 @@ func TestKafkaAuthSaslScramFailIfNonceAsPrefixNotAllowe3d(t *testing.T) {
 	})
 	defer tearDown(t)
 	agent := agents[0]
+	createAllowAllAcls(t, agent)
 
 	clientTLSConfig := conf.ClientTlsConf{
 		Enabled:        true,
@@ -251,7 +256,7 @@ func tryConnect(t *testing.T, username string, password string, shouldSucceeed b
 	clientTls conf.ClientTlsConf, saslMechProvider saslMechanismProvider) {
 	// We use the segmentio Kafka client as it returns errors on authentication failure unlike librdkafka which
 	// retries in a loop
-	topic := makeTopic(t, agent)
+	topic := makeRandomTopic(t, agent)
 	conn := tryCreateConnection(t, agent, clientTls, username, password, topic, shouldSucceeed, saslMechProvider)
 	if shouldSucceeed {
 		readAndWriteMessage(t, conn)
@@ -316,17 +321,21 @@ func readAndWriteMessage(t *testing.T, conn *segment.Conn) {
 	require.Equal(t, val, buffer)
 }
 
-func makeTopic(t *testing.T, agent *Agent) string {
+func makeRandomTopic(t *testing.T, agent *Agent) string {
 	topicName := "topic-" + uuid.New().String()
+	makeTopic(t, agent, topicName, 100)
+	return topicName
+}
+
+func makeTopic(t *testing.T, agent *Agent, topicName string, partitions int) {
 	cl, err := agent.Controller().Client()
 	require.NoError(t, err)
 	err = cl.CreateOrUpdateTopic(topicmeta.TopicInfo{
 		Name:           topicName,
-		PartitionCount: 10,
+		PartitionCount: partitions,
 		RetentionTime:  -1,
 	}, true)
 	require.NoError(t, err)
-	return topicName
 }
 
 func putUserCred(t *testing.T, agent *Agent, username string, password string, authType string) {
@@ -336,5 +345,59 @@ func putUserCred(t *testing.T, agent *Agent, username string, password string, a
 	err = cl.PutUserCredentials(username, storedKey, serverKey, salt, 4096)
 	require.NoError(t, err)
 	err = cl.Close()
+	require.NoError(t, err)
+}
+
+func createAllowAllAcls(t *testing.T, agent *Agent) {
+	cl, err := agent.controlClientCache.GetClient()
+	require.NoError(t, err)
+	// Need to create one entry per resource type
+	err = cl.CreateAcls([]acls.AclEntry{
+		{
+			Principal:           "User:*",
+			Permission:          acls.PermissionAllow,
+			Operation:           acls.OperationAll,
+			ResourceType:        acls.ResourceTypeTopic,
+			ResourceName:        "*",
+			ResourcePatternType: acls.ResourcePatternTypeLiteral,
+			Host:                "*",
+		},
+		{
+			Principal:           "User:*",
+			Permission:          acls.PermissionAllow,
+			Operation:           acls.OperationAll,
+			ResourceType:        acls.ResourceTypeGroup,
+			ResourceName:        "*",
+			ResourcePatternType: acls.ResourcePatternTypeLiteral,
+			Host:                "*",
+		},
+		{
+			Principal:           "User:*",
+			Permission:          acls.PermissionAllow,
+			Operation:           acls.OperationAll,
+			ResourceType:        acls.ResourceTypeCluster,
+			ResourceName:        "*",
+			ResourcePatternType: acls.ResourcePatternTypeLiteral,
+			Host:                "*",
+		},
+		{
+			Principal:           "User:*",
+			Permission:          acls.PermissionAllow,
+			Operation:           acls.OperationAll,
+			ResourceType:        acls.ResourceTypeTransactionalID,
+			ResourceName:        "*",
+			ResourcePatternType: acls.ResourcePatternTypeLiteral,
+			Host:                "*",
+		},
+		{
+			Principal:           "User:*",
+			Permission:          acls.PermissionAllow,
+			Operation:           acls.OperationAll,
+			ResourceType:        acls.ResourceTypeDelegationToken,
+			ResourceName:        "*",
+			ResourcePatternType: acls.ResourcePatternTypeLiteral,
+			Host:                "*",
+		},
+	})
 	require.NoError(t, err)
 }

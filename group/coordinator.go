@@ -3,6 +3,8 @@ package group
 import (
 	"fmt"
 	"github.com/pkg/errors"
+	"github.com/spirit-labs/tektite/acls"
+	auth "github.com/spirit-labs/tektite/auth2"
 	"github.com/spirit-labs/tektite/cluster"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/control"
@@ -124,47 +126,68 @@ func (c *Coordinator) checkStarted() error {
 	return nil
 }
 
-func (c *Coordinator) HandleFindCoordinatorRequest(req *kafkaprotocol.FindCoordinatorRequest,
+func (c *Coordinator) HandleFindCoordinatorRequest(authContext *auth.Context, req *kafkaprotocol.FindCoordinatorRequest,
 	completionFunc func(resp *kafkaprotocol.FindCoordinatorResponse) error) error {
 	log.Debugf("received FindCoordinatorRequest on address: %s for key %s key type: %d", c.kafkaAddress, common.SafeDerefStringPtr(req.Key), req.KeyType)
 	var resp kafkaprotocol.FindCoordinatorResponse
+	key := common.SafeDerefStringPtr(req.Key)
+	var rt acls.ResourceType
 	var prefix string
 	if req.KeyType == 0 {
 		// group coordinator
 		prefix = "g."
+		rt = acls.ResourceTypeGroup
 	} else if req.KeyType == 1 {
 		// transaction coordinator
 		prefix = "t."
+		rt = acls.ResourceTypeTransactionalID
 	} else {
 		resp.ErrorCode = kafkaprotocol.ErrorCodeInvalidRequest
 		resp.ErrorMessage = common.StrPtr(fmt.Sprintf("invalid key type %d", req.KeyType))
 	}
 	if resp.ErrorCode == kafkaprotocol.ErrorCodeNone {
-		key := common.SafeDerefStringPtr(req.Key)
-		memberID, address, err := c.findCoordinator(prefix + key)
-		if err != nil {
-			if common.IsUnavailableError(err) {
-				log.Warnf("failed to find coordinator: %v", err)
-				resp.ErrorCode = kafkaprotocol.ErrorCodeCoordinatorNotAvailable
-				resp.ErrorMessage = common.StrPtr("no coordinator available")
-			} else {
-				log.Errorf("failed to find coordinator: %v", err)
-				resp.ErrorCode = kafkaprotocol.ErrorCodeUnknownServerError
-			}
-		} else {
-			host, sPort, err := net.SplitHostPort(address)
-			var port int
-			if err == nil {
-				port, err = strconv.Atoi(sPort)
-			}
+		if authContext != nil {
+			authorised, err := authContext.Authorize(rt, key, acls.OperationDescribe)
 			if err != nil {
-				log.Errorf("failed to parse address: %v", err)
+				log.Errorf("failed to authorise %v", err)
 				resp.ErrorCode = kafkaprotocol.ErrorCodeUnknownServerError
+				resp.ErrorMessage = common.StrPtr(err.Error())
+			} else if !authorised {
+				if rt == acls.ResourceTypeGroup {
+					resp.ErrorCode = kafkaprotocol.ErrorCodeGroupAuthorizationFailed
+					resp.ErrorMessage = common.StrPtr("not authorised to find coordinator for group")
+				} else {
+					resp.ErrorCode = kafkaprotocol.ErrorCodeTransactionalIDAuthorizationFailed
+					resp.ErrorMessage = common.StrPtr("not authorised to find coordinator for transactional id")
+				}
+			}
+		}
+		if resp.ErrorCode == kafkaprotocol.ErrorCodeNone {
+			memberID, address, err := c.findCoordinator(prefix + key)
+			if err != nil {
+				if common.IsUnavailableError(err) {
+					log.Warnf("failed to find coordinator: %v", err)
+					resp.ErrorCode = kafkaprotocol.ErrorCodeCoordinatorNotAvailable
+					resp.ErrorMessage = common.StrPtr("no coordinator available")
+				} else {
+					log.Errorf("failed to find coordinator: %v", err)
+					resp.ErrorCode = kafkaprotocol.ErrorCodeUnknownServerError
+				}
 			} else {
-				resp.NodeId = memberID
-				resp.Host = &host
-				resp.Port = int32(port)
-				log.Debugf("coordinator for %s is node %d host:%s port:%d", common.SafeDerefStringPtr(req.Key), memberID, host, port)
+				host, sPort, err := net.SplitHostPort(address)
+				var port int
+				if err == nil {
+					port, err = strconv.Atoi(sPort)
+				}
+				if err != nil {
+					log.Errorf("failed to parse address: %v", err)
+					resp.ErrorCode = kafkaprotocol.ErrorCodeUnknownServerError
+				} else {
+					resp.NodeId = memberID
+					resp.Host = &host
+					resp.Port = int32(port)
+					log.Debugf("coordinator for %s is node %d host:%s port:%d", common.SafeDerefStringPtr(req.Key), memberID, host, port)
+				}
 			}
 		}
 	}
@@ -189,8 +212,26 @@ func (c *Coordinator) findCoordinator(key string) (int32, string, error) {
 	return memberID, address, err
 }
 
-func (c *Coordinator) HandleJoinGroupRequest(clientHost string, hdr *kafkaprotocol.RequestHeader, req *kafkaprotocol.JoinGroupRequest,
+func (c *Coordinator) HandleJoinGroupRequest(authContext *auth.Context, clientHost string,
+	hdr *kafkaprotocol.RequestHeader, req *kafkaprotocol.JoinGroupRequest,
 	completionFunc func(resp *kafkaprotocol.JoinGroupResponse) error) error {
+	groupId := common.SafeDerefStringPtr(req.GroupId)
+	var resp kafkaprotocol.JoinGroupResponse
+	if authContext != nil {
+		authorised, err := authContext.Authorize(acls.ResourceTypeGroup, groupId, acls.OperationRead)
+		if err != nil {
+			log.Errorf("failed to authorise %v", err)
+			resp.ErrorCode = kafkaprotocol.ErrorCodeUnknownServerError
+		} else if !authorised {
+			resp.ErrorCode = kafkaprotocol.ErrorCodeGroupAuthorizationFailed
+		}
+	}
+	if resp.ErrorCode != kafkaprotocol.ErrorCodeNone {
+		resp.ProtocolName = common.StrPtr("")
+		resp.Leader = common.StrPtr("")
+		resp.MemberId = common.StrPtr("")
+		return completionFunc(&resp)
+	}
 	infos := make([]ProtocolInfo, len(req.Protocols))
 	for i, protoInfo := range req.Protocols {
 		infos[i] = ProtocolInfo{
@@ -206,10 +247,9 @@ func (c *Coordinator) HandleJoinGroupRequest(clientHost string, hdr *kafkaprotoc
 	if req.SessionTimeoutMs != 0 {
 		sessionTimeout = time.Duration(req.SessionTimeoutMs) * time.Millisecond
 	}
-	c.joinGroup(hdr.RequestApiVersion, common.SafeDerefStringPtr(req.GroupId),
-		common.SafeDerefStringPtr(hdr.ClientId), clientHost, common.SafeDerefStringPtr(req.MemberId), common.SafeDerefStringPtr(req.ProtocolType),
+	c.joinGroup(hdr.RequestApiVersion, groupId, common.SafeDerefStringPtr(hdr.ClientId),
+		clientHost, common.SafeDerefStringPtr(req.MemberId), common.SafeDerefStringPtr(req.ProtocolType),
 		infos, sessionTimeout, rebalanceTimeout, func(result JoinResult) {
-			var resp kafkaprotocol.JoinGroupResponse
 			resp.ErrorCode = int16(result.ErrorCode)
 			if resp.ErrorCode == kafkaprotocol.ErrorCodeNone {
 				resp.GenerationId = int32(result.GenerationID)
@@ -272,8 +312,22 @@ func (c *Coordinator) joinGroup(apiVersion int16, groupID string, clientID strin
 	g.Join(apiVersion, clientID, clientHost, memberID, protocolType, protocols, sessionTimeout, reBalanceTimeout, completionFunc)
 }
 
-func (c *Coordinator) HandleSyncGroupRequest(req *kafkaprotocol.SyncGroupRequest,
+func (c *Coordinator) HandleSyncGroupRequest(authContext *auth.Context, req *kafkaprotocol.SyncGroupRequest,
 	completionFunc func(resp *kafkaprotocol.SyncGroupResponse) error) error {
+	groupId := common.SafeDerefStringPtr(req.GroupId)
+	var resp kafkaprotocol.SyncGroupResponse
+	if authContext != nil {
+		authorised, err := authContext.Authorize(acls.ResourceTypeGroup, groupId, acls.OperationRead)
+		if err != nil {
+			log.Errorf("failed to authorise %v", err)
+			resp.ErrorCode = kafkaprotocol.ErrorCodeUnknownServerError
+		} else if !authorised {
+			resp.ErrorCode = kafkaprotocol.ErrorCodeGroupAuthorizationFailed
+		}
+	}
+	if resp.ErrorCode != kafkaprotocol.ErrorCodeNone {
+		return completionFunc(&resp)
+	}
 	assignments := make([]AssignmentInfo, len(req.Assignments))
 	for i, assignment := range req.Assignments {
 		mem := *assignment.MemberId
@@ -282,16 +336,17 @@ func (c *Coordinator) HandleSyncGroupRequest(req *kafkaprotocol.SyncGroupRequest
 			Assignment: assignment.Assignment,
 		}
 	}
-	c.syncGroup(*req.GroupId, *req.MemberId, int(req.GenerationId), assignments, func(errorCode int, assignment []byte) {
-		var resp kafkaprotocol.SyncGroupResponse
-		resp.ErrorCode = int16(errorCode)
-		if resp.ErrorCode == kafkaprotocol.ErrorCodeNone {
-			resp.Assignment = assignment
-		}
-		if err := completionFunc(&resp); err != nil {
-			log.Errorf("failed to send sync group response %v", err)
-		}
-	})
+	c.syncGroup(groupId, common.SafeDerefStringPtr(req.MemberId), int(req.GenerationId), assignments,
+		func(errorCode int, assignment []byte) {
+			var resp kafkaprotocol.SyncGroupResponse
+			resp.ErrorCode = int16(errorCode)
+			if resp.ErrorCode == kafkaprotocol.ErrorCodeNone {
+				resp.Assignment = assignment
+			}
+			if err := completionFunc(&resp); err != nil {
+				log.Errorf("failed to send sync group response %v", err)
+			}
+		})
 	return nil
 }
 
@@ -316,13 +371,24 @@ func (c *Coordinator) syncGroup(groupID string, memberID string, generationID in
 	g.Sync(memberID, generationID, assignments, completionFunc)
 }
 
-func (c *Coordinator) HandleHeartbeatRequest(req *kafkaprotocol.HeartbeatRequest,
+func (c *Coordinator) HandleHeartbeatRequest(authContext *auth.Context, req *kafkaprotocol.HeartbeatRequest,
 	completionFunc func(resp *kafkaprotocol.HeartbeatResponse) error) error {
-	errCode := c.heartbeatGroup(common.SafeDerefStringPtr(req.GroupId),
-		common.SafeDerefStringPtr(req.MemberId), int(req.GenerationId))
-	return completionFunc(&kafkaprotocol.HeartbeatResponse{
-		ErrorCode: int16(errCode),
-	})
+	groupId := common.SafeDerefStringPtr(req.GroupId)
+	var resp kafkaprotocol.HeartbeatResponse
+	if authContext != nil {
+		authorised, err := authContext.Authorize(acls.ResourceTypeGroup, groupId, acls.OperationRead)
+		if err != nil {
+			log.Errorf("failed to authorise %v", err)
+			resp.ErrorCode = kafkaprotocol.ErrorCodeUnknownServerError
+		} else if !authorised {
+			resp.ErrorCode = kafkaprotocol.ErrorCodeGroupAuthorizationFailed
+		}
+	}
+	if resp.ErrorCode == kafkaprotocol.ErrorCodeNone {
+		errCode := c.heartbeatGroup(groupId, common.SafeDerefStringPtr(req.MemberId), int(req.GenerationId))
+		resp.ErrorCode = int16(errCode)
+	}
+	return completionFunc(&resp)
 }
 
 func (c *Coordinator) heartbeatGroup(groupID string, memberID string, generationID int) int {
@@ -342,12 +408,26 @@ func (c *Coordinator) heartbeatGroup(groupID string, memberID string, generation
 	return g.Heartbeat(memberID, generationID)
 }
 
-func (c *Coordinator) HandleLeaveGroupRequest(req *kafkaprotocol.LeaveGroupRequest,
+func (c *Coordinator) HandleLeaveGroupRequest(authContext *auth.Context, req *kafkaprotocol.LeaveGroupRequest,
 	completionFunc func(resp *kafkaprotocol.LeaveGroupResponse) error) error {
-	leaveInfos := []MemberLeaveInfo{{MemberID: *req.MemberId}}
-	errorCode := c.leaveGroup(*req.GroupId, leaveInfos)
+	groupID := common.SafeDerefStringPtr(req.GroupId)
+	errCode := int16(kafkaprotocol.ErrorCodeNone)
+	if authContext != nil {
+		authorised, err := authContext.Authorize(acls.ResourceTypeGroup, groupID, acls.OperationRead)
+		if err != nil {
+			log.Errorf("failed to authorise %v", err)
+			errCode = kafkaprotocol.ErrorCodeUnknownServerError
+		} else if !authorised {
+			errCode = kafkaprotocol.ErrorCodeGroupAuthorizationFailed
+		}
+	}
+	if errCode == kafkaprotocol.ErrorCodeNone {
+		memberID := common.SafeDerefStringPtr(req.MemberId)
+		leaveInfos := []MemberLeaveInfo{{MemberID: memberID}}
+		errCode = c.leaveGroup(groupID, leaveInfos)
+	}
 	var resp kafkaprotocol.LeaveGroupResponse
-	resp.ErrorCode = errorCode
+	resp.ErrorCode = errCode
 	return completionFunc(&resp)
 }
 
@@ -365,11 +445,11 @@ func (c *Coordinator) leaveGroup(groupID string, leaveInfos []MemberLeaveInfo) i
 	return g.Leave(leaveInfos)
 }
 
-func (c *Coordinator) OffsetCommit(req *kafkaprotocol.OffsetCommitRequest) (*kafkaprotocol.OffsetCommitResponse, error) {
-	return c.offsetCommit(false, req)
+func (c *Coordinator) OffsetCommit(authContext *auth.Context, req *kafkaprotocol.OffsetCommitRequest) (*kafkaprotocol.OffsetCommitResponse, error) {
+	return c.offsetCommit(authContext, false, req)
 }
 
-func (c *Coordinator) offsetCommit(transactional bool, req *kafkaprotocol.OffsetCommitRequest) (*kafkaprotocol.OffsetCommitResponse, error) {
+func (c *Coordinator) offsetCommit(authContext *auth.Context, transactional bool, req *kafkaprotocol.OffsetCommitRequest) (*kafkaprotocol.OffsetCommitResponse, error) {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
 	if err := c.checkStarted(); err != nil {
@@ -384,19 +464,31 @@ func (c *Coordinator) offsetCommit(transactional bool, req *kafkaprotocol.Offset
 			resp.Topics[i].Partitions[j].PartitionIndex = partData.PartitionIndex
 		}
 	}
-	groupID := *req.GroupId
-	g, ok := c.getGroup(groupID)
-	if !ok {
-		return fillAllErrorCodesForOffsetCommit(req, kafkaprotocol.ErrorCodeGroupIDNotFound), nil
+	groupID := common.SafeDerefStringPtr(req.GroupId)
+	errCode := kafkaprotocol.ErrorCodeNone
+	if authContext != nil {
+		authorised, err := authContext.Authorize(acls.ResourceTypeGroup, groupID, acls.OperationRead)
+		if err != nil {
+			log.Errorf("failed to authorise %v", err)
+			errCode = kafkaprotocol.ErrorCodeUnknownServerError
+		} else if !authorised {
+			errCode = kafkaprotocol.ErrorCodeGroupAuthorizationFailed
+		}
 	}
-	errCode := g.offsetCommit(transactional, req, &resp)
+	if errCode == kafkaprotocol.ErrorCodeNone {
+		g, ok := c.getGroup(groupID)
+		if !ok {
+			return fillAllErrorCodesForOffsetCommit(req, kafkaprotocol.ErrorCodeGroupIDNotFound), nil
+		}
+		errCode = g.offsetCommit(authContext, transactional, req, &resp)
+	}
 	if errCode != kafkaprotocol.ErrorCodeNone {
 		return fillAllErrorCodesForOffsetCommit(req, errCode), nil
 	}
 	return &resp, nil
 }
 
-func (c *Coordinator) OffsetCommitTransactional(req *kafkaprotocol.TxnOffsetCommitRequest) (*kafkaprotocol.TxnOffsetCommitResponse, error) {
+func (c *Coordinator) OffsetCommitTransactional(authContext *auth.Context, req *kafkaprotocol.TxnOffsetCommitRequest) (*kafkaprotocol.TxnOffsetCommitResponse, error) {
 	ocr := &kafkaprotocol.OffsetCommitRequest{
 		GroupId:                   req.GroupId,
 		GenerationIdOrMemberEpoch: req.GenerationId,
@@ -416,7 +508,7 @@ func (c *Coordinator) OffsetCommitTransactional(req *kafkaprotocol.TxnOffsetComm
 			}
 		}
 	}
-	resp, err := c.offsetCommit(true, ocr)
+	resp, err := c.offsetCommit(authContext, true, ocr)
 	if err != nil {
 		return nil, err
 	}
@@ -468,7 +560,7 @@ func (c *Coordinator) CompleteTx(groupID string, pid int64, abort bool) error {
 	return nil
 }
 
-func (c *Coordinator) OffsetFetch(req *kafkaprotocol.OffsetFetchRequest) (*kafkaprotocol.OffsetFetchResponse, error) {
+func (c *Coordinator) OffsetFetch(authContext *auth.Context, req *kafkaprotocol.OffsetFetchRequest) (*kafkaprotocol.OffsetFetchResponse, error) {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
 	if err := c.checkStarted(); err != nil {
@@ -489,27 +581,63 @@ func (c *Coordinator) OffsetFetch(req *kafkaprotocol.OffsetFetchRequest) (*kafka
 		fillAllErrorCodesForOffsetFetch(&resp, kafkaprotocol.ErrorCodeGroupIDNotFound)
 		return &resp, nil
 	}
-	g.offsetFetch(req, &resp)
+	if authContext != nil {
+		authorised, err := authContext.Authorize(acls.ResourceTypeGroup, groupID, acls.OperationDescribe)
+		if err != nil {
+			log.Errorf("failed to authorise %v", err)
+			fillAllErrorCodesForOffsetFetch(&resp, kafkaprotocol.ErrorCodeUnknownServerError)
+			return &resp, nil
+		} else if !authorised {
+			fillAllErrorCodesForOffsetFetch(&resp, kafkaprotocol.ErrorCodeGroupAuthorizationFailed)
+			return &resp, nil
+		}
+	}
+	g.offsetFetch(authContext, req, &resp)
 	return &resp, nil
 }
 
-func (c *Coordinator) ListGroups(req *kafkaprotocol.ListGroupsRequest) (*kafkaprotocol.ListGroupsResponse, error) {
+func (c *Coordinator) ListGroups(authContext *auth.Context, req *kafkaprotocol.ListGroupsRequest) (*kafkaprotocol.ListGroupsResponse, error) {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
 	if err := c.checkStarted(); err != nil {
 		return nil, err
 	}
+	clusterAuth := false
+	if authContext != nil {
+		var err error
+		clusterAuth, err = authContext.Authorize(acls.ResourceTypeCluster, acls.ClusterResourceName, acls.OperationDescribe)
+		if err != nil {
+			log.Errorf("failed to authorise %v", err)
+			return &kafkaprotocol.ListGroupsResponse{
+				ErrorCode: kafkaprotocol.ErrorCodeUnknownServerError,
+			}, nil
+		}
+	}
 	var respGroups []kafkaprotocol.ListGroupsResponseListedGroup
 	for _, g := range c.groups {
-		gsString := groupStateToString(g.state)
-		if matchesFilters(req.StatesFilter, gsString) &&
-			matchesFilters(req.TypesFilter, "consumer") {
-			respGroups = append(respGroups, kafkaprotocol.ListGroupsResponseListedGroup{
-				GroupId:      common.StrPtr(g.id),
-				ProtocolType: common.StrPtr(g.protocolType),
-				GroupState:   common.StrPtr(gsString),
-				GroupType:    common.StrPtr("consumer"),
-			})
+		authorised := true
+		if authContext != nil && !clusterAuth {
+			// filter out any not authorised to see
+			var err error
+			authorised, err = authContext.Authorize(acls.ResourceTypeGroup, g.id, acls.OperationDescribe)
+			if err != nil {
+				log.Errorf("failed to authorise %v", err)
+				return &kafkaprotocol.ListGroupsResponse{
+					ErrorCode: kafkaprotocol.ErrorCodeUnknownServerError,
+				}, nil
+			}
+		}
+		if authorised {
+			gsString := groupStateToString(g.state)
+			if matchesFilters(req.StatesFilter, gsString) &&
+				matchesFilters(req.TypesFilter, "consumer") {
+				respGroups = append(respGroups, kafkaprotocol.ListGroupsResponseListedGroup{
+					GroupId:      common.StrPtr(g.id),
+					ProtocolType: common.StrPtr(g.protocolType),
+					GroupState:   common.StrPtr(gsString),
+					GroupType:    common.StrPtr("consumer"),
+				})
+			}
 		}
 	}
 	// sort by group id
@@ -537,20 +665,53 @@ func matchesFilters(filters []*string, s string) bool {
 	return false
 }
 
-func (c *Coordinator) DescribeGroups(req *kafkaprotocol.DescribeGroupsRequest) (*kafkaprotocol.DescribeGroupsResponse, error) {
+func (c *Coordinator) DescribeGroups(authContext *auth.Context, req *kafkaprotocol.DescribeGroupsRequest) (*kafkaprotocol.DescribeGroupsResponse, error) {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
 	if err := c.checkStarted(); err != nil {
 		return nil, err
 	}
+	clusterAuth := false
+	if authContext != nil {
+		var err error
+		clusterAuth, err = authContext.Authorize(acls.ResourceTypeCluster, acls.ClusterResourceName, acls.OperationDescribe)
+		if err != nil {
+			// Kafka protocol does not give us a meaningful way to return an error in this case, so we just return
+			// no groups
+			log.Errorf("failed to authorise %v", err)
+			return &kafkaprotocol.DescribeGroupsResponse{}, nil
+		}
+	}
 	var respGroups []kafkaprotocol.DescribeGroupsResponseDescribedGroup
 	for _, pGroupID := range req.Groups {
 		groupID := common.SafeDerefStringPtr(pGroupID)
-		g, ok := c.groups[groupID]
-		if !ok {
+		errCode := kafkaprotocol.ErrorCodeNone
+		if authContext != nil && !clusterAuth {
+			// filter out any not authorised to see
+			var err error
+			authorised, err := authContext.Authorize(acls.ResourceTypeGroup, groupID, acls.OperationDescribe)
+			if err != nil {
+				log.Errorf("failed to authorise %v", err)
+				errCode = kafkaprotocol.ErrorCodeUnknownServerError
+			} else if !authorised {
+				errCode = kafkaprotocol.ErrorCodeGroupAuthorizationFailed
+			}
+		}
+		var g *group
+		if errCode == kafkaprotocol.ErrorCodeNone {
+			var ok bool
+			g, ok = c.groups[groupID]
+			if !ok {
+				errCode = kafkaprotocol.ErrorCodeInvalidGroupID
+			}
+		}
+		if errCode != kafkaprotocol.ErrorCodeNone {
 			respGroups = append(respGroups, kafkaprotocol.DescribeGroupsResponseDescribedGroup{
-				GroupId:   common.StrPtr(groupID),
-				ErrorCode: kafkaprotocol.ErrorCodeInvalidGroupID,
+				GroupId:      common.StrPtr(groupID),
+				ErrorCode:    int16(errCode),
+				ProtocolType: common.StrPtr(""), // cannot be null
+				GroupState:   common.StrPtr(""),
+				ProtocolData: common.StrPtr(""),
 			})
 		} else {
 			groupState := groupStateToString(g.state)
@@ -558,9 +719,7 @@ func (c *Coordinator) DescribeGroups(req *kafkaprotocol.DescribeGroupsRequest) (
 				GroupId:      common.StrPtr(g.id),
 				ProtocolType: common.StrPtr(g.protocolType),
 				GroupState:   common.StrPtr(groupState),
-			}
-			if g.state == StateActive {
-				respGroup.ProtocolData = common.StrPtr(g.protocolName)
+				ProtocolData: common.StrPtr(g.protocolName),
 			}
 			if g.state != StateDead {
 				assignmentMap := make(map[string]AssignmentInfo, len(g.members))
@@ -601,7 +760,7 @@ func (c *Coordinator) DescribeGroups(req *kafkaprotocol.DescribeGroupsRequest) (
 	}, nil
 }
 
-func (c *Coordinator) DeleteGroups(req *kafkaprotocol.DeleteGroupsRequest) (*kafkaprotocol.DeleteGroupsResponse, error) {
+func (c *Coordinator) DeleteGroups(authContext *auth.Context, req *kafkaprotocol.DeleteGroupsRequest) (*kafkaprotocol.DeleteGroupsResponse, error) {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
 	if err := c.checkStarted(); err != nil {
@@ -610,12 +769,23 @@ func (c *Coordinator) DeleteGroups(req *kafkaprotocol.DeleteGroupsRequest) (*kaf
 	resp := kafkaprotocol.DeleteGroupsResponse{}
 	for _, pGroupId := range req.GroupsNames {
 		groupID := common.SafeDerefStringPtr(pGroupId)
-		g, ok := c.groups[groupID]
 		var errCode int16
-		if !ok {
-			errCode = kafkaprotocol.ErrorCodeInvalidGroupID
-		} else {
-			errCode = int16(g.deleteAllOffsets())
+		if authContext != nil {
+			authorised, err := authContext.Authorize(acls.ResourceTypeGroup, groupID, acls.OperationDelete)
+			if err != nil {
+				log.Errorf("failed to authorise %v", err)
+				errCode = kafkaprotocol.ErrorCodeUnknownServerError
+			} else if !authorised {
+				errCode = kafkaprotocol.ErrorCodeGroupAuthorizationFailed
+			}
+		}
+		if errCode == kafkaprotocol.ErrorCodeNone {
+			g, ok := c.groups[groupID]
+			if !ok {
+				errCode = kafkaprotocol.ErrorCodeInvalidGroupID
+			} else {
+				errCode = int16(g.deleteAllOffsets())
+			}
 		}
 		if errCode == kafkaprotocol.ErrorCodeNone {
 			delete(c.groups, groupID)
@@ -710,6 +880,22 @@ func (c *Coordinator) rescheduleTimer(timerKey string, delay time.Duration, acti
 func createCoordinatorKey(groupID string) string {
 	// prefix with 'g.' to disambiguate with transaction coordinator keys
 	return "g." + groupID
+}
+
+// CreateGroupWithMember is used in testing only
+func (c *Coordinator) CreateGroupWithMember(groupID string, memberID string) {
+	c.lock.RLock()
+	defer c.lock.RUnlock()
+	group := c.createGroup(groupID, 0)
+	group.addMember(memberID, nil, 0, 0, func(result JoinResult) {},
+		"", "")
+}
+
+// DeleteGroup is used in testing only
+func (c *Coordinator) DeleteGroup(groupID string) {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+	delete(c.groups, groupID)
 }
 
 type GroupState int

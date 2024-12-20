@@ -58,7 +58,7 @@ Flags:
                                                               rebalance, in ms
       --authentication-type="none"                            type of authentication. one of sasl/plain, sasl/scram-sha-512, mtls, none
       --allow-scram-nonce-as-prefix
-      --topic-name=STRING                                     name of the topic
+      --user-auth-cache-timeout=5m                            maximum time for which a user authorisation is cached
       --log-format="console"                                  format to write log lines in - one of: console, json
       --log-level="info"                                      lowest log level that will be emitted - one of: debug, info, warn, error`
 

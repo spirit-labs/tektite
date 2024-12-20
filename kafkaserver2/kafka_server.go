@@ -20,6 +20,7 @@ type KafkaServer struct {
 	socketServer    *sockserver.SocketServer
 	saslAuthManager *auth.SaslAuthManager
 	authType        AuthenticationType
+	authCaches      *auth.UserAuthCaches
 	handlerFactory  HandlerFactory
 	started         bool
 }
@@ -40,12 +41,14 @@ const (
 	AuthenticationTypeMTls         AuthenticationType = iota
 )
 
-func NewKafkaServer(address string, tlsConf conf.TlsConf, authType AuthenticationType, handlerFactory HandlerFactory) *KafkaServer {
+func NewKafkaServer(address string, tlsConf conf.TlsConf, authType AuthenticationType, handlerFactory HandlerFactory,
+	authCaches *auth.UserAuthCaches) *KafkaServer {
 	return &KafkaServer{
 		address:        address,
 		tlsConf:        tlsConf,
 		authType:       authType,
 		handlerFactory: handlerFactory,
+		authCaches:     authCaches,
 	}
 }
 
@@ -115,6 +118,9 @@ func (k *KafkaServer) createConnection(conn net.Conn) sockserver.ServerConnectio
 		conn:       conn,
 		clientHost: clientHost,
 	}
+	if k.authType != AuthenticationTypeNone {
+		kc.authContext.RequiresAuth = true
+	}
 	handler := k.handlerFactory(kc)
 	kc.handler = handler
 	return kc
@@ -170,8 +176,7 @@ func (c *kafkaConnection) authoriseWithClientCert() error {
 		return errors.New("client has provided more than one certificate - please make sure only one cerftificate is provided")
 	}
 	principal := pcs[0].Subject.String()
-	log.Infof("setting auth principal to %s", principal)
 	c.authContext.Principal = principal
-	c.authContext.Authenticated = true
+	c.authContext.SetAuthenticated(principal, c.s.authCaches.GetAuthCache(principal))
 	return nil
 }
