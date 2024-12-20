@@ -139,7 +139,7 @@ func startAgents(t *testing.T, numAgents int, serverTls bool, clientAuth bool) (
 			"--consumer-group-initial-join-delay-ms=500 " +
 			`--log-level=info`
 		commandLine += tlsConf
-		log.Infof("command line: %s", commandLine)
+		log.Debugf("command line: %s", commandLine)
 		agent, err := mgr.StartAgent(commandLine, false)
 		require.NoError(t, err)
 		agents = append(agents, agent)

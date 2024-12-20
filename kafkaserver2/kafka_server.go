@@ -176,7 +176,6 @@ func (c *kafkaConnection) authoriseWithClientCert() error {
 		return errors.New("client has provided more than one certificate - please make sure only one cerftificate is provided")
 	}
 	principal := pcs[0].Subject.String()
-	log.Infof("setting auth principal to %s", principal)
 	c.authContext.Principal = principal
 	c.authContext.SetAuthenticated(principal, c.s.authCaches.GetAuthCache(principal))
 	return nil

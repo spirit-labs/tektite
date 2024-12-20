@@ -11,8 +11,7 @@ import (
 
 func (k *kafkaHandler) HandleDescribeAclsRequest(hdr *kafkaprotocol.RequestHeader,
 	req *kafkaprotocol.DescribeAclsRequest, completionFunc func(resp *kafkaprotocol.DescribeAclsResponse) error) error {
-	log.Infof("HandleDescribeAclsRequest %v", req)
-	log.Infof("resourceType:%d resourceName:%s resourcePatternType:%d principal:%s host:%s operation:%d permissionType:%d ",
+	log.Debugf("resourceType:%d resourceName:%s resourcePatternType:%d principal:%s host:%s operation:%d permissionType:%d ",
 		req.ResourceTypeFilter, common.SafeDerefStringPtr(req.ResourceNameFilter),
 		req.PatternTypeFilter, common.SafeDerefStringPtr(req.PrincipalFilter),
 		common.SafeDerefStringPtr(req.HostFilter), req.Operation,
@@ -112,7 +111,7 @@ func (k *kafkaHandler) HandleCreateAclsRequest(hdr *kafkaprotocol.RequestHeader,
 	if errCode == kafkaprotocol.ErrorCodeNone {
 		aclEntries := make([]acls.AclEntry, 0, len(req.Creations))
 		for _, creation := range req.Creations {
-			log.Infof("resourceType:%d resourceName:%s resourcePatternType:%d principal:%s host:%s operation:%d permissionType:%d ",
+			log.Debugf("resourceType:%d resourceName:%s resourcePatternType:%d principal:%s host:%s operation:%d permissionType:%d ",
 				creation.ResourceType, common.SafeDerefStringPtr(creation.ResourceName),
 				creation.ResourcePatternType, common.SafeDerefStringPtr(creation.Principal),
 				common.SafeDerefStringPtr(creation.Host), creation.Operation,
@@ -128,7 +127,6 @@ func (k *kafkaHandler) HandleCreateAclsRequest(hdr *kafkaprotocol.RequestHeader,
 			}
 			aclEntries = append(aclEntries, entry)
 		}
-		log.Infof("sending create acls request: %v", aclEntries)
 		if err := k.createAcls(aclEntries); err != nil {
 			errMsg = err.Error()
 			if common.IsUnavailableError(err) {
@@ -180,7 +178,7 @@ func (k *kafkaHandler) HandleDeleteAclsRequest(hdr *kafkaprotocol.RequestHeader,
 		}
 	} else {
 		for i, filter := range req.Filters {
-			log.Infof("delete acl: resourceType:%d resourceName:%s resourcePatternType:%d principal:%s host:%s operation:%d permissionType:%d ",
+			log.Debugf("delete acl: resourceType:%d resourceName:%s resourcePatternType:%d principal:%s host:%s operation:%d permissionType:%d ",
 				filter.ResourceTypeFilter, common.SafeDerefStringPtr(filter.ResourceNameFilter),
 				filter.PatternTypeFilter, common.SafeDerefStringPtr(filter.PrincipalFilter),
 				common.SafeDerefStringPtr(filter.HostFilter), filter.Operation,
