@@ -78,6 +78,7 @@ func TestProduceSimple(t *testing.T) {
 
 	var resp kafkaprotocol.ProduceResponse
 	r, err := conn.SendRequest(&req, kafkaprotocol.APIKeyProduce, 3, &resp)
+	require.NoError(t, err)
 	produceResp, ok := r.(*kafkaprotocol.ProduceResponse)
 	require.True(t, ok)
 

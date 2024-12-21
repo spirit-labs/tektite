@@ -82,12 +82,16 @@ func (a *Agent) handleListOffsetsRequest(authContext *auth.Context, req *kafkapr
 					partIndex:  j,
 				})
 			} else {
-				// by timestamp
-				// TODO currently not supported
-				return &resp, &kafkaencoding.KafkaError{
-					ErrorCode: kafkaprotocol.ErrorCodeInvalidRequest,
-					ErrorMsg:  "list offsets by timestamp currently not supported",
+				offset, err := a.tablePusher.GetOffsetForTimestamp(info.ID, int(partInfo.PartitionIndex),
+					partInfo.Timestamp)
+				if err != nil {
+					log.Errorf("failed to get offset by timestamp %v", err)
+					return &resp, &kafkaencoding.KafkaError{
+						ErrorCode: kafkaprotocol.ErrorCodeUnknownServerError,
+						ErrorMsg:  err.Error(),
+					}
 				}
+				resp.Topics[i].Partitions[j].Offset = offset
 			}
 		}
 		if exists {
@@ -95,18 +99,20 @@ func (a *Agent) handleListOffsetsRequest(authContext *auth.Context, req *kafkapr
 			getOffsetRequests = append(getOffsetRequests, getOffsetTopicInfo)
 		}
 	}
-	// Actually get the offsets
-	offs, err := client.GetOffsetInfos(getOffsetRequests)
-	if err != nil {
-		return &resp, err
-	}
-	// fill in the results
-	k := 0
-	for _, topicOff := range offs {
-		for _, partOff := range topicOff.PartitionInfos {
-			respInd := respIndexes[k]
-			resp.Topics[respInd.topicIndex].Partitions[respInd.partIndex].Offset = partOff.Offset
-			k++
+	if len(getOffsetRequests) > 0 {
+		// Actually get the offsets
+		offs, err := client.GetOffsetInfos(getOffsetRequests)
+		if err != nil {
+			return &resp, err
+		}
+		// fill in the results
+		k := 0
+		for _, topicOff := range offs {
+			for _, partOff := range topicOff.PartitionInfos {
+				respInd := respIndexes[k]
+				resp.Topics[respInd.topicIndex].Partitions[respInd.partIndex].Offset = partOff.Offset
+				k++
+			}
 		}
 	}
 	return &resp, nil

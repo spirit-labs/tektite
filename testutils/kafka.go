@@ -39,10 +39,14 @@ func CreateKafkaRecordBatch(messages []RawKafkaMessage, offsetStart int64) []byt
 }
 
 func CreateKafkaRecordBatchWithIncrementingKVs(offsetStart int, numMessages int) []byte {
+	return CreateKafkaRecordBatchWithTimestampAndIncrementingKVs(offsetStart, numMessages, time.Now().UnixMilli())
+}
+
+func CreateKafkaRecordBatchWithTimestampAndIncrementingKVs(offsetStart int, numMessages int, timestamp int64) []byte {
 	var msgs []RawKafkaMessage
 	for i := offsetStart; i < offsetStart+numMessages; i++ {
 		msgs = append(msgs, RawKafkaMessage{
-			Timestamp: time.Now().UnixMilli(),
+			Timestamp: timestamp,
 			Key:       []byte(fmt.Sprintf("key%09d", i)),
 			Value:     []byte(fmt.Sprintf("val%09d", i)),
 		})
