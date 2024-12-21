@@ -456,10 +456,11 @@ func (c *client) getConnection() (transport.Connection, error) {
 	if conn != nil {
 		return conn, nil
 	}
-	if err := c.createConnection(); err != nil {
+	conn, err = c.createConnection()
+	if err != nil {
 		return nil, err
 	}
-	return c.conn, nil
+	return conn, nil
 }
 
 func (c *client) getCachedConnection() (transport.Connection, error) {
@@ -471,18 +472,18 @@ func (c *client) getCachedConnection() (transport.Connection, error) {
 	return c.conn, nil
 }
 
-func (c *client) createConnection() error {
+func (c *client) createConnection() (transport.Connection, error) {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 	if c.conn != nil {
-		return nil
+		return c.conn, nil
 	}
 	conn, err := c.connFactory(c.address)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	c.conn = conn
-	return nil
+	return c.conn, nil
 }
 
 func createRequestBuffer() []byte {
