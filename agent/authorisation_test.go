@@ -6,6 +6,7 @@ import (
 	"github.com/spirit-labs/tektite/acls"
 	"github.com/spirit-labs/tektite/apiclient"
 	"github.com/spirit-labs/tektite/auth"
+	auth2 "github.com/spirit-labs/tektite/auth2"
 	"github.com/spirit-labs/tektite/client"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/conf"
@@ -468,6 +469,11 @@ func testClusterCreatePermission(t *testing.T, _ string, conn *apiclient.KafkaAp
 func testClusterAlterPermission(t *testing.T, _ string, conn *apiclient.KafkaApiConnection, agent *Agent, authTimeout time.Duration) {
 	sendCreateAclsExpectErrorCode(t, conn, kafkaprotocol.ErrorCodeClusterAuthorizationFailed)
 	sendDeleteAclsExpectErrorCode(t, conn, kafkaprotocol.ErrorCodeClusterAuthorizationFailed)
+	username := "some-user"
+	password := "some-password"
+	sendPutUserCredsExpectErrorCode(t, conn, kafkaprotocol.ErrorCodeClusterAuthorizationFailed, username, password)
+	sendDeleteUserExpectErrorCode(t, conn, kafkaprotocol.ErrorCodeClusterAuthorizationFailed, username)
+
 	time.Sleep(authTimeout) // timeout cached auth
 	// Now add an acl to allow access
 	createAcl(t, agent, acls.AclEntry{
@@ -482,6 +488,8 @@ func testClusterAlterPermission(t *testing.T, _ string, conn *apiclient.KafkaApi
 	// should now succeed
 	sendCreateAclsExpectErrorCode(t, conn, kafkaprotocol.ErrorCodeNone)
 	sendDeleteAclsExpectErrorCode(t, conn, kafkaprotocol.ErrorCodeNone)
+	sendPutUserCredsExpectErrorCode(t, conn, kafkaprotocol.ErrorCodeNone, username, password)
+	sendDeleteUserExpectErrorCode(t, conn, kafkaprotocol.ErrorCodeNone, username)
 }
 
 func sendCreateAclsExpectErrorCode(t *testing.T, conn *apiclient.KafkaApiConnection, expectedErrCode int) {
@@ -528,6 +536,34 @@ func sendDeleteAclsExpectErrorCode(t *testing.T, conn *apiclient.KafkaApiConnect
 	require.Equal(t, 1, len(resp.FilterResults))
 	res := resp.FilterResults[0]
 	require.Equal(t, expectedErrCode, int(res.ErrorCode))
+}
+
+func sendPutUserCredsExpectErrorCode(t *testing.T, conn *apiclient.KafkaApiConnection, expectedErrCode int,
+	username string, password string) {
+	storedKey, serverKey, salt := auth2.CreateUserScramCreds(password, auth2.AuthenticationSaslScramSha512)
+	req := kafkaprotocol.PutUserCredentialsRequest{
+		Username:  common.StrPtr(username),
+		StoredKey: storedKey,
+		ServerKey: serverKey,
+		Salt:      common.StrPtr(salt),
+	}
+	resp := &kafkaprotocol.PutUserCredentialsResponse{}
+	r, err := conn.SendRequest(&req, kafkaprotocol.ApiKeyPutUserCredentialsRequest, 0, resp)
+	require.NoError(t, err)
+	resp = r.(*kafkaprotocol.PutUserCredentialsResponse)
+	require.Equal(t, expectedErrCode, int(resp.ErrorCode))
+}
+
+func sendDeleteUserExpectErrorCode(t *testing.T, conn *apiclient.KafkaApiConnection, expectedErrCode int,
+	username string) {
+	req := kafkaprotocol.DeleteUserRequest{
+		Username: common.StrPtr(username),
+	}
+	resp := &kafkaprotocol.DeleteUserResponse{}
+	r, err := conn.SendRequest(&req, kafkaprotocol.ApiKeyDeleteUserRequest, 0, resp)
+	require.NoError(t, err)
+	resp = r.(*kafkaprotocol.DeleteUserResponse)
+	require.Equal(t, expectedErrCode, int(resp.ErrorCode))
 }
 
 func testClusterDescribePermission(t *testing.T, _ string, conn *apiclient.KafkaApiConnection, agent *Agent, authTimeout time.Duration) {
