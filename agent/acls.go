@@ -2,14 +2,13 @@ package agent
 
 import (
 	"github.com/spirit-labs/tektite/acls"
-	auth "github.com/spirit-labs/tektite/auth2"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/kafkaprotocol"
 	log "github.com/spirit-labs/tektite/logger"
 	"sort"
 )
 
-func (k *kafkaHandler) HandleDescribeAclsRequest(hdr *kafkaprotocol.RequestHeader,
+func (k *kafkaHandler) HandleDescribeAclsRequest(_ *kafkaprotocol.RequestHeader,
 	req *kafkaprotocol.DescribeAclsRequest, completionFunc func(resp *kafkaprotocol.DescribeAclsResponse) error) error {
 	log.Debugf("resourceType:%d resourceName:%s resourcePatternType:%d principal:%s host:%s operation:%d permissionType:%d ",
 		req.ResourceTypeFilter, common.SafeDerefStringPtr(req.ResourceNameFilter),
@@ -17,7 +16,7 @@ func (k *kafkaHandler) HandleDescribeAclsRequest(hdr *kafkaprotocol.RequestHeade
 		common.SafeDerefStringPtr(req.HostFilter), req.Operation,
 		req.PermissionType)
 	resp := &kafkaprotocol.DescribeAclsResponse{}
-	errCode, errMsg := authoriseAcls(k.authContext, acls.OperationDescribe)
+	errCode, errMsg := authoriseCluster(k.authContext, acls.OperationDescribe, "not authorised to describe acls")
 	if errCode != kafkaprotocol.ErrorCodeNone {
 		resp.ErrorCode = int16(errCode)
 		resp.ErrorMessage = common.StrPtr(errMsg)
@@ -88,26 +87,9 @@ func (k *kafkaHandler) describeAcls(resourceType acls.ResourceType, resourceName
 	return cl.ListAcls(resourceType, resourceNameFilter, patternTypeFilter, principal, host, operation, permission)
 }
 
-func authoriseAcls(authContext *auth.Context, operation acls.Operation) (int, string) {
-	errCode := kafkaprotocol.ErrorCodeNone
-	var errMsg string
-	if authContext != nil {
-		authorised, err := authContext.Authorize(acls.ResourceTypeCluster, acls.ClusterResourceName, operation)
-		if err != nil {
-			log.Errorf("failed to authorize: %v", err)
-			errCode = kafkaprotocol.ErrorCodeUnknownServerError
-			errMsg = err.Error()
-		} else if !authorised {
-			errCode = kafkaprotocol.ErrorCodeClusterAuthorizationFailed
-			errMsg = "not authorised to create acls"
-		}
-	}
-	return errCode, errMsg
-}
-
-func (k *kafkaHandler) HandleCreateAclsRequest(hdr *kafkaprotocol.RequestHeader,
+func (k *kafkaHandler) HandleCreateAclsRequest(_ *kafkaprotocol.RequestHeader,
 	req *kafkaprotocol.CreateAclsRequest, completionFunc func(resp *kafkaprotocol.CreateAclsResponse) error) error {
-	errCode, errMsg := authoriseAcls(k.authContext, acls.OperationAlter)
+	errCode, errMsg := authoriseCluster(k.authContext, acls.OperationAlter, "not authorised to create acls")
 	if errCode == kafkaprotocol.ErrorCodeNone {
 		aclEntries := make([]acls.AclEntry, 0, len(req.Creations))
 		for _, creation := range req.Creations {
@@ -156,9 +138,9 @@ func (k *kafkaHandler) createAcls(aclEntries []acls.AclEntry) error {
 	return cl.CreateAcls(aclEntries)
 }
 
-func (k *kafkaHandler) HandleDeleteAclsRequest(hdr *kafkaprotocol.RequestHeader,
+func (k *kafkaHandler) HandleDeleteAclsRequest(_ *kafkaprotocol.RequestHeader,
 	req *kafkaprotocol.DeleteAclsRequest, completionFunc func(resp *kafkaprotocol.DeleteAclsResponse) error) error {
-	errCode, errMsg := authoriseAcls(k.authContext, acls.OperationAlter)
+	errCode, errMsg := authoriseCluster(k.authContext, acls.OperationAlter, "not authorised to delete acls")
 	resp := kafkaprotocol.DeleteAclsResponse{
 		FilterResults: make([]kafkaprotocol.DeleteAclsResponseDeleteAclsFilterResult, len(req.Filters)),
 	}
