@@ -99,6 +99,32 @@ func TestListOffsetsByTimestamp(t *testing.T) {
 		}, 10*time.Second, 2*time.Millisecond)
 		require.NoError(t, err)
 		require.True(t, ok)
-	}
 
+		// now test using Kafka API
+		resp := &kafkaprotocol.ListOffsetsResponse{}
+		req := &kafkaprotocol.ListOffsetsRequest{
+			ReplicaId:      0,
+			IsolationLevel: 0,
+			Topics: []kafkaprotocol.ListOffsetsRequestListOffsetsTopic{
+				{
+					Name: common.StrPtr(topicName),
+					Partitions: []kafkaprotocol.ListOffsetsRequestListOffsetsPartition{
+						{
+							PartitionIndex: int32(partitionID),
+							Timestamp:      timestamp,
+						},
+					},
+				},
+			},
+		}
+		r, err := conn.SendRequest(req, kafkaprotocol.APIKeyListOffsets, 1, resp)
+		require.NoError(t, err)
+		resp = r.(*kafkaprotocol.ListOffsetsResponse)
+
+		require.Equal(t, 1, len(resp.Topics))
+		topicResp := resp.Topics[0]
+		require.Equal(t, 1, len(topicResp.Partitions))
+		partResp := topicResp.Partitions[0]
+		require.Equal(t, offset, partResp.Offset)
+	}
 }
