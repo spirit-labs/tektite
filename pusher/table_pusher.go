@@ -898,11 +898,13 @@ func (t *TablePusher) loadExpectedSequence(producerID int, topicID int, partitio
 	prefix := common.ByteSliceCopy(partHash)
 	prefix = append(prefix, common.EntryTypeTopicData)
 	prefix = encoding.KeyEncodeInt(prefix, offset)
+	keyEnd := common.ByteSliceCopy(partHash)
+	keyEnd = append(keyEnd, common.EntryTypeTopicData+1)
 	controlClient, err := t.getClient()
 	if err != nil {
 		return 0, err
 	}
-	iter, err := queryutils.CreateIteratorForKeyRange(prefix, nil, controlClient, t.tableGetter)
+	iter, err := queryutils.CreateIteratorForKeyRange(prefix, keyEnd, controlClient, t.tableGetter)
 	if err != nil {
 		return 0, err
 	}
