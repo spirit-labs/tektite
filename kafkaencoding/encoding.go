@@ -129,6 +129,14 @@ func LastOffsetDelta(records []byte) int32 {
 	return int32(binary.BigEndian.Uint32(records[23:]))
 }
 
+func BaseTimestamp(records []byte) int64 {
+	return int64(binary.BigEndian.Uint64(records[27:]))
+}
+
+func MaxTimestamp(records []byte) int64 {
+	return int64(binary.BigEndian.Uint64(records[35:]))
+}
+
 type KafkaError struct {
 	ErrorCode int
 	ErrorMsg  string

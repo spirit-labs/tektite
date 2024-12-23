@@ -58,15 +58,17 @@ type TablePusher struct {
 	partitionRecords     map[int]map[int][]bufferedRecords
 	produceCompletions   []func(error)
 	directKVs            map[string][]common.KV
-	offsetSnapshotKvs    []common.KV
+	snapshotKVs          []common.KV
+	timestampOffsetKVs   map[string][]byte
 	directCompletions    map[string][]func(error)
 	directWriterEpochs   map[string]int
 	numDirectKVsToCommit int
 	partitionHashes      *parthash.PartitionHashes
 	writeTimer           *time.Timer
-	offsetSnapshotTimer  *time.Timer
+	snapshotTimer        *time.Timer
 	sizeBytes            int
 	producerSeqs         map[int]map[int]map[int]*sequenceInfo
+	offsetTimes          map[int]map[int]*offsetTime
 	stats                Stats
 }
 
@@ -97,6 +99,7 @@ type Stats struct {
 const (
 	objStoreAvailabilityTimeout = 5 * time.Second
 	offsetSnapshotFormatVersion = 1
+	offsetTimeFormatVersion     = 1
 )
 
 func NewTablePusher(cfg Conf, topicProvider topicInfoProvider, objStore objstore.Client,
@@ -115,6 +118,8 @@ func NewTablePusher(cfg Conf, topicProvider topicInfoProvider, objStore objstore
 		directKVs:          map[string][]common.KV{},
 		directCompletions:  map[string][]func(error){},
 		producerSeqs:       map[int]map[int]map[int]*sequenceInfo{},
+		offsetTimes:        map[int]map[int]*offsetTime{},
+		timestampOffsetKVs: map[string][]byte{},
 	}, nil
 }
 
@@ -125,7 +130,7 @@ func (t *TablePusher) Start() error {
 		return nil
 	}
 	t.scheduleWriteTimer(t.cfg.WriteTimeout)
-	t.scheduleOffsetSnapshotTimer(t.cfg.OffsetSnapshotInterval)
+	t.scheduleSnapshotTimer(t.cfg.OffsetSnapshotInterval)
 	t.started = true
 	return nil
 }
@@ -138,7 +143,7 @@ func (t *TablePusher) Stop() error {
 		return nil
 	}
 	t.writeTimer.Stop()
-	t.offsetSnapshotTimer.Stop()
+	t.snapshotTimer.Stop()
 	t.started = false
 	return nil
 }
@@ -175,8 +180,8 @@ func (t *TablePusher) scheduleWriteTimer(timeout time.Duration) {
 	})
 }
 
-func (t *TablePusher) scheduleOffsetSnapshotTimer(timeout time.Duration) {
-	t.offsetSnapshotTimer = time.AfterFunc(timeout, func() {
+func (t *TablePusher) scheduleSnapshotTimer(timeout time.Duration) {
+	t.snapshotTimer = time.AfterFunc(timeout, func() {
 		t.lock.Lock()
 		defer t.lock.Unlock()
 		if !t.started {
@@ -185,7 +190,10 @@ func (t *TablePusher) scheduleOffsetSnapshotTimer(timeout time.Duration) {
 		if err := t.maybeSnapshotSequences(); err != nil {
 			log.Errorf("failed to snapshot sequences: %v", err)
 		}
-		t.scheduleWriteTimer(t.cfg.WriteTimeout)
+		if err := t.maybeSnapshotOffsetsByTime(); err != nil {
+			log.Errorf("failed to snapshot offset times: %v", err)
+		}
+		t.scheduleSnapshotTimer(t.cfg.OffsetSnapshotInterval)
 	})
 }
 
@@ -568,7 +576,7 @@ func (t *TablePusher) ForceWrite() error {
 }
 
 func (t *TablePusher) write() error {
-	if len(t.partitionRecords) == 0 && t.numDirectKVsToCommit == 0 {
+	if len(t.partitionRecords) == 0 && t.numDirectKVsToCommit == 0 && len(t.timestampOffsetKVs) == 0 {
 		// Nothing to do
 		return nil
 	}
@@ -611,7 +619,6 @@ func (t *TablePusher) write() error {
 			})
 		}
 	}
-
 	// Prepare the epoch infos
 	groupEpochInfos := make([]control.EpochInfo, 0, len(t.directWriterEpochs))
 	for groupID, epoch := range t.directWriterEpochs {
@@ -641,7 +648,7 @@ func (t *TablePusher) write() error {
 			t.failDirectWrites(groupID)
 		}
 	}
-	numRemainingKvs := len(offs) + t.numDirectKVsToCommit
+	numRemainingKvs := len(offs) + t.numDirectKVsToCommit + len(t.timestampOffsetKVs)
 	if numRemainingKvs == 0 {
 		// After failing direct writes there may be nothing to do
 		return nil
@@ -653,7 +660,14 @@ func (t *TablePusher) write() error {
 		kvs = append(kvs, offsetKVs...)
 	}
 	// Add any offset snapshots
-	kvs = append(kvs, t.offsetSnapshotKvs...)
+	kvs = append(kvs, t.snapshotKVs...)
+	// Add any timestamp-offset index KVs
+	for sKey, value := range t.timestampOffsetKVs {
+		kvs = append(kvs, common.KV{
+			Key:   common.StringToByteSliceZeroCopy(sKey),
+			Value: value,
+		})
+	}
 	// Prepare the data KVs
 	for i, topOffset := range offs {
 		partitionRecs := t.partitionRecords[topOffset.TopicID]
@@ -739,11 +753,41 @@ func (t *TablePusher) write() error {
 	if err := client.RegisterL0Table(seq, regEntry); err != nil {
 		return err
 	}
+	t.updateOffsetTimes()
 	// Send back completions
 	t.callCompletions(nil)
 	// reset - the state
 	t.reset()
 	return nil
+}
+
+func (t *TablePusher) updateOffsetTimes() {
+	// Now update offset times
+	// For each topic partition we maintain the latest offset and timestamp. This is then periodically stored to
+	// permanent storage. It acts as index allowing us to lookup the offset for a particular timestamp. We can scan
+	// from the last stored index value to get the latest value < required time.
+	for topicID, partitions := range t.partitionRecords {
+		partitionsMap, ok := t.offsetTimes[topicID]
+		if !ok {
+			partitionsMap = map[int]*offsetTime{}
+			t.offsetTimes[topicID] = partitionsMap
+		}
+		for partitionID, entries := range partitions {
+			ot, ok := partitionsMap[partitionID]
+			if !ok {
+				ot = &offsetTime{}
+				partitionsMap[partitionID] = ot
+			}
+			for _, entry := range entries {
+				for _, batch := range entry {
+					baseTimestamp := kafkaencoding.BaseTimestamp(batch)
+					baseOffset := kafkaencoding.BaseOffset(batch)
+					ot.timestamp = baseTimestamp
+					ot.offset = baseOffset
+				}
+			}
+		}
+	}
 }
 
 func (t *TablePusher) reset() {
@@ -755,6 +799,10 @@ func (t *TablePusher) reset() {
 		t.directWriterEpochs = make(map[string]int)
 		t.numDirectKVsToCommit = 0
 	}
+	t.snapshotKVs = nil
+	if len(t.timestampOffsetKVs) > 0 {
+		t.timestampOffsetKVs = map[string][]byte{}
+	}
 	t.sizeBytes = 0
 }
 
@@ -762,6 +810,11 @@ type sequenceInfo struct {
 	expectedSequence int32
 	offset           int64
 	dirty            bool
+}
+
+type offsetTime struct {
+	offset    int64
+	timestamp int64
 }
 
 func (t *TablePusher) checkDuplicates(batch []byte, topicID int, partitionID int) (int, error) {
@@ -836,7 +889,6 @@ func (t *TablePusher) loadExpectedSequence(producerID int, topicID int, partitio
 			return 0, errors.New("invalid offsetSnapshot format version")
 		}
 		offset = int64(binary.BigEndian.Uint64(val[2:]))
-		offset, _ = encoding.KeyDecodeInt(val, 2)
 	}
 	// Now we need to scan through and find latest sequence for the producer starting at the snapshotted offset
 	partHash, err := t.partitionHashes.GetPartitionHash(topicID, partitionID)
@@ -846,17 +898,20 @@ func (t *TablePusher) loadExpectedSequence(producerID int, topicID int, partitio
 	prefix := common.ByteSliceCopy(partHash)
 	prefix = append(prefix, common.EntryTypeTopicData)
 	prefix = encoding.KeyEncodeInt(prefix, offset)
+	keyEnd := common.ByteSliceCopy(partHash)
+	keyEnd = append(keyEnd, common.EntryTypeTopicData+1)
 	controlClient, err := t.getClient()
 	if err != nil {
 		return 0, err
 	}
-	iter, err := queryutils.CreateIteratorForKeyRange(prefix, nil, controlClient, t.tableGetter)
+	iter, err := queryutils.CreateIteratorForKeyRange(prefix, keyEnd, controlClient, t.tableGetter)
 	if err != nil {
 		return 0, err
 	}
 	if iter == nil {
 		return 0, nil
 	}
+	defer iter.Close()
 	var sequence int32
 	for {
 		ok, kv, err := iter.Next()
@@ -907,7 +962,7 @@ func (t *TablePusher) maybeSnapshotSequences() error {
 			}
 		}
 	}
-	t.offsetSnapshotKvs = append(t.offsetSnapshotKvs, kvs...)
+	t.snapshotKVs = append(t.snapshotKVs, kvs...)
 	return nil
 }
 
@@ -962,4 +1017,152 @@ func (t *TablePusher) getLatestValueWithKey(key []byte) ([]byte, error) {
 		return nil, nil
 	}
 	return kv.Value, nil
+}
+
+func (t *TablePusher) maybeSnapshotOffsetsByTime() error {
+	if len(t.offsetTimes) == 0 {
+		return nil
+	}
+	for topicID, partitionMap := range t.offsetTimes {
+		for partitionID, ot := range partitionMap {
+			key, err := t.createOffsetTimeKey(topicID, partitionID, ot.timestamp)
+			if err != nil {
+				return err
+			}
+			value := make([]byte, 0, 10)
+			value = binary.BigEndian.AppendUint16(value, uint16(offsetTimeFormatVersion))
+			value = binary.BigEndian.AppendUint64(value, uint64(ot.offset))
+			value = common.AppendValueMetadata(value)
+			// We add these to a map as there can be duplicates - we only want to keep the latest one
+			t.timestampOffsetKVs[common.ByteSliceToStringZeroCopy(key)] = value
+		}
+	}
+	t.offsetTimes = map[int]map[int]*offsetTime{}
+	return nil
+}
+
+func (t *TablePusher) createOffsetTimeKey(topicID int, partitionID int, timestamp int64) ([]byte, error) {
+	partHash, err := t.partitionHashes.GetPartitionHash(topicID, partitionID)
+	if err != nil {
+		return nil, err
+	}
+	key := make([]byte, 0, 33)
+	key = append(key, partHash...)
+	key = append(key, common.EntryTypeOffsetTime)
+	// Note we store the timestamp such that lower timestamps have a greater key than greater timestamps
+	// this means when we lookup an offset for a timestamp, and there is no index entry for that exact timestamp it
+	// will return the index entry for the next smallest timestamp - we then iterate from there. otherwise we could
+	// miss valid offsets for timestamps >= requested timestamp
+	key = encoding.KeyEncodeInt(key, math.MaxInt64-timestamp)
+	key = encoding.EncodeVersion(key, 0)
+	return key, nil
+}
+
+// GetOffsetForTimestamp returns the first offset where the timestamp is >= provided timestamp, or -1 if no
+// such record exists
+func (t *TablePusher) GetOffsetForTimestamp(topicID int, partitionID int, timestamp int64) (int64, error) {
+	// First we lookup any snapshot
+	partHash, err := t.partitionHashes.GetPartitionHash(topicID, partitionID)
+	if err != nil {
+		return 0, err
+	}
+	key := make([]byte, 0, 25)
+	key = append(key, partHash...)
+	key = append(key, common.EntryTypeOffsetTime)
+	key = encoding.KeyEncodeInt(key, math.MaxInt64-timestamp)
+	keyEnd := make([]byte, 0, 25)
+	keyEnd = append(keyEnd, partHash...)
+	keyEnd = append(keyEnd, common.EntryTypeOffsetTime+1)
+	controlClient, err := t.getClient()
+	if err != nil {
+		return 0, err
+	}
+	iter, err := queryutils.CreateIteratorForKeyRange(key, keyEnd, controlClient, t.tableGetter)
+	if err != nil {
+		return 0, err
+	}
+	defer iter.Close()
+	// this will return next lowest timestamp entry if it exists and there isn't an entry for exact timestamp match
+	ok, kv, err := iter.Next()
+	if err != nil {
+		return 0, err
+	}
+	var savedOffset int64
+	if ok {
+		version := binary.BigEndian.Uint16(kv.Value)
+		if version != offsetTimeFormatVersion {
+			return 0, errors.New("invalid offsetTime format version")
+		}
+		savedOffset = int64(binary.BigEndian.Uint64(kv.Value[2:]))
+	}
+	// Now we need to scan through and find latest offset starting at the snapshotted offset
+	prefix := common.ByteSliceCopy(partHash)
+	prefix = append(prefix, common.EntryTypeTopicData)
+	prefix = encoding.KeyEncodeInt(prefix, savedOffset)
+	searchEnd := common.ByteSliceCopy(partHash)
+	searchEnd = append(searchEnd, common.EntryTypeTopicData+1)
+	iter, err = queryutils.CreateIteratorForKeyRange(prefix, searchEnd, controlClient, t.tableGetter)
+	if err != nil {
+		return 0, err
+	}
+	if iter == nil {
+		return 0, nil
+	}
+	defer iter.Close()
+	offset := int64(-1)
+	for {
+		ok, kv, err := iter.Next()
+		if err != nil {
+			return 0, err
+		}
+		if !ok {
+			break
+		}
+		maxTimestamp := kafkaencoding.MaxTimestamp(kv.Value)
+		if maxTimestamp >= timestamp {
+			// Search for the first offset with timestamp >= requested timestamp in the batch
+			offset = getOffsetForTimestampInRecords(kv.Value, timestamp)
+			if offset == -1 {
+				return 0, errors.Errorf("corrupt record batch - does not contain correct timestamps")
+			}
+			break
+		}
+	}
+	return offset, nil
+}
+
+func getOffsetForTimestampInRecords(bytes []byte, timestamp int64) int64 {
+	baseOffset := int64(binary.BigEndian.Uint64(bytes))
+	baseTimeStamp := int64(binary.BigEndian.Uint64(bytes[27:]))
+	off := 57
+	numRecords := int(binary.BigEndian.Uint32(bytes[off:]))
+	off += 4
+	for i := 0; i < numRecords; i++ {
+		recordLength, bytesRead := binary.Varint(bytes[off:])
+		off += bytesRead
+		recordStart := off
+		off++ // skip past attributes
+		timestampDelta, bytesRead := binary.Varint(bytes[off:])
+		recordTimestamp := baseTimeStamp + timestampDelta
+		if recordTimestamp >= timestamp {
+			offset := baseOffset + int64(i)
+			return offset
+		}
+		off += bytesRead
+		_, bytesRead = binary.Varint(bytes[off:])
+		off += bytesRead
+		keyLength, bytesRead := binary.Varint(bytes[off:])
+		off += bytesRead
+		if keyLength != -1 {
+			ikl := int(keyLength)
+			off += ikl
+		}
+		valueLength, bytesRead := binary.Varint(bytes[off:])
+		off += bytesRead
+		ivl := int(valueLength)
+		off += ivl
+		headersEnd := recordStart + int(recordLength)
+		off = headersEnd
+	}
+	return -1
 }

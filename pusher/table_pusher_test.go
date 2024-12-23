@@ -1884,7 +1884,7 @@ func createSequenceSnapshotKV(t *testing.T, topicID int, partitionID int, produc
 	key = encoding.EncodeVersion(key, 0)
 	value := make([]byte, 0, 6)
 	value = binary.BigEndian.AppendUint16(value, uint16(offsetSnapshotFormatVersion))
-	value = encoding.KeyEncodeInt(value, int64(baseOffset))
+	value = binary.BigEndian.AppendUint64(value, uint64(baseOffset))
 	return common.KV{Key: key, Value: value}
 }
 
