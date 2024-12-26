@@ -61,6 +61,8 @@ Flags:
       --user-auth-cache-timeout=5m                            maximum time for which a user authorisation is cached
       --use-server-timestamp-for-records                      whether to use server timestamp for incoming produced records. if 'false' then producer timestamp
                                                               is preserved
+      --enable-topic-auto-create                              if 'true' then enables topic auto-creation for topics that do not already exist
+      --auto-create-num-partitions=1                          the number of partitions for auto-created topics
       --log-format="console"                                  format to write log lines in - one of: console, json
       --log-level="info"                                      lowest log level that will be emitted - one of: debug, info, warn, error`
 
