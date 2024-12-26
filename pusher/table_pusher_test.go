@@ -9,6 +9,7 @@ import (
 	"github.com/spirit-labs/tektite/asl/encoding"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/control"
+	"github.com/spirit-labs/tektite/kafkaencoding"
 	"github.com/spirit-labs/tektite/kafkaprotocol"
 	"github.com/spirit-labs/tektite/lsm"
 	"github.com/spirit-labs/tektite/objstore"
@@ -1998,6 +1999,101 @@ func createExpectedKey(topicID int, partitionID int, offset int64) ([]byte, erro
 	key = encoding.KeyEncodeInt(key, offset)
 	key = encoding.EncodeVersion(key, 0)
 	return key, nil
+}
+
+func TestTablePusherUseServerTimestamp(t *testing.T) {
+	cfg := NewConf()
+	cfg.DataBucketName = "test-data-bucket"
+	cfg.WriteTimeout = 1 * time.Millisecond // So it pushes straightaway
+	cfg.EnforceProduceOnLeader = true
+
+	objStore := dev.NewInMemStore(0)
+	topicID := 1234
+	seq := int64(23)
+	numRecordsInBatch := 10
+
+	controllerClient := &testControllerClient{
+		sequence: seq,
+		offsets: []offsets.OffsetTopicInfo{
+			{
+				TopicID: topicID,
+				PartitionInfos: []offsets.OffsetPartitionInfo{
+					{
+						PartitionID: 12,
+						Offset:      int64(numRecordsInBatch - 1),
+					},
+				},
+			},
+		},
+	}
+	clientFactory := func() (ControlClient, error) {
+		return controllerClient, nil
+	}
+	topicProvider := &simpleTopicInfoProvider{infos: map[string]topicmeta.TopicInfo{
+		"topic1": {ID: topicID, PartitionCount: 20, UseServerTimestamp: true},
+	}}
+	partHashes, err := parthash.NewPartitionHashes(100)
+	require.NoError(t, err)
+	tableGetter := &testTableGetter{}
+	pusher, err := NewTablePusher(cfg, topicProvider, objStore, clientFactory, tableGetter.getTable,
+		partHashes, &testLeaderChecker{leader: true})
+	require.NoError(t, err)
+	err = pusher.Start()
+	require.NoError(t, err)
+	defer func() {
+		err := pusher.Stop()
+		require.NoError(t, err)
+	}()
+
+	// create batch with timestamp 10 minutes ago
+	now := time.Now().UnixMilli()
+	timestamp := now - 10*60*1000
+	recordBatch := testutils.CreateKafkaRecordBatchWithTimestampAndIncrementingKVs(0, numRecordsInBatch, timestamp)
+
+	req := kafkaprotocol.ProduceRequest{
+		TransactionalId: nil,
+		Acks:            -1,
+		TimeoutMs:       1234,
+		TopicData: []kafkaprotocol.ProduceRequestTopicProduceData{
+			{
+				Name: common.StrPtr("topic1"),
+				PartitionData: []kafkaprotocol.ProduceRequestPartitionProduceData{
+					{
+						Index: 12,
+						Records: [][]byte{
+							recordBatch,
+						},
+					},
+				},
+			},
+		},
+	}
+	respCh := make(chan *kafkaprotocol.ProduceResponse, 1)
+	err = pusher.HandleProduceRequest(nil, &req, func(resp *kafkaprotocol.ProduceResponse) error {
+		respCh <- resp
+		return nil
+	})
+	require.NoError(t, err)
+	checkNoPartitionResponseErrors(t, respCh, &req)
+
+	// check that table has been pushed to object store
+
+	ssTables, _ := getSSTablesFromStore(t, cfg.DataBucketName, objStore)
+	require.Equal(t, 1, len(ssTables))
+	iter, err := ssTables[0].NewIterator(nil, nil)
+	require.NoError(t, err)
+	for {
+		ok, kv, err := iter.Next()
+		require.NoError(t, err)
+		if !ok {
+			break
+		}
+		_, val := common.ReadAndRemoveValueMetadata(kv.Value)
+		require.Equal(t, recordBatch, val)
+		// timestamp in batch should be >= now
+		baseTimestamp := kafkaencoding.BaseTimestamp(val)
+		require.GreaterOrEqual(t, baseTimestamp, now)
+	}
 }
 
 type testControllerClient struct {

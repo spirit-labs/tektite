@@ -470,7 +470,7 @@ func (k *kafkaHandler) parseConfig(topic kafkaprotocol.CreateTopicsRequestCreata
 	retentionTime := k.agent.cfg.DefaultTopicRetentionTime
 	respConfigs := make([]kafkaprotocol.CreateTopicsResponseCreatableTopicConfigs, 0, len(topic.Configs))
 	errCode := int16(kafkaprotocol.ErrorCodeNone)
-	useServerTimestamp := k.agent.cfg.PusherConf.UseServerTimestamp
+	useServerTimestamp := k.agent.cfg.DefaultUseServerTimestamp
 	var errMsg string
 	for _, config := range topic.Configs {
 		configName := common.SafeDerefStringPtr(config.Name)
@@ -498,6 +498,7 @@ func (k *kafkaHandler) parseConfig(topic kafkaprotocol.CreateTopicsRequestCreata
 			} else {
 				errCode = int16(kafkaprotocol.ErrorCodeInvalidTopicException)
 				errMsg = fmt.Sprintf("Invalid value for 'log.message.timestamp.type': %s", configVal)
+				break
 			}
 		}
 		respConfigs = append(respConfigs, kafkaprotocol.CreateTopicsResponseCreatableTopicConfigs{

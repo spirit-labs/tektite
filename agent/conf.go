@@ -143,7 +143,7 @@ func CreateConfFromCommandConf(commandConf CommandConf) (Conf, error) {
 			" and not to enable this setting.")
 	}
 	cfg.UserAuthCacheTimeout = commandConf.UserAuthCacheTimeout
-	cfg.PusherConf.UseServerTimestamp = commandConf.UseServerTimestampForRecords
+	cfg.DefaultUseServerTimestamp = commandConf.UseServerTimestampForRecords
 	return cfg, nil
 }
 
@@ -209,6 +209,7 @@ type Conf struct {
 	AllowScramNonceAsPrefix   bool
 	AddJunkOnScramNonce       bool
 	DefaultTopicRetentionTime time.Duration
+	DefaultUseServerTimestamp bool
 	ClusterName               string
 	UserAuthCacheTimeout      time.Duration
 }
