@@ -172,25 +172,56 @@ func (a *Agent) handleMetadataRequest(authContext *auth.Context, hdr *kafkaproto
 				return err
 			}
 			if !exists {
-				resp.Topics[i].ErrorCode = kafkaprotocol.ErrorCodeUnknownTopicOrPartition
-			} else {
-				authorised := true
-				if authContext != nil {
-					authorised, err = authContext.Authorize(acls.ResourceTypeTopic, topicName, acls.OperationDescribe)
+				if req.AllowAutoTopicCreation && a.cfg.EnableTopicAutoCreate && hdr.RequestApiVersion >= 4 {
+					// auto create topic
+					if authContext != nil {
+						authorised, err := authContext.Authorize(acls.ResourceTypeTopic, topicName, acls.OperationCreate)
+						if err != nil {
+							return err
+						}
+						if !authorised {
+							resp.Topics[i].ErrorCode = kafkaprotocol.ErrorCodeTopicAuthorizationFailed
+							continue
+						}
+					}
+					if err := client.CreateOrUpdateTopic(topicmeta.TopicInfo{
+						Name:               topicName,
+						PartitionCount:     a.cfg.DefaultPartitionCount,
+						RetentionTime:      a.cfg.DefaultTopicRetentionTime,
+						UseServerTimestamp: a.cfg.DefaultUseServerTimestamp,
+					}, true); err != nil {
+						return err
+					}
+					topicInfo, _, exists, err = client.GetTopicInfo(topicName)
 					if err != nil {
 						return err
 					}
-					if !authorised {
-						resp.Topics[i].ErrorCode = kafkaprotocol.ErrorCodeTopicAuthorizationFailed
+					if !exists {
+						log.Warnf("topic does not exist after auto creation!")
+						resp.Topics[i].ErrorCode = kafkaprotocol.ErrorCodeUnknownTopicOrPartition
+						continue
 					}
+				} else {
+					resp.Topics[i].ErrorCode = kafkaprotocol.ErrorCodeUnknownTopicOrPartition
+					continue
 				}
-				if authorised {
-					top, err := a.populateTopicMetadata(&topicInfo, agents)
-					if err != nil {
-						return err
-					}
-					resp.Topics[i] = *top
+			}
+			authorised := true
+			if authContext != nil {
+				authorised, err = authContext.Authorize(acls.ResourceTypeTopic, topicName, acls.OperationDescribe)
+				if err != nil {
+					return err
 				}
+				if !authorised {
+					resp.Topics[i].ErrorCode = kafkaprotocol.ErrorCodeTopicAuthorizationFailed
+				}
+			}
+			if authorised {
+				top, err := a.populateTopicMetadata(&topicInfo, agents)
+				if err != nil {
+					return err
+				}
+				resp.Topics[i] = *top
 			}
 		}
 	}

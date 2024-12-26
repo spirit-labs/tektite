@@ -225,6 +225,35 @@ func TestGetAzFromClientID(t *testing.T) {
 	require.Equal(t, "az-2", getAZFromClientID("ws_az=az-2"))
 }
 
+func TestMetadataAutoCreateTopic(t *testing.T) {
+	cfg := NewConf()
+	cfg.EnableTopicAutoCreate = true
+	cfg.DefaultPartitionCount = 23
+	numAgents := 5
+	agents, tearDown := setupAgents(t, cfg, numAgents, func(i int) string {
+		return "az1"
+	})
+	defer tearDown(t)
+	req := &kafkaprotocol.MetadataRequest{
+		AllowAutoTopicCreation: true,
+		Topics: []kafkaprotocol.MetadataRequestMetadataRequestTopic{
+			{
+				Name: common.StrPtr("unknown"),
+			},
+		},
+	}
+	req.Topics = []kafkaprotocol.MetadataRequestMetadataRequestTopic{
+		{
+			Name: common.StrPtr("create-me-topic"),
+		},
+	}
+	resp := sendMetadataRequestWithVersion(t, agents[0], req, "", 4)
+	verifyBrokers(t, agents, resp)
+	require.Equal(t, 1, len(resp.Topics))
+	require.Equal(t, 23, len(resp.Topics[0].Partitions))
+	require.Equal(t, kafkaprotocol.ErrorCodeNone, int(resp.Topics[0].ErrorCode))
+}
+
 func setupAgents(t *testing.T, cfg Conf, numAgents int, azPicker func(int) string) ([]*Agent, func(t *testing.T)) {
 	objStore := dev.NewInMemStore(0)
 	inMemMemberships := NewInMemClusterMemberships()
@@ -267,6 +296,10 @@ func setupNumTopics(t *testing.T, numTopics int, agent *Agent) {
 }
 
 func sendMetadataRequest(t *testing.T, agent *Agent, req *kafkaprotocol.MetadataRequest, clientID string) *kafkaprotocol.MetadataResponse {
+	return sendMetadataRequestWithVersion(t, agent, req, clientID, 1)
+}
+
+func sendMetadataRequestWithVersion(t *testing.T, agent *Agent, req *kafkaprotocol.MetadataRequest, clientID string, apiVersion int16) *kafkaprotocol.MetadataResponse {
 	cl, err := apiclient.NewKafkaApiClientWithClientID(clientID)
 	require.NoError(t, err)
 	conn, err := cl.NewConnection(agent.Conf().KafkaListenerConfig.Address)
@@ -276,7 +309,7 @@ func sendMetadataRequest(t *testing.T, agent *Agent, req *kafkaprotocol.Metadata
 		require.NoError(t, err)
 	}()
 	resp := &kafkaprotocol.MetadataResponse{}
-	r, err := conn.SendRequest(req, kafkaprotocol.APIKeyMetadata, 1, resp)
+	r, err := conn.SendRequest(req, kafkaprotocol.APIKeyMetadata, apiVersion, resp)
 	require.NoError(t, err)
 	return r.(*kafkaprotocol.MetadataResponse)
 }

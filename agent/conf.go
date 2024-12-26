@@ -37,6 +37,8 @@ type CommandConf struct {
 	AllowScramNonceAsPrefix         bool
 	UserAuthCacheTimeout            time.Duration `help:"maximum time for which a user authorisation is cached" default:"5m"`
 	UseServerTimestampForRecords    bool          `help:"whether to use server timestamp for incoming produced records. if 'false' then producer timestamp is preserved" default:"false"`
+	EnableTopicAutoCreate           bool          `help:"if 'true' then enables topic auto-creation for topics that do not already exist"`
+	AutoCreateNumPartitions         int           `help:"the number of partitions for auto-created topics" default:"1"`
 }
 
 var authTypeMapping = map[string]kafkaserver.AuthenticationType{
@@ -144,6 +146,8 @@ func CreateConfFromCommandConf(commandConf CommandConf) (Conf, error) {
 	}
 	cfg.UserAuthCacheTimeout = commandConf.UserAuthCacheTimeout
 	cfg.DefaultUseServerTimestamp = commandConf.UseServerTimestampForRecords
+	cfg.EnableTopicAutoCreate = commandConf.EnableTopicAutoCreate
+	cfg.DefaultPartitionCount = commandConf.AutoCreateNumPartitions
 	return cfg, nil
 }
 
@@ -212,6 +216,8 @@ type Conf struct {
 	DefaultUseServerTimestamp bool
 	ClusterName               string
 	UserAuthCacheTimeout      time.Duration
+	EnableTopicAutoCreate     bool
+	DefaultPartitionCount     int
 }
 
 func NewConf() Conf {
@@ -229,6 +235,7 @@ func NewConf() Conf {
 		AuthType:                  kafkaserver.AuthenticationTypeNone,
 		DefaultTopicRetentionTime: DefaultDefaultTopicRetentionTime,
 		UserAuthCacheTimeout:      DefaultUserAuthCacheTimeout,
+		DefaultPartitionCount:     DefaultDefaultPartitionCount,
 	}
 }
 
@@ -238,6 +245,7 @@ const (
 	DefaultMaxControllerClients      = 10
 	DefaultMaxConnectionsPerAddress  = 10
 	DefaultUserAuthCacheTimeout      = 5 * time.Minute
+	DefaultDefaultPartitionCount     = 1
 )
 
 func (c *Conf) Validate() error {
