@@ -280,6 +280,10 @@ func (t *TablePusher) HandleProduceRequest(authContext *auth.Context, req *kafka
 				errCode = kafkaprotocol.ErrorCodeUnknownServerError
 			}
 		}
+		var serverTimestamp int64
+		if topicInfo.UseServerTimestamp {
+			serverTimestamp = time.Now().UnixMilli()
+		}
 		var topicMap map[int][]bufferedRecords
 	partitions:
 		for j, partitionData := range topicData.PartitionData {
@@ -343,6 +347,11 @@ func (t *TablePusher) HandleProduceRequest(authContext *auth.Context, req *kafka
 							topicMap = make(map[int][]bufferedRecords)
 							t.partitionRecords[topicInfo.ID] = topicMap
 						}
+					}
+					if topicInfo.UseServerTimestamp {
+						tsDiff := kafkaencoding.MaxTimestamp(records) - kafkaencoding.BaseTimestamp(records)
+						kafkaencoding.SetBaseTimestamp(records, serverTimestamp)
+						kafkaencoding.SetMaxTimestamp(records, serverTimestamp+tsDiff)
 					}
 					topicMap[partitionID] = append(topicMap[partitionID], [][]byte{records})
 					t.sizeBytes += len(records)

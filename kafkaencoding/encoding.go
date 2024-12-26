@@ -49,9 +49,17 @@ func SetBatchHeader(batchBytes []byte, firstOffset int64, lastOffset int64, firs
 	crc.Reset()
 	binary.BigEndian.PutUint32(batchBytes[17:], checksum)
 	binary.BigEndian.PutUint32(batchBytes[23:], uint32(lastOffset-firstOffset))
-	binary.BigEndian.PutUint64(batchBytes[27:], uint64(firstTimestamp.Val))
-	binary.BigEndian.PutUint64(batchBytes[35:], uint64(lastTimestamp.Val))
+	SetBaseTimestamp(batchBytes, firstTimestamp.Val)
+	SetMaxTimestamp(batchBytes, lastTimestamp.Val)
 	binary.BigEndian.PutUint32(batchBytes[57:], uint32(numRecords))
+}
+
+func SetBaseTimestamp(records []byte, baseTimestamp int64) {
+	binary.BigEndian.PutUint64(records[27:], uint64(baseTimestamp))
+}
+
+func SetMaxTimestamp(records []byte, baseTimestamp int64) {
+	binary.BigEndian.PutUint64(records[35:], uint64(baseTimestamp))
 }
 
 func AppendToBatch(batchBytes []byte, offsetDelta int64, key []byte, hdrs []byte, val []byte, timestamp types.Timestamp,

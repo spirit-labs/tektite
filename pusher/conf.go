@@ -13,6 +13,7 @@ type Conf struct {
 	DataBucketName            string
 	OffsetSnapshotInterval    time.Duration
 	EnforceProduceOnLeader    bool
+	UseServerTimestamp        bool
 }
 
 func NewConf() Conf {
