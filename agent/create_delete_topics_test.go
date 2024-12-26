@@ -2,6 +2,7 @@ package agent
 
 import (
 	"github.com/spirit-labs/tektite/apiclient"
+	"github.com/spirit-labs/tektite/topicmeta"
 	"testing"
 	"time"
 
@@ -36,7 +37,7 @@ func TestCreateDeleteTopics(t *testing.T) {
 	topicName := "test-topic-1"
 	configName := "retention.ms"
 	configValue := "86400000" // 1 day
-	//Create
+	// Create
 	req := kafkaprotocol.CreateTopicsRequest{
 		Topics: []kafkaprotocol.CreateTopicsRequestCreatableTopic{
 			{
@@ -85,6 +86,127 @@ func TestCreateDeleteTopics(t *testing.T) {
 	require.Equal(t, int16(0), deleteResp.Responses[0].ErrorCode)
 	_, topicExists2, _ := agent.topicMetaCache.GetTopicInfo(topicName)
 	require.False(t, topicExists2)
+}
+
+func TestCreateTopicDefaults(t *testing.T) {
+	topicName := "test-topic"
+	numPartitions := 23
+	// default defaults
+	testCreateTopicDefault(t, kafkaprotocol.CreateTopicsRequest{
+		Topics: []kafkaprotocol.CreateTopicsRequestCreatableTopic{
+			{
+				Name:          common.StrPtr(topicName),
+				NumPartitions: int32(numPartitions),
+			},
+		},
+	}, topicmeta.TopicInfo{
+		ID:                 1000,
+		Name:               topicName,
+		PartitionCount:     numPartitions,
+		RetentionTime:      DefaultDefaultTopicRetentionTime,
+		UseServerTimestamp: false,
+	}, func(cfg *Conf) {})
+
+	// overriding server defaults
+	serverTopicRetention := 23 * time.Minute
+	serverUseServerTimestamp := true
+	testCreateTopicDefault(t, kafkaprotocol.CreateTopicsRequest{
+		Topics: []kafkaprotocol.CreateTopicsRequestCreatableTopic{
+			{
+				Name:          common.StrPtr(topicName),
+				NumPartitions: int32(numPartitions),
+			},
+		},
+	}, topicmeta.TopicInfo{
+		ID:                 1000,
+		Name:               topicName,
+		PartitionCount:     numPartitions,
+		RetentionTime:      serverTopicRetention,
+		UseServerTimestamp: serverUseServerTimestamp,
+	}, func(cfg *Conf) {
+		cfg.DefaultTopicRetentionTime = serverTopicRetention
+		cfg.DefaultUseServerTimestamp = serverUseServerTimestamp
+	})
+
+	// overriding at topic level
+	testCreateTopicDefault(t, kafkaprotocol.CreateTopicsRequest{
+		Topics: []kafkaprotocol.CreateTopicsRequestCreatableTopic{
+			{
+				Name:          common.StrPtr(topicName),
+				NumPartitions: int32(numPartitions),
+				Configs: []kafkaprotocol.CreateTopicsRequestCreatableTopicConfig{
+					{
+						Name:  common.StrPtr("retention.ms"),
+						Value: common.StrPtr("777777"),
+					},
+					{
+						Name:  common.StrPtr("log.message.timestamp.type"),
+						Value: common.StrPtr("LogAppendTime"),
+					},
+				},
+			},
+		},
+	}, topicmeta.TopicInfo{
+		ID:                 1000,
+		Name:               topicName,
+		PartitionCount:     numPartitions,
+		RetentionTime:      777777 * time.Millisecond,
+		UseServerTimestamp: true,
+	}, func(cfg *Conf) {})
+
+	testCreateTopicDefault(t, kafkaprotocol.CreateTopicsRequest{
+		Topics: []kafkaprotocol.CreateTopicsRequestCreatableTopic{
+			{
+				Name:          common.StrPtr(topicName),
+				NumPartitions: int32(numPartitions),
+				Configs: []kafkaprotocol.CreateTopicsRequestCreatableTopicConfig{
+					{
+						Name:  common.StrPtr("retention.ms"),
+						Value: common.StrPtr("777777"),
+					},
+					{
+						Name:  common.StrPtr("log.message.timestamp.type"),
+						Value: common.StrPtr("CreateTime"),
+					},
+				},
+			},
+		},
+	}, topicmeta.TopicInfo{
+		ID:                 1000,
+		Name:               topicName,
+		PartitionCount:     numPartitions,
+		RetentionTime:      777777 * time.Millisecond,
+		UseServerTimestamp: false,
+	}, func(cfg *Conf) {
+		cfg.DefaultUseServerTimestamp = true
+	})
+}
+
+func testCreateTopicDefault(t *testing.T, req kafkaprotocol.CreateTopicsRequest, expectedInfo topicmeta.TopicInfo,
+	cfgSetter func(cfg *Conf)) {
+	cfg := NewConf()
+	cfgSetter(&cfg)
+	agent, _, tearDown := setupAgentWithoutTopics(t, cfg)
+	defer tearDown(t)
+	cl, err := apiclient.NewKafkaApiClient()
+	require.NoError(t, err)
+	conn, err := cl.NewConnection(agent.Conf().KafkaListenerConfig.Address)
+	require.NoError(t, err)
+	defer func() {
+		err := conn.Close()
+		require.NoError(t, err)
+	}()
+	topicName := common.SafeDerefStringPtr(req.Topics[0].Name)
+	var resp kafkaprotocol.CreateTopicsResponse
+	r, err := conn.SendRequest(&req, kafkaprotocol.APIKeyCreateTopics, 5, &resp)
+	require.NoError(t, err)
+	createResp, ok := r.(*kafkaprotocol.CreateTopicsResponse)
+	require.True(t, ok)
+	require.Equal(t, 1, len(createResp.Topics))
+	info, topicExists, err := agent.topicMetaCache.GetTopicInfo(topicName)
+	require.True(t, topicExists)
+	require.NoError(t, err)
+	require.Equal(t, expectedInfo, info)
 }
 
 func TestCreateDuplicateTopic(t *testing.T) {
@@ -306,7 +428,52 @@ func testInvalidRetentionTime(t *testing.T, retentionStr string) {
 	require.Equal(t, int16(kafkaprotocol.ErrorCodeInvalidTopicException), createResp.Topics[0].ErrorCode)
 	require.Equal(t, "Invalid retention time for topic: test-topic-1", common.SafeDerefStringPtr(createResp.Topics[0].ErrorMessage))
 	require.Equal(t, int32(23), createResp.Topics[0].NumPartitions)
-	require.Equal(t, 1, len(createResp.Topics[0].Configs))
-	require.Equal(t, configName, common.SafeDerefStringPtr(createResp.Topics[0].Configs[0].Name))
-	require.Equal(t, configValue, common.SafeDerefStringPtr(createResp.Topics[0].Configs[0].Value))
+	require.Equal(t, 0, len(createResp.Topics[0].Configs))
+}
+
+func TestInvalidLogMessageTimestampType(t *testing.T) {
+	testInvalidLogMessageTimestampType(t, "foo")
+}
+
+func testInvalidLogMessageTimestampType(t *testing.T, retentionStr string) {
+	cfg := NewConf()
+	agent, _, tearDown := setupAgentWithoutTopics(t, cfg)
+	defer tearDown(t)
+	cl, err := apiclient.NewKafkaApiClient()
+	require.NoError(t, err)
+	conn, err := cl.NewConnection(agent.Conf().KafkaListenerConfig.Address)
+	require.NoError(t, err)
+	defer func() {
+		err := conn.Close()
+		require.NoError(t, err)
+	}()
+	topicName := "test-topic-1"
+	configName := "log.message.timestamp.type"
+	configValue := retentionStr
+	//Create
+	req := kafkaprotocol.CreateTopicsRequest{
+		Topics: []kafkaprotocol.CreateTopicsRequestCreatableTopic{
+			{
+				Name:          &topicName,
+				NumPartitions: 23,
+				Configs: []kafkaprotocol.CreateTopicsRequestCreatableTopicConfig{
+					{
+						Name:  &configName,
+						Value: &configValue,
+					},
+				},
+			},
+		},
+	}
+	var resp kafkaprotocol.CreateTopicsResponse
+	r, err := conn.SendRequest(&req, kafkaprotocol.APIKeyCreateTopics, 5, &resp)
+	require.NoError(t, err)
+	createResp, ok := r.(*kafkaprotocol.CreateTopicsResponse)
+	require.True(t, ok)
+	require.Equal(t, 1, len(createResp.Topics))
+	require.Equal(t, topicName, common.SafeDerefStringPtr(createResp.Topics[0].Name))
+	require.Equal(t, int16(kafkaprotocol.ErrorCodeInvalidTopicException), createResp.Topics[0].ErrorCode)
+	require.Equal(t, "Invalid value for 'log.message.timestamp.type': foo", common.SafeDerefStringPtr(createResp.Topics[0].ErrorMessage))
+	require.Equal(t, int32(23), createResp.Topics[0].NumPartitions)
+	require.Equal(t, 0, len(createResp.Topics[0].Configs))
 }

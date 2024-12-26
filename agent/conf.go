@@ -35,7 +35,8 @@ type CommandConf struct {
 	ConsumerGroupInitialJoinDelayMs int                `name:"consumer-group-initial-join-delay-ms" help:"initial delay to wait for more consumers to join a new consumer group before performing the first rebalance, in ms" default:"3000"`
 	AuthenticationType              string             `help:"type of authentication. one of sasl/plain, sasl/scram-sha-512, mtls, none" default:"none"`
 	AllowScramNonceAsPrefix         bool
-	UserAuthCacheTimeout time.Duration `help:"maximum time for which a user authorisation is cached" default:"5m"`
+	UserAuthCacheTimeout            time.Duration `help:"maximum time for which a user authorisation is cached" default:"5m"`
+	UseServerTimestampForRecords    bool          `help:"whether to use server timestamp for incoming produced records. if 'false' then producer timestamp is preserved" default:"false"`
 }
 
 var authTypeMapping = map[string]kafkaserver.AuthenticationType{
@@ -142,6 +143,7 @@ func CreateConfFromCommandConf(commandConf CommandConf) (Conf, error) {
 			" and not to enable this setting.")
 	}
 	cfg.UserAuthCacheTimeout = commandConf.UserAuthCacheTimeout
+	cfg.DefaultUseServerTimestamp = commandConf.UseServerTimestampForRecords
 	return cfg, nil
 }
 
@@ -207,8 +209,9 @@ type Conf struct {
 	AllowScramNonceAsPrefix   bool
 	AddJunkOnScramNonce       bool
 	DefaultTopicRetentionTime time.Duration
+	DefaultUseServerTimestamp bool
 	ClusterName               string
-	UserAuthCacheTimeout time.Duration
+	UserAuthCacheTimeout      time.Duration
 }
 
 func NewConf() Conf {
@@ -225,7 +228,7 @@ func NewConf() Conf {
 		MaxConnectionsPerAddress:  DefaultMaxConnectionsPerAddress,
 		AuthType:                  kafkaserver.AuthenticationTypeNone,
 		DefaultTopicRetentionTime: DefaultDefaultTopicRetentionTime,
-		UserAuthCacheTimeout: DefaultUserAuthCacheTimeout,
+		UserAuthCacheTimeout:      DefaultUserAuthCacheTimeout,
 	}
 }
 
@@ -234,7 +237,7 @@ const (
 	DefaultDefaultTopicRetentionTime = 7 * 24 * time.Hour
 	DefaultMaxControllerClients      = 10
 	DefaultMaxConnectionsPerAddress  = 10
-	DefaultUserAuthCacheTimeout = 5 * time.Minute
+	DefaultUserAuthCacheTimeout      = 5 * time.Minute
 )
 
 func (c *Conf) Validate() error {

@@ -6,10 +6,11 @@ import (
 )
 
 type TopicInfo struct {
-	ID             int
-	Name           string
-	PartitionCount int
-	RetentionTime  time.Duration
+	ID                 int
+	Name               string
+	PartitionCount     int
+	RetentionTime      time.Duration
+	UseServerTimestamp bool
 }
 
 func (t *TopicInfo) Serialize(buff []byte) []byte {
@@ -18,6 +19,11 @@ func (t *TopicInfo) Serialize(buff []byte) []byte {
 	buff = append(buff, t.Name...)
 	buff = binary.BigEndian.AppendUint64(buff, uint64(t.PartitionCount))
 	buff = binary.BigEndian.AppendUint64(buff, uint64(t.RetentionTime))
+	if t.UseServerTimestamp {
+		buff = append(buff, 1)
+	} else {
+		buff = append(buff, 0)
+	}
 	return buff
 }
 
@@ -32,5 +38,7 @@ func (t *TopicInfo) Deserialize(buff []byte, offset int) int {
 	offset += 8
 	t.RetentionTime = time.Duration(binary.BigEndian.Uint64(buff[offset:]))
 	offset += 8
+	t.UseServerTimestamp = buff[offset] == 1
+	offset++
 	return offset
 }

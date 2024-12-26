@@ -323,6 +323,8 @@ func getErrorCodeAndMessageForCreatePartitionsResponse(err error) (int16, string
 	return errCode, errMsg
 }
 
+// TODO the logic around handling create topic, parsing config and validating and creating topic can be improved
+// and simplified
 func (k *kafkaHandler) HandleCreateTopicsRequest(_ *kafkaprotocol.RequestHeader, req *kafkaprotocol.CreateTopicsRequest,
 	completionFunc func(resp *kafkaprotocol.CreateTopicsResponse) error) error {
 	resp := &kafkaprotocol.CreateTopicsResponse{
@@ -331,9 +333,9 @@ func (k *kafkaHandler) HandleCreateTopicsRequest(_ *kafkaprotocol.RequestHeader,
 	}
 	for i, topic := range req.Topics {
 		topicName := common.SafeDerefStringPtr(topic.Name)
-		retentionTime, respConfigs, errCode, errMsg := k.parseRetentionConfig(topic, topicName)
+		retentionTime, useServerTimestamp, respConfigs, errCode, errMsg := k.parseConfig(topic, topicName)
 		if errCode == kafkaprotocol.ErrorCodeNone { // No error from config parsing
-			errCode, errMsg = k.validateAndCreateTopic(k.authContext, topicName, topic, retentionTime)
+			errCode, errMsg = k.validateAndCreateTopic(k.authContext, topicName, topic, retentionTime, useServerTimestamp)
 		}
 		res := kafkaprotocol.CreateTopicsResponseCreatableTopicResult{
 			Name:          topic.Name,
@@ -416,8 +418,9 @@ func checkTopicNameValid(name string) error {
 	return nil
 }
 
-func (k *kafkaHandler) validateAndCreateTopic(authContext *auth.Context, topicName string, topic kafkaprotocol.CreateTopicsRequestCreatableTopic,
-	retentionTime time.Duration) (int16, string) {
+func (k *kafkaHandler) validateAndCreateTopic(authContext *auth.Context, topicName string,
+	topic kafkaprotocol.CreateTopicsRequestCreatableTopic, retentionTime time.Duration,
+	useServerTimestamp bool) (int16, string) {
 	if authContext != nil {
 		authorised, err := authContext.Authorize(acls.ResourceTypeTopic, topicName, acls.OperationCreate)
 		if err != nil {
@@ -443,9 +446,10 @@ func (k *kafkaHandler) validateAndCreateTopic(authContext *auth.Context, topicNa
 		return kafkaprotocol.ErrorCodeCoordinatorNotAvailable, err.Error()
 	}
 	topicInfo := topicmeta.TopicInfo{
-		Name:           topicName,
-		PartitionCount: int(topic.NumPartitions),
-		RetentionTime:  retentionTime,
+		Name:               topicName,
+		PartitionCount:     int(topic.NumPartitions),
+		RetentionTime:      retentionTime,
+		UseServerTimestamp: useServerTimestamp,
 	}
 	err = acl.CreateOrUpdateTopic(topicInfo, true)
 	if err != nil {
@@ -461,33 +465,48 @@ func isValidRetentionTime(retentionMs int) bool {
 	return retentionMs > 0 || retentionMs == -1
 }
 
-func (k *kafkaHandler) parseRetentionConfig(topic kafkaprotocol.CreateTopicsRequestCreatableTopic,
-	topicName string) (time.Duration, []kafkaprotocol.CreateTopicsResponseCreatableTopicConfigs, int16, string) {
+func (k *kafkaHandler) parseConfig(topic kafkaprotocol.CreateTopicsRequestCreatableTopic,
+	topicName string) (time.Duration, bool, []kafkaprotocol.CreateTopicsResponseCreatableTopicConfigs, int16, string) {
 	retentionTime := k.agent.cfg.DefaultTopicRetentionTime
-	respConfigs := make([]kafkaprotocol.CreateTopicsResponseCreatableTopicConfigs, len(topic.Configs))
+	respConfigs := make([]kafkaprotocol.CreateTopicsResponseCreatableTopicConfigs, 0, len(topic.Configs))
 	errCode := int16(kafkaprotocol.ErrorCodeNone)
+	useServerTimestamp := k.agent.cfg.DefaultUseServerTimestamp
 	var errMsg string
-	for i, config := range topic.Configs {
-		if common.SafeDerefStringPtr(config.Name) == "retention.ms" {
+	for _, config := range topic.Configs {
+		configName := common.SafeDerefStringPtr(config.Name)
+		if configName == "retention.ms" {
 			retentionMs, err := strconv.Atoi(common.SafeDerefStringPtr(config.Value))
 			if err != nil {
 				errCode = kafkaprotocol.ErrorCodeInvalidTopicException
 				errMsg = fmt.Sprintf("Invalid retention time for topic: %s", topicName)
+				break
 			} else {
 				if isValidRetentionTime(retentionMs) {
 					retentionTime = time.Duration(retentionMs) * time.Millisecond
 				} else {
 					errCode = int16(kafkaprotocol.ErrorCodeInvalidTopicException)
 					errMsg = fmt.Sprintf("Invalid retention time for topic: %s", topicName)
+					break
 				}
 			}
+		} else if configName == "log.message.timestamp.type" {
+			configVal := common.SafeDerefStringPtr(config.Value)
+			if configVal == "CreateTime" {
+				useServerTimestamp = false
+			} else if configVal == "LogAppendTime" {
+				useServerTimestamp = true
+			} else {
+				errCode = int16(kafkaprotocol.ErrorCodeInvalidTopicException)
+				errMsg = fmt.Sprintf("Invalid value for 'log.message.timestamp.type': %s", configVal)
+				break
+			}
 		}
-		respConfigs[i] = kafkaprotocol.CreateTopicsResponseCreatableTopicConfigs{
+		respConfigs = append(respConfigs, kafkaprotocol.CreateTopicsResponseCreatableTopicConfigs{
 			Name:  config.Name,
 			Value: config.Value,
-		}
+		})
 	}
-	return retentionTime, respConfigs, errCode, errMsg
+	return retentionTime, useServerTimestamp, respConfigs, errCode, errMsg
 }
 
 func (k *kafkaHandler) HandleDescribeConfigsRequest(_ *kafkaprotocol.RequestHeader,
@@ -540,4 +559,3 @@ func authoriseCluster(authContext *auth.Context, operation acls.Operation, msg s
 	}
 	return errCode, errMsg
 }
-
