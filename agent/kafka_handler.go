@@ -468,11 +468,11 @@ func isValidRetentionTime(retentionMs int) bool {
 func (k *kafkaHandler) parseConfig(topic kafkaprotocol.CreateTopicsRequestCreatableTopic,
 	topicName string) (time.Duration, bool, []kafkaprotocol.CreateTopicsResponseCreatableTopicConfigs, int16, string) {
 	retentionTime := k.agent.cfg.DefaultTopicRetentionTime
-	respConfigs := make([]kafkaprotocol.CreateTopicsResponseCreatableTopicConfigs, len(topic.Configs))
+	respConfigs := make([]kafkaprotocol.CreateTopicsResponseCreatableTopicConfigs, 0, len(topic.Configs))
 	errCode := int16(kafkaprotocol.ErrorCodeNone)
 	useServerTimestamp := k.agent.cfg.PusherConf.UseServerTimestamp
 	var errMsg string
-	for i, config := range topic.Configs {
+	for _, config := range topic.Configs {
 		configName := common.SafeDerefStringPtr(config.Name)
 		if configName == "retention.ms" {
 			retentionMs, err := strconv.Atoi(common.SafeDerefStringPtr(config.Value))
@@ -500,10 +500,10 @@ func (k *kafkaHandler) parseConfig(topic kafkaprotocol.CreateTopicsRequestCreata
 				errMsg = fmt.Sprintf("Invalid value for 'log.message.timestamp.type': %s", configVal)
 			}
 		}
-		respConfigs[i] = kafkaprotocol.CreateTopicsResponseCreatableTopicConfigs{
+		respConfigs = append(respConfigs, kafkaprotocol.CreateTopicsResponseCreatableTopicConfigs{
 			Name:  config.Name,
 			Value: config.Value,
-		}
+		})
 	}
 	return retentionTime, useServerTimestamp, respConfigs, errCode, errMsg
 }

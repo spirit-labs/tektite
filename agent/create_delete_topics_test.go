@@ -306,7 +306,5 @@ func testInvalidRetentionTime(t *testing.T, retentionStr string) {
 	require.Equal(t, int16(kafkaprotocol.ErrorCodeInvalidTopicException), createResp.Topics[0].ErrorCode)
 	require.Equal(t, "Invalid retention time for topic: test-topic-1", common.SafeDerefStringPtr(createResp.Topics[0].ErrorMessage))
 	require.Equal(t, int32(23), createResp.Topics[0].NumPartitions)
-	require.Equal(t, 1, len(createResp.Topics[0].Configs))
-	require.Equal(t, configName, common.SafeDerefStringPtr(createResp.Topics[0].Configs[0].Name))
-	require.Equal(t, configValue, common.SafeDerefStringPtr(createResp.Topics[0].Configs[0].Value))
+	require.Equal(t, 0, len(createResp.Topics[0].Configs))
 }
