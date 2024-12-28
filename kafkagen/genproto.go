@@ -746,11 +746,8 @@ func genReadData(gc *genContext, field *MessageField, receiverName string, lengt
 	case "string":
 		gc.writeF("s := string(buff[offset: offset + %s])\n", lengthVarName)
 		gc.writeF("%s = &s\n", receiverName)
-	case "bytes":
+	case "bytes", "records":
 		gc.writeF("%s = common.ByteSliceCopy(buff[offset: offset + %s])\n", receiverName, lengthVarName)
-		gc.addImport("github.com/spirit-labs/tektite/common")
-	case "records":
-		gc.writeF("%s = [][]byte{common.ByteSliceCopy(buff[offset: offset + %s])}\n", receiverName, lengthVarName)
 		gc.addImport("github.com/spirit-labs/tektite/common")
 	default:
 		panic(fmt.Sprintf("unexpected type %s", field.FieldType))
@@ -1046,19 +1043,12 @@ func genWriteSimpleField(receiverName string, field MessageField, gc *genContext
 		gc.writeF("if %s != nil {\n", receiverName)
 		gc.writeF("    buff = append(buff, %s...)\n", receiverName)
 		gc.write("}\n")
-	case "bytes":
+	case "bytes", "records":
 		if err := genWriteFlexField(gc, &field, receiverName); err != nil {
 			return err
 		}
 		gc.writeF("if %s != nil {\n", receiverName)
 		gc.writeF("    buff = append(buff, %s...)\n", receiverName)
-		gc.write("}\n")
-	case "records":
-		if err := genWriteFlexField(gc, &field, receiverName); err != nil {
-			return err
-		}
-		gc.writeF("for _, rec := range %s {\n", receiverName)
-		gc.write("    buff = append(buff, rec...)\n")
 		gc.write("}\n")
 	default:
 		return errors.Errorf("unexpected type %s", field.FieldType)
@@ -1148,16 +1138,7 @@ func genWriteFlexibleNullable(gc *genContext, receiverName string, field *Messag
 }
 
 func genWriteFlexLength(gc *genContext, receiverName string, field *MessageField, ptr string) {
-	if field.FieldType == "records" {
-		recordsTotSizeVarName := gc.varName("recordsTotSize")
-		gc.writeF("%s := 0\n", recordsTotSizeVarName)
-		gc.writeF("for _, rec := range %s {\n", receiverName)
-		gc.writeF("    %s += len(rec)\n", recordsTotSizeVarName)
-		gc.write("}\n")
-		gc.writeF("buff = binary.AppendUvarint(buff, uint64(%s + 1))\n", recordsTotSizeVarName)
-	} else {
-		gc.writeF("buff = binary.AppendUvarint(buff, uint64(len(%s%s) + 1))\n", ptr, receiverName)
-	}
+	gc.writeF("buff = binary.AppendUvarint(buff, uint64(len(%s%s) + 1))\n", ptr, receiverName)
 }
 
 func genWriteNotFlexibleNotNullable(gc *genContext, field *MessageField, receiverName string, ptr string) {
@@ -1189,16 +1170,7 @@ func genWriteNotFlexibleNullable(gc *genContext, field *MessageField, receiverNa
 }
 
 func genWriteNonFlexLength(gc *genContext, receiverName string, field *MessageField, ptr string, intSize string) {
-	if field.FieldType == "records" {
-		recordsTotSizeVarName := gc.varName("recordsTotSize")
-		gc.writeF("%s := 0\n", recordsTotSizeVarName)
-		gc.writeF("for _, rec := range %s {\n", receiverName)
-		gc.writeF("    %s += len(rec)\n", recordsTotSizeVarName)
-		gc.write("}\n")
-		gc.writeF("buff = binary.BigEndian.AppendU%s(buff, u%s(%s))\n", intSize, intSize, recordsTotSizeVarName)
-	} else {
-		gc.writeF("buff = binary.BigEndian.AppendU%s(buff, u%s(len(%s%s)))\n", intSize, intSize, ptr, receiverName)
-	}
+	gc.writeF("buff = binary.BigEndian.AppendU%s(buff, u%s(len(%s%s)))\n", intSize, intSize, ptr, receiverName)
 }
 
 func genCalcSize(writingTagged bool, structName string, fields []MessageField, gc *genContext) error {
@@ -1362,19 +1334,12 @@ func genCalcSizeSimpleField(receiverName string, field MessageField, gc *genCont
 		gc.write("}\n")
 	case "uuid":
 		gc.write("size += 16\n")
-	case "bytes":
+	case "bytes", "records":
 		if err := genCalcSizeFlexibleField(gc, &field, receiverName); err != nil {
 			return err
 		}
 		gc.writeF("if %s != nil {\n", receiverName)
 		gc.writeF("    size += len(%s)\n", receiverName)
-		gc.write("}\n")
-	case "records":
-		if err := genCalcSizeFlexibleField(gc, &field, receiverName); err != nil {
-			return err
-		}
-		gc.writeF("for _, rec := range %s {\n", receiverName)
-		gc.write("    size += len(rec)\n")
 		gc.write("}\n")
 	default:
 		return errors.Errorf("unexpected type %s", field.FieldType)
@@ -1451,17 +1416,7 @@ func genCalcSizeFlexibleNotNullable(gc *genContext, receiverName string, field *
 }
 
 func genCalcSizeIncrementForField(gc *genContext, receiverName string, field *MessageField, ptr string) {
-	if field.FieldType == "records" {
-		// For records we need to calculate the total size
-		recordsTotSizeVarName := gc.varName("recordsTotSize")
-		gc.writeF("%s := 0\n", recordsTotSizeVarName)
-		gc.writeF("for _, rec := range %s {\n", receiverName)
-		gc.writeF("    %s += len(rec)\n", recordsTotSizeVarName)
-		gc.write("}\n")
-		gc.writeF("size += sizeofUvarint(%s + 1)\n", recordsTotSizeVarName)
-	} else {
-		gc.writeF("size += sizeofUvarint(len(%s%s) + 1)\n", ptr, receiverName)
-	}
+	gc.writeF("size += sizeofUvarint(len(%s%s) + 1)\n", ptr, receiverName)
 }
 
 func genCalcSizeNotFlexibleNotNullable(gc *genContext, field *MessageField) {
@@ -1532,10 +1487,8 @@ func parseType(s string) string {
 		return "*string"
 	case "uuid":
 		return "[]byte"
-	case "bytes":
+	case "bytes", "records":
 		return "[]byte"
-	case "records":
-		return "[][]byte"
 	default:
 		return s
 	}

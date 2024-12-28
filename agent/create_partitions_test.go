@@ -56,10 +56,8 @@ func TestCreatePartitions(t *testing.T) {
 					Name: common.StrPtr(info.Name),
 					PartitionData: []kafkaprotocol.ProduceRequestPartitionProduceData{
 						{
-							Index: int32(finalPartitionCount - 1),
-							Records: [][]byte{
-								batch,
-							},
+							Index:   int32(finalPartitionCount - 1),
+							Records: batch,
 						},
 					},
 				},
@@ -111,10 +109,8 @@ func TestCreatePartitions(t *testing.T) {
 					Name: common.StrPtr(info.Name),
 					PartitionData: []kafkaprotocol.ProduceRequestPartitionProduceData{
 						{
-							Index: int32(finalPartitionCount - 1),
-							Records: [][]byte{
-								batch,
-							},
+							Index:   int32(finalPartitionCount - 1),
+							Records: batch,
 						},
 					},
 				},
@@ -180,10 +176,8 @@ func TestCreatePartitionsValidateOnly(t *testing.T) {
 					Name: common.StrPtr(info.Name),
 					PartitionData: []kafkaprotocol.ProduceRequestPartitionProduceData{
 						{
-							Index: int32(finalPartitionCount - 1),
-							Records: [][]byte{
-								batch,
-							},
+							Index:   int32(finalPartitionCount - 1),
+							Records: batch,
 						},
 					},
 				},
@@ -235,10 +229,8 @@ func TestCreatePartitionsValidateOnly(t *testing.T) {
 					Name: common.StrPtr(info.Name),
 					PartitionData: []kafkaprotocol.ProduceRequestPartitionProduceData{
 						{
-							Index: int32(finalPartitionCount - 1),
-							Records: [][]byte{
-								batch,
-							},
+							Index:   int32(finalPartitionCount - 1),
+							Records: batch,
 						},
 					},
 				},

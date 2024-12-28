@@ -71,7 +71,7 @@ func newFetchState(authContext *auth.Context, batchFetcher *BatchFetcher, req *k
 		for j, partitionData := range topicData.Partitions {
 			log.Debugf("fetch for topic %d partition %d", topicInfo.ID, partitionData.Partition)
 			partitionResponses[j].PartitionIndex = partitionData.Partition
-			partitionResponses[j].Records = [][]byte{} // client does not like nil records
+			partitionResponses[j].Records = []byte{} // client does not like nil records
 			partitionID := int(partitionData.Partition)
 			if !topicExists {
 				partitionResponses[j].ErrorCode = int16(kafkaprotocol.ErrorCodeUnknownTopicOrPartition)
@@ -175,7 +175,7 @@ func (f *FetchState) clearFetchedRecords() {
 	// Clear any data that was fetched
 	for i := 0; i < len(f.resp.Responses); i++ {
 		for j := 0; j < len(f.resp.Responses[i].Partitions); j++ {
-			f.resp.Responses[i].Partitions[j].Records = [][]byte{}
+			f.resp.Responses[i].Partitions[j].Records = []byte{}
 		}
 	}
 }
@@ -275,7 +275,7 @@ func (p *PartitionFetchState) read() (wouldExceedRequestMax bool, wouldExceedPar
 		}
 		break
 	}
-	var batches [][]byte
+	var batches []byte
 	for {
 		ok, kv, err := iter.Next()
 		if err != nil {
@@ -298,7 +298,7 @@ func (p *PartitionFetchState) read() (wouldExceedRequestMax bool, wouldExceedPar
 				break
 			}
 		}
-		batches = append(batches, value)
+		batches = append(batches, value...)
 		p.fs.first = false
 		p.bytesFetched += batchSize
 		p.fs.bytesFetched += batchSize

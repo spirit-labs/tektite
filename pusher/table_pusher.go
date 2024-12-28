@@ -318,19 +318,14 @@ func (t *TablePusher) HandleProduceRequest(authContext *auth.Context, req *kafka
 					&partitionResponses[j])
 				continue partitions
 			}
-			for _, records := range partitionData.Records {
-				magic := records[16]
-				if magic != 2 {
-					setPartitionError(kafkaprotocol.ErrorCodeUnsupportedForMessageFormat,
-						"unsupported message format", &partitionResponses[j])
-					continue partitions
-				}
+			magic := partitionData.Records[16]
+			if magic != 2 {
+				setPartitionError(kafkaprotocol.ErrorCodeUnsupportedForMessageFormat,
+					"unsupported message format", &partitionResponses[j])
+				continue partitions
 			}
 			log.Debugf("handling records batch for topic: %s partition: %d", *topicData.Name, partitionID)
-			if len(partitionData.Records) > 1 {
-				panic("too many records")
-			}
-			recordBatches := extractBatches(partitionData.Records[0])
+			recordBatches := extractBatches(partitionData.Records)
 			for _, records := range recordBatches {
 				dupRes, err := t.checkDuplicates(records, topicInfo.ID, partitionID)
 				if err != nil {

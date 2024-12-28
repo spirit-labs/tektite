@@ -56,10 +56,8 @@ func TestProduceSimple(t *testing.T) {
 				Name: common.StrPtr(topicName),
 				PartitionData: []kafkaprotocol.ProduceRequestPartitionProduceData{
 					{
-						Index: int32(partitionID),
-						Records: [][]byte{
-							batch,
-						},
+						Index:   int32(partitionID),
+						Records: batch,
 					},
 				},
 			},
@@ -124,7 +122,7 @@ func TestProduceMultipleTopicsAndPartitions(t *testing.T) {
 			batches = append(batches, batch)
 			partitionData = append(partitionData, kafkaprotocol.ProduceRequestPartitionProduceData{
 				Index:   int32(j),
-				Records: [][]byte{batch},
+				Records: batch,
 			})
 		}
 		topicData = append(topicData, kafkaprotocol.ProduceRequestTopicProduceData{
@@ -229,10 +227,8 @@ func TestProduceMultipleBatches(t *testing.T) {
 					Name: common.StrPtr(topicName),
 					PartitionData: []kafkaprotocol.ProduceRequestPartitionProduceData{
 						{
-							Index: int32(partitionID),
-							Records: [][]byte{
-								batch,
-							},
+							Index:   int32(partitionID),
+							Records: batch,
 						},
 					},
 				},
@@ -290,10 +286,8 @@ func TestProduceSimpleWithReload(t *testing.T) {
 				Name: common.StrPtr(topicName),
 				PartitionData: []kafkaprotocol.ProduceRequestPartitionProduceData{
 					{
-						Index: int32(partitionID),
-						Records: [][]byte{
-							batch1,
-						},
+						Index:   int32(partitionID),
+						Records: batch1,
 					},
 				},
 			},
@@ -340,10 +334,8 @@ func TestProduceSimpleWithReload(t *testing.T) {
 				Name: common.StrPtr(topicName),
 				PartitionData: []kafkaprotocol.ProduceRequestPartitionProduceData{
 					{
-						Index: int32(partitionID),
-						Records: [][]byte{
-							batch2,
-						},
+						Index:   int32(partitionID),
+						Records: batch2,
 					},
 				},
 			},

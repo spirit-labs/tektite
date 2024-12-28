@@ -3,6 +3,7 @@ package fetcher
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"github.com/pkg/errors"
 	"github.com/spirit-labs/tektite/acls"
 	"github.com/spirit-labs/tektite/asl/encoding"
@@ -688,9 +689,7 @@ func TestFetcherSingleTopicMultiplePartitionsNoWaitRequestMaxSizeExceededV3(t *t
 	for _, topicResp := range resp.Responses {
 		for _, partResp := range topicResp.Partitions {
 			require.Equal(t, kafkaprotocol.ErrorCodeNone, int(partResp.ErrorCode))
-			for _, rec := range partResp.Records {
-				totSize += len(rec)
-			}
+			totSize += len(partResp.Records)
 		}
 	}
 	// Should be exactly equal as our max size is in multiples of batches
@@ -736,9 +735,7 @@ func TestFetcherSingleTopicMultiplePartitionsNoWaitRequestMaxSizeExceededV2(t *t
 	for _, topicResp := range resp.Responses {
 		for _, partResp := range topicResp.Partitions {
 			require.Equal(t, kafkaprotocol.ErrorCodeNone, int(partResp.ErrorCode))
-			for _, rec := range partResp.Records {
-				totSize += len(rec)
-			}
+			totSize += len(partResp.Records)
 		}
 	}
 	require.Equal(t, expectedBytes, totSize)
@@ -1282,7 +1279,7 @@ func TestFetcherRequestNotEnoughBytesAndNotificationAddsSufficientData(t *testin
 	}
 	var completionCalled atomic.Bool
 	resCh := make(chan *kafkaprotocol.FetchResponse, 1)
-	err := fetcher.HandleFetchRequest(nil,3, &req, func(resp *kafkaprotocol.FetchResponse) error {
+	err := fetcher.HandleFetchRequest(nil, 3, &req, func(resp *kafkaprotocol.FetchResponse) error {
 		completionCalled.Store(true)
 		resCh <- resp
 		return nil
@@ -1350,7 +1347,7 @@ func TestFetcherRequestNotEnoughBytesAndNotificationsDontAddSufficientData(t *te
 
 	var completionCalled atomic.Bool
 	resCh := make(chan *kafkaprotocol.FetchResponse, 1)
-	err := fetcher.HandleFetchRequest(nil,3, &req, func(resp *kafkaprotocol.FetchResponse) error {
+	err := fetcher.HandleFetchRequest(nil, 3, &req, func(resp *kafkaprotocol.FetchResponse) error {
 		completionCalled.Store(true)
 		resCh <- resp
 		return nil
@@ -2218,7 +2215,6 @@ func verifySinglePartitionResponse(t *testing.T, resp *kafkaprotocol.FetchRespon
 	partitionResp := topicResp.Partitions[0]
 	require.Equal(t, partitionID, int(partitionResp.PartitionIndex))
 	require.Equal(t, kafkaprotocol.ErrorCodeNone, int(partitionResp.ErrorCode))
-	require.Equal(t, len(batches), len(partitionResp.Records))
 	if len(batches) == 0 {
 		require.Equal(t, 0, len(partitionResp.Records))
 	} else {
@@ -2226,11 +2222,30 @@ func verifySinglePartitionResponse(t *testing.T, resp *kafkaprotocol.FetchRespon
 	}
 }
 
-func verifyBatchesSame(t *testing.T, expected [][]byte, batches [][]byte) {
-	require.Equal(t, len(expected), len(batches))
+func verifyBatchesSame(t *testing.T, expected [][]byte, batches []byte) {
+	extracted := extractBatches(batches)
+	require.Equal(t, len(expected), len(extracted))
 	for i, exp := range expected {
-		require.Equal(t, common.RemoveValueMetadata(exp), batches[i])
+		require.Equal(t, common.RemoveValueMetadata(exp), extracted[i])
 	}
+}
+
+func extractBatches(buff []byte) [][]byte {
+	if len(buff) == 0 {
+		return nil
+	}
+	// Multiple record batches are concatenated together
+	var batches [][]byte
+	for {
+		batchLen := binary.BigEndian.Uint32(buff[8:])
+		batch := buff[:int(batchLen)+12] // 12: First two fields are not included in size
+		batches = append(batches, batch)
+		if int(batchLen)+12 == len(buff) {
+			break
+		}
+		buff = buff[int(batchLen)+12:]
+	}
+	return batches
 }
 
 func verifyPartitionRecordsInResponse(t *testing.T, resp *kafkaprotocol.FetchResponse, topicName string, partitionID int, batches [][]byte) {
@@ -2248,7 +2263,7 @@ func verifyPartitionRecordsInResponse(t *testing.T, resp *kafkaprotocol.FetchRes
 	partResp, ok := partResps[partitionID]
 	require.True(t, ok)
 	require.Equal(t, kafkaprotocol.ErrorCodeNone, int(partResp.ErrorCode))
-	require.Equal(t, len(batches), len(partResp.Records))
+	verifyBatchesSame(t, batches, partResp.Records)
 }
 
 func verifyPartitionErrorInResponse(t *testing.T, resp *kafkaprotocol.FetchResponse, topicName string, partitionID int, errCode int) {
@@ -2283,6 +2298,7 @@ type testControlClient struct {
 	memberID            int32
 	resetSequence       int64
 }
+
 func (t *testControlClient) clearQueryRes() {
 	t.lock.Lock()
 	defer t.lock.Unlock()

@@ -953,22 +953,7 @@ func TestFetchResponse(t *testing.T) {
 			},
 		}},
 	}
-	testReadWriteCasesWithPrecompareFunc(t, testCases, func(tc *readWriteCase) {
-		// There's a special case with FetchResponse - we can write multiple buffers for records, but we read as a single
-		// buffer, so we need to combine buffers before comparison
-		resp := tc.obj.(*FetchResponse)
-		for i := 0; i < len(resp.Responses); i++ {
-			for j := 0; j < len(resp.Responses[i].Partitions); j++ {
-				if resp.Responses[i].Partitions[j].Records != nil {
-					var totBuff []byte
-					for _, buff := range resp.Responses[i].Partitions[j].Records {
-						totBuff = append(totBuff, buff...)
-					}
-					resp.Responses[i].Partitions[j].Records = [][]byte{totBuff}
-				}
-			}
-		}
-	})
+	testReadWriteCases(t, testCases)
 }
 
 func TestFindCoordinatorRequest(t *testing.T) {
@@ -3900,13 +3885,12 @@ func randomUUID() []byte {
 	return u
 }
 
-func randomProduceRecords(n int) [][]byte {
-	return [][]byte{randomBytes(n)}
+func randomProduceRecords(n int) []byte {
+	return randomBytes(n)
 }
 
-func randomFetchRecords(n int) [][]byte {
-	// For fetch we can combine from multiple []byte
-	return [][]byte{randomBytes(n), randomBytes(n), randomBytes(n)}
+func randomFetchRecords(n int) []byte {
+	return randomBytes(n)
 }
 
 func randomBytes(n int) []byte {
@@ -3918,16 +3902,12 @@ func randomBytes(n int) []byte {
 	return b
 }
 
-func testReadWriteCasesWithPrecompareFunc(t *testing.T, testCases []readWriteCase, preCompareFunc func(tc *readWriteCase)) {
+func testReadWriteCases(t *testing.T, testCases []readWriteCase) {
 	for _, tc := range testCases {
 		t.Run(reflect.TypeOf(tc).String(), func(t *testing.T) {
-			testReadWriteStructWithPrecompareFunc(t, tc, preCompareFunc)
+			testReadWriteStruct(t, tc)
 		})
 	}
-}
-
-func testReadWriteCases(t *testing.T, testCases []readWriteCase) {
-	testReadWriteCasesWithPrecompareFunc(t, testCases, nil)
 }
 
 func stringPtr(s string) *string {
@@ -3945,7 +3925,7 @@ type readWriteCase struct {
 	obj     serializable
 }
 
-func testReadWriteStructWithPrecompareFunc(t *testing.T, tc readWriteCase, preCompareFunc func(tc *readWriteCase)) {
+func testReadWriteStruct(t *testing.T, tc readWriteCase) {
 	initialData := "sausages"
 	buff := []byte(initialData) // buff already contains some data
 
@@ -3965,10 +3945,6 @@ func testReadWriteStructWithPrecompareFunc(t *testing.T, tc readWriteCase, preCo
 	off, err := obj2.Read(tc.version, buff[len(initialData):])
 	require.NoError(t, err)
 	require.Equal(t, calcedSize, off)
-
-	if preCompareFunc != nil {
-		preCompareFunc(&tc)
-	}
 
 	require.Equal(t, tc.obj, obj2)
 }
