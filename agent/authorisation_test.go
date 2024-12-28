@@ -208,7 +208,7 @@ func sendProduceExpectErrCode(t *testing.T, conn *apiclient.KafkaApiConnection, 
 				PartitionData: []kafkaprotocol.ProduceRequestPartitionProduceData{
 					{
 						Index:   0,
-						Records: [][]byte{batch},
+						Records: batch,
 					},
 				},
 			},

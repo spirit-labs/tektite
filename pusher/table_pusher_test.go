@@ -595,10 +595,8 @@ func TestTablePusherHandleProduceBatchSimple(t *testing.T) {
 				Name: common.StrPtr("topic1"),
 				PartitionData: []kafkaprotocol.ProduceRequestPartitionProduceData{
 					{
-						Index: 12,
-						Records: [][]byte{
-							recordBatch,
-						},
+						Index:   12,
+						Records: recordBatch,
 					},
 				},
 			},
@@ -699,10 +697,8 @@ func TestTablePusherHandleProduceBatchNotLeader(t *testing.T) {
 				Name: common.StrPtr("topic1"),
 				PartitionData: []kafkaprotocol.ProduceRequestPartitionProduceData{
 					{
-						Index: 12,
-						Records: [][]byte{
-							recordBatch,
-						},
+						Index:   12,
+						Records: recordBatch,
 					},
 				},
 			},
@@ -796,22 +792,16 @@ func TestTablePusherHandleProduceBatchMultipleTopicsAndPartitions(t *testing.T) 
 				Name: common.StrPtr("topic1"),
 				PartitionData: []kafkaprotocol.ProduceRequestPartitionProduceData{
 					{
-						Index: 12,
-						Records: [][]byte{
-							recordBatch1,
-						},
+						Index:   12,
+						Records: recordBatch1,
 					},
 					{
-						Index: 12,
-						Records: [][]byte{
-							recordBatch2,
-						},
+						Index:   12,
+						Records: recordBatch2,
 					},
 					{
-						Index: 7,
-						Records: [][]byte{
-							recordBatch3,
-						},
+						Index:   7,
+						Records: recordBatch3,
 					},
 				},
 			},
@@ -819,10 +809,8 @@ func TestTablePusherHandleProduceBatchMultipleTopicsAndPartitions(t *testing.T) 
 				Name: common.StrPtr("topic2"),
 				PartitionData: []kafkaprotocol.ProduceRequestPartitionProduceData{
 					{
-						Index: 23,
-						Records: [][]byte{
-							recordBatch4,
-						},
+						Index:   23,
+						Records: recordBatch4,
 					},
 				},
 			},
@@ -996,10 +984,8 @@ func TestTablePusherPushWhenBufferIsFull(t *testing.T) {
 				Name: common.StrPtr("topic1"),
 				PartitionData: []kafkaprotocol.ProduceRequestPartitionProduceData{
 					{
-						Index: 12,
-						Records: [][]byte{
-							batch1,
-						},
+						Index:   12,
+						Records: batch1,
 					},
 				},
 			},
@@ -1030,10 +1016,8 @@ func TestTablePusherPushWhenBufferIsFull(t *testing.T) {
 				Name: common.StrPtr("topic1"),
 				PartitionData: []kafkaprotocol.ProduceRequestPartitionProduceData{
 					{
-						Index: 23,
-						Records: [][]byte{
-							batch2,
-						},
+						Index:   23,
+						Records: batch2,
 					},
 				},
 			},
@@ -1117,10 +1101,8 @@ func TestTablePusherPushWhenTimeoutIsExceeded(t *testing.T) {
 				Name: common.StrPtr("topic1"),
 				PartitionData: []kafkaprotocol.ProduceRequestPartitionProduceData{
 					{
-						Index: 12,
-						Records: [][]byte{
-							batch,
-						},
+						Index:   12,
+						Records: batch,
 					},
 				},
 			},
@@ -1232,28 +1214,20 @@ func TestTablePusherHandleProduceBatchMixtureErrorsAndSuccesses(t *testing.T) {
 				Name: common.StrPtr("topic1"),
 				PartitionData: []kafkaprotocol.ProduceRequestPartitionProduceData{
 					{
-						Index: 12,
-						Records: [][]byte{
-							recordBatch1,
-						},
+						Index:   12,
+						Records: recordBatch1,
 					},
 					{
-						Index: 12,
-						Records: [][]byte{
-							recordBatch2,
-						},
+						Index:   12,
+						Records: recordBatch2,
 					},
 					{
-						Index: 999,
-						Records: [][]byte{
-							recordBatch5,
-						},
+						Index:   999,
+						Records: recordBatch5,
 					},
 					{
-						Index: 7,
-						Records: [][]byte{
-							recordBatch3,
-						},
+						Index:   7,
+						Records: recordBatch3,
 					},
 				},
 			},
@@ -1261,10 +1235,8 @@ func TestTablePusherHandleProduceBatchMixtureErrorsAndSuccesses(t *testing.T) {
 				Name: common.StrPtr("topic2"),
 				PartitionData: []kafkaprotocol.ProduceRequestPartitionProduceData{
 					{
-						Index: 23,
-						Records: [][]byte{
-							recordBatch4,
-						},
+						Index:   23,
+						Records: recordBatch4,
 					},
 				},
 			},
@@ -1272,10 +1244,8 @@ func TestTablePusherHandleProduceBatchMixtureErrorsAndSuccesses(t *testing.T) {
 				Name: common.StrPtr("unknown_topic"),
 				PartitionData: []kafkaprotocol.ProduceRequestPartitionProduceData{
 					{
-						Index: 23,
-						Records: [][]byte{
-							recordBatch6,
-						},
+						Index:   23,
+						Records: recordBatch6,
 					},
 				},
 			},
@@ -1456,10 +1426,8 @@ func TestTablePusherUnexpectedError(t *testing.T) {
 				Name: common.StrPtr("topic1"),
 				PartitionData: []kafkaprotocol.ProduceRequestPartitionProduceData{
 					{
-						Index: 12,
-						Records: [][]byte{
-							recordBatch,
-						},
+						Index:   12,
+						Records: recordBatch,
 					},
 				},
 			},
@@ -1546,10 +1514,8 @@ func TestTablePusherTemporaryUnavailability(t *testing.T) {
 				Name: common.StrPtr("topic1"),
 				PartitionData: []kafkaprotocol.ProduceRequestPartitionProduceData{
 					{
-						Index: 12,
-						Records: [][]byte{
-							recordBatch1,
-						},
+						Index:   12,
+						Records: recordBatch1,
 					},
 				},
 			},
@@ -1574,10 +1540,8 @@ func TestTablePusherTemporaryUnavailability(t *testing.T) {
 				Name: common.StrPtr("topic1"),
 				PartitionData: []kafkaprotocol.ProduceRequestPartitionProduceData{
 					{
-						Index: 20,
-						Records: [][]byte{
-							recordBatch2,
-						},
+						Index:   20,
+						Records: recordBatch2,
 					},
 				},
 			},
@@ -1911,10 +1875,8 @@ func sendBatchWithDedupReturnChannel(t *testing.T, pusher *TablePusher, producer
 				Name: common.StrPtr("topic1"),
 				PartitionData: []kafkaprotocol.ProduceRequestPartitionProduceData{
 					{
-						Index: 12,
-						Records: [][]byte{
-							recordBatch,
-						},
+						Index:   12,
+						Records: recordBatch,
 					},
 				},
 			},
@@ -2059,10 +2021,8 @@ func TestTablePusherUseServerTimestamp(t *testing.T) {
 				Name: common.StrPtr("topic1"),
 				PartitionData: []kafkaprotocol.ProduceRequestPartitionProduceData{
 					{
-						Index: 12,
-						Records: [][]byte{
-							recordBatch,
-						},
+						Index:   12,
+						Records: recordBatch,
 					},
 				},
 			},

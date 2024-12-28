@@ -77,14 +77,7 @@ func (c *connection) HandleProduceRequest(_ *kafkaprotocol.RequestHeader, req *k
 					continue
 				}
 			}
-			if len(partitionData.Records) > 1 {
-				log.Errorf("unexpected more than one records produced: %d", len(partitionData.Records))
-				partitionResponses[j].ErrorCode = kafkaprotocol.ErrorCodeUnknownServerError
-				cf.CountDown(nil)
-				continue
-			}
-
-			producedRecords := partitionData.Records[0]
+			producedRecords := partitionData.Records
 			numRecords := int(binary.BigEndian.Uint32(producedRecords[57:]))
 			magic := producedRecords[16]
 			if magic != 2 {
@@ -203,7 +196,11 @@ func (c *connection) HandleFetchRequest(_ *kafkaprotocol.RequestHeader, req *kaf
 							cf.CountDown(nil)
 						} else {
 							partitionResponses[index].HighWatermark = hwm
-							partitionResponses[index].Records = batches
+							var records []byte
+							for _, batch := range batches {
+								records = append(records, batch...)
+							}
+							partitionResponses[index].Records = records
 							cf.CountDown(nil)
 						}
 					})

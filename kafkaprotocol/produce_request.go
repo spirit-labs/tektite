@@ -10,7 +10,7 @@ type ProduceRequestPartitionProduceData struct {
     // The partition index.
     Index int32
     // The record data to be produced.
-    Records [][]byte
+    Records []byte
 }
 
 type ProduceRequestTopicProduceData struct {
@@ -143,7 +143,7 @@ func (m *ProduceRequest) Read(version int16, buff []byte) (int, error) {
                                     offset += n
                                     l4 := int(u - 1)
                                     if l4 > 0 {
-                                        partitionData[i1].Records = [][]byte{common.ByteSliceCopy(buff[offset: offset + l4])}
+                                        partitionData[i1].Records = common.ByteSliceCopy(buff[offset: offset + l4])
                                         offset += l4
                                     } else {
                                         partitionData[i1].Records = nil
@@ -154,7 +154,7 @@ func (m *ProduceRequest) Read(version int16, buff []byte) (int, error) {
                                     l4 = int(int32(binary.BigEndian.Uint32(buff[offset:])))
                                     offset += 4
                                     if l4 > 0 {
-                                        partitionData[i1].Records = [][]byte{common.ByteSliceCopy(buff[offset: offset + l4])}
+                                        partitionData[i1].Records = common.ByteSliceCopy(buff[offset: offset + l4])
                                         offset += l4
                                     } else {
                                         partitionData[i1].Records = nil
@@ -291,11 +291,7 @@ func (m *ProduceRequest) Write(version int16, buff []byte, tagSizes []int) []byt
                     buff = append(buff, 0)
                 } else {
                     // not null
-                    recordsTotSize8 := 0
-                    for _, rec := range partitionData.Records {
-                        recordsTotSize8 += len(rec)
-                    }
-                    buff = binary.AppendUvarint(buff, uint64(recordsTotSize8 + 1))
+                    buff = binary.AppendUvarint(buff, uint64(len(partitionData.Records) + 1))
                 }
             } else {
                 // non flexible and nullable
@@ -304,32 +300,28 @@ func (m *ProduceRequest) Write(version int16, buff []byte, tagSizes []int) []byt
                     buff = binary.BigEndian.AppendUint32(buff, 4294967295)
                 } else {
                     // not null
-                    recordsTotSize9 := 0
-                    for _, rec := range partitionData.Records {
-                        recordsTotSize9 += len(rec)
-                    }
-                    buff = binary.BigEndian.AppendUint32(buff, uint32(recordsTotSize9))
+                    buff = binary.BigEndian.AppendUint32(buff, uint32(len(partitionData.Records)))
                 }
             }
-            for _, rec := range partitionData.Records {
-                buff = append(buff, rec...)
+            if partitionData.Records != nil {
+                buff = append(buff, partitionData.Records...)
             }
             if version >= 9 {
-                numTaggedFields10 := 0
+                numTaggedFields8 := 0
                 // write number of tagged fields
-                buff = binary.AppendUvarint(buff, uint64(numTaggedFields10))
+                buff = binary.AppendUvarint(buff, uint64(numTaggedFields8))
             }
         }
         if version >= 9 {
-            numTaggedFields11 := 0
+            numTaggedFields9 := 0
             // write number of tagged fields
-            buff = binary.AppendUvarint(buff, uint64(numTaggedFields11))
+            buff = binary.AppendUvarint(buff, uint64(numTaggedFields9))
         }
     }
     if version >= 9 {
-        numTaggedFields12 := 0
+        numTaggedFields10 := 0
         // write number of tagged fields
-        buff = binary.AppendUvarint(buff, uint64(numTaggedFields12))
+        buff = binary.AppendUvarint(buff, uint64(numTaggedFields10))
     }
     return buff
 }
@@ -409,38 +401,34 @@ func (m *ProduceRequest) CalcSize(version int16, tagSizes []int) (int, []int) {
                     size += 1
                 } else {
                     // not null
-                    recordsTotSize3 := 0
-                    for _, rec := range partitionData.Records {
-                        recordsTotSize3 += len(rec)
-                    }
-                    size += sizeofUvarint(recordsTotSize3 + 1)
+                    size += sizeofUvarint(len(partitionData.Records) + 1)
                 }
             } else {
                 // non flexible and nullable
                 size += 4
             }
-            for _, rec := range partitionData.Records {
-                size += len(rec)
+            if partitionData.Records != nil {
+                size += len(partitionData.Records)
             }
-            numTaggedFields4:= 0
-            numTaggedFields4 += 0
+            numTaggedFields3:= 0
+            numTaggedFields3 += 0
             if version >= 9 {
                 // writing size of num tagged fields field
-                size += sizeofUvarint(numTaggedFields4)
+                size += sizeofUvarint(numTaggedFields3)
             }
         }
-        numTaggedFields5:= 0
-        numTaggedFields5 += 0
+        numTaggedFields4:= 0
+        numTaggedFields4 += 0
         if version >= 9 {
             // writing size of num tagged fields field
-            size += sizeofUvarint(numTaggedFields5)
+            size += sizeofUvarint(numTaggedFields4)
         }
     }
-    numTaggedFields6:= 0
-    numTaggedFields6 += 0
+    numTaggedFields5:= 0
+    numTaggedFields5 += 0
     if version >= 9 {
         // writing size of num tagged fields field
-        size += sizeofUvarint(numTaggedFields6)
+        size += sizeofUvarint(numTaggedFields5)
     }
     return size, tagSizes
 }

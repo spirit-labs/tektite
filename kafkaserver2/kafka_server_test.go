@@ -40,10 +40,8 @@ func TestProduce(t *testing.T) {
 				Name: common.StrPtr("topic1"),
 				PartitionData: []kafkaprotocol.ProduceRequestPartitionProduceData{
 					{
-						Index: 12,
-						Records: [][]byte{
-							[]byte("foo"),
-						},
+						Index:   12,
+						Records: []byte("foo"),
 					},
 				},
 			},

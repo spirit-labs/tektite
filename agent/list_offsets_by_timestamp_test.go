@@ -61,10 +61,8 @@ func TestListOffsetsByTimestamp(t *testing.T) {
 					Name: common.StrPtr(topicName),
 					PartitionData: []kafkaprotocol.ProduceRequestPartitionProduceData{
 						{
-							Index: int32(partitionID),
-							Records: [][]byte{
-								batch,
-							},
+							Index:   int32(partitionID),
+							Records: batch,
 						},
 					},
 				},

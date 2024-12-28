@@ -54,7 +54,7 @@ type FetchResponsePartitionData struct {
     // The preferred read replica for the consumer to use on its next fetch request
     PreferredReadReplica int32
     // The record data.
-    Records [][]byte
+    Records []byte
 }
 
 type FetchResponseFetchableTopicResponse struct {
@@ -270,7 +270,7 @@ func (m *FetchResponse) Read(version int16, buff []byte) (int, error) {
                                     offset += n
                                     l4 := int(u - 1)
                                     if l4 > 0 {
-                                        partitions[i1].Records = [][]byte{common.ByteSliceCopy(buff[offset: offset + l4])}
+                                        partitions[i1].Records = common.ByteSliceCopy(buff[offset: offset + l4])
                                         offset += l4
                                     } else {
                                         partitions[i1].Records = nil
@@ -281,7 +281,7 @@ func (m *FetchResponse) Read(version int16, buff []byte) (int, error) {
                                     l4 = int(int32(binary.BigEndian.Uint32(buff[offset:])))
                                     offset += 4
                                     if l4 > 0 {
-                                        partitions[i1].Records = [][]byte{common.ByteSliceCopy(buff[offset: offset + l4])}
+                                        partitions[i1].Records = common.ByteSliceCopy(buff[offset: offset + l4])
                                         offset += l4
                                     } else {
                                         partitions[i1].Records = nil
@@ -615,11 +615,7 @@ func (m *FetchResponse) Write(version int16, buff []byte, tagSizes []int) []byte
                     buff = append(buff, 0)
                 } else {
                     // not null
-                    recordsTotSize18 := 0
-                    for _, rec := range partitions.Records {
-                        recordsTotSize18 += len(rec)
-                    }
-                    buff = binary.AppendUvarint(buff, uint64(recordsTotSize18 + 1))
+                    buff = binary.AppendUvarint(buff, uint64(len(partitions.Records) + 1))
                 }
             } else {
                 // non flexible and nullable
@@ -628,35 +624,31 @@ func (m *FetchResponse) Write(version int16, buff []byte, tagSizes []int) []byte
                     buff = binary.BigEndian.AppendUint32(buff, 4294967295)
                 } else {
                     // not null
-                    recordsTotSize19 := 0
-                    for _, rec := range partitions.Records {
-                        recordsTotSize19 += len(rec)
-                    }
-                    buff = binary.BigEndian.AppendUint32(buff, uint32(recordsTotSize19))
+                    buff = binary.BigEndian.AppendUint32(buff, uint32(len(partitions.Records)))
                 }
             }
-            for _, rec := range partitions.Records {
-                buff = append(buff, rec...)
+            if partitions.Records != nil {
+                buff = append(buff, partitions.Records...)
             }
             if version >= 12 {
-                numTaggedFields20 := 0
+                numTaggedFields18 := 0
                 // writing tagged field increments
                 // tagged field - partitions.DivergingEpoch: In case divergence is detected based on the `LastFetchedEpoch` and `FetchOffset` in the request, this field indicates the largest epoch and its end offset such that subsequent records are known to diverge
-                numTaggedFields20++
+                numTaggedFields18++
                 // tagged field - partitions.CurrentLeader: 
-                numTaggedFields20++
+                numTaggedFields18++
                 // tagged field - partitions.SnapshotId: In the case of fetching an offset less than the LogStartOffset, this is the end offset and epoch that should be used in the FetchSnapshot request.
-                numTaggedFields20++
+                numTaggedFields18++
                 // write number of tagged fields
-                buff = binary.AppendUvarint(buff, uint64(numTaggedFields20))
+                buff = binary.AppendUvarint(buff, uint64(numTaggedFields18))
                 // writing tagged fields
                 // tag header
                 buff = binary.AppendUvarint(buff, uint64(0))
                 buff = binary.AppendUvarint(buff, uint64(tagSizes[tagPos]))
                 tagPos++
-                var tagSizeStart21 int
+                var tagSizeStart19 int
                 if debug.SanityChecks {
-                    tagSizeStart21 = len(buff)
+                    tagSizeStart19 = len(buff)
                 }
                 // writing partitions.DivergingEpoch: In case divergence is detected based on the `LastFetchedEpoch` and `FetchOffset` in the request, this field indicates the largest epoch and its end offset such that subsequent records are known to diverge
                 {
@@ -665,20 +657,20 @@ func (m *FetchResponse) Write(version int16, buff []byte, tagSizes []int) []byte
                     buff = binary.BigEndian.AppendUint32(buff, uint32(partitions.DivergingEpoch.Epoch))
                     // writing partitions.DivergingEpoch.EndOffset: 
                     buff = binary.BigEndian.AppendUint64(buff, uint64(partitions.DivergingEpoch.EndOffset))
-                    numTaggedFields24 := 0
+                    numTaggedFields22 := 0
                     // write number of tagged fields
-                    buff = binary.AppendUvarint(buff, uint64(numTaggedFields24))
+                    buff = binary.AppendUvarint(buff, uint64(numTaggedFields22))
                 }
-                if debug.SanityChecks && len(buff) - tagSizeStart21 != tagSizes[tagPos - 1] {
+                if debug.SanityChecks && len(buff) - tagSizeStart19 != tagSizes[tagPos - 1] {
                     panic(fmt.Sprintf("incorrect calculated tag size for tag %d", 0))
                 }
                 // tag header
                 buff = binary.AppendUvarint(buff, uint64(1))
                 buff = binary.AppendUvarint(buff, uint64(tagSizes[tagPos]))
                 tagPos++
-                var tagSizeStart25 int
+                var tagSizeStart23 int
                 if debug.SanityChecks {
-                    tagSizeStart25 = len(buff)
+                    tagSizeStart23 = len(buff)
                 }
                 // writing partitions.CurrentLeader: 
                 {
@@ -687,20 +679,20 @@ func (m *FetchResponse) Write(version int16, buff []byte, tagSizes []int) []byte
                     buff = binary.BigEndian.AppendUint32(buff, uint32(partitions.CurrentLeader.LeaderId))
                     // writing partitions.CurrentLeader.LeaderEpoch: The latest known leader epoch
                     buff = binary.BigEndian.AppendUint32(buff, uint32(partitions.CurrentLeader.LeaderEpoch))
-                    numTaggedFields28 := 0
+                    numTaggedFields26 := 0
                     // write number of tagged fields
-                    buff = binary.AppendUvarint(buff, uint64(numTaggedFields28))
+                    buff = binary.AppendUvarint(buff, uint64(numTaggedFields26))
                 }
-                if debug.SanityChecks && len(buff) - tagSizeStart25 != tagSizes[tagPos - 1] {
+                if debug.SanityChecks && len(buff) - tagSizeStart23 != tagSizes[tagPos - 1] {
                     panic(fmt.Sprintf("incorrect calculated tag size for tag %d", 1))
                 }
                 // tag header
                 buff = binary.AppendUvarint(buff, uint64(2))
                 buff = binary.AppendUvarint(buff, uint64(tagSizes[tagPos]))
                 tagPos++
-                var tagSizeStart29 int
+                var tagSizeStart27 int
                 if debug.SanityChecks {
-                    tagSizeStart29 = len(buff)
+                    tagSizeStart27 = len(buff)
                 }
                 // writing partitions.SnapshotId: In the case of fetching an offset less than the LogStartOffset, this is the end offset and epoch that should be used in the FetchSnapshot request.
                 {
@@ -709,39 +701,39 @@ func (m *FetchResponse) Write(version int16, buff []byte, tagSizes []int) []byte
                     buff = binary.BigEndian.AppendUint64(buff, uint64(partitions.SnapshotId.EndOffset))
                     // writing partitions.SnapshotId.Epoch: 
                     buff = binary.BigEndian.AppendUint32(buff, uint32(partitions.SnapshotId.Epoch))
-                    numTaggedFields32 := 0
+                    numTaggedFields30 := 0
                     // write number of tagged fields
-                    buff = binary.AppendUvarint(buff, uint64(numTaggedFields32))
+                    buff = binary.AppendUvarint(buff, uint64(numTaggedFields30))
                 }
-                if debug.SanityChecks && len(buff) - tagSizeStart29 != tagSizes[tagPos - 1] {
+                if debug.SanityChecks && len(buff) - tagSizeStart27 != tagSizes[tagPos - 1] {
                     panic(fmt.Sprintf("incorrect calculated tag size for tag %d", 2))
                 }
             }
         }
         if version >= 12 {
-            numTaggedFields33 := 0
+            numTaggedFields31 := 0
             // write number of tagged fields
-            buff = binary.AppendUvarint(buff, uint64(numTaggedFields33))
+            buff = binary.AppendUvarint(buff, uint64(numTaggedFields31))
         }
     }
     if version >= 12 {
-        numTaggedFields34 := 0
+        numTaggedFields32 := 0
         // writing tagged field increments
         if version >= 16 {
             // tagged field - m.NodeEndpoints: Endpoints for all current-leaders enumerated in PartitionData, with errors NOT_LEADER_OR_FOLLOWER & FENCED_LEADER_EPOCH.
-            numTaggedFields34++
+            numTaggedFields32++
         }
         // write number of tagged fields
-        buff = binary.AppendUvarint(buff, uint64(numTaggedFields34))
+        buff = binary.AppendUvarint(buff, uint64(numTaggedFields32))
         // writing tagged fields
         if version >= 16 {
             // tag header
             buff = binary.AppendUvarint(buff, uint64(0))
             buff = binary.AppendUvarint(buff, uint64(tagSizes[tagPos]))
             tagPos++
-            var tagSizeStart35 int
+            var tagSizeStart33 int
             if debug.SanityChecks {
-                tagSizeStart35 = len(buff)
+                tagSizeStart33 = len(buff)
             }
             // writing m.NodeEndpoints: Endpoints for all current-leaders enumerated in PartitionData, with errors NOT_LEADER_OR_FOLLOWER & FENCED_LEADER_EPOCH.
             // flexible and not nullable
@@ -770,11 +762,11 @@ func (m *FetchResponse) Write(version int16, buff []byte, tagSizes []int) []byte
                 if nodeEndpoints.Rack != nil {
                     buff = append(buff, *nodeEndpoints.Rack...)
                 }
-                numTaggedFields40 := 0
+                numTaggedFields38 := 0
                 // write number of tagged fields
-                buff = binary.AppendUvarint(buff, uint64(numTaggedFields40))
+                buff = binary.AppendUvarint(buff, uint64(numTaggedFields38))
             }
-            if debug.SanityChecks && len(buff) - tagSizeStart35 != tagSizes[tagPos - 1] {
+            if debug.SanityChecks && len(buff) - tagSizeStart33 != tagSizes[tagPos - 1] {
                 panic(fmt.Sprintf("incorrect calculated tag size for tag %d", 0))
             }
         }
@@ -898,79 +890,75 @@ func (m *FetchResponse) CalcSize(version int16, tagSizes []int) (int, []int) {
                     size += 1
                 } else {
                     // not null
-                    recordsTotSize5 := 0
-                    for _, rec := range partitions.Records {
-                        recordsTotSize5 += len(rec)
-                    }
-                    size += sizeofUvarint(recordsTotSize5 + 1)
+                    size += sizeofUvarint(len(partitions.Records) + 1)
                 }
             } else {
                 // non flexible and nullable
                 size += 4
             }
-            for _, rec := range partitions.Records {
-                size += len(rec)
+            if partitions.Records != nil {
+                size += len(partitions.Records)
             }
-            numTaggedFields6:= 0
-            numTaggedFields6 += 0
+            numTaggedFields5:= 0
+            numTaggedFields5 += 0
             taggedFieldStart := 0
             taggedFieldSize := 0
             if version >= 12 {
                 // size for partitions.DivergingEpoch: In case divergence is detected based on the `LastFetchedEpoch` and `FetchOffset` in the request, this field indicates the largest epoch and its end offset such that subsequent records are known to diverge
-                numTaggedFields6++
+                numTaggedFields5++
                 taggedFieldStart = size
                 {
                     // calculating size for non tagged fields
-                    numTaggedFields7:= 0
-                    numTaggedFields7 += 0
+                    numTaggedFields6:= 0
+                    numTaggedFields6 += 0
                     // size for partitions.DivergingEpoch.Epoch: 
                     size += 4
                     // size for partitions.DivergingEpoch.EndOffset: 
                     size += 8
-                    numTaggedFields8:= 0
-                    numTaggedFields8 += 0
+                    numTaggedFields7:= 0
+                    numTaggedFields7 += 0
                     // writing size of num tagged fields field
-                    size += sizeofUvarint(numTaggedFields8)
+                    size += sizeofUvarint(numTaggedFields7)
                 }
                 taggedFieldSize = size - taggedFieldStart
                 tagSizes = append(tagSizes, taggedFieldSize)
                 // size = <tag id contrib> + <field size>
                 size += sizeofUvarint(0) + sizeofUvarint(taggedFieldSize)
                 // size for partitions.CurrentLeader: 
-                numTaggedFields6++
+                numTaggedFields5++
                 taggedFieldStart = size
                 {
                     // calculating size for non tagged fields
-                    numTaggedFields9:= 0
-                    numTaggedFields9 += 0
+                    numTaggedFields8:= 0
+                    numTaggedFields8 += 0
                     // size for partitions.CurrentLeader.LeaderId: The ID of the current leader or -1 if the leader is unknown.
                     size += 4
                     // size for partitions.CurrentLeader.LeaderEpoch: The latest known leader epoch
                     size += 4
-                    numTaggedFields10:= 0
-                    numTaggedFields10 += 0
+                    numTaggedFields9:= 0
+                    numTaggedFields9 += 0
                     // writing size of num tagged fields field
-                    size += sizeofUvarint(numTaggedFields10)
+                    size += sizeofUvarint(numTaggedFields9)
                 }
                 taggedFieldSize = size - taggedFieldStart
                 tagSizes = append(tagSizes, taggedFieldSize)
                 // size = <tag id contrib> + <field size>
                 size += sizeofUvarint(1) + sizeofUvarint(taggedFieldSize)
                 // size for partitions.SnapshotId: In the case of fetching an offset less than the LogStartOffset, this is the end offset and epoch that should be used in the FetchSnapshot request.
-                numTaggedFields6++
+                numTaggedFields5++
                 taggedFieldStart = size
                 {
                     // calculating size for non tagged fields
-                    numTaggedFields11:= 0
-                    numTaggedFields11 += 0
+                    numTaggedFields10:= 0
+                    numTaggedFields10 += 0
                     // size for partitions.SnapshotId.EndOffset: 
                     size += 8
                     // size for partitions.SnapshotId.Epoch: 
                     size += 4
-                    numTaggedFields12:= 0
-                    numTaggedFields12 += 0
+                    numTaggedFields11:= 0
+                    numTaggedFields11 += 0
                     // writing size of num tagged fields field
-                    size += sizeofUvarint(numTaggedFields12)
+                    size += sizeofUvarint(numTaggedFields11)
                 }
                 taggedFieldSize = size - taggedFieldStart
                 tagSizes = append(tagSizes, taggedFieldSize)
@@ -979,31 +967,31 @@ func (m *FetchResponse) CalcSize(version int16, tagSizes []int) (int, []int) {
             }
             if version >= 12 {
                 // writing size of num tagged fields field
-                size += sizeofUvarint(numTaggedFields6)
+                size += sizeofUvarint(numTaggedFields5)
             }
         }
-        numTaggedFields13:= 0
-        numTaggedFields13 += 0
+        numTaggedFields12:= 0
+        numTaggedFields12 += 0
         if version >= 12 {
             // writing size of num tagged fields field
-            size += sizeofUvarint(numTaggedFields13)
+            size += sizeofUvarint(numTaggedFields12)
         }
     }
-    numTaggedFields14:= 0
-    numTaggedFields14 += 0
+    numTaggedFields13:= 0
+    numTaggedFields13 += 0
     taggedFieldStart := 0
     taggedFieldSize := 0
     if version >= 16 {
         // size for m.NodeEndpoints: Endpoints for all current-leaders enumerated in PartitionData, with errors NOT_LEADER_OR_FOLLOWER & FENCED_LEADER_EPOCH.
-        numTaggedFields14++
+        numTaggedFields13++
         taggedFieldStart = size
         // flexible and not nullable
         size += sizeofUvarint(len(m.NodeEndpoints) + 1)
         for _, nodeEndpoints := range m.NodeEndpoints {
             size += 0 * int(unsafe.Sizeof(nodeEndpoints)) // hack to make sure loop variable is always used
             // calculating size for non tagged fields
-            numTaggedFields15:= 0
-            numTaggedFields15 += 0
+            numTaggedFields14:= 0
+            numTaggedFields14 += 0
             // size for nodeEndpoints.NodeId: The ID of the associated node.
             size += 4
             // size for nodeEndpoints.Host: The node's hostname.
@@ -1026,10 +1014,10 @@ func (m *FetchResponse) CalcSize(version int16, tagSizes []int) (int, []int) {
             if nodeEndpoints.Rack != nil {
                 size += len(*nodeEndpoints.Rack)
             }
-            numTaggedFields16:= 0
-            numTaggedFields16 += 0
+            numTaggedFields15:= 0
+            numTaggedFields15 += 0
             // writing size of num tagged fields field
-            size += sizeofUvarint(numTaggedFields16)
+            size += sizeofUvarint(numTaggedFields15)
         }
         taggedFieldSize = size - taggedFieldStart
         tagSizes = append(tagSizes, taggedFieldSize)
@@ -1038,7 +1026,7 @@ func (m *FetchResponse) CalcSize(version int16, tagSizes []int) (int, []int) {
     }
     if version >= 12 {
         // writing size of num tagged fields field
-        size += sizeofUvarint(numTaggedFields14)
+        size += sizeofUvarint(numTaggedFields13)
     }
     return size, tagSizes
 }

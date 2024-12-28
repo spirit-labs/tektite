@@ -92,9 +92,7 @@ func testFetchSimple(t *testing.T, apiVersion int16) {
 	partResp := topicResp.Partitions[0]
 	require.Equal(t, kafkaprotocol.ErrorCodeNone, int(partResp.ErrorCode))
 	require.Equal(t, 100, int(partResp.HighWatermark))
-	receivedBatches := partResp.Records
-	require.Equal(t, 1, len(receivedBatches))
-	require.Equal(t, batch, receivedBatches[0])
+	require.Equal(t, batch, partResp.Records)
 }
 
 func TestFetchSingleSenderAndFetcherShortWriteTimeout(t *testing.T) {
@@ -271,10 +269,8 @@ func (p *sendRunner) produce() {
 				Name: common.StrPtr(p.topicName),
 				PartitionData: []kafkaprotocol.ProduceRequestPartitionProduceData{
 					{
-						Index: int32(p.partitionID),
-						Records: [][]byte{
-							batch,
-						},
+						Index:   int32(p.partitionID),
+						Records: batch,
 					},
 				},
 			},
@@ -367,7 +363,7 @@ func (f *fetchRunner) fetch() {
 		panic(fmt.Sprintf("fetch got error %d", partResp.ErrorCode))
 	}
 	if len(partResp.Records) > 0 {
-		batches := extractBatches(partResp.Records[0])
+		batches := extractBatches(partResp.Records)
 		f.batches = append(f.batches, batches...)
 		for _, batch := range batches {
 			baseOffset := kafkaencoding.BaseOffset(batch)
@@ -421,10 +417,8 @@ func produceBatch(t *testing.T, topicName string, partitionID int, address strin
 				Name: common.StrPtr(topicName),
 				PartitionData: []kafkaprotocol.ProduceRequestPartitionProduceData{
 					{
-						Index: int32(partitionID),
-						Records: [][]byte{
-							batch,
-						},
+						Index:   int32(partitionID),
+						Records: batch,
 					},
 				},
 			},
