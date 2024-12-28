@@ -99,11 +99,11 @@ func testProduceErrorUnknownTopic(t *testing.T, address string) {
 				PartitionData: []kafkaprotocol.ProduceRequestPartitionProduceData{
 					{
 						Index:   1,
-						Records: [][]byte{[]byte("abc")},
+						Records: []byte("abc"),
 					},
 					{
 						Index:   3,
-						Records: [][]byte{[]byte("abc")},
+						Records: []byte("abc"),
 					},
 				},
 			},
@@ -112,11 +112,11 @@ func testProduceErrorUnknownTopic(t *testing.T, address string) {
 				PartitionData: []kafkaprotocol.ProduceRequestPartitionProduceData{
 					{
 						Index:   2,
-						Records: [][]byte{[]byte("abc")},
+						Records: []byte("abc"),
 					},
 					{
 						Index:   4,
-						Records: [][]byte{[]byte("abc")},
+						Records: []byte("abc"),
 					},
 				},
 			},
@@ -218,11 +218,11 @@ func TestKafkaApiNotAuthenticated(t *testing.T) {
 				PartitionData: []kafkaprotocol.ProduceRequestPartitionProduceData{
 					{
 						Index:   1,
-						Records: [][]byte{[]byte("abc")},
+						Records: []byte("abc"),
 					},
 					{
 						Index:   3,
-						Records: [][]byte{[]byte("abc")},
+						Records: []byte("abc"),
 					},
 				},
 			},
@@ -231,11 +231,11 @@ func TestKafkaApiNotAuthenticated(t *testing.T) {
 				PartitionData: []kafkaprotocol.ProduceRequestPartitionProduceData{
 					{
 						Index:   2,
-						Records: [][]byte{[]byte("abc")},
+						Records: []byte("abc"),
 					},
 					{
 						Index:   4,
-						Records: [][]byte{[]byte("abc")},
+						Records: []byte("abc"),
 					},
 				},
 			},
