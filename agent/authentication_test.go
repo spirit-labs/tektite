@@ -14,6 +14,7 @@ import (
 	"github.com/spirit-labs/tektite/kafkaserver2"
 	"github.com/spirit-labs/tektite/topicmeta"
 	"github.com/stretchr/testify/require"
+	"math"
 	"strings"
 	"testing"
 	"time"
@@ -331,9 +332,10 @@ func makeTopic(t *testing.T, agent *Agent, topicName string, partitions int) {
 	cl, err := agent.Controller().Client()
 	require.NoError(t, err)
 	err = cl.CreateOrUpdateTopic(topicmeta.TopicInfo{
-		Name:           topicName,
-		PartitionCount: partitions,
-		RetentionTime:  -1,
+		Name:                topicName,
+		PartitionCount:      partitions,
+		RetentionTime:       -1,
+		MaxMessageSizeBytes: math.MaxInt,
 	}, true)
 	require.NoError(t, err)
 }

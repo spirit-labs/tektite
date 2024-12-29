@@ -10,6 +10,7 @@ import (
 	"github.com/spirit-labs/tektite/testutils"
 	"github.com/spirit-labs/tektite/topicmeta"
 	"github.com/stretchr/testify/require"
+	"math"
 	"strconv"
 	"testing"
 	"time"
@@ -150,8 +151,9 @@ func createTopic(t *testing.T, topicName string, partitions int, agent *agent.Ag
 		require.NoError(t, err)
 	}()
 	return cl.CreateOrUpdateTopic(topicmeta.TopicInfo{
-		Name:           topicName,
-		PartitionCount: partitions,
+		Name:                topicName,
+		PartitionCount:      partitions,
+		MaxMessageSizeBytes: math.MaxInt,
 	}, true)
 }
 

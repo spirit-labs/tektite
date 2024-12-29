@@ -100,16 +100,18 @@ func TestCreateTopicDefaults(t *testing.T) {
 			},
 		},
 	}, topicmeta.TopicInfo{
-		ID:                 1000,
-		Name:               topicName,
-		PartitionCount:     numPartitions,
-		RetentionTime:      DefaultDefaultTopicRetentionTime,
-		UseServerTimestamp: false,
+		ID:                  1000,
+		Name:                topicName,
+		PartitionCount:      numPartitions,
+		RetentionTime:       DefaultDefaultTopicRetentionTime,
+		UseServerTimestamp:  false,
+		MaxMessageSizeBytes: DefaultDefaultMaxMessageSizeBytes,
 	}, func(cfg *Conf) {})
 
 	// overriding server defaults
 	serverTopicRetention := 23 * time.Minute
 	serverUseServerTimestamp := true
+	serverDefaultMaxMessageSizeBytes := 123123123
 	testCreateTopicDefault(t, kafkaprotocol.CreateTopicsRequest{
 		Topics: []kafkaprotocol.CreateTopicsRequestCreatableTopic{
 			{
@@ -118,14 +120,16 @@ func TestCreateTopicDefaults(t *testing.T) {
 			},
 		},
 	}, topicmeta.TopicInfo{
-		ID:                 1000,
-		Name:               topicName,
-		PartitionCount:     numPartitions,
-		RetentionTime:      serverTopicRetention,
-		UseServerTimestamp: serverUseServerTimestamp,
+		ID:                  1000,
+		Name:                topicName,
+		PartitionCount:      numPartitions,
+		RetentionTime:       serverTopicRetention,
+		UseServerTimestamp:  serverUseServerTimestamp,
+		MaxMessageSizeBytes: serverDefaultMaxMessageSizeBytes,
 	}, func(cfg *Conf) {
 		cfg.DefaultTopicRetentionTime = serverTopicRetention
 		cfg.DefaultUseServerTimestamp = serverUseServerTimestamp
+		cfg.DefaultMaxMessageSizeBytes = serverDefaultMaxMessageSizeBytes
 	})
 
 	// overriding at topic level
@@ -143,15 +147,20 @@ func TestCreateTopicDefaults(t *testing.T) {
 						Name:  common.StrPtr("log.message.timestamp.type"),
 						Value: common.StrPtr("LogAppendTime"),
 					},
+					{
+						Name:  common.StrPtr("max.message.bytes"),
+						Value: common.StrPtr("555555"),
+					},
 				},
 			},
 		},
 	}, topicmeta.TopicInfo{
-		ID:                 1000,
-		Name:               topicName,
-		PartitionCount:     numPartitions,
-		RetentionTime:      777777 * time.Millisecond,
-		UseServerTimestamp: true,
+		ID:                  1000,
+		Name:                topicName,
+		PartitionCount:      numPartitions,
+		RetentionTime:       777777 * time.Millisecond,
+		UseServerTimestamp:  true,
+		MaxMessageSizeBytes: 555555,
 	}, func(cfg *Conf) {})
 
 	testCreateTopicDefault(t, kafkaprotocol.CreateTopicsRequest{
@@ -168,15 +177,20 @@ func TestCreateTopicDefaults(t *testing.T) {
 						Name:  common.StrPtr("log.message.timestamp.type"),
 						Value: common.StrPtr("CreateTime"),
 					},
+					{
+						Name:  common.StrPtr("max.message.bytes"),
+						Value: common.StrPtr("555555"),
+					},
 				},
 			},
 		},
 	}, topicmeta.TopicInfo{
-		ID:                 1000,
-		Name:               topicName,
-		PartitionCount:     numPartitions,
-		RetentionTime:      777777 * time.Millisecond,
-		UseServerTimestamp: false,
+		ID:                  1000,
+		Name:                topicName,
+		PartitionCount:      numPartitions,
+		RetentionTime:       777777 * time.Millisecond,
+		UseServerTimestamp:  false,
+		MaxMessageSizeBytes: 555555,
 	}, func(cfg *Conf) {
 		cfg.DefaultUseServerTimestamp = true
 	})
@@ -380,15 +394,21 @@ func TestControllerUnavailable(t *testing.T) {
 	require.Equal(t, int32(23), createResp.Topics[0].NumPartitions)
 }
 
-func TestInvalidRetentionTime(t *testing.T) {
-	testInvalidRetentionTime(t, "-100000")
-	testInvalidRetentionTime(t, "-2")
-	testInvalidRetentionTime(t, "xyz")
-	testInvalidRetentionTime(t, "0")
-	testInvalidRetentionTime(t, "000")
+func TestInvalidConfig(t *testing.T) {
+	testInvalidConfig(t, "max.message.bytes", "foo", "Invalid value for 'max.message.bytes': 'foo'")
+	testInvalidConfig(t, "max.message.bytes", "", "Invalid value for 'max.message.bytes': ''")
+	testInvalidConfig(t, "max.message.bytes", "0", "Invalid value for 'max.message.bytes': '0'")
+	testInvalidConfig(t, "max.message.bytes", "-1", "Invalid value for 'max.message.bytes': '-1'")
+
+	testInvalidConfig(t, "log.message.timestamp.type", "foo", "Invalid value for 'log.message.timestamp.type': 'foo'")
+
+	testInvalidConfig(t, "retention.ms", "-1000000", "Invalid value for 'retention.ms': '-1000000'")
+	testInvalidConfig(t, "retention.ms", "-2", "Invalid value for 'retention.ms': '-2'")
+	testInvalidConfig(t, "retention.ms", "xyz", "Invalid value for 'retention.ms': 'xyz'")
+	testInvalidConfig(t, "retention.ms", "000", "Invalid value for 'retention.ms': '000'")
 }
 
-func testInvalidRetentionTime(t *testing.T, retentionStr string) {
+func testInvalidConfig(t *testing.T, configName string, configVal string, expectedErrMsg string) {
 	cfg := NewConf()
 	agent, _, tearDown := setupAgentWithoutTopics(t, cfg)
 	defer tearDown(t)
@@ -401,9 +421,6 @@ func testInvalidRetentionTime(t *testing.T, retentionStr string) {
 		require.NoError(t, err)
 	}()
 	topicName := "test-topic-1"
-	configName := "retention.ms"
-	configValue := retentionStr
-	//Create
 	req := kafkaprotocol.CreateTopicsRequest{
 		Topics: []kafkaprotocol.CreateTopicsRequestCreatableTopic{
 			{
@@ -412,7 +429,7 @@ func testInvalidRetentionTime(t *testing.T, retentionStr string) {
 				Configs: []kafkaprotocol.CreateTopicsRequestCreatableTopicConfig{
 					{
 						Name:  &configName,
-						Value: &configValue,
+						Value: &configVal,
 					},
 				},
 			},
@@ -426,54 +443,5 @@ func testInvalidRetentionTime(t *testing.T, retentionStr string) {
 	require.Equal(t, 1, len(createResp.Topics))
 	require.Equal(t, topicName, common.SafeDerefStringPtr(createResp.Topics[0].Name))
 	require.Equal(t, int16(kafkaprotocol.ErrorCodeInvalidTopicException), createResp.Topics[0].ErrorCode)
-	require.Equal(t, "Invalid retention time for topic: test-topic-1", common.SafeDerefStringPtr(createResp.Topics[0].ErrorMessage))
-	require.Equal(t, int32(23), createResp.Topics[0].NumPartitions)
-	require.Equal(t, 0, len(createResp.Topics[0].Configs))
-}
-
-func TestInvalidLogMessageTimestampType(t *testing.T) {
-	testInvalidLogMessageTimestampType(t, "foo")
-}
-
-func testInvalidLogMessageTimestampType(t *testing.T, retentionStr string) {
-	cfg := NewConf()
-	agent, _, tearDown := setupAgentWithoutTopics(t, cfg)
-	defer tearDown(t)
-	cl, err := apiclient.NewKafkaApiClient()
-	require.NoError(t, err)
-	conn, err := cl.NewConnection(agent.Conf().KafkaListenerConfig.Address)
-	require.NoError(t, err)
-	defer func() {
-		err := conn.Close()
-		require.NoError(t, err)
-	}()
-	topicName := "test-topic-1"
-	configName := "log.message.timestamp.type"
-	configValue := retentionStr
-	//Create
-	req := kafkaprotocol.CreateTopicsRequest{
-		Topics: []kafkaprotocol.CreateTopicsRequestCreatableTopic{
-			{
-				Name:          &topicName,
-				NumPartitions: 23,
-				Configs: []kafkaprotocol.CreateTopicsRequestCreatableTopicConfig{
-					{
-						Name:  &configName,
-						Value: &configValue,
-					},
-				},
-			},
-		},
-	}
-	var resp kafkaprotocol.CreateTopicsResponse
-	r, err := conn.SendRequest(&req, kafkaprotocol.APIKeyCreateTopics, 5, &resp)
-	require.NoError(t, err)
-	createResp, ok := r.(*kafkaprotocol.CreateTopicsResponse)
-	require.True(t, ok)
-	require.Equal(t, 1, len(createResp.Topics))
-	require.Equal(t, topicName, common.SafeDerefStringPtr(createResp.Topics[0].Name))
-	require.Equal(t, int16(kafkaprotocol.ErrorCodeInvalidTopicException), createResp.Topics[0].ErrorCode)
-	require.Equal(t, "Invalid value for 'log.message.timestamp.type': foo", common.SafeDerefStringPtr(createResp.Topics[0].ErrorMessage))
-	require.Equal(t, int32(23), createResp.Topics[0].NumPartitions)
-	require.Equal(t, 0, len(createResp.Topics[0].Configs))
+	require.Equal(t, expectedErrMsg, common.SafeDerefStringPtr(createResp.Topics[0].ErrorMessage))
 }

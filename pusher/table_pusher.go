@@ -327,6 +327,12 @@ func (t *TablePusher) HandleProduceRequest(authContext *auth.Context, req *kafka
 			log.Debugf("handling records batch for topic: %s partition: %d", *topicData.Name, partitionID)
 			recordBatches := extractBatches(partitionData.Records)
 			for _, records := range recordBatches {
+				if len(records) > topicInfo.MaxMessageSizeBytes {
+					setPartitionError(kafkaprotocol.ErrorCodeMessageTooLarge,
+						fmt.Sprintf("message batch too large at %d bytes. maximum is %d bytes", len(records),
+							topicInfo.MaxMessageSizeBytes), &partitionResponses[j])
+					continue partitions
+				}
 				dupRes, err := t.checkDuplicates(records, topicInfo.ID, partitionID)
 				if err != nil {
 					log.Errorf("failed to check duplicate records: %v", err)
