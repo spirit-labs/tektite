@@ -273,25 +273,25 @@ func (k *kafkaHandler) HandleCreatePartitionsRequest(_ *kafkaprotocol.RequestHea
 				}
 			}
 			if errCode == kafkaprotocol.ErrorCodeNone {
-				if req.ValidateOnly {
-					info, _, exists, err := cl.GetTopicInfo(topicName)
-					if err != nil {
-						errCode, errMsg = getErrorCodeAndMessageForCreatePartitionsResponse(err)
-					} else {
-						if !exists {
-							errCode = kafkaprotocol.ErrorCodeUnknownTopicOrPartition
-							errMsg = fmt.Sprintf("unknown topic: %s", topicName)
-						} else {
-							if int(topic.Count) < info.PartitionCount {
-								errCode = kafkaprotocol.ErrorCodeInvalidPartitions
-								errMsg = "cannot reduce partition count"
-							}
-						}
+				info, _, exists, err := cl.GetTopicInfo(topicName)
+				if err != nil {
+					errCode, errMsg = getErrorCodeAndMessageForCreatePartitionsResponse(err)
+				} else if !exists {
+					errCode = kafkaprotocol.ErrorCodeUnknownTopicOrPartition
+					errMsg = fmt.Sprintf("unknown topic: %s", topicName)
+				} else if req.ValidateOnly {
+					if int(topic.Count) < info.PartitionCount {
+						errCode = kafkaprotocol.ErrorCodeInvalidPartitions
+						errMsg = "cannot reduce partition count"
 					}
 				} else {
 					if err := cl.CreateOrUpdateTopic(topicmeta.TopicInfo{
 						Name:           common.SafeDerefStringPtr(topic.Name),
 						PartitionCount: int(topic.Count),
+						// Make sure we preserve previous properties:
+						RetentionTime:       info.RetentionTime,
+						MaxMessageSizeBytes: info.MaxMessageSizeBytes,
+						UseServerTimestamp:  info.UseServerTimestamp,
 					}, false); err != nil {
 						errCode, errMsg = getErrorCodeAndMessageForCreatePartitionsResponse(err)
 					}
@@ -333,9 +333,9 @@ func (k *kafkaHandler) HandleCreateTopicsRequest(_ *kafkaprotocol.RequestHeader,
 	}
 	for i, topic := range req.Topics {
 		topicName := common.SafeDerefStringPtr(topic.Name)
-		retentionTime, useServerTimestamp, respConfigs, errCode, errMsg := k.parseConfig(topic, topicName)
+		retentionTime, useServerTimestamp, maxMessageSizeBytes, respConfigs, errCode, errMsg := k.parseConfig(topic, topicName)
 		if errCode == kafkaprotocol.ErrorCodeNone { // No error from config parsing
-			errCode, errMsg = k.validateAndCreateTopic(k.authContext, topicName, topic, retentionTime, useServerTimestamp)
+			errCode, errMsg = k.validateAndCreateTopic(k.authContext, topicName, topic, retentionTime, useServerTimestamp, maxMessageSizeBytes)
 		}
 		res := kafkaprotocol.CreateTopicsResponseCreatableTopicResult{
 			Name:          topic.Name,
@@ -420,7 +420,7 @@ func checkTopicNameValid(name string) error {
 
 func (k *kafkaHandler) validateAndCreateTopic(authContext *auth.Context, topicName string,
 	topic kafkaprotocol.CreateTopicsRequestCreatableTopic, retentionTime time.Duration,
-	useServerTimestamp bool) (int16, string) {
+	useServerTimestamp bool, maxMessageSizeBytes int) (int16, string) {
 	if authContext != nil {
 		authorised, err := authContext.Authorize(acls.ResourceTypeTopic, topicName, acls.OperationCreate)
 		if err != nil {
@@ -446,10 +446,11 @@ func (k *kafkaHandler) validateAndCreateTopic(authContext *auth.Context, topicNa
 		return kafkaprotocol.ErrorCodeCoordinatorNotAvailable, err.Error()
 	}
 	topicInfo := topicmeta.TopicInfo{
-		Name:               topicName,
-		PartitionCount:     int(topic.NumPartitions),
-		RetentionTime:      retentionTime,
-		UseServerTimestamp: useServerTimestamp,
+		Name:                topicName,
+		PartitionCount:      int(topic.NumPartitions),
+		RetentionTime:       retentionTime,
+		UseServerTimestamp:  useServerTimestamp,
+		MaxMessageSizeBytes: maxMessageSizeBytes,
 	}
 	err = acl.CreateOrUpdateTopic(topicInfo, true)
 	if err != nil {
@@ -466,38 +467,41 @@ func isValidRetentionTime(retentionMs int) bool {
 }
 
 func (k *kafkaHandler) parseConfig(topic kafkaprotocol.CreateTopicsRequestCreatableTopic,
-	topicName string) (time.Duration, bool, []kafkaprotocol.CreateTopicsResponseCreatableTopicConfigs, int16, string) {
+	topicName string) (time.Duration, bool, int, []kafkaprotocol.CreateTopicsResponseCreatableTopicConfigs, int16, string) {
 	retentionTime := k.agent.cfg.DefaultTopicRetentionTime
 	respConfigs := make([]kafkaprotocol.CreateTopicsResponseCreatableTopicConfigs, 0, len(topic.Configs))
 	errCode := int16(kafkaprotocol.ErrorCodeNone)
 	useServerTimestamp := k.agent.cfg.DefaultUseServerTimestamp
+	maxMessageSizeBytes := k.agent.cfg.DefaultMaxMessageSizeBytes
+	var err error
 	var errMsg string
 	for _, config := range topic.Configs {
 		configName := common.SafeDerefStringPtr(config.Name)
-		if configName == "retention.ms" {
-			retentionMs, err := strconv.Atoi(common.SafeDerefStringPtr(config.Value))
-			if err != nil {
+		configVal := common.SafeDerefStringPtr(config.Value)
+		switch configName {
+		case "retention.ms":
+			retentionMs, err := strconv.Atoi(configVal)
+			if err != nil || !isValidRetentionTime(retentionMs) {
 				errCode = kafkaprotocol.ErrorCodeInvalidTopicException
-				errMsg = fmt.Sprintf("Invalid retention time for topic: %s", topicName)
+				errMsg = fmt.Sprintf("Invalid value for 'retention.ms': '%s'", configVal)
 				break
-			} else {
-				if isValidRetentionTime(retentionMs) {
-					retentionTime = time.Duration(retentionMs) * time.Millisecond
-				} else {
-					errCode = int16(kafkaprotocol.ErrorCodeInvalidTopicException)
-					errMsg = fmt.Sprintf("Invalid retention time for topic: %s", topicName)
-					break
-				}
 			}
-		} else if configName == "log.message.timestamp.type" {
-			configVal := common.SafeDerefStringPtr(config.Value)
+			retentionTime = time.Duration(retentionMs) * time.Millisecond
+		case "log.message.timestamp.type":
 			if configVal == "CreateTime" {
 				useServerTimestamp = false
 			} else if configVal == "LogAppendTime" {
 				useServerTimestamp = true
 			} else {
-				errCode = int16(kafkaprotocol.ErrorCodeInvalidTopicException)
-				errMsg = fmt.Sprintf("Invalid value for 'log.message.timestamp.type': %s", configVal)
+				errCode = kafkaprotocol.ErrorCodeInvalidTopicException
+				errMsg = fmt.Sprintf("Invalid value for 'log.message.timestamp.type': '%s'", configVal)
+				break
+			}
+		case "max.message.bytes":
+			maxMessageSizeBytes, err = strconv.Atoi(configVal)
+			if err != nil || maxMessageSizeBytes < 1 {
+				errCode = kafkaprotocol.ErrorCodeInvalidTopicException
+				errMsg = fmt.Sprintf("Invalid value for 'max.message.bytes': '%s'", configVal)
 				break
 			}
 		}
@@ -506,7 +510,7 @@ func (k *kafkaHandler) parseConfig(topic kafkaprotocol.CreateTopicsRequestCreata
 			Value: config.Value,
 		})
 	}
-	return retentionTime, useServerTimestamp, respConfigs, errCode, errMsg
+	return retentionTime, useServerTimestamp, maxMessageSizeBytes, respConfigs, errCode, errMsg
 }
 
 func (k *kafkaHandler) HandleDescribeConfigsRequest(_ *kafkaprotocol.RequestHeader,

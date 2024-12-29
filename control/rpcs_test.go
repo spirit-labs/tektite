@@ -358,10 +358,11 @@ func testSerializeDeserializeCreateTopicRequest(t *testing.T, create bool) {
 		LeaderVersion: 123,
 		Create:        create,
 		Info: topicmeta.TopicInfo{
-			ID:             23423,
-			Name:           "some-topic",
-			PartitionCount: 123123,
-			RetentionTime:  1212312123,
+			ID:                  23423,
+			Name:                "some-topic",
+			PartitionCount:      123123,
+			RetentionTime:       1212312123,
+			MaxMessageSizeBytes: 777777,
 		},
 	}
 	var buff []byte

@@ -7,6 +7,7 @@ import (
 	"github.com/spirit-labs/tektite/testutils"
 	"github.com/spirit-labs/tektite/topicmeta"
 	"github.com/stretchr/testify/require"
+	"math"
 	"math/rand"
 	"testing"
 	"time"
@@ -19,10 +20,12 @@ func TestListOffsetsByTimestamp(t *testing.T) {
 		{
 			Name:           "footopic",
 			PartitionCount: 23,
+			MaxMessageSizeBytes: math.MaxInt,
 		},
 		{
 			Name:           topicName,
 			PartitionCount: 100,
+			MaxMessageSizeBytes: math.MaxInt,
 		},
 	}
 	cfg := NewConf()

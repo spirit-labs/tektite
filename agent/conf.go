@@ -39,6 +39,7 @@ type CommandConf struct {
 	UseServerTimestampForRecords    bool          `help:"whether to use server timestamp for incoming produced records. if 'false' then producer timestamp is preserved" default:"false"`
 	EnableTopicAutoCreate           bool          `help:"if 'true' then enables topic auto-creation for topics that do not already exist"`
 	AutoCreateNumPartitions         int           `help:"the number of partitions for auto-created topics" default:"1"`
+	DefaultMaxMessageSizeBytes      int           `help:"the maximum size of a message batch that can be sent to a topic - can be overridden at topic level" default:"1048576"`
 }
 
 var authTypeMapping = map[string]kafkaserver.AuthenticationType{
@@ -148,6 +149,7 @@ func CreateConfFromCommandConf(commandConf CommandConf) (Conf, error) {
 	cfg.DefaultUseServerTimestamp = commandConf.UseServerTimestampForRecords
 	cfg.EnableTopicAutoCreate = commandConf.EnableTopicAutoCreate
 	cfg.DefaultPartitionCount = commandConf.AutoCreateNumPartitions
+	cfg.DefaultMaxMessageSizeBytes = commandConf.DefaultMaxMessageSizeBytes
 	return cfg, nil
 }
 
@@ -197,55 +199,58 @@ func selectNetworkInterface() (string, error) {
 }
 
 type Conf struct {
-	ClusterListenerConfig     ListenerConfig
-	ClusterClientTlsConfig    conf.ClientTlsConf
-	KafkaListenerConfig       ListenerConfig
-	ClusterMembershipConfig   cluster.MembershipConf
-	PusherConf                pusher.Conf
-	ControllerConf            control.Conf
-	CompactionWorkersConf     lsm.CompactionWorkerServiceConf
-	FetcherConf               fetcher.Conf
-	FetchCacheConf            fetchcache.Conf
-	GroupCoordinatorConf      group.Conf
-	MaxControllerClients      int
-	MaxConnectionsPerAddress  int
-	AuthType                  kafkaserver.AuthenticationType
-	AllowScramNonceAsPrefix   bool
-	AddJunkOnScramNonce       bool
-	DefaultTopicRetentionTime time.Duration
-	DefaultUseServerTimestamp bool
-	ClusterName               string
-	UserAuthCacheTimeout      time.Duration
-	EnableTopicAutoCreate     bool
-	DefaultPartitionCount     int
+	ClusterListenerConfig      ListenerConfig
+	ClusterClientTlsConfig     conf.ClientTlsConf
+	KafkaListenerConfig        ListenerConfig
+	ClusterMembershipConfig    cluster.MembershipConf
+	PusherConf                 pusher.Conf
+	ControllerConf             control.Conf
+	CompactionWorkersConf      lsm.CompactionWorkerServiceConf
+	FetcherConf                fetcher.Conf
+	FetchCacheConf             fetchcache.Conf
+	GroupCoordinatorConf       group.Conf
+	MaxControllerClients       int
+	MaxConnectionsPerAddress   int
+	AuthType                   kafkaserver.AuthenticationType
+	AllowScramNonceAsPrefix    bool
+	AddJunkOnScramNonce        bool
+	DefaultTopicRetentionTime  time.Duration
+	DefaultUseServerTimestamp  bool
+	ClusterName                string
+	UserAuthCacheTimeout       time.Duration
+	EnableTopicAutoCreate      bool
+	DefaultPartitionCount      int
+	DefaultMaxMessageSizeBytes int
 }
 
 func NewConf() Conf {
 	return Conf{
-		ClusterName:               DefaultClusterName,
-		ClusterMembershipConfig:   cluster.NewMembershipConf(),
-		PusherConf:                pusher.NewConf(),
-		ControllerConf:            control.NewConf(),
-		CompactionWorkersConf:     lsm.NewCompactionWorkerServiceConf(),
-		FetcherConf:               fetcher.NewConf(),
-		FetchCacheConf:            fetchcache.NewConf(),
-		GroupCoordinatorConf:      group.NewConf(),
-		MaxControllerClients:      DefaultMaxControllerClients,
-		MaxConnectionsPerAddress:  DefaultMaxConnectionsPerAddress,
-		AuthType:                  kafkaserver.AuthenticationTypeNone,
-		DefaultTopicRetentionTime: DefaultDefaultTopicRetentionTime,
-		UserAuthCacheTimeout:      DefaultUserAuthCacheTimeout,
-		DefaultPartitionCount:     DefaultDefaultPartitionCount,
+		ClusterName:                DefaultClusterName,
+		ClusterMembershipConfig:    cluster.NewMembershipConf(),
+		PusherConf:                 pusher.NewConf(),
+		ControllerConf:             control.NewConf(),
+		CompactionWorkersConf:      lsm.NewCompactionWorkerServiceConf(),
+		FetcherConf:                fetcher.NewConf(),
+		FetchCacheConf:             fetchcache.NewConf(),
+		GroupCoordinatorConf:       group.NewConf(),
+		MaxControllerClients:       DefaultMaxControllerClients,
+		MaxConnectionsPerAddress:   DefaultMaxConnectionsPerAddress,
+		AuthType:                   kafkaserver.AuthenticationTypeNone,
+		DefaultTopicRetentionTime:  DefaultDefaultTopicRetentionTime,
+		UserAuthCacheTimeout:       DefaultUserAuthCacheTimeout,
+		DefaultPartitionCount:      DefaultDefaultPartitionCount,
+		DefaultMaxMessageSizeBytes: DefaultDefaultMaxMessageSizeBytes,
 	}
 }
 
 const (
-	DefaultClusterName               = "tektite-cluster"
-	DefaultDefaultTopicRetentionTime = 7 * 24 * time.Hour
-	DefaultMaxControllerClients      = 10
-	DefaultMaxConnectionsPerAddress  = 10
-	DefaultUserAuthCacheTimeout      = 5 * time.Minute
-	DefaultDefaultPartitionCount     = 1
+	DefaultClusterName                = "tektite-cluster"
+	DefaultDefaultTopicRetentionTime  = 7 * 24 * time.Hour
+	DefaultMaxControllerClients       = 10
+	DefaultMaxConnectionsPerAddress   = 10
+	DefaultUserAuthCacheTimeout       = 5 * time.Minute
+	DefaultDefaultPartitionCount      = 1
+	DefaultDefaultMaxMessageSizeBytes = 1024 * 1024
 )
 
 func (c *Conf) Validate() error {

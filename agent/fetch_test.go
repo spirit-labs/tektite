@@ -34,8 +34,9 @@ func testFetchSimple(t *testing.T, apiVersion int16) {
 	partitionID := 12
 	topicInfos := []topicmeta.TopicInfo{
 		{
-			Name:           topicName,
-			PartitionCount: 100,
+			Name:                topicName,
+			PartitionCount:      100,
+			MaxMessageSizeBytes: math.MaxInt,
 		},
 	}
 	cfg := NewConf()
@@ -114,9 +115,10 @@ func testFetch(t *testing.T, numAgents int, writeTimeout time.Duration, numBatch
 	partitionID := 12
 	topicInfos := []topicmeta.TopicInfo{
 		{
-			Name:           topicName,
-			PartitionCount: 100,
-			RetentionTime:  -1,
+			Name:                topicName,
+			PartitionCount:      100,
+			RetentionTime:       -1,
+			MaxMessageSizeBytes: math.MaxInt,
 		},
 	}
 	cfg := NewConf()

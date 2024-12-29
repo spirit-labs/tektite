@@ -569,7 +569,7 @@ func TestTablePusherHandleProduceBatchSimple(t *testing.T) {
 		return controllerClient, nil
 	}
 	topicProvider := &simpleTopicInfoProvider{infos: map[string]topicmeta.TopicInfo{
-		"topic1": {ID: topicID, PartitionCount: 20},
+		"topic1": {ID: topicID, PartitionCount: 20, MaxMessageSizeBytes: 1048576},
 	}}
 	partHashes, err := parthash.NewPartitionHashes(100)
 	require.NoError(t, err)
@@ -672,7 +672,7 @@ func TestTablePusherHandleProduceBatchNotLeader(t *testing.T) {
 		return controllerClient, nil
 	}
 	topicProvider := &simpleTopicInfoProvider{infos: map[string]topicmeta.TopicInfo{
-		"topic1": {ID: topicID, PartitionCount: 20},
+		"topic1": {ID: topicID, PartitionCount: 20, MaxMessageSizeBytes: 1048576},
 	}}
 	partHashes, err := parthash.NewPartitionHashes(100)
 	require.NoError(t, err)
@@ -762,8 +762,8 @@ func TestTablePusherHandleProduceBatchMultipleTopicsAndPartitions(t *testing.T) 
 		return controllerClient, nil
 	}
 	topicProvider := &simpleTopicInfoProvider{infos: map[string]topicmeta.TopicInfo{
-		"topic1": {ID: topicID1, PartitionCount: 20},
-		"topic2": {ID: topicID2, PartitionCount: 30},
+		"topic1": {ID: topicID1, PartitionCount: 20, MaxMessageSizeBytes: 1048576},
+		"topic2": {ID: topicID2, PartitionCount: 30, MaxMessageSizeBytes: 1048576},
 	}}
 	partHashes, err := parthash.NewPartitionHashes(100)
 	require.NoError(t, err)
@@ -959,7 +959,7 @@ func TestTablePusherPushWhenBufferIsFull(t *testing.T) {
 		return controllerClient, nil
 	}
 	topicProvider := &simpleTopicInfoProvider{infos: map[string]topicmeta.TopicInfo{
-		"topic1": {ID: topicID, PartitionCount: 30},
+		"topic1": {ID: topicID, PartitionCount: 30, MaxMessageSizeBytes: 1048576},
 	}}
 
 	partHashes, err := parthash.NewPartitionHashes(100)
@@ -1075,7 +1075,7 @@ func TestTablePusherPushWhenTimeoutIsExceeded(t *testing.T) {
 		return controllerClient, nil
 	}
 	topicProvider := &simpleTopicInfoProvider{infos: map[string]topicmeta.TopicInfo{
-		"topic1": {ID: topicID, PartitionCount: 20},
+		"topic1": {ID: topicID, PartitionCount: 20, MaxMessageSizeBytes: 1048576},
 	}}
 
 	partHashes, err := parthash.NewPartitionHashes(100)
@@ -1181,8 +1181,8 @@ func TestTablePusherHandleProduceBatchMixtureErrorsAndSuccesses(t *testing.T) {
 		return controllerClient, nil
 	}
 	topicProvider := &simpleTopicInfoProvider{infos: map[string]topicmeta.TopicInfo{
-		"topic1": {ID: topicID1, PartitionCount: 20},
-		"topic2": {ID: topicID2, PartitionCount: 30},
+		"topic1": {ID: topicID1, PartitionCount: 20, MaxMessageSizeBytes: 1048576},
+		"topic2": {ID: topicID2, PartitionCount: 30, MaxMessageSizeBytes: 1048576},
 	}}
 	partHashes, err := parthash.NewPartitionHashes(100)
 	require.NoError(t, err)
@@ -1394,7 +1394,7 @@ func TestTablePusherUnexpectedError(t *testing.T) {
 		return controllerClient, nil
 	}
 	topicProvider := &simpleTopicInfoProvider{infos: map[string]topicmeta.TopicInfo{
-		"topic1": {ID: topicID, PartitionCount: 20},
+		"topic1": {ID: topicID, PartitionCount: 20, MaxMessageSizeBytes: 1048576},
 	}}
 	partHashes, err := parthash.NewPartitionHashes(100)
 	require.NoError(t, err)
@@ -1479,7 +1479,7 @@ func TestTablePusherTemporaryUnavailability(t *testing.T) {
 		return controllerClient, nil
 	}
 	topicProvider := &simpleTopicInfoProvider{infos: map[string]topicmeta.TopicInfo{
-		"topic1": {ID: topicID, PartitionCount: 30},
+		"topic1": {ID: topicID, PartitionCount: 30, MaxMessageSizeBytes: 1048576},
 	}}
 	partHashes, err := parthash.NewPartitionHashes(100)
 	require.NoError(t, err)
@@ -1808,7 +1808,7 @@ func setupTablePusherForIdempotentProducerWithConfigSetter(t *testing.T, cfgSett
 		return controllerClient, nil
 	}
 	topicProvider := &simpleTopicInfoProvider{infos: map[string]topicmeta.TopicInfo{
-		"topic1": {ID: topicID, PartitionCount: 20},
+		"topic1": {ID: topicID, PartitionCount: 20, MaxMessageSizeBytes: 1048576},
 	}}
 	partHashes, err := parthash.NewPartitionHashes(100)
 	require.NoError(t, err)
@@ -1992,7 +1992,7 @@ func TestTablePusherUseServerTimestamp(t *testing.T) {
 		return controllerClient, nil
 	}
 	topicProvider := &simpleTopicInfoProvider{infos: map[string]topicmeta.TopicInfo{
-		"topic1": {ID: topicID, PartitionCount: 20, UseServerTimestamp: true},
+		"topic1": {ID: topicID, PartitionCount: 20, MaxMessageSizeBytes: 1048576, UseServerTimestamp: true},
 	}}
 	partHashes, err := parthash.NewPartitionHashes(100)
 	require.NoError(t, err)
@@ -2054,6 +2054,85 @@ func TestTablePusherUseServerTimestamp(t *testing.T) {
 		baseTimestamp := kafkaencoding.BaseTimestamp(val)
 		require.GreaterOrEqual(t, baseTimestamp, now)
 	}
+}
+
+func TestTablePusherMaxMessageSizeBytes(t *testing.T) {
+	cfg := NewConf()
+	cfg.DataBucketName = "test-data-bucket"
+	cfg.WriteTimeout = 1 * time.Millisecond // So it pushes straightaway
+	cfg.EnforceProduceOnLeader = true
+
+	objStore := dev.NewInMemStore(0)
+	topicID := 1234
+	seq := int64(23)
+	numRecordsInBatch := 10
+
+	controllerClient := &testControllerClient{
+		sequence: seq,
+		offsets: []offsets.OffsetTopicInfo{
+			{
+				TopicID: topicID,
+				PartitionInfos: []offsets.OffsetPartitionInfo{
+					{
+						PartitionID: 12,
+						Offset:      int64(numRecordsInBatch - 1),
+					},
+				},
+			},
+		},
+	}
+	clientFactory := func() (ControlClient, error) {
+		return controllerClient, nil
+	}
+	topicProvider := &simpleTopicInfoProvider{infos: map[string]topicmeta.TopicInfo{
+		"topic1": {ID: topicID, PartitionCount: 20, MaxMessageSizeBytes: 10, UseServerTimestamp: true},
+	}}
+	partHashes, err := parthash.NewPartitionHashes(100)
+	require.NoError(t, err)
+	tableGetter := &testTableGetter{}
+	pusher, err := NewTablePusher(cfg, topicProvider, objStore, clientFactory, tableGetter.getTable,
+		partHashes, &testLeaderChecker{leader: true})
+	require.NoError(t, err)
+	err = pusher.Start()
+	require.NoError(t, err)
+	defer func() {
+		err := pusher.Stop()
+		require.NoError(t, err)
+	}()
+
+	recordBatch := testutils.CreateKafkaRecordBatchWithIncrementingKVs(0, numRecordsInBatch)
+	req := kafkaprotocol.ProduceRequest{
+		TransactionalId: nil,
+		Acks:            -1,
+		TimeoutMs:       1234,
+		TopicData: []kafkaprotocol.ProduceRequestTopicProduceData{
+			{
+				Name: common.StrPtr("topic1"),
+				PartitionData: []kafkaprotocol.ProduceRequestPartitionProduceData{
+					{
+						Index:   12,
+						Records: recordBatch,
+					},
+				},
+			},
+		},
+	}
+	respCh := make(chan *kafkaprotocol.ProduceResponse, 1)
+	err = pusher.HandleProduceRequest(nil, &req, func(resp *kafkaprotocol.ProduceResponse) error {
+		respCh <- resp
+		return nil
+	})
+	require.NoError(t, err)
+	resp := <-respCh
+
+	require.Equal(t, 1, len(resp.Responses))
+	topicResp := resp.Responses[0]
+	require.Equal(t, 1, len(topicResp.PartitionResponses))
+	partResp := topicResp.PartitionResponses[0]
+	require.Equal(t, kafkaprotocol.ErrorCodeMessageTooLarge, int(partResp.ErrorCode))
+
+	ssTables, _ := getSSTablesFromStore(t, cfg.DataBucketName, objStore)
+	require.Equal(t, 0, len(ssTables))
 }
 
 type testControllerClient struct {

@@ -11,6 +11,7 @@ type TopicInfo struct {
 	PartitionCount     int
 	RetentionTime      time.Duration
 	UseServerTimestamp bool
+	MaxMessageSizeBytes int
 }
 
 func (t *TopicInfo) Serialize(buff []byte) []byte {
@@ -24,6 +25,7 @@ func (t *TopicInfo) Serialize(buff []byte) []byte {
 	} else {
 		buff = append(buff, 0)
 	}
+	buff = binary.BigEndian.AppendUint64(buff, uint64(t.MaxMessageSizeBytes))
 	return buff
 }
 
@@ -40,5 +42,7 @@ func (t *TopicInfo) Deserialize(buff []byte, offset int) int {
 	offset += 8
 	t.UseServerTimestamp = buff[offset] == 1
 	offset++
+	t.MaxMessageSizeBytes = int(binary.BigEndian.Uint64(buff[offset:]))
+	offset += 8
 	return offset
 }

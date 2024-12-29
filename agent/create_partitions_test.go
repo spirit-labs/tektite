@@ -8,6 +8,7 @@ import (
 	"github.com/spirit-labs/tektite/testutils"
 	"github.com/spirit-labs/tektite/topicmeta"
 	"github.com/stretchr/testify/require"
+	"math"
 	"testing"
 )
 
@@ -20,9 +21,10 @@ func TestCreatePartitions(t *testing.T) {
 	for i := 0; i < numTopics; i++ {
 		topicName := fmt.Sprintf("topic-%d", i)
 		topicInfos = append(topicInfos, topicmeta.TopicInfo{
-			Name:           topicName,
-			PartitionCount: initialPartitionCount,
-			RetentionTime:  -1,
+			Name:                topicName,
+			PartitionCount:      initialPartitionCount,
+			RetentionTime:       -1,
+			MaxMessageSizeBytes: math.MaxInt,
 		})
 	}
 	cfg := NewConf()
@@ -140,9 +142,10 @@ func TestCreatePartitionsValidateOnly(t *testing.T) {
 	for i := 0; i < numTopics; i++ {
 		topicName := fmt.Sprintf("topic-%d", i)
 		topicInfos = append(topicInfos, topicmeta.TopicInfo{
-			Name:           topicName,
-			PartitionCount: initialPartitionCount,
-			RetentionTime:  -1,
+			Name:                topicName,
+			PartitionCount:      initialPartitionCount,
+			RetentionTime:       -1,
+			MaxMessageSizeBytes: math.MaxInt,
 		})
 	}
 	cfg := NewConf()
@@ -300,7 +303,6 @@ func testCreatePartitionsInvalidTopics(t *testing.T, validOnly bool) {
 	for _, topicResp := range createPartitionsResp.Results {
 		require.Equal(t, int16(kafkaprotocol.ErrorCodeUnknownTopicOrPartition), topicResp.ErrorCode)
 	}
-
 }
 
 func TestCreatePartitionsReducePartitions(t *testing.T) {

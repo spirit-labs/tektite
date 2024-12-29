@@ -34,12 +34,14 @@ func TestProduceSimple(t *testing.T) {
 	partitionID := 12
 	topicInfos := []topicmeta.TopicInfo{
 		{
-			Name:           "footopic",
-			PartitionCount: 23,
+			Name:                "footopic",
+			PartitionCount:      23,
+			MaxMessageSizeBytes: math.MaxInt,
 		},
 		{
-			Name:           topicName,
-			PartitionCount: 100,
+			Name:                topicName,
+			PartitionCount:      100,
+			MaxMessageSizeBytes: math.MaxInt,
 		},
 	}
 	cfg := NewConf()
@@ -104,8 +106,9 @@ func TestProduceMultipleTopicsAndPartitions(t *testing.T) {
 	var topicInfos []topicmeta.TopicInfo
 	for i := 0; i < numTopics; i++ {
 		topicInfos = append(topicInfos, topicmeta.TopicInfo{
-			Name:           fmt.Sprintf("topic-%02d", i),
-			PartitionCount: numPartitionsPerTopic,
+			Name:                fmt.Sprintf("topic-%02d", i),
+			PartitionCount:      numPartitionsPerTopic,
+			MaxMessageSizeBytes: math.MaxInt,
 		})
 	}
 
@@ -186,12 +189,14 @@ func TestProduceMultipleBatches(t *testing.T) {
 	partitionID := 12
 	topicInfos := []topicmeta.TopicInfo{
 		{
-			Name:           "footopic",
-			PartitionCount: 23,
+			Name:                "footopic",
+			PartitionCount:      23,
+			MaxMessageSizeBytes: math.MaxInt,
 		},
 		{
-			Name:           topicName,
-			PartitionCount: 100,
+			Name:                topicName,
+			PartitionCount:      100,
+			MaxMessageSizeBytes: math.MaxInt,
 		},
 	}
 	cfg := NewConf()
@@ -263,13 +268,15 @@ func TestProduceSimpleWithReload(t *testing.T) {
 	partitionID := 12
 	topicInfos := []topicmeta.TopicInfo{
 		{
-			Name:           "footopic",
-			PartitionCount: 23,
+			Name:                "footopic",
+			PartitionCount:      23,
+			MaxMessageSizeBytes: math.MaxInt,
 		},
 		{
-			Name:           topicName,
-			ID:             topicID,
-			PartitionCount: 100,
+			Name:                topicName,
+			ID:                  topicID,
+			PartitionCount:      100,
+			MaxMessageSizeBytes: math.MaxInt,
 		},
 	}
 	cfg := NewConf()
