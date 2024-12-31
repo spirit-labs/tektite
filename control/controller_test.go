@@ -742,6 +742,8 @@ func createAndRegisterTableWithKVs(t *testing.T, kvs []common.KV, objStore objst
 		return nil
 	})
 	require.NoError(t, err)
+	err = <-ch
+	require.NoError(t, err)
 }
 
 type fakePusherSink struct {

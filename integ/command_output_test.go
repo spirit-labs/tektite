@@ -64,6 +64,7 @@ Flags:
       --enable-topic-auto-create                              if 'true' then enables topic auto-creation for topics that do not already exist
       --auto-create-num-partitions=1                          the number of partitions for auto-created topics
       --default-max-message-size-bytes=1048576                the maximum size of a message batch that can be sent to a topic - can be overridden at topic level
+      --metadata-write-interval-ms=100                        interval between writing database metadata to permanent storage, in milliseconds
       --log-format="console"                                  format to write log lines in - one of: console, json
       --log-level="info"                                      lowest log level that will be emitted - one of: debug, info, warn, error`
 

@@ -40,6 +40,7 @@ type CommandConf struct {
 	EnableTopicAutoCreate           bool          `help:"if 'true' then enables topic auto-creation for topics that do not already exist"`
 	AutoCreateNumPartitions         int           `help:"the number of partitions for auto-created topics" default:"1"`
 	DefaultMaxMessageSizeBytes      int           `help:"the maximum size of a message batch that can be sent to a topic - can be overridden at topic level" default:"1048576"`
+	MetadataWriteIntervalMs         int           `help:"interval between writing database metadata to permanent storage, in milliseconds" default:"100"`
 }
 
 var authTypeMapping = map[string]kafkaserver.AuthenticationType{
@@ -150,6 +151,11 @@ func CreateConfFromCommandConf(commandConf CommandConf) (Conf, error) {
 	cfg.EnableTopicAutoCreate = commandConf.EnableTopicAutoCreate
 	cfg.DefaultPartitionCount = commandConf.AutoCreateNumPartitions
 	cfg.DefaultMaxMessageSizeBytes = commandConf.DefaultMaxMessageSizeBytes
+	if commandConf.MetadataWriteIntervalMs < 1 {
+		return Conf{}, errors.Errorf("invalid metadata-write-interval-ms: %d - must be >= 1",
+			commandConf.MetadataWriteIntervalMs)
+	}
+	cfg.ControllerConf.LsmStateWriteInterval = time.Duration(commandConf.MetadataWriteIntervalMs) * time.Millisecond
 	return cfg, nil
 }
 
