@@ -7,6 +7,7 @@ import (
 	"github.com/spirit-labs/tektite/lsm"
 	"github.com/spirit-labs/tektite/objstore"
 	"github.com/spirit-labs/tektite/sst"
+	"time"
 
 	"sync"
 	"sync/atomic"
@@ -25,6 +26,9 @@ type LsmHolder struct {
 	started                bool
 	hasQueuedRegistrations atomic.Bool
 	queuedRegistrations    []queuedRegistration
+	waitingCompletions     []func(error) error
+	stateWriteTimer        *time.Timer
+	stateWriteInterval     time.Duration
 }
 
 type queuedRegistration struct {
@@ -33,13 +37,14 @@ type queuedRegistration struct {
 }
 
 func NewLsmHolder(stateUpdaterBucketName string, stateUpdaterKeyPrefix string, dataBucketName string,
-	dataKeyPrefix string, objStoreClient objstore.Client, lsmOpts lsm.Conf) *LsmHolder {
+	dataKeyPrefix string, objStoreClient objstore.Client, stateWriteInterval time.Duration, lsmOpts lsm.Conf) *LsmHolder {
 	clusteredData := cluster.NewClusteredData(stateUpdaterBucketName, stateUpdaterKeyPrefix, dataBucketName, dataKeyPrefix,
 		objStoreClient, lsmOpts.ClusteredDataConf)
 	return &LsmHolder{
-		objStore:      objStoreClient,
-		lsmOpts:       lsmOpts,
-		clusteredData: clusteredData,
+		objStore:           objStoreClient,
+		lsmOpts:            lsmOpts,
+		clusteredData:      clusteredData,
+		stateWriteInterval: stateWriteInterval,
 	}
 }
 
@@ -58,6 +63,7 @@ func (s *LsmHolder) Start() error {
 		return err
 	}
 	s.lsmManager = lsmManager
+	s.scheduleStateWriteTimer()
 	s.started = true
 	return nil
 }
@@ -76,7 +82,32 @@ func (s *LsmHolder) stop() error {
 		return err
 	}
 	s.clusteredData.Stop()
+	if s.stateWriteTimer != nil {
+		s.stateWriteTimer.Stop()
+	}
+	s.started = false
 	return nil
+}
+
+func (s *LsmHolder) scheduleStateWriteTimer() {
+	s.stateWriteTimer = time.AfterFunc(s.stateWriteInterval, func() {
+		s.lock.Lock()
+		defer s.lock.Unlock()
+		if !s.started {
+			return
+		}
+		s.maybeWriteState()
+		s.scheduleStateWriteTimer()
+	})
+}
+
+func (s *LsmHolder) GetTablesForHighestKeyWithPrefix(prefix []byte) ([]sst.SSTableID, error) {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+	if err := s.checkStarted(); err != nil {
+		return nil, err
+	}
+	return s.lsmManager.GetTablesForHighestKeyWithPrefix(prefix)
 }
 
 // ApplyLsmChanges - apply some changes to the LSM structure. Note that this method completes asynchronously as
@@ -92,7 +123,8 @@ func (s *LsmHolder) ApplyLsmChanges(regBatch lsm.RegistrationBatch, completionFu
 		return completionFunc(err)
 	}
 	if ok {
-		return s.afterApplyChanges(completionFunc)
+		s.addWaitingCompletion(completionFunc)
+		return nil
 	}
 	// L0 is full - queue the registration - it will be retried when there is space in L0
 	s.hasQueuedRegistrations.Store(true)
@@ -101,33 +133,6 @@ func (s *LsmHolder) ApplyLsmChanges(regBatch lsm.RegistrationBatch, completionFu
 		completionFunc: completionFunc,
 	})
 	return nil
-}
-
-func (s *LsmHolder) GetTablesForHighestKeyWithPrefix(prefix []byte) ([]sst.SSTableID, error) {
-	s.lock.Lock()
-	defer s.lock.Unlock()
-	if err := s.checkStarted(); err != nil {
-		return nil, err
-	}
-	return s.lsmManager.GetTablesForHighestKeyWithPrefix(prefix)
-}
-
-func (s *LsmHolder) afterApplyChanges(completionFunc func(error) error) error {
-	// Attempt to store the LSM state
-	ok, err := s.clusteredData.StoreData(s.lsmManager.GetMasterRecordBytes())
-	if err != nil {
-		return completionFunc(err)
-	}
-	if !ok {
-		// Failed to apply changes as epoch has changed
-		// Now we need to stop the controller as it's no longer valid
-		if err := s.stop(); err != nil {
-			log.Warnf("failed to stop controller: %v", err)
-		}
-		return completionFunc(common.NewTektiteErrorf(common.Unavailable, "lsm holder failed to write as epoch changed"))
-	} else {
-		return completionFunc(nil)
-	}
 }
 
 func (s *LsmHolder) maybeRetryApplies() {
@@ -140,18 +145,48 @@ func (s *LsmHolder) maybeRetryApplies() {
 	}
 }
 
+func (s *LsmHolder) addWaitingCompletion(completionFunc func(error) error) {
+	// Completions be called when data has been written
+	s.waitingCompletions = append(s.waitingCompletions, completionFunc)
+}
+
+func (s *LsmHolder) maybeWriteState() {
+	if len(s.waitingCompletions) == 0 {
+		return
+	}
+	ok, err := s.clusteredData.StoreData(s.lsmManager.GetMasterRecordBytes())
+	if err != nil {
+		log.Warnf("failed to store lsm state: %v", err)
+	}
+	if !ok {
+		// Failed to store data as another controller has incremented the epoch - i.e. we are not leader any more
+		err = common.NewTektiteErrorf(common.Unavailable, "controller not leader")
+		// No longer leader so stop the controller
+		if err := s.stop(); err != nil {
+			log.Warnf("failed to stop controller: %v", err)
+		}
+	}
+	log.Infof("lsmholder writing state with err %v", err)
+	// Call completions
+	for _, cf := range s.waitingCompletions {
+		if err2 := cf(err); err2 != nil {
+			log.Errorf("failed to apply completion function: %v", err2)
+		}
+	}
+	log.Infof("lsmholder called completions ok")
+	s.waitingCompletions = s.waitingCompletions[:0]
+}
+
 func (s *LsmHolder) maybeRetryApplies0() error {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 	pos := 0
-	var completionFuncs []func(error) error
 	for _, queuedReg := range s.queuedRegistrations {
 		ok, err := s.lsmManager.ApplyChanges(queuedReg.regBatch, false)
 		if err != nil {
 			return queuedReg.completionFunc(err)
 		}
 		if ok {
-			completionFuncs = append(completionFuncs, queuedReg.completionFunc)
 			pos++
 		} else {
 			// full again
@@ -159,26 +194,9 @@ func (s *LsmHolder) maybeRetryApplies0() error {
 		}
 	}
 	if pos > 0 {
-		// We applied one or more queued registrations, now store the state
-		ok, err := s.clusteredData.StoreData(s.lsmManager.GetMasterRecordBytes())
-		if !ok {
-			// Failed to store data as another controller has incremented the epoch - i.e. we are not leader any more
-			err = common.NewTektiteErrorf(common.Unavailable, "controller not leader")
-			// No longer leader so stop the controller
-			if err := s.stop(); err != nil {
-				log.Warnf("failed to stop controller: %v", err)
-			}
+		for i := 0; i < pos; i++ {
+			s.addWaitingCompletion(s.queuedRegistrations[i].completionFunc)
 		}
-		if err != nil {
-			// Send errors back to completions
-			for _, cf := range completionFuncs {
-				if err := cf(err); err != nil {
-					log.Errorf("failed to apply completion function: %v", err)
-				}
-			}
-			return err
-		}
-		// no errors - remove the elements we successfully applied
 		newQueueSize := len(s.queuedRegistrations) - pos
 		if newQueueSize > 0 {
 			newRegs := make([]queuedRegistration, len(s.queuedRegistrations)-pos)
@@ -187,12 +205,6 @@ func (s *LsmHolder) maybeRetryApplies0() error {
 		} else {
 			s.queuedRegistrations = nil
 			s.hasQueuedRegistrations.Store(false)
-		}
-		// Call the completions
-		for _, cf := range completionFuncs {
-			if err := cf(nil); err != nil {
-				log.Errorf("failed to apply completion function: %v", err)
-			}
 		}
 	}
 	return nil

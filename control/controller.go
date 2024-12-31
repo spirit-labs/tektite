@@ -127,7 +127,7 @@ func (c *Controller) GetActivateClusterVersion() int {
 
 func (c *Controller) stop() error {
 	if c.lsmHolder != nil {
-		if err := c.lsmHolder.stop(); err != nil {
+		if err := c.lsmHolder.Stop(); err != nil {
 			return err
 		}
 		c.lsmHolder = nil
@@ -175,7 +175,8 @@ func (c *Controller) MembershipChanged(thisMemberID int32, newState cluster.Memb
 		if c.lsmHolder == nil {
 			log.Debugf("%p controller %d activating as leader, newState %v", c, thisMemberID, newState)
 			lsmHolder := NewLsmHolder(c.cfg.ControllerStateUpdaterBucketName, c.cfg.ControllerStateUpdaterKeyPrefix,
-				c.cfg.ControllerMetaDataBucketName, c.cfg.ControllerMetaDataKeyPrefix, c.objStoreClient, c.cfg.LsmConf)
+				c.cfg.ControllerMetaDataBucketName, c.cfg.ControllerMetaDataKeyPrefix, c.objStoreClient,
+				c.cfg.LsmStateWriteInterval, c.cfg.LsmConf)
 			if err := lsmHolder.Start(); err != nil {
 				return err
 			}
@@ -750,7 +751,7 @@ func (c *Controller) handleCreateAcls(_ *transport.ConnectionContext, request []
 	}
 	// We release the controller lock before executing the createAcls - as this causes an indirect call
 	// back into the controller via the table pusher when the KVs are written, and this can otherwise deadlock
-	// if MembershipChanged is trying to get the W lock.
+	// if MembershipChanged is trying to get the write lock.
 	c.lock.RUnlock()
 	unlocked = true
 	if err := c.aclManager.CreateAcls(req.AclEntries); err != nil {

@@ -17,12 +17,13 @@ const (
 	stateUpdatorKeyprefix  = "state-updator-keyprefix"
 	dataBucketName         = "data-bucket"
 	dataKeyprefix          = "data-keyprefix"
+	stateWriteInterval     = 1 * time.Millisecond
 )
 
 func TestApplyChanges(t *testing.T) {
 	objStore := dev.NewInMemStore(0)
 	holder := NewLsmHolder(stateUpdatorBucketName, stateUpdatorKeyprefix, dataBucketName, dataKeyprefix, objStore,
-		lsm.Conf{})
+		stateWriteInterval, lsm.Conf{})
 	err := holder.Start()
 	require.NoError(t, err)
 
@@ -32,7 +33,7 @@ func TestApplyChanges(t *testing.T) {
 func TestApplyChangesRestart(t *testing.T) {
 	objStore := dev.NewInMemStore(0)
 	holder := NewLsmHolder(stateUpdatorBucketName, stateUpdatorKeyprefix, dataBucketName, dataKeyprefix, objStore,
-		lsm.Conf{})
+		stateWriteInterval, lsm.Conf{})
 	err := holder.Start()
 	require.NoError(t, err)
 
@@ -44,7 +45,7 @@ func TestApplyChangesRestart(t *testing.T) {
 
 	// recreate holder
 	holder = NewLsmHolder(stateUpdatorBucketName, stateUpdatorKeyprefix, dataBucketName, dataKeyprefix, objStore,
-		lsm.Conf{})
+		stateWriteInterval, lsm.Conf{})
 	err = holder.Start()
 	require.NoError(t, err)
 
@@ -87,7 +88,7 @@ func TestApplyChangesL0Full(t *testing.T) {
 		L0MaxTablesBeforeBlocking: 10,
 	}
 	holder := NewLsmHolder(stateUpdatorBucketName, stateUpdatorKeyprefix, dataBucketName, dataKeyprefix, objStore,
-		opts)
+		stateWriteInterval, opts)
 	err := holder.Start()
 	require.NoError(t, err)
 
