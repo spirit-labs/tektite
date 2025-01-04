@@ -2,6 +2,7 @@ package dev
 
 import (
 	"context"
+	"github.com/google/uuid"
 	"github.com/spirit-labs/tektite/common"
 	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/objstore"
@@ -36,6 +37,23 @@ func internalKey(bucket string, key string) string {
 	return bucket + ":" + key
 }
 
+func (im *InMemStore) GetObjectInfo(_ context.Context, bucket string, key string) (objstore.ObjectInfo, bool, error) {
+	if err := im.checkUnavailable(); err != nil {
+		return objstore.ObjectInfo{}, false, err
+	}
+	im.maybeAddDelay()
+	skey := internalKey(bucket, key)
+	v, ok := im.store.Load(skey)
+	if !ok {
+		return objstore.ObjectInfo{}, false, nil
+	}
+	if v == nil {
+		panic("nil value in obj store")
+	}
+	holder := v.(valueHolder)
+	return holder.info, true, nil
+}
+
 func (im *InMemStore) Get(_ context.Context, bucket string, key string) ([]byte, error) {
 	if err := im.checkUnavailable(); err != nil {
 		return nil, err
@@ -50,7 +68,7 @@ func (im *InMemStore) Get(_ context.Context, bucket string, key string) ([]byte,
 		panic("nil value in obj store")
 	}
 	holder := v.(valueHolder)
-	return holder.value, nil //nolint:forcetypeassert
+	return common.ByteSliceCopy(holder.value), nil //nolint:forcetypeassert
 }
 
 func (im *InMemStore) Put(_ context.Context, bucket string, key string, value []byte) error {
@@ -60,13 +78,20 @@ func (im *InMemStore) Put(_ context.Context, bucket string, key string, value []
 	im.maybeAddDelay()
 	skey := internalKey(bucket, key)
 	log.Debugf("local cloud store %p adding blob with key %v value length %d", im, key, len(value))
-	im.store.Store(skey, valueHolder{value: value, info: objstore.ObjectInfo{Key: key, LastModified: time.Now().UTC()}})
+	im.store.Store(skey, valueHolder{
+		value: value,
+		info: objstore.ObjectInfo{
+			Key:          key,
+			LastModified: time.Now().UTC(),
+			Etag:         uuid.New().String(),
+		},
+	})
 	return nil
 }
 
-func (im *InMemStore) PutIfNotExists(_ context.Context, bucket string, key string, value []byte) (bool, error) {
+func (im *InMemStore) PutIfNotExists(_ context.Context, bucket string, key string, value []byte) (bool, string, error) {
 	if err := im.checkUnavailable(); err != nil {
-		return false, err
+		return false, "", err
 	}
 	im.maybeAddDelay()
 	im.condLock.Lock()
@@ -74,9 +99,46 @@ func (im *InMemStore) PutIfNotExists(_ context.Context, bucket string, key strin
 	skey := internalKey(bucket, key)
 	_, exists := im.store.Load(skey)
 	if exists {
+		return false, "", nil
+	}
+	etag := uuid.New().String()
+	im.store.Store(skey, valueHolder{
+		value: value, info: objstore.ObjectInfo{
+			Key:          key,
+			LastModified: time.Now(),
+			Etag:         etag,
+		},
+	})
+	return true, etag, nil
+}
+
+func (im *InMemStore) PutIfMatchingEtag(_ context.Context, bucket string, key string, value []byte, etag string) (bool, error) {
+	if err := im.checkUnavailable(); err != nil {
+		return false, err
+	}
+	im.maybeAddDelay()
+	im.condLock.Lock()
+	defer im.condLock.Unlock()
+	skey := internalKey(bucket, key)
+	v, ok := im.store.Load(skey)
+	if !ok {
 		return false, nil
 	}
-	im.store.Store(skey, valueHolder{value: value, info: objstore.ObjectInfo{Key: key, LastModified: time.Now()}})
+	if v == nil {
+		panic("nil value in obj store")
+	}
+	holder := v.(valueHolder)
+	if holder.info.Etag != etag {
+		return false, nil
+	}
+	im.store.Store(skey, valueHolder{
+		value: value,
+		info: objstore.ObjectInfo{
+			Key:          key,
+			LastModified: time.Now().UTC(),
+			Etag:         uuid.New().String(),
+		},
+	})
 	return true, nil
 }
 
@@ -91,7 +153,7 @@ func (im *InMemStore) ListObjectsWithPrefix(_ context.Context, bucket string, pr
 		key := k.(string)
 		if strings.HasPrefix(key, sPref) {
 			infos = append(infos, objstore.ObjectInfo{
-				Key:          key[lb + 1:],
+				Key:          key[lb+1:],
 				LastModified: v.(valueHolder).info.LastModified,
 			})
 		}

@@ -2214,6 +2214,14 @@ func (t *testControllerClient) Close() error {
 type failingObjectStoreClient struct {
 }
 
+func (f *failingObjectStoreClient) GetObjectInfo(ctx context.Context, bucket string, key string) (objstore.ObjectInfo, bool, error) {
+	panic("should not be called")
+}
+
+func (f *failingObjectStoreClient) PutIfMatchingEtag(ctx context.Context, bucket string, key string, value []byte, etag string) (bool, error) {
+	panic("should not be called")
+}
+
 func (f *failingObjectStoreClient) Get(_ context.Context, _ string, _ string) ([]byte, error) {
 	panic("should not be called")
 }
@@ -2249,6 +2257,20 @@ func (f *failingObjectStoreClient) Stop() error {
 type unavailableObjStoreClient struct {
 	available atomic.Bool
 	cl        objstore.Client
+}
+
+func (u *unavailableObjStoreClient) GetObjectInfo(ctx context.Context, bucket string, key string) (objstore.ObjectInfo, bool, error) {
+	if !u.available.Load() {
+		return objstore.ObjectInfo{}, false, common.NewTektiteErrorf(common.Unavailable, "object store is unavailable")
+	}
+	return u.cl.GetObjectInfo(ctx, bucket, key)
+}
+
+func (u *unavailableObjStoreClient) PutIfMatchingEtag(ctx context.Context, bucket string, key string, value []byte, etag string) (bool, error) {
+	if !u.available.Load() {
+		return false, common.NewTektiteErrorf(common.Unavailable, "object store is unavailable")
+	}
+	return u.cl.PutIfMatchingEtag(ctx, bucket, key, value, etag)
 }
 
 func (u *unavailableObjStoreClient) Get(ctx context.Context, bucket string, key string) ([]byte, error) {

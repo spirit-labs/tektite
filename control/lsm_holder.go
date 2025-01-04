@@ -1,7 +1,7 @@
 package control
 
 import (
-	"github.com/spirit-labs/tektite/cluster"
+	"github.com/pkg/errors"
 	"github.com/spirit-labs/tektite/common"
 	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/lsm"
@@ -21,14 +21,17 @@ type LsmHolder struct {
 	lock                   sync.RWMutex
 	objStore               objstore.Client
 	lsmOpts                lsm.Conf
-	clusteredData          *cluster.ClusteredData
+	metaDataBucketName     string
+	metaDataKey            string
 	lsmManager             *lsm.Manager
 	started                bool
+	stopping               atomic.Bool
 	hasQueuedRegistrations atomic.Bool
 	queuedRegistrations    []queuedRegistration
 	waitingCompletions     []func(error) error
 	stateWriteTimer        *time.Timer
 	stateWriteInterval     time.Duration
+	metaDataEtag           string
 }
 
 type queuedRegistration struct {
@@ -36,14 +39,13 @@ type queuedRegistration struct {
 	completionFunc func(error) error
 }
 
-func NewLsmHolder(stateUpdaterBucketName string, stateUpdaterKeyPrefix string, dataBucketName string,
-	dataKeyPrefix string, objStoreClient objstore.Client, stateWriteInterval time.Duration, lsmOpts lsm.Conf) *LsmHolder {
-	clusteredData := cluster.NewClusteredData(stateUpdaterBucketName, stateUpdaterKeyPrefix, dataBucketName, dataKeyPrefix,
-		objStoreClient, lsmOpts.ClusteredDataConf)
+func NewLsmHolder(metaDataBucketName string,
+	metaDataKey string, objStoreClient objstore.Client, stateWriteInterval time.Duration, lsmOpts lsm.Conf) *LsmHolder {
 	return &LsmHolder{
 		objStore:           objStoreClient,
 		lsmOpts:            lsmOpts,
-		clusteredData:      clusteredData,
+		metaDataBucketName: metaDataBucketName,
+		metaDataKey:        metaDataKey,
 		stateWriteInterval: stateWriteInterval,
 	}
 }
@@ -54,7 +56,7 @@ func (s *LsmHolder) Start() error {
 	if s.started {
 		return nil
 	}
-	metaData, err := s.clusteredData.AcquireData()
+	metaData, metaDataEtag, err := s.loadMetadata()
 	if err != nil {
 		return err
 	}
@@ -63,12 +65,39 @@ func (s *LsmHolder) Start() error {
 		return err
 	}
 	s.lsmManager = lsmManager
+	s.metaDataEtag = metaDataEtag
 	s.scheduleStateWriteTimer()
 	s.started = true
 	return nil
 }
 
+const objectStoreCallTimeout = 5 * time.Second
+
+func (s *LsmHolder) loadMetadata() ([]byte, string, error) {
+	for !s.stopping.Load() {
+		objectInfo, exists, err := objstore.GetObjectInfoWithTimeout(s.objStore, s.metaDataBucketName, s.metaDataKey,
+			objectStoreCallTimeout)
+		if err == nil {
+			if !exists {
+				return nil, "", nil
+			}
+			metaData, err := objstore.GetWithTimeout(s.objStore, s.metaDataBucketName, s.metaDataKey, objectStoreCallTimeout)
+			if err == nil {
+				return metaData, objectInfo.Etag, nil
+			}
+		}
+		if common.IsUnavailableError(err) {
+			log.Debugf("object store is unavailable on load metadata etag, will retry: %v", err)
+			time.Sleep(100 * time.Millisecond)
+			continue
+		}
+		return nil, "", err
+	}
+	return nil, "", errors.New("lsmHolder is stopping")
+}
+
 func (s *LsmHolder) Stop() error {
+	s.stopping.Store(true)
 	s.lock.Lock()
 	defer s.lock.Unlock()
 	if !s.started {
@@ -81,7 +110,6 @@ func (s *LsmHolder) stop() error {
 	if err := s.lsmManager.Stop(); err != nil {
 		return err
 	}
-	s.clusteredData.Stop()
 	if s.stateWriteTimer != nil {
 		s.stateWriteTimer.Stop()
 	}
@@ -154,11 +182,20 @@ func (s *LsmHolder) maybeWriteState() {
 	if len(s.waitingCompletions) == 0 {
 		return
 	}
-	ok, err := s.clusteredData.StoreData(s.lsmManager.GetMasterRecordBytes())
-	if err != nil {
-		log.Warnf("failed to store lsm state: %v", err)
+	metaData := s.lsmManager.GetMasterRecordBytes()
+	var ok bool
+	var err error
+	if s.metaDataEtag == "" {
+		// First time - no state yet
+		var etag string
+		ok, etag, err = objstore.PutIfNotExistsWithTimeout(s.objStore, s.metaDataBucketName, s.metaDataKey, metaData,
+			objectStoreCallTimeout)
+		s.metaDataEtag = etag
+	} else {
+		ok, err = objstore.PutIfMatchingEtagWithTimeout(s.objStore, s.metaDataBucketName, s.metaDataKey, metaData,
+			s.metaDataEtag, objectStoreCallTimeout)
 	}
-	if !ok {
+	if err == nil && !ok {
 		// Failed to store data as another controller has incremented the epoch - i.e. we are not leader any more
 		err = common.NewTektiteErrorf(common.Unavailable, "controller not leader")
 		// No longer leader so stop the controller
@@ -166,14 +203,15 @@ func (s *LsmHolder) maybeWriteState() {
 			log.Warnf("failed to stop controller: %v", err)
 		}
 	}
-	log.Infof("lsmholder writing state with err %v", err)
+	if err != nil {
+		log.Warnf("failed to store lsm state: %v", err)
+	}
 	// Call completions
 	for _, cf := range s.waitingCompletions {
 		if err2 := cf(err); err2 != nil {
 			log.Errorf("failed to apply completion function: %v", err2)
 		}
 	}
-	log.Infof("lsmholder called completions ok")
 	s.waitingCompletions = s.waitingCompletions[:0]
 }
 

@@ -58,7 +58,7 @@ func (a *addMessageHandler) HandleMessage(messageHolder remoting.MessageHolder) 
 	ok := true
 	ctx := context.Background()
 	if gm.IfNotExists {
-		ok, err = a.store.PutIfNotExists(ctx, gm.Bucket, gm.Key, gm.Value)
+		ok, _, err = a.store.PutIfNotExists(ctx, gm.Bucket, gm.Key, gm.Value)
 	} else {
 		err = a.store.Put(ctx, gm.Bucket, gm.Key, gm.Value)
 	}
@@ -124,6 +124,10 @@ type Client struct {
 
 var _ objstore.Client = &Client{}
 
+func (c *Client) GetObjectInfo(ctx context.Context, bucket string, key string) (objstore.ObjectInfo, bool, error) {
+	panic("not supported")
+}
+
 func (c *Client) Get(_ context.Context, bucket string, key string) ([]byte, error) {
 	req := &clustermsgs.LocalObjStoreGetRequest{Bucket: bucket, Key: key}
 	resp, err := c.rClient.SendRPC(req, c.address)
@@ -143,14 +147,18 @@ func (c *Client) Put(_ context.Context, bucket string, key string, value []byte)
 	return nil
 }
 
-func (c *Client) PutIfNotExists(_ context.Context, bucket string, key string, value []byte) (bool, error) {
+func (c *Client) PutIfMatchingEtag(ctx context.Context, bucket string, key string, value []byte, etag string) (bool, error) {
+	panic("not supported")
+}
+
+func (c *Client) PutIfNotExists(_ context.Context, bucket string, key string, value []byte) (bool, string, error) {
 	req := &clustermsgs.LocalObjStorePutRequest{Bucket: bucket, Key: key, Value: value, IfNotExists: true}
 	resp, err := c.rClient.SendRPC(req, c.address)
 	if err != nil {
-		return false, remoting.MaybeConvertError(err)
+		return false, "", remoting.MaybeConvertError(err)
 	}
 	vResp := resp.(*clustermsgs.LocalObjStorePutResponse)
-	return vResp.Ok, nil
+	return vResp.Ok, "", nil
 }
 
 func (c *Client) Delete(_ context.Context, bucket string, key string) error {

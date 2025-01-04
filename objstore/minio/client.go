@@ -24,6 +24,25 @@ type Client struct {
 	client *minio.Client
 }
 
+func (m *Client) GetObjectInfo(ctx context.Context, bucket string, key string) (objstore.ObjectInfo, bool, error) {
+	info, err := m.client.StatObject(ctx, bucket, key, minio.GetObjectOptions{})
+	if err != nil {
+		var merr minio.ErrorResponse
+		if errwrap.As(err, &merr) {
+			if merr.StatusCode == 404 {
+				// does not exist
+				return objstore.ObjectInfo{}, false, nil
+			}
+		}
+		return objstore.ObjectInfo{}, false, maybeConvertError(err)
+	}
+	return objstore.ObjectInfo{
+		Key:          key,
+		LastModified: info.LastModified,
+		Etag:         info.ETag,
+	}, true, nil
+}
+
 func (m *Client) Get(ctx context.Context, bucket string, key string) ([]byte, error) {
 	obj, err := m.client.GetObject(ctx, bucket, key, minio.GetObjectOptions{})
 	if err != nil {
@@ -52,10 +71,28 @@ func (m *Client) Put(ctx context.Context, bucket string, key string, value []byt
 	return maybeConvertError(err)
 }
 
-func (m *Client) PutIfNotExists(ctx context.Context, bucket string, key string, value []byte) (bool, error) {
+func (m *Client) PutIfNotExists(ctx context.Context, bucket string, key string, value []byte) (bool, string, error) {
 	buff := bytes.NewBuffer(value)
 	opts := minio.PutObjectOptions{}
 	opts.SetMatchETagExcept("*")
+	info, err := m.client.PutObject(ctx, bucket, key, buff, int64(len(value)), opts)
+	if err != nil {
+		var errResponse minio.ErrorResponse
+		if errors.As(err, &errResponse) {
+			if errResponse.StatusCode == 412 {
+				// Pre-condition failed - this means key already exists
+				return false, "", nil
+			}
+		}
+		return false, "", maybeConvertError(err)
+	}
+	return true, info.ETag, nil
+}
+
+func (m *Client) PutIfMatchingEtag(ctx context.Context, bucket string, key string, value []byte, etag string) (bool, error) {
+	buff := bytes.NewBuffer(value)
+	opts := minio.PutObjectOptions{}
+	opts.SetMatchETag(etag)
 	_, err := m.client.PutObject(ctx, bucket, key, buff, int64(len(value)), opts)
 	if err != nil {
 		var errResponse minio.ErrorResponse
