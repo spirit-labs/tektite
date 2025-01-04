@@ -109,13 +109,8 @@ func CreateConfFromCommandConf(commandConf CommandConf) (Conf, error) {
 	cfg.ClusterMembershipConfig.EvictionInterval = evictionInterval
 	// configure controller
 	cfg.ControllerConf.SSTableBucketName = dataBucketName
-	cfg.ControllerConf.ControllerMetaDataKeyPrefix = "meta-data"
+	cfg.ControllerConf.ControllerMetaDataKey = "meta-data"
 	cfg.ControllerConf.ControllerMetaDataBucketName = dataBucketName
-	// We put the controller state machine in a different bucket - as this will likely be configured with an expiry
-	// TODO move to Dynamo based state machine
-	controllerStateMachineBucketName := commandConf.ClusterName + "-controller-sm"
-	cfg.ControllerConf.ControllerStateUpdaterBucketName = controllerStateMachineBucketName
-	cfg.ControllerConf.ControllerStateUpdaterKeyPrefix = "meta-state"
 	cfg.ControllerConf.AzInfo = commandConf.Location
 	cfg.ControllerConf.LsmConf.SSTableBucketName = dataBucketName
 	// configure compaction workers

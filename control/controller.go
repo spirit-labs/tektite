@@ -174,8 +174,7 @@ func (c *Controller) MembershipChanged(thisMemberID int32, newState cluster.Memb
 		// This controller is activating as leader
 		if c.lsmHolder == nil {
 			log.Debugf("%p controller %d activating as leader, newState %v", c, thisMemberID, newState)
-			lsmHolder := NewLsmHolder(c.cfg.ControllerStateUpdaterBucketName, c.cfg.ControllerStateUpdaterKeyPrefix,
-				c.cfg.ControllerMetaDataBucketName, c.cfg.ControllerMetaDataKeyPrefix, c.objStoreClient,
+			lsmHolder := NewLsmHolder(c.cfg.ControllerMetaDataBucketName, c.cfg.ControllerMetaDataKey, c.objStoreClient,
 				c.cfg.LsmStateWriteInterval, c.cfg.LsmConf)
 			if err := lsmHolder.Start(); err != nil {
 				return err

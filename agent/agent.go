@@ -47,7 +47,7 @@ type Agent struct {
 	partitionLeaders         map[string]map[int]map[int]int32
 	clusterMembershipFactory ClusterMembershipFactory
 	tableGetter              sst.TableGetter
-	authCaches *auth.UserAuthCaches
+	authCaches               *auth.UserAuthCaches
 }
 
 func NewAgent(cfg Conf, objStore objstore.Client) (*Agent, error) {

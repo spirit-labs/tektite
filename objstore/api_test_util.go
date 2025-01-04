@@ -170,7 +170,7 @@ func testPutIfNotExists(t *testing.T, client Client) {
 	err := client.Put(ctx, DefaultBucket, "key1", []byte("val1"))
 	require.NoError(t, err)
 
-	ok, err := client.PutIfNotExists(ctx, DefaultBucket, "key1", []byte("val2"))
+	ok, _, err := client.PutIfNotExists(ctx, DefaultBucket, "key1", []byte("val2"))
 	require.NoError(t, err)
 	require.False(t, ok)
 
@@ -179,7 +179,7 @@ func testPutIfNotExists(t *testing.T, client Client) {
 	require.NotNil(t, vb)
 	require.Equal(t, "val1", string(vb))
 
-	ok, err = client.PutIfNotExists(ctx, DefaultBucket, "key2", []byte("val2"))
+	ok, _, err = client.PutIfNotExists(ctx, DefaultBucket, "key2", []byte("val2"))
 	require.NoError(t, err)
 	require.True(t, ok)
 

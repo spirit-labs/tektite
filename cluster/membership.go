@@ -51,7 +51,7 @@ func NewMembership(cfg MembershipConf, data []byte, objStoreClient objstore.Clie
 	return &Membership{
 		id:                   -1,
 		data:                 data,
-		stateUpdater:         NewStateUpdator(cfg.BucketName, cfg.KeyPrefix, objStoreClient, StateUpdatorOpts{}),
+		stateUpdater:         NewStateUpdater(cfg.BucketName, cfg.KeyPrefix, objStoreClient, StateUpdaterOpts{}),
 		updateInterval:       cfg.UpdateInterval,
 		evictionDuration:     cfg.EvictionInterval,
 		stateChangedCallback: stateChangedCallback,

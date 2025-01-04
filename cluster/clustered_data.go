@@ -45,9 +45,9 @@ type ClusteredData struct {
 	dataKeyPrefix  string
 	stateMachine   *StateUpdater
 	objStoreClient objstore.Client
-	epoch      uint64
-	opts       ClusteredDataConf
-	readyState clusteredDataState
+	epoch          uint64
+	opts           ClusteredDataConf
+	readyState     clusteredDataState
 	stopping       atomic.Bool
 	logPrefix      string
 }
@@ -66,8 +66,8 @@ func NewClusteredData(stateMachineBucketName string, stateMachineKeyPrefix strin
 		objStoreClient: objStoreClient,
 		dataBucketName: dataBucketName,
 		dataKeyPrefix:  dataKeyPrefix,
-		stateMachine: NewStateUpdator(stateMachineBucketName, stateMachineKeyPrefix, objStoreClient,
-			StateUpdatorOpts{}),
+		stateMachine: NewStateUpdater(stateMachineBucketName, stateMachineKeyPrefix, objStoreClient,
+			StateUpdaterOpts{}),
 		opts:       opts,
 		readyState: clusteredDataStateReady,
 		logPrefix:  fmt.Sprintf("clustered data(%s / %s) -", dataBucketName, stateMachineBucketName),

@@ -2214,6 +2214,14 @@ func (t *testControllerClient) Close() error {
 type failingObjectStoreClient struct {
 }
 
+func (f *failingObjectStoreClient) GetObjectInfo(ctx context.Context, bucket string, key string) (objstore.ObjectInfo, bool, error) {
+	panic("should not be called")
+}
+
+func (f *failingObjectStoreClient) PutIfMatchingEtag(ctx context.Context, bucket string, key string, value []byte, etag string) (bool, string, error) {
+	panic("should not be called")
+}
+
 func (f *failingObjectStoreClient) Get(_ context.Context, _ string, _ string) ([]byte, error) {
 	panic("should not be called")
 }
@@ -2222,7 +2230,7 @@ func (f *failingObjectStoreClient) Put(_ context.Context, _ string, _ string, _ 
 	return errors.New("some random error")
 }
 
-func (f *failingObjectStoreClient) PutIfNotExists(_ context.Context, _ string, _ string, _ []byte) (bool, error) {
+func (f *failingObjectStoreClient) PutIfNotExists(_ context.Context, _ string, _ string, _ []byte) (bool, string, error) {
 	panic("should not be called")
 }
 
@@ -2251,6 +2259,20 @@ type unavailableObjStoreClient struct {
 	cl        objstore.Client
 }
 
+func (u *unavailableObjStoreClient) GetObjectInfo(ctx context.Context, bucket string, key string) (objstore.ObjectInfo, bool, error) {
+	if !u.available.Load() {
+		return objstore.ObjectInfo{}, false, common.NewTektiteErrorf(common.Unavailable, "object store is unavailable")
+	}
+	return u.cl.GetObjectInfo(ctx, bucket, key)
+}
+
+func (u *unavailableObjStoreClient) PutIfMatchingEtag(ctx context.Context, bucket string, key string, value []byte, etag string) (bool, string, error) {
+	if !u.available.Load() {
+		return false, "", common.NewTektiteErrorf(common.Unavailable, "object store is unavailable")
+	}
+	return u.cl.PutIfMatchingEtag(ctx, bucket, key, value, etag)
+}
+
 func (u *unavailableObjStoreClient) Get(ctx context.Context, bucket string, key string) ([]byte, error) {
 	if !u.available.Load() {
 		return nil, common.NewTektiteErrorf(common.Unavailable, "object store is unavailable")
@@ -2265,9 +2287,9 @@ func (u *unavailableObjStoreClient) Put(ctx context.Context, bucket string, key 
 	return u.cl.Put(ctx, bucket, key, value)
 }
 
-func (u *unavailableObjStoreClient) PutIfNotExists(ctx context.Context, bucket string, key string, value []byte) (bool, error) {
+func (u *unavailableObjStoreClient) PutIfNotExists(ctx context.Context, bucket string, key string, value []byte) (bool, string, error) {
 	if !u.available.Load() {
-		return false, common.NewTektiteErrorf(common.Unavailable, "object store is unavailable")
+		return false, "", common.NewTektiteErrorf(common.Unavailable, "object store is unavailable")
 	}
 	return u.cl.PutIfNotExists(ctx, bucket, key, value)
 }
