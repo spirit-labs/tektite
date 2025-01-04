@@ -89,22 +89,22 @@ func (m *Client) PutIfNotExists(ctx context.Context, bucket string, key string, 
 	return true, info.ETag, nil
 }
 
-func (m *Client) PutIfMatchingEtag(ctx context.Context, bucket string, key string, value []byte, etag string) (bool, error) {
+func (m *Client) PutIfMatchingEtag(ctx context.Context, bucket string, key string, value []byte, etag string) (bool, string, error) {
 	buff := bytes.NewBuffer(value)
 	opts := minio.PutObjectOptions{}
 	opts.SetMatchETag(etag)
-	_, err := m.client.PutObject(ctx, bucket, key, buff, int64(len(value)), opts)
+	info, err := m.client.PutObject(ctx, bucket, key, buff, int64(len(value)), opts)
 	if err != nil {
 		var errResponse minio.ErrorResponse
 		if errors.As(err, &errResponse) {
 			if errResponse.StatusCode == 412 {
 				// Pre-condition failed - this means key already exists
-				return false, nil
+				return false, "", nil
 			}
 		}
-		return false, maybeConvertError(err)
+		return false, "", maybeConvertError(err)
 	}
-	return true, nil
+	return true, info.ETag, nil
 }
 
 func (m *Client) Delete(ctx context.Context, bucket string, key string) error {

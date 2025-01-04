@@ -147,7 +147,7 @@ func (c *Client) Put(_ context.Context, bucket string, key string, value []byte)
 	return nil
 }
 
-func (c *Client) PutIfMatchingEtag(ctx context.Context, bucket string, key string, value []byte, etag string) (bool, error) {
+func (c *Client) PutIfMatchingEtag(ctx context.Context, bucket string, key string, value []byte, etag string) (bool, string, error) {
 	panic("not supported")
 }
 

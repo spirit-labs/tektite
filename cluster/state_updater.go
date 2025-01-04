@@ -124,7 +124,7 @@ func (s *StateUpdater) update(updateFunc func(state []byte) ([]byte, error)) ([]
 		}
 		var ok bool
 		if exists {
-			ok, err = objstore.PutIfMatchingEtagWithTimeout(s.objStoreClient, s.stateBucket, s.stateKey, newState,
+			ok, _, err = objstore.PutIfMatchingEtagWithTimeout(s.objStoreClient, s.stateBucket, s.stateKey, newState,
 				info.Etag, s.opts.ObjStoreCallTimeout)
 		} else {
 			ok, _, err = objstore.PutIfNotExistsWithTimeout(s.objStoreClient, s.stateBucket, s.stateKey, newState,

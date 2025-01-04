@@ -185,14 +185,13 @@ func (s *LsmHolder) maybeWriteState() {
 	metaData := s.lsmManager.GetMasterRecordBytes()
 	var ok bool
 	var err error
+	var etag string
 	if s.metaDataEtag == "" {
 		// First time - no state yet
-		var etag string
 		ok, etag, err = objstore.PutIfNotExistsWithTimeout(s.objStore, s.metaDataBucketName, s.metaDataKey, metaData,
 			objectStoreCallTimeout)
-		s.metaDataEtag = etag
 	} else {
-		ok, err = objstore.PutIfMatchingEtagWithTimeout(s.objStore, s.metaDataBucketName, s.metaDataKey, metaData,
+		ok, etag, err = objstore.PutIfMatchingEtagWithTimeout(s.objStore, s.metaDataBucketName, s.metaDataKey, metaData,
 			s.metaDataEtag, objectStoreCallTimeout)
 	}
 	if err == nil && !ok {
@@ -206,6 +205,7 @@ func (s *LsmHolder) maybeWriteState() {
 	if err != nil {
 		log.Warnf("failed to store lsm state: %v", err)
 	}
+	s.metaDataEtag = etag
 	// Call completions
 	for _, cf := range s.waitingCompletions {
 		if err2 := cf(err); err2 != nil {

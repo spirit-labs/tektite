@@ -112,9 +112,10 @@ func (im *InMemStore) PutIfNotExists(_ context.Context, bucket string, key strin
 	return true, etag, nil
 }
 
-func (im *InMemStore) PutIfMatchingEtag(_ context.Context, bucket string, key string, value []byte, etag string) (bool, error) {
+func (im *InMemStore) PutIfMatchingEtag(_ context.Context, bucket string, key string, value []byte,
+	etag string) (bool, string, error) {
 	if err := im.checkUnavailable(); err != nil {
-		return false, err
+		return false, "", err
 	}
 	im.maybeAddDelay()
 	im.condLock.Lock()
@@ -122,24 +123,25 @@ func (im *InMemStore) PutIfMatchingEtag(_ context.Context, bucket string, key st
 	skey := internalKey(bucket, key)
 	v, ok := im.store.Load(skey)
 	if !ok {
-		return false, nil
+		return false, "", nil
 	}
 	if v == nil {
 		panic("nil value in obj store")
 	}
 	holder := v.(valueHolder)
 	if holder.info.Etag != etag {
-		return false, nil
+		return false, "", nil
 	}
+	newEtag := uuid.New().String()
 	im.store.Store(skey, valueHolder{
 		value: value,
 		info: objstore.ObjectInfo{
 			Key:          key,
 			LastModified: time.Now().UTC(),
-			Etag:         uuid.New().String(),
+			Etag:         newEtag,
 		},
 	})
-	return true, nil
+	return true, newEtag, nil
 }
 
 func (im *InMemStore) ListObjectsWithPrefix(_ context.Context, bucket string, prefix string, maxKeys int) ([]objstore.ObjectInfo, error) {

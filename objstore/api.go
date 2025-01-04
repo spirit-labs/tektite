@@ -10,7 +10,7 @@ type Client interface {
 	Get(ctx context.Context, bucket string, key string) ([]byte, error)
 	Put(ctx context.Context, bucket string, key string, value []byte) error
 	PutIfNotExists(ctx context.Context, bucket string, key string, value []byte) (bool, string, error)
-	PutIfMatchingEtag(ctx context.Context, bucket string, key string, value []byte, etag string) (bool, error)
+	PutIfMatchingEtag(ctx context.Context, bucket string, key string, value []byte, etag string) (bool, string, error)
 	Delete(ctx context.Context, bucket string, key string) error
 	DeleteAll(ctx context.Context, bucket string, keys []string) error
 	ListObjectsWithPrefix(ctx context.Context, bucket string, prefix string, maxKeys int) ([]ObjectInfo, error)
@@ -52,7 +52,7 @@ func PutIfNotExistsWithTimeout(client Client, bucket string, key string, value [
 	return client.PutIfNotExists(ctx, bucket, key, value)
 }
 
-func PutIfMatchingEtagWithTimeout(client Client, bucket string, key string, value []byte, etag string, timeout time.Duration) (bool, error) {
+func PutIfMatchingEtagWithTimeout(client Client, bucket string, key string, value []byte, etag string, timeout time.Duration) (bool, string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	return client.PutIfMatchingEtag(ctx, bucket, key, value, etag)

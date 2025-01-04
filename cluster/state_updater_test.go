@@ -196,16 +196,16 @@ func (u *unavailableObjStoreProxy) Put(ctx context.Context, bucket string, key s
 	return u.objStore.Put(ctx, bucket, key, value)
 }
 
-func (u *unavailableObjStoreProxy) PutIfMatchingEtag(ctx context.Context, bucket string, key string, value []byte, etag string) (bool, error) {
+func (u *unavailableObjStoreProxy) PutIfMatchingEtag(ctx context.Context, bucket string, key string, value []byte, etag string) (bool, string, error) {
 	if u.unavailable.Load() {
-		return false, common.NewTektiteErrorf(common.Unavailable, "store is unavailable")
+		return false, "", common.NewTektiteErrorf(common.Unavailable, "store is unavailable")
 	}
 	return u.objStore.PutIfMatchingEtag(ctx, bucket, key, value, etag)
 }
 
-func (u *unavailableObjStoreProxy) PutIfNotExists(ctx context.Context, bucket string, key string, value []byte) (bool, error) {
+func (u *unavailableObjStoreProxy) PutIfNotExists(ctx context.Context, bucket string, key string, value []byte) (bool, string, error) {
 	if u.unavailable.Load() {
-		return false, common.NewTektiteErrorf(common.Unavailable, "store is unavailable")
+		return false, "", common.NewTektiteErrorf(common.Unavailable, "store is unavailable")
 	}
 	return u.objStore.PutIfNotExists(ctx, bucket, key, value)
 }
