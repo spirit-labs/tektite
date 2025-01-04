@@ -191,11 +191,12 @@ func (s *LsmHolder) maybeWriteState() {
 		ok, etag, err = objstore.PutIfNotExistsWithTimeout(s.objStore, s.metaDataBucketName, s.metaDataKey, metaData,
 			objectStoreCallTimeout)
 	} else {
+		// Put only succeeds if etag hasn't changed
 		ok, etag, err = objstore.PutIfMatchingEtagWithTimeout(s.objStore, s.metaDataBucketName, s.metaDataKey, metaData,
 			s.metaDataEtag, objectStoreCallTimeout)
 	}
 	if err == nil && !ok {
-		// Failed to store data as another controller has incremented the epoch - i.e. we are not leader any more
+		// Failed to store data as another controller has saved state and changed the etag
 		err = common.NewTektiteErrorf(common.Unavailable, "controller not leader")
 		// No longer leader so stop the controller
 		if err := s.stop(); err != nil {
@@ -204,8 +205,9 @@ func (s *LsmHolder) maybeWriteState() {
 	}
 	if err != nil {
 		log.Warnf("failed to store lsm state: %v", err)
+	} else {
+		s.metaDataEtag = etag
 	}
-	s.metaDataEtag = etag
 	// Call completions
 	for _, cf := range s.waitingCompletions {
 		if err2 := cf(err); err2 != nil {

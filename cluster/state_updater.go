@@ -18,7 +18,6 @@ type StateUpdater struct {
 	opts           StateUpdaterOpts
 	started        bool
 	stopping       atomic.Bool
-	initialised    bool
 	latestState    []byte
 	retryCount     int64
 }
