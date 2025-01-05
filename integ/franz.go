@@ -2,9 +2,12 @@ package integ
 
 import (
 	"context"
+	"fmt"
+	"github.com/spirit-labs/tektite/compress"
 	"github.com/spirit-labs/tektite/conf"
 	"github.com/spirit-labs/tektite/kafka"
 	"github.com/twmb/franz-go/pkg/kgo"
+	"os"
 	"time"
 )
 
@@ -13,9 +16,24 @@ type FranzProducer struct {
 }
 
 func NewFranzProducer(address string, tlsEnabled bool, serverCertFile string, clientCertFile string,
-	clientPrivateKeyFile string) (Producer, error) {
+	clientPrivateKeyFile string, compressionType compress.CompressionType) (Producer, error) {
 	var err error
 	var client *kgo.Client
+	var compressionCodec kgo.CompressionCodec
+	switch compressionType {
+	case compress.CompressionTypeNone:
+		compressionCodec = kgo.NoCompression()
+	case compress.CompressionTypeGzip:
+		compressionCodec = kgo.GzipCompression()
+	case compress.CompressionTypeSnappy:
+		compressionCodec = kgo.SnappyCompression()
+	case compress.CompressionTypeLz4:
+		compressionCodec = kgo.Lz4Compression()
+	case compress.CompressionTypeZstd:
+		compressionCodec = kgo.ZstdCompression()
+	default:
+		panic(fmt.Sprintf("unexpected compression type %d", compressionType))
+	}
 	if tlsEnabled {
 		tlsC := conf.ClientTlsConf{
 			Enabled:              true,
@@ -30,10 +48,12 @@ func NewFranzProducer(address string, tlsEnabled bool, serverCertFile string, cl
 		client, err = kgo.NewClient(
 			kgo.SeedBrokers(address),
 			kgo.DialTLSConfig(goTls),
+			kgo.ProducerBatchCompression(compressionCodec),
 		)
 	} else {
 		client, err = kgo.NewClient(
 			kgo.SeedBrokers(address),
+			kgo.ProducerBatchCompression(compressionCodec),
 		)
 	}
 	if err != nil {
@@ -73,6 +93,10 @@ type FranzConsumer struct {
 
 func NewFranzConsumer(address string, topicName string, groupID string, tlsEnabled bool, serverCertFile string,
 	clientCertFile string, clientPrivateKeyFile string) (Consumer, error) {
+	logger := kgo.BasicLogger(os.Stdout, kgo.LogLevelDebug, func() string {
+		return ""
+	})
+
 	var err error
 	var client *kgo.Client
 	if tlsEnabled {
@@ -91,12 +115,14 @@ func NewFranzConsumer(address string, topicName string, groupID string, tlsEnabl
 			kgo.DialTLSConfig(goTls),
 			kgo.ConsumerGroup(groupID),
 			kgo.ConsumeTopics(topicName),
+			kgo.WithLogger(logger),
 		)
 	} else {
 		client, err = kgo.NewClient(
 			kgo.SeedBrokers(address),
 			kgo.ConsumerGroup(groupID),
 			kgo.ConsumeTopics(topicName),
+			kgo.WithLogger(logger),
 		)
 	}
 	if err != nil {

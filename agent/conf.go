@@ -2,6 +2,7 @@ package agent
 
 import (
 	"fmt"
+	"github.com/spirit-labs/tektite/compress"
 
 	"github.com/pkg/errors"
 	"github.com/spirit-labs/tektite/cluster"
@@ -41,6 +42,8 @@ type CommandConf struct {
 	AutoCreateNumPartitions         int           `help:"the number of partitions for auto-created topics" default:"1"`
 	DefaultMaxMessageSizeBytes      int           `help:"the maximum size of a message batch that can be sent to a topic - can be overridden at topic level" default:"1048576"`
 	MetadataWriteIntervalMs         int           `help:"interval between writing database metadata to permanent storage, in milliseconds" default:"100"`
+	StorageCompressionType          string        `help:"determines how data is compressed before writing to object storage. one of 'lz4', 'zstd' or 'none'" default:"lz4"`
+	FetchCompressionType            string        `help:"determines how data is compressed before returning a fetched batch to a consumer. one of 'gzip', 'snappy', 'lz4', 'zstd' or 'none'" default:"lz4"`
 }
 
 var authTypeMapping = map[string]kafkaserver.AuthenticationType{
@@ -151,6 +154,17 @@ func CreateConfFromCommandConf(commandConf CommandConf) (Conf, error) {
 			commandConf.MetadataWriteIntervalMs)
 	}
 	cfg.ControllerConf.LsmStateWriteInterval = time.Duration(commandConf.MetadataWriteIntervalMs) * time.Millisecond
+	storageCompressionType := compress.FromString(commandConf.StorageCompressionType)
+	if storageCompressionType != compress.CompressionTypeLz4 && storageCompressionType != compress.CompressionTypeZstd {
+		return Conf{}, errors.Errorf("invalid compression-type: %s", commandConf.StorageCompressionType)
+	}
+	cfg.PusherConf.TableCompressionType = storageCompressionType
+	fetchCompressionType := compress.FromString(commandConf.FetchCompressionType)
+	if fetchCompressionType == compress.CompressionTypeUnknown {
+		return Conf{}, errors.Errorf("invalid compression-type: %s", commandConf.StorageCompressionType)
+	}
+	cfg.PusherConf.TableCompressionType = storageCompressionType
+	cfg.FetcherConf.FetchCompressionType = fetchCompressionType
 	return cfg, nil
 }
 

@@ -166,14 +166,16 @@ func (c *Controller) GetGroupCoordinatorController() *CoordinatorController {
 // host the LSM
 func (c *Controller) MembershipChanged(thisMemberID int32, newState cluster.MembershipState) error {
 	c.lock.Lock()
-	defer c.lock.Unlock()
+	defer func() {
+		c.lock.Unlock()
+	}()
 	if !c.started {
 		return errors.New("controller not started")
 	}
 	if len(newState.Members) > 0 && newState.Members[0].ID == thisMemberID {
 		// This controller is activating as leader
 		if c.lsmHolder == nil {
-			log.Debugf("%p controller %d activating as leader, newState %v", c, thisMemberID, newState)
+			log.Infof("%p controller %d activating as leader, newState %v", c, thisMemberID, newState)
 			lsmHolder := NewLsmHolder(c.cfg.ControllerMetaDataBucketName, c.cfg.ControllerMetaDataKey, c.objStoreClient,
 				c.cfg.LsmStateWriteInterval, c.cfg.LsmConf)
 			if err := lsmHolder.Start(); err != nil {
@@ -181,7 +183,7 @@ func (c *Controller) MembershipChanged(thisMemberID int32, newState cluster.Memb
 			}
 			c.lsmHolder = lsmHolder
 			topicMetaManager, err := topicmeta.NewManager(lsmHolder, c.objStoreClient, c.cfg.SSTableBucketName, c.cfg.DataFormat,
-				c.connCaches)
+				c.connCaches, c.sendDirectWrite)
 			if err != nil {
 				return err
 			}
@@ -199,7 +201,7 @@ func (c *Controller) MembershipChanged(thisMemberID int32, newState cluster.Memb
 			atomic.StoreInt64(&c.activateClusterVersion, int64(newState.ClusterVersion))
 			c.offsetsCache = cache
 			c.sequences = NewSequences(lsmHolder, c.tableGetter, c.objStoreClient, c.cfg.SSTableBucketName,
-				c.cfg.DataFormat, int64(c.cfg.SequencesBlockSize))
+				c.cfg.DataFormat, int64(c.cfg.SequencesBlockSize), c.sendDirectWrite)
 			aclManager, err := NewAclManager(c.tableGetter, c.sendDirectWrite, c.lsmHolder)
 			if err != nil {
 				return err
@@ -238,8 +240,8 @@ func (c *Controller) MembershipChanged(thisMemberID int32, newState cluster.Memb
 }
 
 func (c *Controller) GetClusterState() cluster.MembershipState {
-	c.lock.Lock()
-	defer c.lock.Unlock()
+	c.lock.RLock()
+	defer c.lock.RUnlock()
 	return c.currentMembership
 }
 
@@ -288,7 +290,9 @@ func (c *Controller) handleRegisterL0Table(_ *transport.ConnectionContext, reque
 		}
 		offsetInfos, tableIDs, err := c.offsetsCache.MaybeReleaseOffsets(req.Sequence, req.RegEntry.TableID)
 		if err != nil {
-			return err
+			// Send error back to caller
+			log.Warnf("failed to release offsets: %v", err)
+			return responseWriter(responseBuff, err)
 		}
 		if len(tableIDs) > 0 {
 			if err := c.tableListeners.sendTableRegisteredNotification(tableIDs, offsetInfos); err != nil {
@@ -533,7 +537,12 @@ func (c *Controller) handleGetTopicInfoByID(_ *transport.ConnectionContext, requ
 func (c *Controller) handleCreateOrUpdateTopic(_ *transport.ConnectionContext, request []byte,
 	responseBuff []byte, responseWriter transport.ResponseWriter) error {
 	c.lock.RLock()
-	defer c.lock.RUnlock()
+	unlocked := false
+	defer func() {
+		if !unlocked {
+			c.lock.RUnlock()
+		}
+	}()
 	if !c.requestChecks(request, responseWriter) {
 		return nil
 	}
@@ -542,6 +551,10 @@ func (c *Controller) handleCreateOrUpdateTopic(_ *transport.ConnectionContext, r
 	if err := c.checkLeaderVersion(req.LeaderVersion); err != nil {
 		return responseWriter(nil, err)
 	}
+	// Must unlock before sending direct write to avoid deadlock with table pusher calling back into controller
+	// to register table
+	c.lock.RUnlock()
+	unlocked = true
 	topicID, err := c.topicMetaManager.CreateOrUpdateTopic(req.Info, req.Create)
 	if req.Create && err == nil {
 		return responseWriter(responseBuff, nil)
@@ -584,6 +597,10 @@ func (c *Controller) handleDeleteTopic(_ *transport.ConnectionContext, request [
 		err := common.NewTektiteErrorf(common.TopicDoesNotExist, "topic: %s does not exist", req.TopicName)
 		return responseWriter(nil, err)
 	}
+	// Must unlock before sending direct write to avoid deadlock with table pusher calling back into controller
+	// to register table
+	c.lock.RUnlock()
+	unlocked = true
 	err = c.topicMetaManager.DeleteTopic(req.TopicName)
 	if err != nil {
 		return responseWriter(nil, err)
@@ -597,10 +614,6 @@ func (c *Controller) handleDeleteTopic(_ *transport.ConnectionContext, request [
 		}
 		kvs = append(kvs, encoding.CreatePrefixDeletionKVs(partHash)...)
 	}
-	// Must unlock before sending direct write to avoid deadlock with table pusher calling back into controller
-	// to register table
-	c.lock.RUnlock()
-	unlocked = true
 	if err := c.sendDirectWrite(kvs); err != nil {
 		return responseWriter(nil, err)
 	}
@@ -634,7 +647,12 @@ func (c *Controller) handleGetGroupCoordinatorInfo(_ *transport.ConnectionContex
 func (c *Controller) handleGenerateSequence(_ *transport.ConnectionContext, request []byte, responseBuff []byte,
 	responseWriter transport.ResponseWriter) error {
 	c.lock.RLock()
-	defer c.lock.RUnlock()
+	unlocked := false
+	defer func() {
+		if !unlocked {
+			c.lock.RUnlock()
+		}
+	}()
 	if !c.requestChecks(request, responseWriter) {
 		return nil
 	}
@@ -643,6 +661,11 @@ func (c *Controller) handleGenerateSequence(_ *transport.ConnectionContext, requ
 	if err := c.checkLeaderVersion(req.LeaderVersion); err != nil {
 		return responseWriter(nil, err)
 	}
+	// We release the controller lock before executing the putUserCredentials - as this causes an indirect call
+	// back into the controller via the table pusher when the KV is written, and this can otherwise deadlock
+	// if MembershipChanged is trying to get the W lock.
+	c.lock.RUnlock()
+	unlocked = true
 	seq, err := c.sequences.GenerateSequence(req.SequenceName)
 	if err != nil {
 		return responseWriter(nil, err)

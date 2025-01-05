@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"github.com/spirit-labs/tektite/asl/encoding"
 	"github.com/spirit-labs/tektite/common"
+	"github.com/spirit-labs/tektite/compress"
 	"github.com/spirit-labs/tektite/objstore"
 	"github.com/spirit-labs/tektite/objstore/dev"
 	"github.com/spirit-labs/tektite/parthash"
@@ -508,7 +509,8 @@ func setupInitialOffsets(t *testing.T, objStore objstore.Client, dataBucketName 
 	require.NoError(t, err)
 	tableID := sst.CreateSSTableId()
 	// Push sstable to object store
-	tableData := table.Serialize()
+	tableData, err := table.ToStorageBytes(compress.CompressionTypeNone)
+	require.NoError(t, err)
 	err = objStore.Put(context.Background(), dataBucketName, tableID, tableData)
 	require.NoError(t, err)
 	return []byte(tableID)

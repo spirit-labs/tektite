@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/spirit-labs/tektite/apiclient"
 	"github.com/spirit-labs/tektite/common"
+	"github.com/spirit-labs/tektite/compress"
 	"github.com/spirit-labs/tektite/kafkaencoding"
 	"github.com/spirit-labs/tektite/kafkaprotocol"
 	"github.com/spirit-labs/tektite/objstore/dev"
@@ -13,6 +14,7 @@ import (
 	"github.com/spirit-labs/tektite/topicmeta"
 	"github.com/spirit-labs/tektite/transport"
 	"github.com/stretchr/testify/require"
+	"hash/crc32"
 	"math"
 	"math/rand"
 	"sync"
@@ -92,8 +94,17 @@ func testFetchSimple(t *testing.T, apiVersion int16) {
 	require.Equal(t, 1, len(topicResp.Partitions))
 	partResp := topicResp.Partitions[0]
 	require.Equal(t, kafkaprotocol.ErrorCodeNone, int(partResp.ErrorCode))
-	require.Equal(t, 100, int(partResp.HighWatermark))
-	require.Equal(t, batch, partResp.Records)
+	require.Equal(t, 1, int(partResp.HighWatermark))
+	decompressed, err := maybeDecompressBatches([][]byte{partResp.Records})
+	require.NoError(t, err)
+
+	bNoCrc1 := batch
+	bNoCrc2 := decompressed[0]
+
+	kafkaencoding.SetCrc(bNoCrc1, 0)
+	kafkaencoding.SetCrc(bNoCrc2, 0)
+
+	require.Equal(t, bNoCrc1, bNoCrc2)
 }
 
 func TestFetchSingleSenderAndFetcherShortWriteTimeout(t *testing.T) {
@@ -366,6 +377,10 @@ func (f *fetchRunner) fetch() {
 	}
 	if len(partResp.Records) > 0 {
 		batches := extractBatches(partResp.Records)
+		batches, err := maybeDecompressBatches(batches)
+		if err != nil {
+			panic(fmt.Sprintf("failed to decompress batches: %v", err))
+		}
 		f.batches = append(f.batches, batches...)
 		for _, batch := range batches {
 			baseOffset := kafkaencoding.BaseOffset(batch)
@@ -380,6 +395,33 @@ func (f *fetchRunner) fetch() {
 		}
 	}
 }
+
+func maybeDecompressBatches(batches [][]byte) ([][]byte, error) {
+	var newBatches [][]byte
+	for _, batch := range batches {
+		compressType := compress.CompressionType(kafkaencoding.CompressionType(batch))
+		if compressType != compress.CompressionTypeNone {
+			decompressedPart, err := compress.Decompress(compressType, batch[61:])
+			if err != nil {
+				return nil, err
+			}
+			decompressed := append(common.ByteSliceCopy(batch[:61]), decompressedPart...)
+			// Now set new batch length
+			newBatchLen := len(decompressed) - 12
+			binary.BigEndian.PutUint32(decompressed[8:], uint32(newBatchLen))
+			kafkaencoding.SetCompressionType(decompressed, 0)
+			// And recalc the crc
+			crc := crc32.Checksum(decompressed[21:], crcTable)
+			kafkaencoding.SetCrc(decompressed, crc)
+			newBatches = append(newBatches, decompressed)
+		} else {
+			newBatches = append(newBatches, batch)
+		}
+	}
+	return newBatches, nil
+}
+
+var crcTable = crc32.MakeTable(crc32.Castagnoli)
 
 func extractBatches(buff []byte) [][]byte {
 	// Multiple record batches are concatenated together
@@ -409,7 +451,7 @@ func (f *fetchRunner) sendFetch(req *kafkaprotocol.FetchRequest) *kafkaprotocol.
 }
 
 func produceBatch(t *testing.T, topicName string, partitionID int, address string) []byte {
-	batch := testutils.CreateKafkaRecordBatchWithIncrementingKVs(0, 100)
+	batch := testutils.CreateKafkaRecordBatchWithIncrementingKVs(0, 1)
 	req := kafkaprotocol.ProduceRequest{
 		TransactionalId: nil,
 		Acks:            -1,

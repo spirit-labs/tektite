@@ -6,6 +6,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/spirit-labs/tektite/asl/errwrap"
 	"github.com/spirit-labs/tektite/common"
+	"github.com/spirit-labs/tektite/compress"
 	"github.com/spirit-labs/tektite/iteration"
 	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/objstore"
@@ -42,6 +43,7 @@ type CompactionWorkerServiceConf struct {
 	WorkerCount           int
 	SSTableBucketName     string
 	SSTablePushRetryDelay time.Duration
+	TableCompressionType  compress.CompressionType
 }
 
 func (c *CompactionWorkerServiceConf) Validate() error {
@@ -312,9 +314,12 @@ func (c *compactionWorker) processJob(job *CompactionJob) ([]RegistrationEntry, 
 		log.Debugf("compaction job %s created sstable %v", job.id, id)
 		ids = append(ids, id)
 		for {
-			tableBytes := info.sst.Serialize()
+			tableBytes, err := info.sst.ToStorageBytes(c.cws.cfg.TableCompressionType)
+			if err != nil {
+				return nil, nil, err
+			}
 			// Add to object store
-			err := objstore.PutWithTimeout(c.cws.objStoreClient, c.cws.cfg.SSTableBucketName, string(id),
+			err = objstore.PutWithTimeout(c.cws.objStoreClient, c.cws.cfg.SSTableBucketName, string(id),
 				tableBytes, objstore.DefaultCallTimeout)
 			if err == nil {
 				break
@@ -358,9 +363,7 @@ func (c *compactionWorker) getSSTable(tableID sst.SSTableID) (*sst.SSTable, erro
 	if len(buff) == 0 {
 		return nil, errors.Errorf("cannot find sstable %s", tableID)
 	}
-	var table sst.SSTable
-	table.Deserialize(buff, 0)
-	return &table, nil
+	return sst.GetSSTableFromBytes(buff)
 }
 
 func changesToApply(newTables []TableEntry, job *CompactionJob) ([]RegistrationEntry, []RegistrationEntry) {
@@ -556,8 +559,10 @@ func validateRegEntry(entry RegistrationEntry, objStore objstore.Client, bucketN
 	if err != nil {
 		panic(err)
 	}
-	table := &sst.SSTable{}
-	table.Deserialize(buff, 0)
+	table, err := sst.GetSSTableFromBytes(buff)
+	if err != nil {
+		panic(err)
+	}
 	iter, err := table.NewIterator(nil, nil)
 	if err != nil {
 		panic(err)

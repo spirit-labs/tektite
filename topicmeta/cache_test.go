@@ -18,7 +18,11 @@ func TestNotifications(t *testing.T) {
 
 	transports := transport.NewLocalTransports()
 	connCaches := transport.NewConnCaches(10, transports.CreateConnection)
-	mgr, err := NewManager(lsmH, objStore, "test-bucket", common.DataFormatV1, connCaches)
+	dataBucketName := "test-bucket"
+	kvw := func(kvs []common.KV) error {
+		return writeKV(kvs, lsmH, objStore, dataBucketName, common.DataFormatV1)
+	}
+	mgr, err := NewManager(lsmH, objStore, "test-bucket", common.DataFormatV1, connCaches, kvw)
 	require.NoError(t, err)
 	err = mgr.Start()
 	require.NoError(t, err)

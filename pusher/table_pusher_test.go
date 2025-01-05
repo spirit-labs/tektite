@@ -1865,6 +1865,7 @@ func sendBatchWithDedupReturnChannel(t *testing.T, pusher *TablePusher, producer
 	binary.BigEndian.PutUint32(recordBatch[23:], uint32(offsetDelta)) // lastOffsetDelta
 	binary.BigEndian.PutUint64(recordBatch[43:], uint64(producerID))
 	binary.BigEndian.PutUint32(recordBatch[53:], uint32(baseSequence))
+	kafkaencoding.CalcAndSetCrc(recordBatch)
 
 	req := kafkaprotocol.ProduceRequest{
 		TransactionalId: nil,
@@ -1945,8 +1946,8 @@ func getSSTablesFromStore(t *testing.T, databucketName string, objStore objstore
 	for _, info := range objects {
 		sstableBytes, err := objStore.Get(context.Background(), databucketName, info.Key)
 		require.NoError(t, err)
-		ssTable := &sst.SSTable{}
-		ssTable.Deserialize(sstableBytes, 0)
+		ssTable, err := sst.GetSSTableFromBytes(sstableBytes)
+		require.NoError(t, err)
 		ssTables = append(ssTables, ssTable)
 	}
 	return ssTables, objects

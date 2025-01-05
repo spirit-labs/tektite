@@ -3,6 +3,7 @@ package integ
 import (
 	"bytes"
 	"fmt"
+	"github.com/spirit-labs/tektite/compress"
 	log "github.com/spirit-labs/tektite/logger"
 	"github.com/stretchr/testify/require"
 	"os"
@@ -17,7 +18,8 @@ func TestTekUsers(t *testing.T) {
 	require.NoError(t, err)
 
 	numAgents := 3
-	agents, tearDown := startAgents(t, numAgents, false, false)
+	agents, tearDown := startAgents(t, numAgents, false, false, compress.CompressionTypeNone,
+		compress.CompressionTypeLz4)
 	defer tearDown(t)
 
 	var addresses strings.Builder
@@ -54,7 +56,8 @@ func TestTekUsersHelp(t *testing.T) {
 	require.NoError(t, err)
 
 	numAgents := 3
-	agents, tearDown := startAgents(t, numAgents, false, false)
+	agents, tearDown := startAgents(t, numAgents, false, false, compress.CompressionTypeNone,
+		compress.CompressionTypeLz4)
 	defer tearDown(t)
 
 	var addresses strings.Builder

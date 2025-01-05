@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"fmt"
 	"github.com/pkg/errors"
+	"github.com/spirit-labs/tektite/compress"
 	"github.com/spirit-labs/tektite/kafka"
 	log "github.com/spirit-labs/tektite/logger"
 	"io"
@@ -213,7 +214,8 @@ func buildBinary() error {
 	return nil
 }
 
-type ProducerFactory func(address string, tlsEnabled bool, serverCertFile string, clientCertFile string, clientPrivateKeyFile string) (Producer, error)
+type ProducerFactory func(address string, tlsEnabled bool, serverCertFile string, clientCertFile string,
+	clientPrivateKeyFile string, compressionType compress.CompressionType) (Producer, error)
 
 type Producer interface {
 	Produce(topicName string, messages []kafka.Message) error

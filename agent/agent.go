@@ -313,9 +313,7 @@ func (o *fetchCacheGetter) get(tableID sst.SSTableID) (*sst.SSTable, error) {
 	if len(bytes) == 0 {
 		return nil, errors.Errorf("cannot find sstable %s", tableID)
 	}
-	table := &sst.SSTable{}
-	table.Deserialize(bytes, 0)
-	return table, nil
+	return sst.GetSSTableFromBytes(bytes)
 }
 
 type compactionWorkerControllerClient struct {

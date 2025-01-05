@@ -64,8 +64,10 @@ func (m *Manager) validateTable(te *TableEntry) error {
 	if buff == nil {
 		return errwrap.Errorf("cannot find sstable %v", te.SSTableID)
 	}
-	table := &sst.SSTable{}
-	table.Deserialize(buff, 0)
+	table, err := sst.GetSSTableFromBytes(buff)
+	if err != nil {
+		return err
+	}
 	iter, err := table.NewIterator(nil, nil)
 	if err != nil {
 		return err
