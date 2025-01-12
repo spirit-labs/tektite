@@ -270,10 +270,7 @@ func (m *Manager) WriteTopic(topicInfo TopicInfo) error {
 	value := binary.BigEndian.AppendUint16(nil, topicMetadataVersion)
 	value = topicInfo.Serialize(value)
 	value = common.AppendValueMetadata(value)
-
 	return m.kvWriter([]common.KV{{Key: key, Value: value}})
-
-	//return m.writeKV(common.KV{Key: key, Value: value})
 }
 
 func (m *Manager) WriteTopicDeletion(topicID int) error {
@@ -281,64 +278,7 @@ func (m *Manager) WriteTopicDeletion(topicID int) error {
 	key = encoding.EncodeVersion(key, 0)
 	// Write a tombstone (nil value)
 	return m.kvWriter([]common.KV{{Key: key}})
-	//return m.writeKV(common.KV{Key: key})
 }
-
-//func (m *Manager) writeKV(kv common.KV) error {
-//	iter := common.NewKvSliceIterator([]common.KV{kv})
-//	// Build ssTable
-//	table, smallestKey, largestKey, minVersion, maxVersion, err := sst.BuildSSTable(m.dataFormat, 0, 0, iter)
-//	if err != nil {
-//		return err
-//	}
-//	tableID := sst.CreateSSTableId()
-//	// Push ssTable to object store
-//	tableData := table.Serialize()
-//	if err := m.putWithRetry(tableID, tableData); err != nil {
-//		return err
-//	}
-//	// Register table with LSM
-//	regEntry := lsm.RegistrationEntry{
-//		Level:            0,
-//		TableID:          []byte(tableID),
-//		MinVersion:       minVersion,
-//		MaxVersion:       maxVersion,
-//		KeyStart:         smallestKey,
-//		KeyEnd:           largestKey,
-//		DeleteRatio:      table.DeleteRatio(),
-//		AddedTime:        uint64(time.Now().UnixMilli()),
-//		NumEntries:       uint64(table.NumEntries()),
-//		TableSize:        uint64(table.SizeBytes()),
-//		NumPrefixDeletes: uint32(table.NumPrefixDeletes()),
-//	}
-//	batch := lsm.RegistrationBatch{
-//		Registrations: []lsm.RegistrationEntry{regEntry},
-//	}
-//	ch := make(chan error, 1)
-//	if err := m.lsm.ApplyLsmChanges(batch, func(err error) error {
-//		ch <- err
-//		return nil
-//	}); err != nil {
-//		return err
-//	}
-//	return <-ch
-//}
-
-//func (m *Manager) putWithRetry(key string, value []byte) error {
-//	for {
-//		err := objstore.PutWithTimeout(m.objStore, m.dataBucketName, key, value, objStoreCallTimeout)
-//		if err == nil {
-//			return nil
-//		}
-//		if m.stopping.Load() {
-//			return errors.New("TopicMetaPersister is stopping")
-//		}
-//		if common.IsUnavailableError(err) {
-//			log.Warnf("Unable to write type info due to unavailability, will retry after delay: %v", err)
-//			time.Sleep(unavailabilityRetryDelay)
-//		}
-//	}
-//}
 
 type tableGetter struct {
 	bucketName string
