@@ -3,8 +3,11 @@ package topicmeta
 import (
 	"fmt"
 	"github.com/spirit-labs/tektite/common"
+	"github.com/spirit-labs/tektite/compress"
 	"github.com/spirit-labs/tektite/lsm"
+	"github.com/spirit-labs/tektite/objstore"
 	"github.com/spirit-labs/tektite/objstore/dev"
+	"github.com/spirit-labs/tektite/sst"
 	"github.com/stretchr/testify/require"
 	"sync"
 	"testing"
@@ -15,7 +18,11 @@ func TestCreateLoadDeleteTopics(t *testing.T) {
 	lsmH := &testLsmHolder{}
 	objStore := dev.NewInMemStore(0)
 
-	mgr, err := NewManager(lsmH, objStore, "test-bucket", common.DataFormatV1, nil)
+	dataBucketName := "test-bucket"
+	kvw := func(kvs []common.KV) error {
+		return writeKV(kvs, lsmH, objStore, dataBucketName, common.DataFormatV1)
+	}
+	mgr, err := NewManager(lsmH, objStore, dataBucketName, common.DataFormatV1, nil, kvw)
 	require.NoError(t, err)
 	err = mgr.Start()
 	require.NoError(t, err)
@@ -50,7 +57,8 @@ func TestCreateLoadDeleteTopics(t *testing.T) {
 	// Now restart
 	err = mgr.Stop()
 	require.NoError(t, err)
-	mgr, err = NewManager(lsmH, objStore, "test-bucket", common.DataFormatV1, nil)
+
+	mgr, err = NewManager(lsmH, objStore, "test-bucket", common.DataFormatV1, nil, kvw)
 	require.NoError(t, err)
 	err = mgr.Start()
 	require.NoError(t, err)
@@ -85,7 +93,7 @@ func TestCreateLoadDeleteTopics(t *testing.T) {
 	// Restart again
 	err = mgr.Stop()
 	require.NoError(t, err)
-	mgr, err = NewManager(lsmH, objStore, "test-bucket", common.DataFormatV1, nil)
+	mgr, err = NewManager(lsmH, objStore, dataBucketName, common.DataFormatV1, nil, kvw)
 	require.NoError(t, err)
 	err = mgr.Start()
 	require.NoError(t, err)
@@ -115,7 +123,7 @@ func TestCreateLoadDeleteTopics(t *testing.T) {
 	// Restart again
 	err = mgr.Stop()
 	require.NoError(t, err)
-	mgr, err = NewManager(lsmH, objStore, "test-bucket", common.DataFormatV1, nil)
+	mgr, err = NewManager(lsmH, objStore, dataBucketName, common.DataFormatV1, nil, kvw)
 	require.NoError(t, err)
 	err = mgr.Start()
 	require.NoError(t, err)
@@ -132,7 +140,11 @@ func TestUpdateTopicInfo(t *testing.T) {
 	lsmH := &testLsmHolder{}
 	objStore := dev.NewInMemStore(0)
 
-	mgr, err := NewManager(lsmH, objStore, "test-bucket", common.DataFormatV1, nil)
+	dataBucketName := "test-bucket"
+	kvw := func(kvs []common.KV) error {
+		return writeKV(kvs, lsmH, objStore, dataBucketName, common.DataFormatV1)
+	}
+	mgr, err := NewManager(lsmH, objStore, dataBucketName, common.DataFormatV1, nil, kvw)
 	require.NoError(t, err)
 	err = mgr.Start()
 	require.NoError(t, err)
@@ -165,7 +177,7 @@ func TestUpdateTopicInfo(t *testing.T) {
 	// Now restart
 	err = mgr.Stop()
 	require.NoError(t, err)
-	mgr, err = NewManager(lsmH, objStore, "test-bucket", common.DataFormatV1, nil)
+	mgr, err = NewManager(lsmH, objStore, "test-bucket", common.DataFormatV1, nil, kvw)
 	require.NoError(t, err)
 	err = mgr.Start()
 	require.NoError(t, err)
@@ -181,7 +193,11 @@ func TestCreateTopicInfoInvalidPartitionCount(t *testing.T) {
 	lsmH := &testLsmHolder{}
 	objStore := dev.NewInMemStore(0)
 
-	mgr, err := NewManager(lsmH, objStore, "test-bucket", common.DataFormatV1, nil)
+	dataBucketName := "test-bucket"
+	kvw := func(kvs []common.KV) error {
+		return writeKV(kvs, lsmH, objStore, dataBucketName, common.DataFormatV1)
+	}
+	mgr, err := NewManager(lsmH, objStore, dataBucketName, common.DataFormatV1, nil, kvw)
 	require.NoError(t, err)
 	err = mgr.Start()
 	require.NoError(t, err)
@@ -200,7 +216,11 @@ func TestUpdateTopicInfoInvalidPartitionCount(t *testing.T) {
 	lsmH := &testLsmHolder{}
 	objStore := dev.NewInMemStore(0)
 
-	mgr, err := NewManager(lsmH, objStore, "test-bucket", common.DataFormatV1, nil)
+	dataBucketName := "test-bucket"
+	kvw := func(kvs []common.KV) error {
+		return writeKV(kvs, lsmH, objStore, dataBucketName, common.DataFormatV1)
+	}
+	mgr, err := NewManager(lsmH, objStore, dataBucketName, common.DataFormatV1, nil, kvw)
 	require.NoError(t, err)
 	err = mgr.Start()
 	require.NoError(t, err)
@@ -228,7 +248,11 @@ func TestCreateTopicInfoTopicAlreadyExists(t *testing.T) {
 	lsmH := &testLsmHolder{}
 	objStore := dev.NewInMemStore(0)
 
-	mgr, err := NewManager(lsmH, objStore, "test-bucket", common.DataFormatV1, nil)
+	dataBucketName := "test-bucket"
+	kvw := func(kvs []common.KV) error {
+		return writeKV(kvs, lsmH, objStore, dataBucketName, common.DataFormatV1)
+	}
+	mgr, err := NewManager(lsmH, objStore, dataBucketName, common.DataFormatV1, nil, kvw)
 	require.NoError(t, err)
 	err = mgr.Start()
 	require.NoError(t, err)
@@ -250,7 +274,11 @@ func TestUpdateTopicInfoInvalidTopic(t *testing.T) {
 	lsmH := &testLsmHolder{}
 	objStore := dev.NewInMemStore(0)
 
-	mgr, err := NewManager(lsmH, objStore, "test-bucket", common.DataFormatV1, nil)
+	dataBucketName := "test-bucket"
+	kvw := func(kvs []common.KV) error {
+		return writeKV(kvs, lsmH, objStore, dataBucketName, common.DataFormatV1)
+	}
+	mgr, err := NewManager(lsmH, objStore, dataBucketName, common.DataFormatV1, nil, kvw)
 	require.NoError(t, err)
 	err = mgr.Start()
 	require.NoError(t, err)
@@ -278,7 +306,11 @@ func TestGetTopicInfoSequence(t *testing.T) {
 	lsmH := &testLsmHolder{}
 	objStore := dev.NewInMemStore(0)
 
-	mgr, err := NewManager(lsmH, objStore, "test-bucket", common.DataFormatV1, nil)
+	dataBucketName := "test-bucket"
+	kvw := func(kvs []common.KV) error {
+		return writeKV(kvs, lsmH, objStore, dataBucketName, common.DataFormatV1)
+	}
+	mgr, err := NewManager(lsmH, objStore, dataBucketName, common.DataFormatV1, nil, kvw)
 	require.NoError(t, err)
 	err = mgr.Start()
 	require.NoError(t, err)
@@ -320,7 +352,11 @@ func TestGetTopicInfoSequencePersisted(t *testing.T) {
 	lsmH := &testLsmHolder{}
 	objStore := dev.NewInMemStore(0)
 
-	mgr, err := NewManager(lsmH, objStore, "test-bucket", common.DataFormatV1, nil)
+	dataBucketName := "test-bucket"
+	kvw := func(kvs []common.KV) error {
+		return writeKV(kvs, lsmH, objStore, dataBucketName, common.DataFormatV1)
+	}
+	mgr, err := NewManager(lsmH, objStore, dataBucketName, common.DataFormatV1, nil, kvw)
 	require.NoError(t, err)
 	err = mgr.Start()
 	require.NoError(t, err)
@@ -351,7 +387,7 @@ func TestGetTopicInfoSequencePersisted(t *testing.T) {
 	// restart
 	err = mgr.Stop()
 	require.NoError(t, err)
-	mgr, err = NewManager(lsmH, objStore, "test-bucket", common.DataFormatV1, nil)
+	mgr, err = NewManager(lsmH, objStore, "test-bucket", common.DataFormatV1, nil, kvw)
 	require.NoError(t, err)
 	err = mgr.Start()
 	require.NoError(t, err)
@@ -389,7 +425,7 @@ func TestGetTopicInfoSequencePersisted(t *testing.T) {
 	// restart again
 	err = mgr.Stop()
 	require.NoError(t, err)
-	mgr, err = NewManager(lsmH, objStore, "test-bucket", common.DataFormatV1, nil)
+	mgr, err = NewManager(lsmH, objStore, "test-bucket", common.DataFormatV1, nil, kvw)
 	require.NoError(t, err)
 	err = mgr.Start()
 	require.NoError(t, err)
@@ -450,4 +486,49 @@ func (t *testLsmHolder) ApplyLsmChanges(regBatch lsm.RegistrationBatch, completi
 	// prepend so newest are first
 	t.batches = append([]lsm.RegistrationBatch{regBatch}, t.batches...)
 	return completionFunc(nil)
+}
+
+func writeKV(kvs []common.KV, lsmH lsmHolder, objStore objstore.Client, dataBucketName string,
+	dataFormat common.DataFormat) error {
+	iter := common.NewKvSliceIterator(kvs)
+
+	// Build ssTable
+	table, smallestKey, largestKey, minVersion, maxVersion, err := sst.BuildSSTable(dataFormat, 0, 0, iter)
+	if err != nil {
+		return err
+	}
+	tableID := sst.CreateSSTableId()
+	// Push ssTable to object store
+	tableData, err := table.ToStorageBytes(compress.CompressionTypeNone)
+	if err != nil {
+		return err
+	}
+	if err := objstore.PutWithTimeout(objStore, dataBucketName, tableID, tableData, objStoreCallTimeout); err != nil {
+		return err
+	}
+	// Register table with LSM
+	regEntry := lsm.RegistrationEntry{
+		Level:            0,
+		TableID:          []byte(tableID),
+		MinVersion:       minVersion,
+		MaxVersion:       maxVersion,
+		KeyStart:         smallestKey,
+		KeyEnd:           largestKey,
+		DeleteRatio:      table.DeleteRatio(),
+		AddedTime:        uint64(time.Now().UnixMilli()),
+		NumEntries:       uint64(table.NumEntries()),
+		TableSize:        uint64(table.SizeBytes()),
+		NumPrefixDeletes: uint32(table.NumPrefixDeletes()),
+	}
+	batch := lsm.RegistrationBatch{
+		Registrations: []lsm.RegistrationEntry{regEntry},
+	}
+	ch := make(chan error, 1)
+	if err := lsmH.ApplyLsmChanges(batch, func(err error) error {
+		ch <- err
+		return nil
+	}); err != nil {
+		return err
+	}
+	return <-ch
 }

@@ -65,6 +65,9 @@ Flags:
       --auto-create-num-partitions=1                          the number of partitions for auto-created topics
       --default-max-message-size-bytes=1048576                the maximum size of a message batch that can be sent to a topic - can be overridden at topic level
       --metadata-write-interval-ms=100                        interval between writing database metadata to permanent storage, in milliseconds
+      --storage-compression-type="lz4"                        determines how data is compressed before writing to object storage. one of 'lz4', 'zstd' or 'none'
+      --fetch-compression-type="lz4"                          determines how data is compressed before returning a fetched batch to a consumer. one of 'gzip',
+                                                              'snappy', 'lz4', 'zstd' or 'none'
       --log-format="console"                                  format to write log lines in - one of: console, json
       --log-level="info"                                      lowest log level that will be emitted - one of: debug, info, warn, error`
 

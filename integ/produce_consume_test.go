@@ -5,6 +5,7 @@ import (
 	"fmt"
 	kafkago "github.com/confluentinc/confluent-kafka-go/v2/kafka"
 	"github.com/google/uuid"
+	"github.com/spirit-labs/tektite/compress"
 	"github.com/spirit-labs/tektite/kafka"
 	log "github.com/spirit-labs/tektite/logger"
 	miniocl "github.com/spirit-labs/tektite/objstore/minio"
@@ -52,14 +53,14 @@ func testProduceConsume(t *testing.T, producerFactory ProducerFactory, consumerF
 
 	numAgents := 5
 	topicName := fmt.Sprintf("test-topic-%s", uuid.New().String())
-	agents, tearDown := startAgents(t, numAgents, serverTls, clientTls)
+	agents, tearDown := startAgents(t, numAgents, serverTls, clientTls, compress.CompressionTypeNone, compress.CompressionTypeLz4)
 	defer tearDown(t)
 
 	createTopic(t, topicName, 100, agents[0].kafkaListenAddress, serverTls, clientTls)
 
 	address := agents[0].kafkaListenAddress
 
-	producer := createProducer(t, producerFactory, address, serverTls, clientTls)
+	producer := createProducer(t, producerFactory, address, serverTls, clientTls, compress.CompressionTypeNone)
 	defer func() {
 		err := producer.Close()
 		require.NoError(t, err)
@@ -112,7 +113,8 @@ func startMinioAndCreateBuckets(t *testing.T) (miniocl.Conf, *minio.MinioContain
 	return minioCfg, minioContainer
 }
 
-func startAgents(t *testing.T, numAgents int, serverTls bool, clientAuth bool) ([]*AgentProcess, func(*testing.T)) {
+func startAgents(t *testing.T, numAgents int, serverTls bool, clientAuth bool, fetchCompression compress.CompressionType,
+	storageCompression compress.CompressionType) ([]*AgentProcess, func(*testing.T)) {
 	minioCfg, minioContainer := startMinioAndCreateBuckets(t)
 
 	mgr := NewManager()
@@ -136,7 +138,9 @@ func startAgents(t *testing.T, numAgents int, serverTls bool, clientAuth bool) (
 		commandLine := fmt.Sprintf("--obj-store-username=minioadmin --obj-store-password=minioadmin --obj-store-url=%s ", minioCfg.Endpoint) +
 			"--cluster-name=test-cluster --location=az1 --kafka-listen-address=localhost:0 --internal-listen-address=localhost:0 " +
 			"--membership-update-interval-ms=100 --membership-eviction-interval-ms=2000 " +
-			"--consumer-group-initial-join-delay-ms=500 " +
+			"--consumer-group-initial-join-delay-ms=100 " +
+			fmt.Sprintf("--storage-compression-type=%s ", storageCompression.String()) +
+			fmt.Sprintf("--fetch-compression-type=%s ", fetchCompression.String()) +
 			`--log-level=info`
 		commandLine += tlsConf
 		log.Debugf("command line: %s", commandLine)
@@ -183,14 +187,15 @@ func startMinio(t *testing.T) (miniocl.Conf, *minio.MinioContainer) {
 	return cfg, minioContainer
 }
 
-func createProducer(t *testing.T, factory ProducerFactory, address string, serverTls bool, clientTls bool) Producer {
+func createProducer(t *testing.T, factory ProducerFactory, address string, serverTls bool, clientTls bool,
+	compressionType compress.CompressionType) Producer {
 	clientKey := ""
 	clientCert := ""
 	if clientTls {
 		clientKey = clientKeyPath
 		clientCert = clientCertPath
 	}
-	producer, err := factory(address, serverTls, serverCertPath, clientCert, clientKey)
+	producer, err := factory(address, serverTls, serverCertPath, clientCert, clientKey, compressionType)
 	require.NoError(t, err)
 	return producer
 }

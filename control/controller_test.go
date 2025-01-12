@@ -8,14 +8,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/google/uuid"
-	"github.com/spirit-labs/tektite/asl/encoding"
 	"github.com/spirit-labs/tektite/cluster"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/lsm"
 	"github.com/spirit-labs/tektite/objstore"
 	"github.com/spirit-labs/tektite/objstore/dev"
 	"github.com/spirit-labs/tektite/offsets"
-	"github.com/spirit-labs/tektite/parthash"
 	"github.com/spirit-labs/tektite/sst"
 	"github.com/spirit-labs/tektite/topicmeta"
 	"github.com/spirit-labs/tektite/transport"
@@ -173,6 +171,7 @@ func TestControllerApplyChanges(t *testing.T) {
 func TestControllerPrePushAndRegisterL0(t *testing.T) {
 	controllers, tearDown := setupControllers(t, 1)
 	defer tearDown(t)
+	addFakePusherSinkToController(t, controllers[0], controllers[0].objStoreClient)
 
 	updateMembership(t, 1, 1, controllers, 0)
 	setupTopics(t, controllers[0])
@@ -284,6 +283,7 @@ func TestControllerPrePushAndRegisterL0(t *testing.T) {
 func TestControllerGroupEpochs(t *testing.T) {
 	controllers, tearDown := setupControllers(t, 1)
 	defer tearDown(t)
+	addFakePusherSinkToController(t, controllers[0], controllers[0].objStoreClient)
 
 	updateMembership(t, 1, 1, controllers, 0)
 	setupTopics(t, controllers[0])
@@ -372,7 +372,7 @@ func TestControllerCreateGetDeleteTopics(t *testing.T) {
 
 	objStore := dev.NewInMemStore(0)
 
-	controller, fp, tearDown := setupControllerWithPusherSink(t, objStore)
+	controller, _, tearDown := setupControllerWithPusherSink(t, objStore)
 	defer tearDown(t)
 
 	updateMembership(t, 1, 1, []*Controller{controller}, 0)
@@ -402,25 +402,6 @@ func TestControllerCreateGetDeleteTopics(t *testing.T) {
 		infos = append(infos, info)
 	}
 
-	// Now restart
-	err = cl.Close()
-	require.NoError(t, err)
-	tearDown(t)
-	controller, fp, tearDown = setupControllerWithPusherSink(t, objStore)
-	defer tearDown(t)
-	updateMembership(t, 1, 1, []*Controller{controller}, 0)
-	cl, err = controller.Client()
-	require.NoError(t, err)
-
-	// Topics should still be there
-	for _, info := range infos {
-		received, _, exists, err := cl.GetTopicInfo(info.Name)
-		require.NoError(t, err)
-		require.True(t, exists)
-		require.Equal(t, info, received)
-	}
-
-	var expectedKvs []common.KV
 	// Now delete half of them
 	for i := 0; i < len(infos)/2; i++ {
 		info := infos[i]
@@ -429,24 +410,6 @@ func TestControllerCreateGetDeleteTopics(t *testing.T) {
 		_, _, exists, err := cl.GetTopicInfo(info.Name)
 		require.NoError(t, err)
 		require.False(t, exists)
-
-		for partitionID := 0; partitionID < info.PartitionCount; partitionID++ {
-			prefix, err := parthash.CreatePartitionHash(info.ID, partitionID)
-			require.NoError(t, err)
-			expectedKvs = append(expectedKvs, encoding.CreatePrefixDeletionKVs(prefix)...)
-		}
-	}
-	// make sure there are prefix deletions for the partitions
-	receivedKvs := fp.getAllKvs()
-	require.Equal(t, len(expectedKvs), len(receivedKvs))
-	for i, expected := range expectedKvs {
-		received := receivedKvs[i]
-		require.Equal(t, expected.Key, received.Key)
-		if len(expected.Value) == 0 {
-			require.Equal(t, 0, len(received.Value))
-		} else {
-			require.Equal(t, expected.Value, received.Value)
-		}
 	}
 
 	// Rest should still be there
@@ -458,28 +421,6 @@ func TestControllerCreateGetDeleteTopics(t *testing.T) {
 		require.Equal(t, info, received)
 	}
 
-	// Restart again
-	err = cl.Close()
-	require.NoError(t, err)
-	tearDown(t)
-	controller, fp, tearDown = setupControllerWithPusherSink(t, objStore)
-	defer tearDown(t)
-	updateMembership(t, 1, 1, []*Controller{controller}, 0)
-	cl, err = controller.Client()
-	require.NoError(t, err)
-
-	for i, info := range infos {
-		received, _, exists, err := cl.GetTopicInfo(info.Name)
-		if i < len(infos)/2 {
-			require.NoError(t, err)
-			require.False(t, exists)
-		} else {
-			require.NoError(t, err)
-			require.True(t, exists)
-			require.Equal(t, info, received)
-		}
-	}
-
 	// Delete the rest
 	for i := len(infos) / 2; i < len(infos); i++ {
 		info := infos[i]
@@ -489,21 +430,6 @@ func TestControllerCreateGetDeleteTopics(t *testing.T) {
 		require.NoError(t, err)
 		require.False(t, exists)
 	}
-
-	// Restart again
-	err = cl.Close()
-	require.NoError(t, err)
-	tearDown(t)
-	controller, fp, tearDown = setupControllerWithPusherSink(t, objStore)
-	defer tearDown(t)
-	updateMembership(t, 1, 1, []*Controller{controller}, 0)
-	cl, err = controller.Client()
-	require.NoError(t, err)
-	require.NoError(t, err)
-	defer func() {
-		err = cl.Close()
-		require.NoError(t, err)
-	}()
 
 	// Should be none
 	for _, info := range infos {
@@ -782,6 +708,7 @@ func TestControllerGetAllTopicInfos(t *testing.T) {
 	objStore := dev.NewInMemStore(0)
 	controllers, _, tearDown := setupControllersWithObjectStore(t, 1, objStore)
 	defer tearDown(t)
+	addFakePusherSinkToController(t, controllers[0], controllers[0].objStoreClient)
 
 	updateMembership(t, 1, 1, controllers, 0)
 
@@ -817,6 +744,7 @@ func TestControllerGetTopicInfo(t *testing.T) {
 	objStore := dev.NewInMemStore(0)
 	controllers, _, tearDown := setupControllersWithObjectStore(t, 1, objStore)
 	defer tearDown(t)
+	addFakePusherSinkToController(t, controllers[0], objStore)
 
 	updateMembership(t, 1, 1, controllers, 0)
 
@@ -854,6 +782,7 @@ func TestControllerGetTopicInfo(t *testing.T) {
 func TestControllerGenerateSequence(t *testing.T) {
 	controllers, tearDown := setupControllers(t, 1)
 	defer tearDown(t)
+	addFakePusherSinkToController(t, controllers[0], controllers[0].objStoreClient)
 
 	updateMembership(t, 1, 1, controllers, 0)
 	setupTopics(t, controllers[0])

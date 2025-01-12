@@ -8,11 +8,11 @@ import (
 	"github.com/spirit-labs/tektite/kafkaprotocol"
 	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/types"
-	"hash"
+	"hash/crc32"
 )
 
 func SetBatchHeader(batchBytes []byte, firstOffset int64, lastOffset int64, firstTimestamp types.Timestamp,
-	lastTimestamp types.Timestamp, numRecords int, crc hash.Hash32) {
+	lastTimestamp types.Timestamp, numRecords int) {
 	/*
 		baseOffset: int64
 		batchLength: int32
@@ -42,17 +42,19 @@ func SetBatchHeader(batchBytes []byte, firstOffset int64, lastOffset int64, firs
 	binary.BigEndian.PutUint64(batchBytes, uint64(firstOffset))
 	binary.BigEndian.PutUint32(batchBytes[8:], uint32(len(batchBytes)-12)) // len does not include first 2 fields
 	batchBytes[16] = 2                                                     // Magic
-	if _, err := crc.Write(batchBytes[21:]); err != nil {
-		panic(err)
-	}
-	checksum := crc.Sum32()
-	crc.Reset()
-	binary.BigEndian.PutUint32(batchBytes[17:], checksum)
 	binary.BigEndian.PutUint32(batchBytes[23:], uint32(lastOffset-firstOffset))
 	SetBaseTimestamp(batchBytes, firstTimestamp.Val)
 	SetMaxTimestamp(batchBytes, lastTimestamp.Val)
 	binary.BigEndian.PutUint32(batchBytes[57:], uint32(numRecords))
+	CalcAndSetCrc(batchBytes)
 }
+
+func CalcAndSetCrc(batchBytes []byte) {
+	crc := crc32.Checksum(batchBytes[21:], crcTable)
+	binary.BigEndian.PutUint32(batchBytes[17:], crc)
+}
+
+var crcTable = crc32.MakeTable(crc32.Castagnoli)
 
 func SetBaseTimestamp(records []byte, baseTimestamp int64) {
 	binary.BigEndian.PutUint64(records[27:], uint64(baseTimestamp))
@@ -125,6 +127,10 @@ func BaseOffset(records []byte) int64 {
 	return int64(binary.BigEndian.Uint64(records))
 }
 
+func BatchLength(records []byte) int32 {
+	return int32(binary.BigEndian.Uint32(records[8:]))
+}
+
 func ProducerID(records []byte) int64 {
 	return int64(binary.BigEndian.Uint64(records[43:]))
 }
@@ -143,6 +149,23 @@ func BaseTimestamp(records []byte) int64 {
 
 func MaxTimestamp(records []byte) int64 {
 	return int64(binary.BigEndian.Uint64(records[35:]))
+}
+
+func CompressionType(records []byte) byte {
+	return records[22] & 0x07
+}
+
+func SetCompressionType(records []byte, compressionType byte) {
+	records[22] &= 0xF8            // Clear the first 3 bits
+	records[22] |= compressionType // Set the first 3 bits
+}
+
+func SetCrc(records []byte, crc uint32) {
+	binary.BigEndian.PutUint32(records[17:], crc)
+}
+
+func GetCrc(records []byte) uint32 {
+	return binary.BigEndian.Uint32(records[17:])
 }
 
 type KafkaError struct {

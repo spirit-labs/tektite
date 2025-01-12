@@ -7,6 +7,7 @@ import (
 	"github.com/spirit-labs/tektite/apiclient"
 	"github.com/spirit-labs/tektite/asl/encoding"
 	"github.com/spirit-labs/tektite/common"
+	"github.com/spirit-labs/tektite/compress"
 	"github.com/spirit-labs/tektite/control"
 	"github.com/spirit-labs/tektite/iteration"
 	"github.com/spirit-labs/tektite/kafkaencoding"
@@ -380,6 +381,8 @@ func TestProduceSimpleWithReload(t *testing.T) {
 func setupAgentWithArgs(t *testing.T, cfg Conf, objStore objstore.Client, inMemMemberships *InMemClusterMemberships, localTransports *transport.LocalTransports) (*Agent, func(t *testing.T)) {
 	kafkaAddress, err := common.AddressWithPort("localhost")
 	require.NoError(t, err)
+	cfg.PusherConf.TableCompressionType = compress.CompressionTypeLz4
+	cfg.FetcherConf.FetchCompressionType = compress.CompressionTypeLz4
 	cfg.KafkaListenerConfig.Address = kafkaAddress
 	transportServer, err := localTransports.NewLocalServer(uuid.New().String())
 	require.NoError(t, err)
@@ -507,7 +510,5 @@ func (n *tableGetter) GetSSTable(tableID sst.SSTableID) (*sst.SSTable, error) {
 	if err != nil {
 		return nil, err
 	}
-	var table sst.SSTable
-	table.Deserialize(buff, 0)
-	return &table, nil
+	return sst.GetSSTableFromBytes(buff)
 }

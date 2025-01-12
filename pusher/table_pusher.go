@@ -9,6 +9,7 @@ import (
 	"github.com/spirit-labs/tektite/asl/encoding"
 	auth "github.com/spirit-labs/tektite/auth2"
 	"github.com/spirit-labs/tektite/common"
+	"github.com/spirit-labs/tektite/compress"
 	"github.com/spirit-labs/tektite/control"
 	"github.com/spirit-labs/tektite/kafkaencoding"
 	"github.com/spirit-labs/tektite/kafkaprotocol"
@@ -21,6 +22,7 @@ import (
 	"github.com/spirit-labs/tektite/sst"
 	"github.com/spirit-labs/tektite/topicmeta"
 	"github.com/spirit-labs/tektite/transport"
+	"hash/crc32"
 	"math"
 	"slices"
 	"sync"
@@ -333,6 +335,13 @@ func (t *TablePusher) HandleProduceRequest(authContext *auth.Context, req *kafka
 							topicInfo.MaxMessageSizeBytes), &partitionResponses[j])
 					continue partitions
 				}
+
+				// FIXME remove this
+				bl := kafkaencoding.BatchLength(records)
+				if len(records) != int(bl)+12 {
+					panic("wrong batch length")
+				}
+
 				dupRes, err := t.checkDuplicates(records, topicInfo.ID, partitionID)
 				if err != nil {
 					log.Errorf("failed to check duplicate records: %v", err)
@@ -349,10 +358,39 @@ func (t *TablePusher) HandleProduceRequest(authContext *auth.Context, req *kafka
 							t.partitionRecords[topicInfo.ID] = topicMap
 						}
 					}
+					// check crc - must be done before setting timestamp
+					calculatedCrc := crc32.Checksum(records[21:], crcTable)
+					if kafkaencoding.GetCrc(records) != calculatedCrc {
+						msg := "invalid crc in produced records"
+						log.Errorf(msg)
+						setPartitionError(kafkaprotocol.ErrorCodeCorruptMessage, msg, &partitionResponses[j])
+						continue partitions
+					}
+					needsCrcUpdate := false
 					if topicInfo.UseServerTimestamp {
 						tsDiff := kafkaencoding.MaxTimestamp(records) - kafkaencoding.BaseTimestamp(records)
 						kafkaencoding.SetBaseTimestamp(records, serverTimestamp)
 						kafkaencoding.SetMaxTimestamp(records, serverTimestamp+tsDiff)
+						needsCrcUpdate = true
+					}
+					compressionType := compress.CompressionType(kafkaencoding.CompressionType(records))
+					if compressionType != compress.CompressionTypeNone {
+						decompressedBytes, err := compress.Decompress(compressionType, records[61:])
+						if err != nil {
+							log.Errorf("failed to decompress: %v", err)
+							setPartitionError(kafkaprotocol.ErrorCodeUnknownServerError, err.Error(), &partitionResponses[j])
+							continue partitions
+						}
+						kafkaencoding.SetCompressionType(records, byte(compress.CompressionTypeNone))
+						records = append(records[:61], decompressedBytes...)
+						newBatchLen := len(records) - 12
+						// Update batch length
+						binary.BigEndian.PutUint32(records[8:], uint32(newBatchLen))
+						needsCrcUpdate = true
+					}
+					if needsCrcUpdate {
+						// Update CRC
+						kafkaencoding.CalcAndSetCrc(records)
 					}
 					topicMap[partitionID] = append(topicMap[partitionID], [][]byte{records})
 					t.sizeBytes += len(records)
@@ -414,6 +452,8 @@ func (t *TablePusher) HandleProduceRequest(authContext *auth.Context, req *kafka
 	}
 	return nil
 }
+
+var crcTable = crc32.MakeTable(crc32.Castagnoli)
 
 func fillAllErrors(resp *kafkaprotocol.ProduceResponse, errCode int, errMsg string) {
 	for i := 0; i < len(resp.Responses); i++ {
@@ -740,9 +780,12 @@ func (t *TablePusher) write() error {
 		return err
 	}
 	// Push ssTable to object store
+	buff, err := table.ToStorageBytes(t.cfg.TableCompressionType)
+	if err != nil {
+		return err
+	}
 	tableID := sst.CreateSSTableId()
-	tableData := table.Serialize()
-	if err := objstore.PutWithTimeout(t.objStore, t.cfg.DataBucketName, tableID, tableData,
+	if err := objstore.PutWithTimeout(t.objStore, t.cfg.DataBucketName, tableID, buff,
 		objStoreAvailabilityTimeout); err != nil {
 		return err
 	}

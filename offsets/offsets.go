@@ -527,8 +527,10 @@ func (c *Cache) LoadHighestOffsetForPartition(topicID int, partitionID int) (int
 		if len(buff) == 0 {
 			return 0, errors.Errorf("ssttable %s not found", tableID)
 		}
-		var table sst.SSTable
-		table.Deserialize(buff, 0)
+		table, err := sst.GetSSTableFromBytes(buff)
+		if err != nil {
+			return 0, err
+		}
 		iter, err := table.NewIterator(prefix, nil)
 		if err != nil {
 			return 0, err

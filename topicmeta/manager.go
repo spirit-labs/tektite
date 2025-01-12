@@ -31,13 +31,14 @@ type Manager struct {
 	started          bool
 	lsm              lsmHolder
 	objStore         objstore.Client
+	kvWriter         kvWriter
 	dataBucketName   string
 	dataFormat       common.DataFormat
 	topicInfosByName map[string]*TopicInfo
 	topicInfosByID   map[int]*TopicInfo
 	topicIDSequence  int64
 	stopping         atomic.Bool
-	membership       cluster.MembershipState
+	membership       atomic.Value
 	connCaches       *transport.ConnCaches
 	dataPrefix       []byte
 }
@@ -47,8 +48,10 @@ type lsmHolder interface {
 	ApplyLsmChanges(regBatch lsm.RegistrationBatch, completionFunc func(error) error) error
 }
 
+type kvWriter func([]common.KV) error
+
 func NewManager(lsm lsmHolder, objStore objstore.Client, dataBucketName string,
-	dataFormat common.DataFormat, connCaches *transport.ConnCaches) (*Manager, error) {
+	dataFormat common.DataFormat, connCaches *transport.ConnCaches, kvWriter kvWriter) (*Manager, error) {
 	dataPrefix, err := parthash.CreateHash([]byte("topic.meta"))
 	if err != nil {
 		return nil, err
@@ -56,6 +59,7 @@ func NewManager(lsm lsmHolder, objStore objstore.Client, dataBucketName string,
 	return &Manager{
 		lsm:              lsm,
 		objStore:         objStore,
+		kvWriter:         kvWriter,
 		dataBucketName:   dataBucketName,
 		dataFormat:       dataFormat,
 		topicInfosByName: make(map[string]*TopicInfo),
@@ -215,6 +219,7 @@ func (m *Manager) loadAllTopicsFromStorageWithRetry() ([]TopicInfo, error) {
 			log.Warnf("Unable to load topics to unavailability, will retry after delay: %v", err)
 			time.Sleep(unavailabilityRetryDelay)
 		}
+		return nil, err
 	}
 }
 
@@ -265,70 +270,14 @@ func (m *Manager) WriteTopic(topicInfo TopicInfo) error {
 	value := binary.BigEndian.AppendUint16(nil, topicMetadataVersion)
 	value = topicInfo.Serialize(value)
 	value = common.AppendValueMetadata(value)
-	return m.writeKV(common.KV{Key: key, Value: value})
+	return m.kvWriter([]common.KV{{Key: key, Value: value}})
 }
 
 func (m *Manager) WriteTopicDeletion(topicID int) error {
 	key := encoding.KeyEncodeInt(m.dataPrefix, int64(topicID))
 	key = encoding.EncodeVersion(key, 0)
 	// Write a tombstone (nil value)
-	return m.writeKV(common.KV{Key: key})
-}
-
-func (m *Manager) writeKV(kv common.KV) error {
-	iter := common.NewKvSliceIterator([]common.KV{kv})
-	// Build ssTable
-	table, smallestKey, largestKey, minVersion, maxVersion, err := sst.BuildSSTable(m.dataFormat, 0, 0, iter)
-	if err != nil {
-		return err
-	}
-	tableID := sst.CreateSSTableId()
-	// Push ssTable to object store
-	tableData := table.Serialize()
-	if err := m.putWithRetry(tableID, tableData); err != nil {
-		return err
-	}
-	// Register table with LSM
-	regEntry := lsm.RegistrationEntry{
-		Level:            0,
-		TableID:          []byte(tableID),
-		MinVersion:       minVersion,
-		MaxVersion:       maxVersion,
-		KeyStart:         smallestKey,
-		KeyEnd:           largestKey,
-		DeleteRatio:      table.DeleteRatio(),
-		AddedTime:        uint64(time.Now().UnixMilli()),
-		NumEntries:       uint64(table.NumEntries()),
-		TableSize:        uint64(table.SizeBytes()),
-		NumPrefixDeletes: uint32(table.NumPrefixDeletes()),
-	}
-	batch := lsm.RegistrationBatch{
-		Registrations: []lsm.RegistrationEntry{regEntry},
-	}
-	ch := make(chan error, 1)
-	if err := m.lsm.ApplyLsmChanges(batch, func(err error) error {
-		ch <- err
-		return nil
-	}); err != nil {
-		return err
-	}
-	return <-ch
-}
-
-func (m *Manager) putWithRetry(key string, value []byte) error {
-	for {
-		err := objstore.PutWithTimeout(m.objStore, m.dataBucketName, key, value, objStoreCallTimeout)
-		if err == nil {
-			return nil
-		}
-		if m.stopping.Load() {
-			return errors.New("TopicMetaPersister is stopping")
-		}
-		if common.IsUnavailableError(err) {
-			log.Warnf("Unable to write type info due to unavailability, will retry after delay: %v", err)
-			time.Sleep(unavailabilityRetryDelay)
-		}
-	}
+	return m.kvWriter([]common.KV{{Key: key}})
 }
 
 type tableGetter struct {
@@ -341,9 +290,7 @@ func (n *tableGetter) GetSSTable(tableID sst.SSTableID) (*sst.SSTable, error) {
 	if err != nil {
 		return nil, err
 	}
-	var table sst.SSTable
-	table.Deserialize(buff, 0)
-	return &table, nil
+	return sst.GetSSTableFromBytes(buff)
 }
 
 type TopicNotification struct {
@@ -363,9 +310,7 @@ func (t *TopicNotification) Deserialize(buff []byte, offset int) int {
 }
 
 func (m *Manager) MembershipChanged(membership cluster.MembershipState) {
-	m.lock.Lock()
-	defer m.lock.Unlock()
-	m.membership = membership
+	m.membership.Store(membership)
 }
 
 func (m *Manager) sendNotificationToAddress(handlerID int, address string, notif []byte) error {
@@ -383,15 +328,20 @@ func (m *Manager) sendNotificationToAddress(handlerID int, address string, notif
 }
 
 func (m *Manager) SendTopicNotification(handlerID int, topicInfo TopicInfo) {
-	if len(m.membership.Members) > 0 {
+	var clusterMembership cluster.MembershipState
+	memb := m.membership.Load()
+	if memb != nil {
+		clusterMembership = memb.(cluster.MembershipState)
+	}
+	if len(clusterMembership.Members) > 0 {
 		notif := TopicNotification{
 			Sequence: int(m.topicIDSequence),
 			Info:     topicInfo,
 		}
 		bytes := notif.Serialize(nil)
-		for i := 0; i < len(m.membership.Members); i++ {
+		for i := 0; i < len(clusterMembership.Members); i++ {
 			var memberData common.MembershipData
-			memberData.Deserialize(m.membership.Members[i].Data, 0)
+			memberData.Deserialize(clusterMembership.Members[i].Data, 0)
 			if err := m.sendNotificationToAddress(handlerID, memberData.ClusterListenAddress, bytes); err != nil {
 				// best effort - continue
 				log.Warnf("Unable to send topic added notification: %v", err)

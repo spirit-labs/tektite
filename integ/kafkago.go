@@ -2,6 +2,7 @@ package integ
 
 import (
 	kafkago "github.com/confluentinc/confluent-kafka-go/v2/kafka"
+	"github.com/spirit-labs/tektite/compress"
 	"github.com/spirit-labs/tektite/kafka"
 	"strconv"
 	"time"
@@ -11,12 +12,15 @@ type KafkaGoProducer struct {
 	producer *kafkago.Producer
 }
 
-func NewKafkaGoProducer(address string, tlsEnabled bool, serverCertFile string, clientCertFile string, clientPrivateKeyFile string) (Producer, error) {
+func NewKafkaGoProducer(address string, tlsEnabled bool, serverCertFile string, clientCertFile string,
+	clientPrivateKeyFile string, compressionType compress.CompressionType) (Producer, error) {
 	cm := kafkago.ConfigMap{
 		"partitioner":        "murmur2_random", // This matches the default hash algorithm we use, and same as Java client
 		"bootstrap.servers":  address,
 		"acks":               "all",
 		"enable.idempotence": strconv.FormatBool(true),
+		"compression.type":   compressionType.String(),
+		"debug":              "all",
 	}
 	if tlsEnabled {
 		cm = configureConfigureForTls(cm, serverCertFile, clientCertFile, clientPrivateKeyFile)

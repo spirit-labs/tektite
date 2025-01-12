@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	kafkago "github.com/confluentinc/confluent-kafka-go/v2/kafka"
+	"github.com/spirit-labs/tektite/compress"
 	"github.com/stretchr/testify/require"
 	"strings"
 	"testing"
@@ -35,7 +36,8 @@ func TestInvalidClientCert(t *testing.T) {
 	}()
 
 	// We, deliberately use the server cert and key for the client cert and key so it does not get authenticated
-	producer, err := NewKafkaGoProducer(agent.kafkaListenAddress, true, serverCertPath, serverCertPath, serverKeyPath)
+	producer, err := NewKafkaGoProducer(agent.kafkaListenAddress, true, serverCertPath, serverCertPath,
+		serverKeyPath, compress.CompressionTypeNone)
 	require.NoError(t, err)
 	defer func() {
 		err := producer.Close()

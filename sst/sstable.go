@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"github.com/pkg/errors"
+	"github.com/spirit-labs/tektite/compress"
 	"math"
 	"time"
 
@@ -56,6 +58,8 @@ type SSTable struct {
 // ╰────────────┴───────────┴───────────┴──────────────────┴────────────┴─────────────╯
 // - size mentioned are max sizes. variable integer encoding can produce different size results
 const maxMetadataSize = 28
+
+const TableDataFormatVersion = 1
 
 func BuildSSTable(format common.DataFormat, buffSizeEstimate int, entriesEstimate int,
 	iter iteration.Iterator) (ssTable *SSTable, smallestKey []byte, largestKey []byte, minVersion uint64,
@@ -278,6 +282,47 @@ func (s *SSTable) findOffset(key []byte) int {
 	return int(off)
 }
 
+func (s *SSTable) ToStorageBytes(compressionType compress.CompressionType) ([]byte, error) {
+	tableData := s.Serialize()
+	// First two bytes is format version
+	buff := make([]byte, 0, len(tableData)/10) // guess on initial capacity
+	buff = binary.BigEndian.AppendUint16(buff, uint16(TableDataFormatVersion))
+	// Next byte is compression type
+	buff = append(buff, byte(compressionType))
+	if compressionType != compress.CompressionTypeNone {
+		// Note, we compress the entire table using our own configured compression - any compressed produced records
+		// will already have been decompressed by this point.
+		var err error
+		buff, err = compress.Compress(compressionType, buff, tableData)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		buff = append(buff, tableData...)
+	}
+	return buff, nil
+}
+
 func CreateSSTableId() string {
 	return fmt.Sprintf("sst-%s", uuid.New().String())
+}
+
+func GetSSTableFromBytes(bytes []byte) (*SSTable, error) {
+	version := binary.BigEndian.Uint16(bytes)
+	if version != TableDataFormatVersion {
+		return nil, errors.Errorf("invalid table format version: %d", version)
+	}
+	compressionType := compress.CompressionType(bytes[2])
+	if compressionType != compress.CompressionTypeNone {
+		var err error
+		bytes, err = compress.Decompress(compressionType, bytes[3:])
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		bytes = bytes[3:]
+	}
+	table := &SSTable{}
+	table.Deserialize(bytes, 0)
+	return table, nil
 }

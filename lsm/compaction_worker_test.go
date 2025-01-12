@@ -7,6 +7,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/spirit-labs/tektite/asl/encoding"
 	"github.com/spirit-labs/tektite/common"
+	"github.com/spirit-labs/tektite/compress"
 	"github.com/spirit-labs/tektite/iteration"
 	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/objstore"
@@ -156,7 +157,8 @@ func TestCompactionOverwritingData(t *testing.T) {
 
 		table, smallestKey, largestKey, _, _, err := sst.BuildSSTable(common.DataFormatV1, 0, 0, si)
 		require.NoError(t, err)
-		buff := table.Serialize()
+		buff, err := table.ToStorageBytes(compress.CompressionTypeNone)
+		require.NoError(t, err)
 
 		sstName := fmt.Sprintf("sst-%06d", i)
 		err = lm.GetObjectStore().Put(context.Background(), lm.cfg.SSTableBucketName, sstName, buff)
@@ -421,7 +423,8 @@ func TestRandomUpdateDeleteData(t *testing.T) {
 
 		table, smallestKey, largestKey, _, _, err := sst.BuildSSTable(common.DataFormatV1, 0, 0, si)
 		require.NoError(t, err)
-		buff := table.Serialize()
+		buff, err := table.ToStorageBytes(compress.CompressionTypeNone)
+		require.NoError(t, err)
 
 		sstName := fmt.Sprintf("sst-%06d", i)
 		err = lm.GetObjectStore().Put(context.Background(), lm.cfg.SSTableBucketName, sstName, buff)
@@ -732,7 +735,8 @@ func TestCompactionPrefixDeletions(t *testing.T) {
 
 	table, smallestKey, largestKey, _, _, err := sst.BuildSSTable(common.DataFormatV1, 0, 0, si)
 	require.NoError(t, err)
-	buff := table.Serialize()
+	buff, err := table.ToStorageBytes(compress.CompressionTypeNone)
+	require.NoError(t, err)
 	tableName := uuid.New().String()
 	log.Debugf("deletion bomb table is %s", tableName)
 	err = lm.GetObjectStore().Put(context.Background(), lm.cfg.SSTableBucketName, tableName, buff)
@@ -809,8 +813,8 @@ func createIterator(t *testing.T, lm *Manager, keyStart []byte, keyEnd []byte) *
 			buff, err := lm.GetObjectStore().Get(context.Background(), lm.cfg.SSTableBucketName, string(info.ID))
 			require.NoError(t, err)
 			require.NotNil(t, buff)
-			sstable := &sst.SSTable{}
-			sstable.Deserialize(buff, 0)
+			sstable, err := sst.GetSSTableFromBytes(buff)
+			require.NoError(t, err)
 			iter, err := sstable.NewIterator(nil, nil)
 			require.NoError(t, err)
 			iters = append(iters, iter)
@@ -848,7 +852,8 @@ func buildAndRegisterTableWithKeyRangeAndVersion(t *testing.T, name string, rang
 	}
 	table, smallestKey, largestKey, _, _, err := sst.BuildSSTable(common.DataFormatV1, 0, 0, si)
 	require.NoError(t, err)
-	buff := table.Serialize()
+	buff, err := table.ToStorageBytes(compress.CompressionTypeNone)
+	require.NoError(t, err)
 	err = cloudStore.Put(context.Background(), NewConf().SSTableBucketName, name, buff)
 	require.NoError(t, err)
 	return smallestKey, largestKey

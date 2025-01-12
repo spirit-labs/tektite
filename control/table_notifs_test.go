@@ -470,6 +470,12 @@ func TestListenersRemovedOnMembershipChange(t *testing.T) {
 	objStore := dev.NewInMemStore(0)
 	controllers, _, tearDown := setupControllersWithObjectStore(t, 3, objStore)
 	defer tearDown(t)
+	for _, controller := range controllers {
+		controller.transportServer.RegisterHandler(transport.HandlerIDTablePusherDirectWrite,
+			func(ctx *transport.ConnectionContext, request []byte, responseBuff []byte, responseWriter transport.ResponseWriter) error {
+				return responseWriter(responseBuff, nil)
+			})
+	}
 
 	updateMembership(t, 1, 1, controllers, 0, 1, 2)
 
@@ -642,6 +648,12 @@ func setupAndRegisterReceiversWithLeaderVersionAndConfigSetter(t *testing.T, num
 	configSetter func(conf *Conf)) (Client, []*notificationReceiver, func(t *testing.T)) {
 	objStore := dev.NewInMemStore(0)
 	controllers, localTransports, tearDown := setupControllersWithObjectStoreAndConfigSetter(t, 1, objStore, configSetter)
+	for _, controller := range controllers {
+		controller.transportServer.RegisterHandler(transport.HandlerIDTablePusherDirectWrite,
+			func(ctx *transport.ConnectionContext, request []byte, responseBuff []byte, responseWriter transport.ResponseWriter) error {
+				return responseWriter(responseBuff, nil)
+			})
+	}
 	controller := controllers[0]
 
 	membership := createMembership(1, leaderVersion, controllers, 0)
@@ -651,6 +663,10 @@ func setupAndRegisterReceiversWithLeaderVersionAndConfigSetter(t *testing.T, num
 		receiverAddress := uuid.New().String()
 		receiverServer, err := localTransports.NewLocalServer(receiverAddress)
 		require.NoError(t, err)
+		receiverServer.RegisterHandler(transport.HandlerIDTablePusherDirectWrite,
+			func(ctx *transport.ConnectionContext, request []byte, responseBuff []byte, responseWriter transport.ResponseWriter) error {
+				return responseWriter(responseBuff, nil)
+			})
 		memberID := int32(i)
 		receiver := &notificationReceiver{
 			memberID: memberID,

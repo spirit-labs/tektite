@@ -32,6 +32,7 @@ require (
 )
 
 require (
+	github.com/DataDog/zstd v1.3.5
 	github.com/apache/arrow/go/v11 v11.0.0
 	github.com/charmbracelet/lipgloss v0.11.0
 	github.com/chzyer/readline v1.5.1
@@ -41,8 +42,10 @@ require (
 	github.com/docker/go-connections v0.5.0
 	github.com/emirpasic/gods v1.18.1
 	github.com/golang-jwt/jwt/v4 v4.5.0
+	github.com/golang/snappy v0.0.4
 	github.com/magefile/mage v1.15.0
 	github.com/minio/minio-go/v7 v7.0.76
+	github.com/pierrec/lz4/v4 v4.1.21
 	github.com/testcontainers/testcontainers-go v0.33.0
 	github.com/testcontainers/testcontainers-go/modules/kafka v0.31.0
 	github.com/testcontainers/testcontainers-go/modules/minio v0.33.0
@@ -89,7 +92,6 @@ require (
 	github.com/goccy/go-json v0.10.3 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang/glog v1.2.0 // indirect
-	github.com/golang/snappy v0.0.4 // indirect
 	github.com/google/flatbuffers v2.0.8+incompatible // indirect
 	github.com/google/go-cmp v0.6.0 // indirect
 	github.com/google/pprof v0.0.0-20230912144702-c363fe2c2ed8 // indirect
@@ -116,7 +118,6 @@ require (
 	github.com/muesli/termenv v0.15.2 // indirect
 	github.com/opencontainers/go-digest v1.0.0 // indirect
 	github.com/opencontainers/image-spec v1.1.0 // indirect
-	github.com/pierrec/lz4/v4 v4.1.21 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/power-devops/perfstat v0.0.0-20210106213030-5aafc221ea8c // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect

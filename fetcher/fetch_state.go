@@ -1,10 +1,13 @@
 package fetcher
 
 import (
+	"encoding/binary"
+	"fmt"
 	"github.com/spirit-labs/tektite/acls"
 	"github.com/spirit-labs/tektite/asl/encoding"
 	auth "github.com/spirit-labs/tektite/auth2"
 	"github.com/spirit-labs/tektite/common"
+	"github.com/spirit-labs/tektite/compress"
 	"github.com/spirit-labs/tektite/iteration"
 	"github.com/spirit-labs/tektite/kafkaencoding"
 	"github.com/spirit-labs/tektite/kafkaprotocol"
@@ -12,6 +15,7 @@ import (
 	"github.com/spirit-labs/tektite/lsm"
 	"github.com/spirit-labs/tektite/queryutils"
 	"github.com/spirit-labs/tektite/sst"
+	"hash/crc32"
 	"math"
 	"sync"
 	"sync/atomic"
@@ -285,6 +289,7 @@ func (p *PartitionFetchState) read() (wouldExceedRequestMax bool, wouldExceedPar
 			break
 		}
 		value := common.RemoveValueMetadata(kv.Value)
+		// Note that batchSize is the *uncompressed* size - unlike Kafka which uses the compressed size
 		batchSize := len(value)
 		if !p.fs.first {
 			if p.bytesFetched+batchSize > int(p.partitionFetchReq.PartitionMaxBytes) {
@@ -298,6 +303,10 @@ func (p *PartitionFetchState) read() (wouldExceedRequestMax bool, wouldExceedPar
 				break
 			}
 		}
+		value, err = p.compress(value)
+		if err != nil {
+			return false, false, err
+		}
 		batches = append(batches, value...)
 		p.fs.first = false
 		p.bytesFetched += batchSize
@@ -309,6 +318,35 @@ func (p *PartitionFetchState) read() (wouldExceedRequestMax bool, wouldExceedPar
 	}
 	return
 }
+
+func (p *PartitionFetchState) compress(batch []byte) ([]byte, error) {
+	currCompressionType := compress.CompressionType(kafkaencoding.CompressionType(batch))
+	if currCompressionType != compress.CompressionTypeNone {
+		// We also decompress and recompress the entire table so will always be compression type none
+		panic(fmt.Sprintf("expected compression type none, got: %s", currCompressionType.String()))
+	}
+	compressionType := p.fs.bf.compressionType
+	if compressionType == compress.CompressionTypeNone {
+		return batch, nil
+	}
+	hdr := batch[:61]
+	hdr = common.ByteSliceCopy(hdr)
+	// It's only the part after the headers and number of records that is compressed
+	compressed, err := compress.Compress(compressionType, hdr, batch[61:])
+	if err != nil {
+		return nil, err
+	}
+	// Now set new batch length
+	newBatchLen := len(compressed) - 12
+	binary.BigEndian.PutUint32(compressed[8:], uint32(newBatchLen))
+	// And compression type
+	kafkaencoding.SetCompressionType(compressed, byte(compressionType))
+	// Recalculate the CRC
+	kafkaencoding.CalcAndSetCrc(compressed)
+	return compressed, nil
+}
+
+var crcTable = crc32.MakeTable(crc32.Castagnoli)
 
 func (p *PartitionFetchState) createKeyStartAndEnd(fetchOffset int64, lro int64) ([]byte, []byte) {
 	keyStart := make([]byte, 0, 25)

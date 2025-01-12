@@ -3,6 +3,7 @@ package fetcher
 import (
 	auth "github.com/spirit-labs/tektite/auth2"
 	"github.com/spirit-labs/tektite/cluster"
+	"github.com/spirit-labs/tektite/compress"
 	"github.com/spirit-labs/tektite/control"
 	"github.com/spirit-labs/tektite/kafkaprotocol"
 	log "github.com/spirit-labs/tektite/logger"
@@ -51,6 +52,7 @@ type BatchFetcher struct {
 	execAssignPos      int64
 	resetSequence      int64
 	memberID           int32
+	compressionType    compress.CompressionType
 }
 
 func NewBatchFetcher(objStore objstore.Client, topicProvider topicInfoProvider, partitionHashes *parthash.PartitionHashes,
@@ -69,6 +71,7 @@ func NewBatchFetcher(objStore objstore.Client, topicProvider topicInfoProvider, 
 		localCache:         localCache,
 		dataBucketName:     cfg.DataBucketName,
 		memberID:           -1,
+		compressionType:    cfg.FetchCompressionType,
 	}
 	bf.recentTables = CreatePartitionRecentTables(cfg.MaxCachedTablesPerPartition, bf)
 	return bf, nil
@@ -80,6 +83,7 @@ type Conf struct {
 	NumReadExecutors            int
 	LocalCacheNumEntries        int
 	LocalCacheMaxBytes          int
+	FetchCompressionType        compress.CompressionType
 }
 
 func NewConf() Conf {

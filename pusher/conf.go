@@ -2,6 +2,7 @@ package pusher
 
 import (
 	"github.com/spirit-labs/tektite/common"
+	"github.com/spirit-labs/tektite/compress"
 	"time"
 )
 
@@ -13,6 +14,7 @@ type Conf struct {
 	DataBucketName            string
 	OffsetSnapshotInterval    time.Duration
 	EnforceProduceOnLeader    bool
+	TableCompressionType      compress.CompressionType
 }
 
 func NewConf() Conf {

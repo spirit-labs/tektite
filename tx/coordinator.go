@@ -17,7 +17,6 @@ import (
 	"github.com/spirit-labs/tektite/topicmeta"
 	"github.com/spirit-labs/tektite/transport"
 	"github.com/spirit-labs/tektite/types"
-	"hash/crc32"
 	"math"
 	"sync"
 	"time"
@@ -515,7 +514,7 @@ func (t *txInfo) sendTransactionMarkers() error {
 			if !ok {
 				panic("could not append to batch")
 			}
-			kafkaencoding.SetBatchHeader(batchBytes, 0, 0, timestamp, timestamp, 1, crc32.NewIEEE())
+			kafkaencoding.SetBatchHeader(batchBytes, 0, 0, timestamp, timestamp, 1)
 			batchBytes[21] = batchBytes[21] | (1 << 5) // set as controlBatch
 			partitionHash, err := t.c.partHashes.GetPartitionHash(int(topicID), int(partitionID))
 			if err != nil {

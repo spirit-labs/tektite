@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"github.com/spirit-labs/tektite/asl/encoding"
 	"github.com/spirit-labs/tektite/common"
+	"github.com/spirit-labs/tektite/compress"
 	"github.com/spirit-labs/tektite/lsm"
 	"github.com/spirit-labs/tektite/objstore"
 	"github.com/spirit-labs/tektite/objstore/dev"
@@ -14,6 +15,7 @@ import (
 	"github.com/spirit-labs/tektite/sst"
 	"github.com/stretchr/testify/require"
 	"testing"
+	"time"
 )
 
 func TestSequences(t *testing.T) {
@@ -21,7 +23,12 @@ func TestSequences(t *testing.T) {
 	objStore := dev.NewInMemStore(0)
 	blockSize := int64(100)
 	getter := &mapTableGetter{tables: map[string]*sst.SSTable{}}
-	sequences := NewSequences(lsmRec, getter.getTable, objStore, "test-bucket", common.DataFormatV1, blockSize)
+	dataBucketName := "test-bucket"
+	kvr := func(kvs []common.KV) error {
+		return writeKvDirect(kvs, objStore, dataBucketName, common.DataFormatV1, lsmRec)
+	}
+	sequences := NewSequences(lsmRec, getter.getTable, objStore, dataBucketName, common.DataFormatV1, blockSize,
+		kvr)
 
 	sequences.Start()
 	defer sequences.Stop()
@@ -55,7 +62,12 @@ func TestSequencesLoad(t *testing.T) {
 	blockSize := int64(100)
 	getter := &mapTableGetter{tables: map[string]*sst.SSTable{}}
 	getter.tables[tableID] = table
-	sequences := NewSequences(lsmRec, getter.getTable, objStore, "test-bucket", common.DataFormatV1, blockSize)
+	dataBucketName := "test-bucket"
+	kvr := func(kvs []common.KV) error {
+		return writeKvDirect(kvs, objStore, dataBucketName, common.DataFormatV1, lsmRec)
+	}
+	sequences := NewSequences(lsmRec, getter.getTable, objStore, "test-bucket", common.DataFormatV1, blockSize,
+		kvr)
 
 	sequences.Start()
 	defer sequences.Stop()
@@ -84,7 +96,12 @@ func TestSequencesStore(t *testing.T) {
 	blockSize := int64(10)
 	getter := &mapTableGetter{tables: map[string]*sst.SSTable{}}
 	getter.tables[tableID] = table
-	sequences := NewSequences(lsmRec, getter.getTable, objStore, "test-bucket", common.DataFormatV1, blockSize)
+	dataBucketName := "test-bucket"
+	kvr := func(kvs []common.KV) error {
+		return writeKvDirect(kvs, objStore, dataBucketName, common.DataFormatV1, lsmRec)
+	}
+	sequences := NewSequences(lsmRec, getter.getTable, objStore, "test-bucket", common.DataFormatV1, blockSize,
+		kvr)
 
 	sequences.Start()
 	defer sequences.Stop()
@@ -118,8 +135,8 @@ func TestSequencesStore(t *testing.T) {
 func loadStoredSequence(t *testing.T, sequenceName string, tableID sst.SSTableID, objStore objstore.Client) int64 {
 	tableBytes, err := objStore.Get(context.Background(), "test-bucket", string(tableID))
 	require.NoError(t, err)
-	pushedTable := &sst.SSTable{}
-	pushedTable.Deserialize(tableBytes, 0)
+	pushedTable, err := sst.GetSSTableFromBytes(tableBytes)
+	require.NoError(t, err)
 	require.Equal(t, 1, pushedTable.NumEntries())
 	iter, err := pushedTable.NewIterator(nil, nil)
 	require.NoError(t, err)
@@ -175,4 +192,49 @@ func (t *mapTableGetter) getTable(tableID sst.SSTableID) (*sst.SSTable, error) {
 		return nil, errors.New("cannot find table")
 	}
 	return table, nil
+}
+
+func writeKvDirect(kvs []common.KV, objStore objstore.Client, dataBucketName string, dataFormat common.DataFormat,
+	lsmHolder lsmReceiver) error {
+	iter := common.NewKvSliceIterator(kvs)
+	// Build ssTable
+	table, smallestKey, largestKey, minVersion, maxVersion, err := sst.BuildSSTable(dataFormat, 0,
+		0, iter)
+	if err != nil {
+		return err
+	}
+	tableID := sst.CreateSSTableId()
+	// Push ssTable to object store
+	tableData, err := table.ToStorageBytes(compress.CompressionTypeNone)
+	if err != nil {
+		return err
+	}
+	if err := objstore.PutWithTimeout(objStore, dataBucketName, tableID, tableData, objStoreCallTimeout); err != nil {
+		return nil
+	}
+	// Register table with LSM
+	regEntry := lsm.RegistrationEntry{
+		Level:            0,
+		TableID:          []byte(tableID),
+		MinVersion:       minVersion,
+		MaxVersion:       maxVersion,
+		KeyStart:         smallestKey,
+		KeyEnd:           largestKey,
+		DeleteRatio:      table.DeleteRatio(),
+		AddedTime:        uint64(time.Now().UnixMilli()),
+		NumEntries:       uint64(table.NumEntries()),
+		TableSize:        uint64(table.SizeBytes()),
+		NumPrefixDeletes: uint32(table.NumPrefixDeletes()),
+	}
+	batch := lsm.RegistrationBatch{
+		Registrations: []lsm.RegistrationEntry{regEntry},
+	}
+	ch := make(chan error, 1)
+	if err := lsmHolder.ApplyLsmChanges(batch, func(err error) error {
+		ch <- err
+		return nil
+	}); err != nil {
+		return err
+	}
+	return <-ch
 }

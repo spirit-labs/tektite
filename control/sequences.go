@@ -2,17 +2,14 @@ package control
 
 import (
 	"encoding/binary"
-	"errors"
 	"github.com/spirit-labs/tektite/asl/encoding"
 	"github.com/spirit-labs/tektite/common"
-	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/lsm"
 	"github.com/spirit-labs/tektite/objstore"
 	"github.com/spirit-labs/tektite/parthash"
 	"github.com/spirit-labs/tektite/sst"
 	"sync"
 	"sync/atomic"
-	"time"
 )
 
 type Sequences struct {
@@ -25,6 +22,7 @@ type Sequences struct {
 	dataFormat      common.DataFormat
 	blockSize       int64
 	cachedSequences map[string]*Sequence
+	kvWriter        kvWriter
 }
 
 type Sequence struct {
@@ -38,7 +36,7 @@ type Sequence struct {
 
 func NewSequences(lsmHolder lsmReceiver, tableGetter sst.TableGetter, objStore objstore.Client,
 	dataBucketName string, dataFormat common.DataFormat,
-	blockSize int64) *Sequences {
+	blockSize int64, kvWriter kvWriter) *Sequences {
 	return &Sequences{
 		lsmHolder:       lsmHolder,
 		tableGetter:     tableGetter,
@@ -47,6 +45,7 @@ func NewSequences(lsmHolder lsmReceiver, tableGetter sst.TableGetter, objStore o
 		dataFormat:      dataFormat,
 		blockSize:       blockSize,
 		cachedSequences: map[string]*Sequence{},
+		kvWriter:        kvWriter,
 	}
 }
 
@@ -149,71 +148,14 @@ func (s *Sequence) reserveSequenceBlock() error {
 	key := make([]byte, 0, 24)
 	key = append(key, s.key...)
 	key = encoding.EncodeVersion(key, 0)
-	if err := s.sequences.writeKvDirect(common.KV{
+	if err := s.sequences.kvWriter([]common.KV{{
 		Key:   key,
 		Value: value,
-	}); err != nil {
+	}}); err != nil {
 		return err
 	}
 	s.maxCachedVal = reservedVal
 	return nil
-}
-
-// TODO combine with similar in topicmeta manager?
-func (s *Sequences) writeKvDirect(kv common.KV) error {
-	iter := common.NewKvSliceIterator([]common.KV{kv})
-	// Build ssTable
-	table, smallestKey, largestKey, minVersion, maxVersion, err := sst.BuildSSTable(s.dataFormat, 0, 0, iter)
-	if err != nil {
-		return err
-	}
-	tableID := sst.CreateSSTableId()
-	// Push ssTable to object store
-	tableData := table.Serialize()
-	if err := s.putWithRetry(tableID, tableData); err != nil {
-		return err
-	}
-	// Register table with LSM
-	regEntry := lsm.RegistrationEntry{
-		Level:            0,
-		TableID:          []byte(tableID),
-		MinVersion:       minVersion,
-		MaxVersion:       maxVersion,
-		KeyStart:         smallestKey,
-		KeyEnd:           largestKey,
-		DeleteRatio:      table.DeleteRatio(),
-		AddedTime:        uint64(time.Now().UnixMilli()),
-		NumEntries:       uint64(table.NumEntries()),
-		TableSize:        uint64(table.SizeBytes()),
-		NumPrefixDeletes: uint32(table.NumPrefixDeletes()),
-	}
-	batch := lsm.RegistrationBatch{
-		Registrations: []lsm.RegistrationEntry{regEntry},
-	}
-	ch := make(chan error, 1)
-	if err := s.lsmHolder.ApplyLsmChanges(batch, func(err error) error {
-		ch <- err
-		return nil
-	}); err != nil {
-		return err
-	}
-	return <-ch
-}
-
-func (s *Sequences) putWithRetry(key string, value []byte) error {
-	for {
-		err := objstore.PutWithTimeout(s.objStore, s.dataBucketName, key, value, objStoreCallTimeout)
-		if err == nil {
-			return nil
-		}
-		if s.stopping.Load() {
-			return errors.New("sequences is stopping")
-		}
-		if common.IsUnavailableError(err) {
-			log.Warnf("Unable to write type info due to unavailability, will retry after delay: %v", err)
-			time.Sleep(unavailabilityRetryDelay)
-		}
-	}
 }
 
 func (c *Sequences) getLatestValueWithKey(key []byte) ([]byte, error) {

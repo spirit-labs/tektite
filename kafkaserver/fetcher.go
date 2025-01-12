@@ -414,7 +414,7 @@ func (f *PartitionFetcher) fetchFromStore(fetchOffset int64, maxBytes int) ([]by
 		// No rows read
 		return nil, nil
 	}
-	kafkaencoding.SetBatchHeader(batchBytes, firstOffset, lastOffset, firstTimestamp, lastTimestamp, numRecords, f.crc32)
+	kafkaencoding.SetBatchHeader(batchBytes, firstOffset, lastOffset, firstTimestamp, lastTimestamp, numRecords)
 
 	log.Debugf("topic:%s partition:%d loaded batch from store firstoffset:%d lastoffset:%d",
 		f.topicInfo.Name, f.partitionID, firstOffset, lastOffset)
