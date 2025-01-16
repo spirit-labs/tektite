@@ -333,9 +333,10 @@ func (k *kafkaHandler) HandleCreateTopicsRequest(_ *kafkaprotocol.RequestHeader,
 	}
 	for i, topic := range req.Topics {
 		topicName := common.SafeDerefStringPtr(topic.Name)
-		retentionTime, useServerTimestamp, maxMessageSizeBytes, respConfigs, errCode, errMsg := k.parseConfig(topic, topicName)
+		retentionTime, compacted, useServerTimestamp, maxMessageSizeBytes, respConfigs, errCode, errMsg := k.parseConfig(topic)
 		if errCode == kafkaprotocol.ErrorCodeNone { // No error from config parsing
-			errCode, errMsg = k.validateAndCreateTopic(k.authContext, topicName, topic, retentionTime, useServerTimestamp, maxMessageSizeBytes)
+			errCode, errMsg = k.validateAndCreateTopic(k.authContext, topicName, topic, retentionTime, compacted,
+				useServerTimestamp, maxMessageSizeBytes)
 		}
 		res := kafkaprotocol.CreateTopicsResponseCreatableTopicResult{
 			Name:          topic.Name,
@@ -419,7 +420,7 @@ func checkTopicNameValid(name string) error {
 }
 
 func (k *kafkaHandler) validateAndCreateTopic(authContext *auth.Context, topicName string,
-	topic kafkaprotocol.CreateTopicsRequestCreatableTopic, retentionTime time.Duration,
+	topic kafkaprotocol.CreateTopicsRequestCreatableTopic, retentionTime time.Duration, compacted bool,
 	useServerTimestamp bool, maxMessageSizeBytes int) (int16, string) {
 	if authContext != nil {
 		authorised, err := authContext.Authorize(acls.ResourceTypeTopic, topicName, acls.OperationCreate)
@@ -451,6 +452,7 @@ func (k *kafkaHandler) validateAndCreateTopic(authContext *auth.Context, topicNa
 		RetentionTime:       retentionTime,
 		UseServerTimestamp:  useServerTimestamp,
 		MaxMessageSizeBytes: maxMessageSizeBytes,
+		Compacted:           compacted,
 	}
 	err = acl.CreateOrUpdateTopic(topicInfo, true)
 	if err != nil {
@@ -466,13 +468,14 @@ func isValidRetentionTime(retentionMs int) bool {
 	return retentionMs > 0 || retentionMs == -1
 }
 
-func (k *kafkaHandler) parseConfig(topic kafkaprotocol.CreateTopicsRequestCreatableTopic,
-	topicName string) (time.Duration, bool, int, []kafkaprotocol.CreateTopicsResponseCreatableTopicConfigs, int16, string) {
+func (k *kafkaHandler) parseConfig(topic kafkaprotocol.CreateTopicsRequestCreatableTopic) (time.Duration, bool,
+	bool, int, []kafkaprotocol.CreateTopicsResponseCreatableTopicConfigs, int16, string) {
 	retentionTime := k.agent.cfg.DefaultTopicRetentionTime
 	respConfigs := make([]kafkaprotocol.CreateTopicsResponseCreatableTopicConfigs, 0, len(topic.Configs))
 	errCode := int16(kafkaprotocol.ErrorCodeNone)
 	useServerTimestamp := k.agent.cfg.DefaultUseServerTimestamp
 	maxMessageSizeBytes := k.agent.cfg.DefaultMaxMessageSizeBytes
+	compacted := false
 	var err error
 	var errMsg string
 	for _, config := range topic.Configs {
@@ -504,13 +507,21 @@ func (k *kafkaHandler) parseConfig(topic kafkaprotocol.CreateTopicsRequestCreata
 				errMsg = fmt.Sprintf("Invalid value for 'max.message.bytes': '%s'", configVal)
 				break
 			}
+		case "cleanup.policy":
+			if configVal == "compact" {
+				compacted = true
+			} else if configVal != "delete" {
+				errCode = kafkaprotocol.ErrorCodeInvalidTopicException
+				errMsg = fmt.Sprintf("Invalid value for 'cleanup.policy': '%s'", configVal)
+				break
+			}
 		}
 		respConfigs = append(respConfigs, kafkaprotocol.CreateTopicsResponseCreatableTopicConfigs{
 			Name:  config.Name,
 			Value: config.Value,
 		})
 	}
-	return retentionTime, useServerTimestamp, maxMessageSizeBytes, respConfigs, errCode, errMsg
+	return retentionTime, compacted, useServerTimestamp, maxMessageSizeBytes, respConfigs, errCode, errMsg
 }
 
 func (k *kafkaHandler) HandleDescribeConfigsRequest(_ *kafkaprotocol.RequestHeader,

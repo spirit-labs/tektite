@@ -44,6 +44,8 @@ type CommandConf struct {
 	MetadataWriteIntervalMs         int           `help:"interval between writing database metadata to permanent storage, in milliseconds" default:"100"`
 	StorageCompressionType          string        `help:"determines how data is compressed before writing to object storage. one of 'lz4', 'zstd' or 'none'" default:"lz4"`
 	FetchCompressionType            string        `help:"determines how data is compressed before returning a fetched batch to a consumer. one of 'gzip', 'snappy', 'lz4', 'zstd' or 'none'" default:"lz4"`
+	PusherWriteTimeoutMs            int           `help:"maximum time agent will wait, in milliseconds, before pushing a data table to object storage" default:"200"`
+	PusherBufferMaxSizeBytes        int           `help:"maximum size of the push buffer in bytes - when it is full a data table will be written to object storage" default:"4194304"`
 }
 
 var authTypeMapping = map[string]kafkaserver.AuthenticationType{
@@ -165,6 +167,14 @@ func CreateConfFromCommandConf(commandConf CommandConf) (Conf, error) {
 	}
 	cfg.PusherConf.TableCompressionType = storageCompressionType
 	cfg.FetcherConf.FetchCompressionType = fetchCompressionType
+	if commandConf.PusherWriteTimeoutMs < 1 {
+		return Conf{}, errors.Errorf("invalid pusher-write-timeout-ms: %d", commandConf.PusherWriteTimeoutMs)
+	}
+	cfg.PusherConf.WriteTimeout = time.Duration(commandConf.PusherWriteTimeoutMs) * time.Millisecond
+	if commandConf.PusherBufferMaxSizeBytes < 1 {
+		return Conf{}, errors.Errorf("invalid pusher-buffer-max-size-bytes: %d", commandConf.PusherBufferMaxSizeBytes)
+	}
+	cfg.PusherConf.BufferMaxSizeBytes = commandConf.PusherBufferMaxSizeBytes
 	return cfg, nil
 }
 

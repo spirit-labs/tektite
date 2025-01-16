@@ -2,6 +2,7 @@ package topicmeta
 
 import (
 	"encoding/binary"
+	"github.com/spirit-labs/tektite/lsm"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -11,7 +12,6 @@ import (
 	"github.com/spirit-labs/tektite/cluster"
 	"github.com/spirit-labs/tektite/common"
 	log "github.com/spirit-labs/tektite/logger"
-	"github.com/spirit-labs/tektite/lsm"
 	"github.com/spirit-labs/tektite/objstore"
 	"github.com/spirit-labs/tektite/parthash"
 	"github.com/spirit-labs/tektite/queryutils"
@@ -165,6 +165,7 @@ func (m *Manager) CreateOrUpdateTopic(topicInfo TopicInfo, create bool) (int, er
 		}
 		topicInfo.ID = info.ID
 		topicInfo.RetentionTime = info.RetentionTime
+		topicInfo.Compacted = info.Compacted
 	}
 	if err := m.WriteTopic(topicInfo); err != nil {
 		return 0, err

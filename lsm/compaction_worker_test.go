@@ -640,7 +640,7 @@ func TestCompactionDeadVersions(t *testing.T) {
 		lm.GetObjectStore(), false, prefix, 1000)
 	addTableWithMinMaxVersion(t, lm, tableName5, smallestKey, largestKey, 10000, 20000)
 
-	err = lm.forceCompaction(0, 3)
+	err = lm.ForceCompaction(0, 3)
 	require.NoError(t, err)
 
 	// Should be no data in range 10-19 (incl)
@@ -713,7 +713,7 @@ func TestCompactionPrefixDeletions(t *testing.T) {
 	require.True(t, ok)
 
 	// Make sure L0 is empty
-	err = lm.forceCompaction(0, 1)
+	err = lm.ForceCompaction(0, 1)
 	require.NoError(t, err)
 	ok, err = testutils.WaitUntilWithError(func() (bool, error) {
 		l0Stats := lm.GetStats().LevelStats[0]
@@ -748,7 +748,7 @@ func TestCompactionPrefixDeletions(t *testing.T) {
 		for level := 0; level < lastLevel; level++ {
 			// Force compaction at each level to let the delete bomb progress
 			log.Debugf("forcing compaction at level %d", level)
-			err = lm.forceCompaction(level, 1)
+			err = lm.ForceCompaction(level, 1)
 			require.NoError(t, err)
 
 			// wait for compaction jobs to complete
@@ -910,6 +910,10 @@ func getTableEntry(lm *Manager, lte levelTableEntry, le *levelEntry) *TableEntry
 
 type directControllerClient struct {
 	mgr *Manager
+}
+
+func (c *directControllerClient) IsCompactedTopic(topicID int) (bool, error) {
+	return false, nil
 }
 
 func (c *directControllerClient) ApplyLsmChanges(regBatch RegistrationBatch) error {

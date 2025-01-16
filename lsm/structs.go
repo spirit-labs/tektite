@@ -225,18 +225,17 @@ func (te *TableEntry) deserialize(buff []byte, offset int) int {
 }
 
 type Stats struct {
-	TotBytes       int
-	TotEntries     int
-	TotTables      int
-	BytesIn        int
-	EntriesIn      int
-	TablesIn       int
-	TotCompactions int
-	LevelStats     map[int]*LevelStats
+	TotBytes   int
+	TotEntries int
+	TotTables  int
+	BytesIn    int
+	EntriesIn  int
+	TablesIn   int
+	LevelStats map[int]*LevelStats
 }
 
 func (l *Stats) SerializedSize() int {
-	size := 7*8 + 4
+	size := 6*8 + 4
 	size += len(l.LevelStats) * (4 + 3*8)
 	return size
 }
@@ -248,7 +247,6 @@ func (l *Stats) Serialize(buff []byte) []byte {
 	buff = encoding.AppendUint64ToBufferLE(buff, uint64(l.BytesIn))
 	buff = encoding.AppendUint64ToBufferLE(buff, uint64(l.EntriesIn))
 	buff = encoding.AppendUint64ToBufferLE(buff, uint64(l.TablesIn))
-	buff = encoding.AppendUint64ToBufferLE(buff, uint64(l.TotCompactions))
 	buff = encoding.AppendUint32ToBufferLE(buff, uint32(len(l.LevelStats)))
 	for level, levStats := range l.LevelStats {
 		buff = encoding.AppendUint32ToBufferLE(buff, uint32(level))
@@ -271,8 +269,6 @@ func (l *Stats) Deserialize(buff []byte, offset int) int {
 	l.EntriesIn = int(u)
 	u, offset = encoding.ReadUint64FromBufferLE(buff, offset)
 	l.TablesIn = int(u)
-	u, offset = encoding.ReadUint64FromBufferLE(buff, offset)
-	l.TotCompactions = int(u)
 	var nl uint32
 	nl, offset = encoding.ReadUint32FromBufferLE(buff, offset)
 	numLevels := int(nl)
@@ -296,7 +292,6 @@ func (l *Stats) copy() *Stats {
 	statsCopy.BytesIn = l.BytesIn
 	statsCopy.EntriesIn = l.EntriesIn
 	statsCopy.TablesIn = l.TablesIn
-	statsCopy.TotCompactions = l.TotCompactions
 	statsCopy.LevelStats = make(map[int]*LevelStats, len(l.LevelStats))
 	for level, levStats := range l.LevelStats {
 		statsCopy.LevelStats[level] = &LevelStats{

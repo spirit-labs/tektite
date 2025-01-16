@@ -106,6 +106,7 @@ func TestCreateTopicDefaults(t *testing.T) {
 		RetentionTime:       DefaultDefaultTopicRetentionTime,
 		UseServerTimestamp:  false,
 		MaxMessageSizeBytes: DefaultDefaultMaxMessageSizeBytes,
+		Compacted:           false,
 	}, func(cfg *Conf) {})
 
 	// overriding server defaults
@@ -181,6 +182,10 @@ func TestCreateTopicDefaults(t *testing.T) {
 						Name:  common.StrPtr("max.message.bytes"),
 						Value: common.StrPtr("555555"),
 					},
+					{
+						Name:  common.StrPtr("cleanup.policy"),
+						Value: common.StrPtr("compact"),
+					},
 				},
 			},
 		},
@@ -191,6 +196,7 @@ func TestCreateTopicDefaults(t *testing.T) {
 		RetentionTime:       777777 * time.Millisecond,
 		UseServerTimestamp:  false,
 		MaxMessageSizeBytes: 555555,
+		Compacted:           true,
 	}, func(cfg *Conf) {
 		cfg.DefaultUseServerTimestamp = true
 	})
@@ -406,6 +412,8 @@ func TestInvalidConfig(t *testing.T) {
 	testInvalidConfig(t, "retention.ms", "-2", "Invalid value for 'retention.ms': '-2'")
 	testInvalidConfig(t, "retention.ms", "xyz", "Invalid value for 'retention.ms': 'xyz'")
 	testInvalidConfig(t, "retention.ms", "000", "Invalid value for 'retention.ms': '000'")
+
+	testInvalidConfig(t, "cleanup.policy", "badgers", "Invalid value for 'cleanup.policy': 'badgers'")
 }
 
 func testInvalidConfig(t *testing.T, configName string, configVal string, expectedErrMsg string) {

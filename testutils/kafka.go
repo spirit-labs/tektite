@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-func CreateKafkaRecordBatch(messages []RawKafkaMessage, offsetStart int64) []byte {
+func CreateKafkaRecordBatch(messages []kafkaencoding.RawKafkaMessage, offsetStart int64) []byte {
 	batchBytes := make([]byte, 61)
 	first := true
 	var firstTimestamp types.Timestamp
@@ -42,20 +42,13 @@ func CreateKafkaRecordBatchWithIncrementingKVs(offsetStart int, numMessages int)
 }
 
 func CreateKafkaRecordBatchWithTimestampAndIncrementingKVs(offsetStart int, numMessages int, timestamp int64) []byte {
-	var msgs []RawKafkaMessage
+	var msgs []kafkaencoding.RawKafkaMessage
 	for i := offsetStart; i < offsetStart+numMessages; i++ {
-		msgs = append(msgs, RawKafkaMessage{
+		msgs = append(msgs, kafkaencoding.RawKafkaMessage{
 			Timestamp: timestamp,
 			Key:       []byte(fmt.Sprintf("key%09d", i)),
 			Value:     []byte(fmt.Sprintf("val%09d", i)),
 		})
 	}
 	return CreateKafkaRecordBatch(msgs, int64(offsetStart))
-}
-
-type RawKafkaMessage struct {
-	Key       []byte
-	Value     []byte
-	Headers   []byte
-	Timestamp int64
 }

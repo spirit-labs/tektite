@@ -45,7 +45,7 @@ func SetBatchHeader(batchBytes []byte, firstOffset int64, lastOffset int64, firs
 	binary.BigEndian.PutUint32(batchBytes[23:], uint32(lastOffset-firstOffset))
 	SetBaseTimestamp(batchBytes, firstTimestamp.Val)
 	SetMaxTimestamp(batchBytes, lastTimestamp.Val)
-	binary.BigEndian.PutUint32(batchBytes[57:], uint32(numRecords))
+	SetNumRecords(batchBytes, numRecords)
 	CalcAndSetCrc(batchBytes)
 }
 
@@ -60,8 +60,8 @@ func SetBaseTimestamp(records []byte, baseTimestamp int64) {
 	binary.BigEndian.PutUint64(records[27:], uint64(baseTimestamp))
 }
 
-func SetMaxTimestamp(records []byte, baseTimestamp int64) {
-	binary.BigEndian.PutUint64(records[35:], uint64(baseTimestamp))
+func SetMaxTimestamp(records []byte, maxTimestamp int64) {
+	binary.BigEndian.PutUint64(records[35:], uint64(maxTimestamp))
 }
 
 func AppendToBatch(batchBytes []byte, offsetDelta int64, key []byte, hdrs []byte, val []byte, timestamp types.Timestamp,
@@ -84,8 +84,8 @@ func AppendToBatch(batchBytes []byte, offsetDelta int64, key []byte, hdrs []byte
 	lv := int64(len(val))
 
 	// calculate the length
-	l := 1 + varintLength(timestampDelta) + varintLength(offsetDelta) + varintLength(lk) +
-		+len(key) + varintLength(lv) + len(val) + len(hdrs)
+	l := 1 + VarintLength(timestampDelta) + VarintLength(offsetDelta) + VarintLength(lk) +
+		+len(key) + VarintLength(lv) + len(val) + len(hdrs)
 
 	if !first && len(batchBytes)+l > maxBytes {
 		// If maxBytes exceeded do not append, unless it's the first record  - we always return at least one record
@@ -106,7 +106,7 @@ func AppendToBatch(batchBytes []byte, offsetDelta int64, key []byte, hdrs []byte
 	return batchBytes, true
 }
 
-func varintLength(x int64) int {
+func VarintLength(x int64) int {
 	ux := uint64(x) << 1
 	if x < 0 {
 		ux = ^ux
@@ -123,12 +123,24 @@ func NumRecords(records []byte) int {
 	return int(binary.BigEndian.Uint32(records[57:]))
 }
 
+func SetNumRecords(records []byte, numRecords int) {
+	binary.BigEndian.PutUint32(records[57:], uint32(numRecords))
+}
+
 func BaseOffset(records []byte) int64 {
 	return int64(binary.BigEndian.Uint64(records))
 }
 
+func SetBaseOffset(records []byte, val int64) {
+	binary.BigEndian.PutUint64(records, uint64(val))
+}
+
 func BatchLength(records []byte) int32 {
 	return int32(binary.BigEndian.Uint32(records[8:]))
+}
+
+func SetBatchLength(records []byte, batchLen int32) {
+	binary.BigEndian.PutUint32(records[8:], uint32(batchLen))
 }
 
 func ProducerID(records []byte) int64 {
@@ -141,6 +153,10 @@ func BaseSequence(records []byte) int32 {
 
 func LastOffsetDelta(records []byte) int32 {
 	return int32(binary.BigEndian.Uint32(records[23:]))
+}
+
+func SetLastOffsetDelta(records []byte, lastOffsetDelta int32) {
+	binary.BigEndian.PutUint32(records[23:], uint32(lastOffsetDelta))
 }
 
 func BaseTimestamp(records []byte) int64 {
@@ -192,4 +208,60 @@ func ErrorCodeForError(err error, unavailableErrorCode int16) int16 {
 		log.Error(err)
 		return int16(kafkaprotocol.ErrorCodeUnknownServerError)
 	}
+}
+
+type RawKafkaMessage struct {
+	Key       []byte
+	Value     []byte
+	Headers   []byte
+	Offset    int64
+	Timestamp int64
+}
+
+func (r *RawKafkaMessage) Size() int {
+	return len(r.Key) + len(r.Value) + len(r.Headers) + 16
+}
+
+func BatchToRawMessages(bytes []byte) []RawKafkaMessage {
+	baseOffset := BaseOffset(bytes)
+	baseTimeStamp := BaseTimestamp(bytes)
+	off := 57
+	numRecords := NumRecords(bytes)
+	msgs := make([]RawKafkaMessage, numRecords)
+	off += 4
+	for i := 0; i < numRecords; i++ {
+		recordLength, bytesRead := binary.Varint(bytes[off:])
+		off += bytesRead
+		recordStart := off
+		off++ // skip past attributes
+		timestampDelta, bytesRead := binary.Varint(bytes[off:])
+		recordTimestamp := baseTimeStamp + timestampDelta
+		off += bytesRead
+		offsetDelta, bytesRead := binary.Varint(bytes[off:])
+		off += bytesRead
+		keyLength, bytesRead := binary.Varint(bytes[off:])
+		off += bytesRead
+		var key []byte
+		if keyLength != -1 {
+			ikl := int(keyLength)
+			key = bytes[off : off+ikl]
+			off += ikl
+		}
+		valueLength, bytesRead := binary.Varint(bytes[off:])
+		off += bytesRead
+		ivl := int(valueLength)
+		value := bytes[off : off+ivl]
+		off += ivl
+		headersEnd := recordStart + int(recordLength)
+		headers := bytes[off:headersEnd]
+		msgs[i] = RawKafkaMessage{
+			Key:       key,
+			Value:     value,
+			Headers:   headers,
+			Timestamp: recordTimestamp,
+			Offset:    baseOffset + offsetDelta,
+		}
+		off = headersEnd
+	}
+	return msgs
 }

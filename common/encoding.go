@@ -5,9 +5,10 @@ import (
 )
 
 const (
-	EntryTypeTopicData      = 0
-	EntryTypeOffsetSnapshot = 1
-	EntryTypeOffsetTime = 2
+	EntryTypeTopicData                      = 0
+	EntryTypeOffsetSnapshot                 = 1
+	EntryTypeOffsetTime                     = 2
+	EntryTypeCompactedTopicLastOffsetForKey = 3
 )
 
 func AppendValueMetadata(buff []byte, meta ...int64) []byte {
