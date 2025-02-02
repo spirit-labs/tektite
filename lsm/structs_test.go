@@ -334,13 +334,12 @@ func TestSerializeDeserializeMasterRecord(t *testing.T) {
 		},
 		lastFlushedVersion: 1234,
 		stats: &Stats{
-			TotBytes:       23232,
-			TotEntries:     2132,
-			TotTables:      43,
-			BytesIn:        67657,
-			EntriesIn:      453,
-			TablesIn:       23,
-			TotCompactions: 45,
+			TotBytes:   23232,
+			TotEntries: 2132,
+			TotTables:  43,
+			BytesIn:    67657,
+			EntriesIn:  453,
+			TablesIn:   23,
 			LevelStats: map[int]*LevelStats{
 				0: {
 					Bytes:   4565,

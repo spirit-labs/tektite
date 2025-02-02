@@ -105,7 +105,7 @@ const (
 	objStoreAvailabilityTimeout = 5 * time.Second
 	offsetSnapshotFormatVersion = 1
 	offsetTimeFormatVersion     = 1
-	lastOffsetsMapSize          = 1000000
+	lastOffsetsMaxMapSize       = 1000000
 )
 
 func NewTablePusher(cfg Conf, topicProvider topicInfoProvider, objStore objstore.Client,
@@ -471,7 +471,7 @@ func (t *TablePusher) HandleProduceRequest(authContext *auth.Context, req *kafka
 	}
 
 	needsWrite := false
-	if len(t.compactedTopicLastOffsets) > lastOffsetsMapSize {
+	if len(t.compactedTopicLastOffsets) > lastOffsetsMaxMapSize {
 		needsWrite = true
 		t.flushCompactedTopicLastOffsetsMap()
 	} else if t.sizeBytes >= t.cfg.BufferMaxSizeBytes {

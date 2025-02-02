@@ -15,18 +15,14 @@ import (
 )
 
 func TestCompactTopicSingleTableSingleBatch(t *testing.T) {
-	testCompactTopic(t, 1, 1)
+	testCompactTopic(t, 1)
 }
 
 func TestCompactTopicSingleTableMultipleBatches(t *testing.T) {
-	testCompactTopic(t, 1, 5)
+	testCompactTopic(t, 5)
 }
 
-func TestCompactTopicMultipleTablesMultipleBatches(t *testing.T) {
-	testCompactTopic(t, 5, 5)
-}
-
-func testCompactTopic(t *testing.T, numTables int, numBatchesPerTable int) {
+func testCompactTopic(t *testing.T, numBatches int) {
 	numKeys := 100
 	numEntriesPerKey := 100
 	latestOffsets := map[string]int64{}
@@ -38,7 +34,7 @@ func testCompactTopic(t *testing.T, numTables int, numBatchesPerTable int) {
 	offset := offsetStart
 
 	var kvs []common.KV
-	for j := 0; j < numBatchesPerTable; j++ {
+	for j := 0; j < numBatches; j++ {
 		batch := createBatchWithKeys(numKeys, numEntriesPerKey, offset, latestOffsets)
 		offset += int64(numEntriesPerKey * numKeys)
 		batch = common.AppendValueMetadata(batch, topicID, partitionID)
@@ -57,11 +53,8 @@ func testCompactTopic(t *testing.T, numTables int, numBatchesPerTable int) {
 
 	iter := NewCompactedTopicIterator(si, func(topicID int64) (bool, error) {
 		return true, nil
-	}, func(partHash []byte, key []byte) (int64, bool, error) {
-		key2 := make([]byte, len(partHash)+len(key))
-		copy(key2, partHash)
-		copy(key2[len(partHash):], key)
-		lastOffset, ok := latestOffsets[string(key2)]
+	}, func(topicID int64, partitionID int64, key []byte) (int64, bool, error) {
+		lastOffset, ok := latestOffsets[string(key)]
 		return lastOffset, ok, nil
 	})
 
@@ -76,7 +69,7 @@ func testCompactTopic(t *testing.T, numTables int, numBatchesPerTable int) {
 	}
 
 	// Number of batches must be preserved
-	require.Equal(t, numTables*numBatchesPerTable, len(res))
+	require.Equal(t, numBatches, len(res))
 
 	var receivedMsgs []kafkaencoding.RawKafkaMessage
 	for _, kv := range res {
