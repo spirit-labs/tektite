@@ -1408,7 +1408,7 @@ func TestTablePusherUnexpectedError(t *testing.T) {
 		require.NoError(t, err)
 	}()
 
-	msgs := []testutils.RawKafkaMessage{
+	msgs := []kafkaencoding.RawKafkaMessage{
 		{
 			Timestamp: time.Now().UnixMilli(),
 			Key:       []byte("key1"),
@@ -1497,7 +1497,7 @@ func TestTablePusherTemporaryUnavailability(t *testing.T) {
 	start := time.Now()
 
 	// Push a couple of batches - obj store is unavailable
-	msgs := []testutils.RawKafkaMessage{
+	msgs := []kafkaencoding.RawKafkaMessage{
 		{
 			Timestamp: time.Now().UnixMilli(),
 			Key:       []byte("key1"),
