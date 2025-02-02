@@ -47,6 +47,10 @@ func (c *CompactedTopicIterator) next() (bool, common.KV, error) {
 	if !ok {
 		return false, common.KV{}, nil
 	}
+	if len(kv.Value) < 2 {
+		// Tombstone or end marker 'x'
+		return true, kv, nil
+	}
 	meta, bytes := common.ReadAndRemoveValueMetadata(kv.Value)
 	if len(meta) != 2 || len(kv.Key) < 17 {
 		return true, kv, nil

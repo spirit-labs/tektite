@@ -586,7 +586,8 @@ func (c *Controller) handleCreateOrUpdateTopic(_ *transport.ConnectionContext, r
 	return responseWriter(responseBuff, nil)
 }
 
-func (c *Controller) handleDeleteTopic(_ *transport.ConnectionContext, request []byte, responseBuff []byte, responseWriter transport.ResponseWriter) error {
+func (c *Controller) handleDeleteTopic(_ *transport.ConnectionContext, request []byte, responseBuff []byte,
+	responseWriter transport.ResponseWriter) error {
 	c.lock.RLock()
 	unlocked := false
 	defer func() {
