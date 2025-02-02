@@ -68,6 +68,9 @@ Flags:
       --storage-compression-type="lz4"                        determines how data is compressed before writing to object storage. one of 'lz4', 'zstd' or 'none'
       --fetch-compression-type="lz4"                          determines how data is compressed before returning a fetched batch to a consumer. one of 'gzip',
                                                               'snappy', 'lz4', 'zstd' or 'none'
+      --pusher-write-timeout-ms=200                           maximum time agent will wait, in milliseconds, before pushing a data table to object storage
+      --pusher-buffer-max-size-bytes=4194304                  maximum size of the push buffer in bytes - when it is full a data table will be written to object
+                                                              storage
       --log-format="console"                                  format to write log lines in - one of: console, json
       --log-level="info"                                      lowest log level that will be emitted - one of: debug, info, warn, error`
 

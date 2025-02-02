@@ -965,7 +965,7 @@ func TestMergeInterleaved(t *testing.T) {
 
 	res, err := mergeSSTables(common.DataFormatV1,
 		[][]tableToMerge{{{sst: sst1}, {sst: sst2}}, {{sst: sst3}, {sst: sst4}}}, true,
-		1300, math.MaxInt64, "", nil, 0)
+		1300, math.MaxInt64, "", nil, 0, nil, nil)
 	require.NoError(t, err)
 	require.Equal(t, 4, len(res))
 	for i := 0; i < 4; i++ {
@@ -1009,7 +1009,7 @@ func TestMergeNoOverlap(t *testing.T) {
 
 	res, err := mergeSSTables(common.DataFormatV1,
 		[][]tableToMerge{{{sst: sst1}, {sst: sst2}}, {{sst: sst3}, {sst: sst4}}}, true,
-		1300, math.MaxInt64, "", nil, 0)
+		1300, math.MaxInt64, "", nil, 0, nil, nil)
 	require.NoError(t, err)
 	require.Equal(t, 4, len(res))
 	for i := 0; i < 4; i++ {
@@ -1053,7 +1053,7 @@ func TestOverwriteEntriesWithLaterVersionFirst(t *testing.T) {
 
 	res, err := mergeSSTables(common.DataFormatV1,
 		[][]tableToMerge{{{sst: sst1}, {sst: sst2}}, {{sst: sst3}, {sst: sst4}}}, true,
-		maxTableSize, math.MaxInt64, "", nil, 0)
+		maxTableSize, math.MaxInt64, "", nil, 0, nil, nil)
 	require.NoError(t, err)
 	require.Equal(t, 3, len(res))
 	for i := 0; i < 3; i++ {
@@ -1095,7 +1095,7 @@ func TestOverwriteEntriesWithLaterVersionLast(t *testing.T) {
 	require.NoError(t, err)
 
 	res, err := mergeSSTables(common.DataFormatV1, [][]tableToMerge{{{sst: sst1}, {sst: sst2}}, {{sst: sst3}, {sst: sst4}}},
-		true, maxTableSize, math.MaxInt64, "", nil, 0)
+		true, maxTableSize, math.MaxInt64, "", nil, 0, nil, nil)
 	require.NoError(t, err)
 	require.Equal(t, 3, len(res))
 	for i := 0; i < 3; i++ {
@@ -1134,7 +1134,7 @@ func TestMergePreserveTombstones(t *testing.T) {
 
 	res, err := mergeSSTables(common.DataFormatV1,
 		[][]tableToMerge{{{sst: sst1}, {sst: sst2}}, {{sst: sst3}, {sst: sst4}}}, true, maxTableSize,
-		math.MaxInt64, "", nil, 0)
+		math.MaxInt64, "", nil, 0, nil, nil)
 	require.NoError(t, err)
 	require.Equal(t, 1, len(res))
 	checkKVs(t, res[0].sst, "val", 0, 0, 1, -1, 2, 2, 3, -1)
@@ -1166,7 +1166,7 @@ func TestMergePreserveTombstonesAllEntriesRemoved(t *testing.T) {
 	require.NoError(t, err)
 
 	res, err := mergeSSTables(common.DataFormatV1, [][]tableToMerge{{{sst: sst1}, {sst: sst2}}, {{sst: sst3}, {sst: sst4}}},
-		true, maxTableSize, math.MaxInt64, "", nil, 0)
+		true, maxTableSize, math.MaxInt64, "", nil, 0, nil, nil)
 	require.NoError(t, err)
 	require.Equal(t, 1, len(res))
 
@@ -1200,7 +1200,7 @@ func TestMergePreserveTombstonesNotAllEntriesRemoved(t *testing.T) {
 	require.NoError(t, err)
 
 	res, err := mergeSSTables(common.DataFormatV1, [][]tableToMerge{{{sst: sst1}, {sst: sst2}}, {{sst: sst3}, {sst: sst4}}},
-		true, maxTableSize, math.MaxInt64, "", nil, 0)
+		true, maxTableSize, math.MaxInt64, "", nil, 0, nil, nil)
 	require.NoError(t, err)
 	require.Equal(t, 1, len(res))
 
@@ -1233,7 +1233,8 @@ func TestMergeIntoMultipleTables(t *testing.T) {
 		tablesToMerge = append(tablesToMerge, tableToMerge{sst: ssTable})
 	}
 
-	res, err := mergeSSTables(common.DataFormatV1, [][]tableToMerge{tablesToMerge}, true, maxTableSize, math.MaxInt64, "", nil, 0)
+	res, err := mergeSSTables(common.DataFormatV1, [][]tableToMerge{tablesToMerge}, true, maxTableSize,
+		math.MaxInt64, "", nil, 0, nil, nil)
 	require.NoError(t, err)
 	require.Equal(t, numTables, len(res))
 
@@ -1284,7 +1285,8 @@ func TestMergeSameKeysDifferentVersions(t *testing.T) {
 		tablesToMerge = append(tablesToMerge, tableToMerge{sst: ssTable})
 	}
 
-	res, err := mergeSSTables(common.DataFormatV1, [][]tableToMerge{tablesToMerge}, true, maxTableSize, math.MaxInt64, "", nil, 0)
+	res, err := mergeSSTables(common.DataFormatV1, [][]tableToMerge{tablesToMerge}, true,
+		maxTableSize, math.MaxInt64, "", nil, 0, nil, nil)
 	require.NoError(t, err)
 	// We never split different versions of same key across tables, so one table should be produced.
 	require.Equal(t, 1, len(res))
@@ -1332,7 +1334,7 @@ func TestMergeNotPreserveTombstonesAllEntriesRemoved(t *testing.T) {
 	require.NoError(t, err)
 
 	res, err := mergeSSTables(common.DataFormatV1, [][]tableToMerge{{{sst: sst1}, {sst: sst2}}, {{sst: sst3}, {sst: sst4}}},
-		false, maxTableSize, math.MaxInt64, "", nil, 0)
+		false, maxTableSize, math.MaxInt64, "", nil, 0, nil, nil)
 	require.NoError(t, err)
 	require.Equal(t, 0, len(res))
 }
@@ -1363,7 +1365,7 @@ func TestMergeNotPreserveTombstonesNotAllEntriesRemoved(t *testing.T) {
 	require.NoError(t, err)
 
 	res, err := mergeSSTables(common.DataFormatV1, [][]tableToMerge{{{sst: sst1}, {sst: sst2}}, {{sst: sst3}, {sst: sst4}}},
-		false, maxTableSize, math.MaxInt64, "", nil, 0)
+		false, maxTableSize, math.MaxInt64, "", nil, 0, nil, nil)
 	require.NoError(t, err)
 	require.Equal(t, 1, len(res))
 
@@ -1406,7 +1408,7 @@ func TestMergeDeadVersions(t *testing.T) {
 	}
 
 	res, err := mergeSSTables(common.DataFormatV1, [][]tableToMerge{{tableToMerge1}, {tableToMerge2}},
-		false, 3500, math.MaxInt64, "", nil, 0)
+		false, 3500, math.MaxInt64, "", nil, 0, nil, nil)
 	require.NoError(t, err)
 	require.Equal(t, 1, len(res))
 

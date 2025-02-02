@@ -47,31 +47,34 @@ one entry for each committed partition.
 commit responses.
 */
 type TablePusher struct {
-	lock                 sync.Mutex
-	cfg                  Conf
-	topicProvider        topicInfoProvider
-	objStore             objstore.Client
-	clientFactory        controllerClientFactory
-	started              bool
-	stopping             atomic.Bool
-	controllerClient     ControlClient
-	tableGetter          sst.TableGetter
-	leaderChecker        LeaderChecker
-	partitionRecords     map[int]map[int][]bufferedRecords
-	produceCompletions   []func(error)
-	directKVs            map[string][]common.KV
-	snapshotKVs          []common.KV
-	timestampOffsetKVs   map[string][]byte
-	directCompletions    map[string][]func(error)
-	directWriterEpochs   map[string]int
-	numDirectKVsToCommit int
-	partitionHashes      *parthash.PartitionHashes
-	writeTimer           *time.Timer
-	snapshotTimer        *time.Timer
-	sizeBytes            int
-	producerSeqs         map[int]map[int]map[int]*sequenceInfo
-	offsetTimes          map[int]map[int]*offsetTime
-	stats                Stats
+	lock                          sync.Mutex
+	cfg                           Conf
+	topicProvider                 topicInfoProvider
+	objStore                      objstore.Client
+	clientFactory                 controllerClientFactory
+	started                       bool
+	stopping                      atomic.Bool
+	controllerClient              ControlClient
+	tableGetter                   sst.TableGetter
+	leaderChecker                 LeaderChecker
+	partitionRecords              map[int]map[int][]bufferedRecords
+	produceCompletions            []func(error)
+	directKVs                     map[string][]common.KV
+	snapshotKVs                   []common.KV
+	compactedTopicLastOffsetKVs   []common.KV
+	timestampOffsetKVs            map[string][]byte
+	directCompletions             map[string][]func(error)
+	directWriterEpochs            map[string]int
+	numDirectKVsToCommit          int
+	partitionHashes               *parthash.PartitionHashes
+	writeTimer                    *time.Timer
+	snapshotTimer                 *time.Timer
+	compactedTopicLastOffsetTimer *time.Timer
+	sizeBytes                     int
+	producerSeqs                  map[int]map[int]map[int]*sequenceInfo
+	offsetTimes                   map[int]map[int]*offsetTime
+	compactedTopicLastOffsets     map[string]int64
+	stats                         Stats
 }
 
 type bufferedRecords [][]byte
@@ -102,26 +105,28 @@ const (
 	objStoreAvailabilityTimeout = 5 * time.Second
 	offsetSnapshotFormatVersion = 1
 	offsetTimeFormatVersion     = 1
+	lastOffsetsMaxMapSize       = 1000000
 )
 
 func NewTablePusher(cfg Conf, topicProvider topicInfoProvider, objStore objstore.Client,
 	clientFactory controllerClientFactory, tableGetter sst.TableGetter, partitionHashes *parthash.PartitionHashes,
 	leaderChecker LeaderChecker) (*TablePusher, error) {
 	return &TablePusher{
-		cfg:                cfg,
-		topicProvider:      topicProvider,
-		objStore:           objStore,
-		clientFactory:      clientFactory,
-		tableGetter:        tableGetter,
-		partitionHashes:    partitionHashes,
-		leaderChecker:      leaderChecker,
-		partitionRecords:   map[int]map[int][]bufferedRecords{},
-		directWriterEpochs: map[string]int{},
-		directKVs:          map[string][]common.KV{},
-		directCompletions:  map[string][]func(error){},
-		producerSeqs:       map[int]map[int]map[int]*sequenceInfo{},
-		offsetTimes:        map[int]map[int]*offsetTime{},
-		timestampOffsetKVs: map[string][]byte{},
+		cfg:                       cfg,
+		topicProvider:             topicProvider,
+		objStore:                  objStore,
+		clientFactory:             clientFactory,
+		tableGetter:               tableGetter,
+		partitionHashes:           partitionHashes,
+		leaderChecker:             leaderChecker,
+		partitionRecords:          map[int]map[int][]bufferedRecords{},
+		directWriterEpochs:        map[string]int{},
+		directKVs:                 map[string][]common.KV{},
+		directCompletions:         map[string][]func(error){},
+		producerSeqs:              map[int]map[int]map[int]*sequenceInfo{},
+		offsetTimes:               map[int]map[int]*offsetTime{},
+		compactedTopicLastOffsets: map[string]int64{},
+		timestampOffsetKVs:        map[string][]byte{},
 	}, nil
 }
 
@@ -132,7 +137,8 @@ func (t *TablePusher) Start() error {
 		return nil
 	}
 	t.scheduleWriteTimer(t.cfg.WriteTimeout)
-	t.scheduleSnapshotTimer(t.cfg.OffsetSnapshotInterval)
+	t.scheduleSnapshotTimer()
+	t.scheduleCompactedTopicLastOffsetTimer()
 	t.started = true
 	return nil
 }
@@ -146,6 +152,7 @@ func (t *TablePusher) Stop() error {
 	}
 	t.writeTimer.Stop()
 	t.snapshotTimer.Stop()
+	t.compactedTopicLastOffsetTimer.Stop()
 	t.started = false
 	return nil
 }
@@ -182,8 +189,8 @@ func (t *TablePusher) scheduleWriteTimer(timeout time.Duration) {
 	})
 }
 
-func (t *TablePusher) scheduleSnapshotTimer(timeout time.Duration) {
-	t.snapshotTimer = time.AfterFunc(timeout, func() {
+func (t *TablePusher) scheduleSnapshotTimer() {
+	t.snapshotTimer = time.AfterFunc(t.cfg.OffsetSnapshotInterval, func() {
 		t.lock.Lock()
 		defer t.lock.Unlock()
 		if !t.started {
@@ -195,8 +202,41 @@ func (t *TablePusher) scheduleSnapshotTimer(timeout time.Duration) {
 		if err := t.maybeSnapshotOffsetsByTime(); err != nil {
 			log.Errorf("failed to snapshot offset times: %v", err)
 		}
-		t.scheduleSnapshotTimer(t.cfg.OffsetSnapshotInterval)
+		t.scheduleSnapshotTimer()
 	})
+}
+
+func (t *TablePusher) HasPendingCompactedTopicOffsetsToWrite() bool {
+	t.lock.Lock()
+	defer t.lock.Unlock()
+	return len(t.compactedTopicLastOffsets) > 0 || len(t.compactedTopicLastOffsetKVs) > 0
+}
+
+func (t *TablePusher) scheduleCompactedTopicLastOffsetTimer() {
+	t.compactedTopicLastOffsetTimer = time.AfterFunc(t.cfg.CompactedTopicLastOffsetSnapshotInterval, func() {
+		t.lock.Lock()
+		defer t.lock.Unlock()
+		if !t.started {
+			return
+		}
+		if len(t.compactedTopicLastOffsets) > 0 {
+			t.flushCompactedTopicLastOffsetsMap()
+		}
+		t.scheduleCompactedTopicLastOffsetTimer()
+	})
+}
+
+func (t *TablePusher) flushCompactedTopicLastOffsetsMap() {
+	for key, offset := range t.compactedTopicLastOffsets {
+		value := make([]byte, 17)
+		binary.BigEndian.PutUint64(value, uint64(offset))
+		value = common.AppendValueMetadata(value)
+		t.compactedTopicLastOffsetKVs = append(t.compactedTopicLastOffsetKVs, common.KV{
+			Key:   []byte(key),
+			Value: value,
+		})
+	}
+	t.compactedTopicLastOffsets = map[string]int64{}
 }
 
 func (t *TablePusher) closeClient() {
@@ -335,13 +375,6 @@ func (t *TablePusher) HandleProduceRequest(authContext *auth.Context, req *kafka
 							topicInfo.MaxMessageSizeBytes), &partitionResponses[j])
 					continue partitions
 				}
-
-				// FIXME remove this
-				bl := kafkaencoding.BatchLength(records)
-				if len(records) != int(bl)+12 {
-					panic("wrong batch length")
-				}
-
 				dupRes, err := t.checkDuplicates(records, topicInfo.ID, partitionID)
 				if err != nil {
 					log.Errorf("failed to check duplicate records: %v", err)
@@ -385,7 +418,7 @@ func (t *TablePusher) HandleProduceRequest(authContext *auth.Context, req *kafka
 						records = append(records[:61], decompressedBytes...)
 						newBatchLen := len(records) - 12
 						// Update batch length
-						binary.BigEndian.PutUint32(records[8:], uint32(newBatchLen))
+						kafkaencoding.SetBatchLength(records, int32(newBatchLen))
 						needsCrcUpdate = true
 					}
 					if needsCrcUpdate {
@@ -394,6 +427,13 @@ func (t *TablePusher) HandleProduceRequest(authContext *auth.Context, req *kafka
 					}
 					topicMap[partitionID] = append(topicMap[partitionID], [][]byte{records})
 					t.sizeBytes += len(records)
+					if topicInfo.Compacted {
+						if err := t.updateCompactedTopicLastOffsets(topicInfo.ID, partitionID, records); err != nil {
+							log.Errorf("failed to update topic last offsets: %v", err)
+							setPartitionError(kafkaprotocol.ErrorCodeUnknownServerError, err.Error(), &partitionResponses[j])
+							continue partitions
+						}
+					}
 					recordsAdded = true
 				} else if dupRes == -1 {
 					// duplicate
@@ -429,7 +469,16 @@ func (t *TablePusher) HandleProduceRequest(authContext *auth.Context, req *kafka
 		// All partitions errored - no records were added - send response now
 		return completionFunc(&resp)
 	}
-	if t.sizeBytes >= t.cfg.BufferMaxSizeBytes {
+
+	needsWrite := false
+	if len(t.compactedTopicLastOffsets) > lastOffsetsMaxMapSize {
+		needsWrite = true
+		t.flushCompactedTopicLastOffsetsMap()
+	} else if t.sizeBytes >= t.cfg.BufferMaxSizeBytes {
+		needsWrite = true
+	}
+
+	if needsWrite {
 		for {
 			if t.stopping.Load() {
 				// break out of loop
@@ -449,6 +498,26 @@ func (t *TablePusher) HandleProduceRequest(authContext *auth.Context, req *kafka
 			log.Warnf("unavailability when attempting to write records: %v - will retry after delay", err)
 			time.Sleep(t.cfg.WriteTimeout)
 		}
+	}
+	return nil
+}
+
+func (t *TablePusher) updateCompactedTopicLastOffsets(topicID int, partitionID int, records []byte) error {
+	// For each key in the batch we keep an in-memory map of the latest offset for the key - this is then periodically
+	// stored, and used when compacting the topic to know whether to remove an entry
+	partHash, err := t.partitionHashes.GetPartitionHash(topicID, partitionID)
+	if err != nil {
+		return err
+	}
+	msgs := kafkaencoding.BatchToRawMessages(records)
+	for _, msg := range msgs {
+		mapKey := make([]byte, 0, 25+len(msg.Key))
+		mapKey = append(mapKey, partHash...)
+		mapKey = append(mapKey, common.EntryTypeCompactedTopicLastOffsetForKey)
+		mapKey = append(mapKey, msg.Key...)
+		mapKey = encoding.EncodeVersion(mapKey, 0)
+		sKey := common.ByteSliceToStringZeroCopy(mapKey)
+		t.compactedTopicLastOffsets[sKey] = msg.Offset
 	}
 	return nil
 }
@@ -626,7 +695,8 @@ func (t *TablePusher) ForceWrite() error {
 }
 
 func (t *TablePusher) write() error {
-	if len(t.partitionRecords) == 0 && t.numDirectKVsToCommit == 0 && len(t.timestampOffsetKVs) == 0 {
+	if len(t.partitionRecords) == 0 && t.numDirectKVsToCommit == 0 && len(t.timestampOffsetKVs) == 0 &&
+		len(t.compactedTopicLastOffsetKVs) == 0 {
 		// Nothing to do
 		return nil
 	}
@@ -698,7 +768,7 @@ func (t *TablePusher) write() error {
 			t.failDirectWrites(groupID)
 		}
 	}
-	numRemainingKvs := len(offs) + t.numDirectKVsToCommit + len(t.timestampOffsetKVs)
+	numRemainingKvs := len(offs) + t.numDirectKVsToCommit + len(t.timestampOffsetKVs) + len(t.compactedTopicLastOffsetKVs)
 	if numRemainingKvs == 0 {
 		// After failing direct writes there may be nothing to do
 		return nil
@@ -718,6 +788,8 @@ func (t *TablePusher) write() error {
 			Value: value,
 		})
 	}
+	// Add any compacted topic last offsets
+	kvs = append(kvs, t.compactedTopicLastOffsetKVs...)
 	// Prepare the data KVs
 	for i, topOffset := range offs {
 		partitionRecs := t.partitionRecords[topOffset.TopicID]
@@ -856,6 +928,7 @@ func (t *TablePusher) reset() {
 	if len(t.timestampOffsetKVs) > 0 {
 		t.timestampOffsetKVs = map[string][]byte{}
 	}
+	t.compactedTopicLastOffsetKVs = nil
 	t.sizeBytes = 0
 }
 
@@ -1197,12 +1270,11 @@ func getOffsetForTimestampInRecords(bytes []byte, timestamp int64) int64 {
 		off++ // skip past attributes
 		timestampDelta, bytesRead := binary.Varint(bytes[off:])
 		recordTimestamp := baseTimeStamp + timestampDelta
-		if recordTimestamp >= timestamp {
-			offset := baseOffset + int64(i)
-			return offset
-		}
 		off += bytesRead
-		_, bytesRead = binary.Varint(bytes[off:])
+		offsetDelta, bytesRead := binary.Varint(bytes[off:])
+		if recordTimestamp >= timestamp {
+			return baseOffset + offsetDelta
+		}
 		off += bytesRead
 		keyLength, bytesRead := binary.Varint(bytes[off:])
 		off += bytesRead

@@ -150,7 +150,7 @@ func NewAgentWithFactories(cfg Conf, objStore objstore.Client, connectionFactory
 		return &compactionWorkerControllerClient{cc: cc}, nil
 	}
 	agent.compactionWorkersService = lsm.NewCompactionWorkerService(cfg.CompactionWorkersConf, objStore,
-		clFactory, true)
+		clFactory, getter.get, partitionHashes, true)
 	scramManager, err := auth.NewScramManager(auth.ScramAuthTypeSHA512, agent.controlClientCache, getter.get,
 		cfg.AllowScramNonceAsPrefix)
 	if err != nil {
@@ -318,6 +318,21 @@ func (o *fetchCacheGetter) get(tableID sst.SSTableID) (*sst.SSTable, error) {
 
 type compactionWorkerControllerClient struct {
 	cc control.Client
+}
+
+func (c *compactionWorkerControllerClient) IsCompactedTopic(topicID int) (bool, error) {
+	info, exists, err := c.cc.GetTopicInfoByID(topicID)
+	if err != nil {
+		return false, err
+	}
+	if !exists {
+		return false, nil
+	}
+	return info.Compacted, nil
+}
+
+func (c *compactionWorkerControllerClient) QueryTablesInRange(keyStart []byte, keyEnd []byte) (lsm.OverlappingTables, error) {
+	return c.cc.QueryTablesInRange(keyStart, keyEnd)
 }
 
 func (c *compactionWorkerControllerClient) ApplyLsmChanges(regBatch lsm.RegistrationBatch) error {

@@ -85,6 +85,29 @@ func (m *Manager) getAllL0Tables() ([][]*TableEntry, error) {
 	return [][]*TableEntry{tableEntries}, nil
 }
 
+func (m *Manager) getTablesForPartitionHash(partHash []byte) ([]tableToCompact, error) {
+	startKey := make([]byte, 0, 33)
+	startKey = append(startKey, partHash...)
+	startKey = append(startKey, common.EntryTypeTopicData)
+	endKey := common.IncBigEndianBytes(startKey)
+	m.lock.RLock()
+	defer m.lock.RUnlock()
+	var topicTableEntries []tableToCompact
+	for level, entry := range m.masterRecord.levelEntries {
+		entries, err := m.getOverlappingTables(startKey, endKey, level, entry)
+		if err != nil {
+			return nil, err
+		}
+		for _, tableEntry := range entries {
+			topicTableEntries = append(topicTableEntries, tableToCompact{
+				level: level,
+				table: tableEntry,
+			})
+		}
+	}
+	return topicTableEntries, nil
+}
+
 func (m *Manager) scheduleCompaction(level int, tableSlices [][]*TableEntry, completionFunc func(error)) (int, bool, error) {
 	// If we are compacting into the last level, then we delete tombstones
 	var jobs []CompactionJob
@@ -288,7 +311,7 @@ func (m *Manager) queueOrDespatchJob(job CompactionJob, complFunc func(error)) {
 		poller := m.pollers.pop()
 		poller.timer.Stop()
 		poller.timer = nil
-		timer := m.scheduleJobTimeout(holder, poller.connectionID)
+		timer := m.scheduleJobTimeout(holder)
 		m.inProgress[job.id] = inProgressCompaction{
 			timer:        timer,
 			jobHolder:    holder,
@@ -546,7 +569,7 @@ func (m *Manager) PollForJob(connectionID int, completionFunc func(job *Compacti
 		m.jobQueue = m.jobQueue[1:]
 		m.stats.QueuedJobs--
 		job := holder.job
-		timer := m.scheduleJobTimeout(holder, connectionID)
+		timer := m.scheduleJobTimeout(holder)
 		m.inProgress[job.id] = inProgressCompaction{
 			timer:        timer,
 			jobHolder:    holder,
@@ -583,7 +606,7 @@ func (m *Manager) schedulePollerTimeout(poller *poller) {
 	poller.timer = timer
 }
 
-func (m *Manager) scheduleJobTimeout(holder jobHolder, connectionID int) *time.Timer {
+func (m *Manager) scheduleJobTimeout(holder jobHolder) *time.Timer {
 	return time.AfterFunc(m.cfg.CompactionJobTimeout, func() {
 		m.lock.Lock()
 		defer m.lock.Unlock()
@@ -637,7 +660,7 @@ func (m *Manager) checkForDeadEntries(rng VersionRange) bool {
 	return false
 }
 
-func (m *Manager) forceCompaction(level int, maxTables int) error {
+func (m *Manager) ForceCompaction(level int, maxTables int) error {
 	m.lock.Lock()
 	defer m.lock.Unlock()
 	entries := m.levelEntry(level)

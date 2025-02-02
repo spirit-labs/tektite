@@ -2,6 +2,7 @@ package lsm
 
 import (
 	"bytes"
+	"encoding/binary"
 	"fmt"
 	"github.com/pkg/errors"
 	"github.com/spirit-labs/tektite/asl/errwrap"
@@ -10,7 +11,9 @@ import (
 	"github.com/spirit-labs/tektite/iteration"
 	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/objstore"
+	"github.com/spirit-labs/tektite/parthash"
 	"github.com/spirit-labs/tektite/sst"
+	"math"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -18,12 +21,15 @@ import (
 )
 
 func NewCompactionWorkerService(cfg CompactionWorkerServiceConf, objStoreClient objstore.Client,
-	clientFactory ControllerClientFactory, retentions bool) *CompactionWorkerService {
+	clientFactory ControllerClientFactory, tableGetter sst.TableGetter, partHashes *parthash.PartitionHashes,
+	retentions bool) *CompactionWorkerService {
 	return &CompactionWorkerService{
 		cfg:            cfg,
 		objStoreClient: objStoreClient,
 		clientFactory:  clientFactory,
+		tableGetter:    tableGetter,
 		retentions:     retentions,
+		partHashes:     partHashes,
 	}
 }
 
@@ -31,19 +37,23 @@ type CompactionWorkerService struct {
 	cfg                 CompactionWorkerServiceConf
 	objStoreClient      objstore.Client
 	clientFactory       ControllerClientFactory
+	controllerClient    ControllerClient
 	workers             []*compactionWorker
+	tableGetter         sst.TableGetter
+	partHashes          *parthash.PartitionHashes
 	started             bool
-	lock                sync.Mutex
+	lock                sync.RWMutex
 	gotPrefixRetentions bool
 	retentions          bool
 }
 
 type CompactionWorkerServiceConf struct {
-	MaxSSTableSize        int
-	WorkerCount           int
-	SSTableBucketName     string
-	SSTablePushRetryDelay time.Duration
-	TableCompressionType  compress.CompressionType
+	MaxSSTableSize         int
+	WorkerCount            int
+	SSTableBucketName      string
+	SSTablePushRetryDelay  time.Duration
+	TableCompressionType   compress.CompressionType
+	TopicCompactionMaxKeys int
 }
 
 func (c *CompactionWorkerServiceConf) Validate() error {
@@ -52,10 +62,11 @@ func (c *CompactionWorkerServiceConf) Validate() error {
 
 func NewCompactionWorkerServiceConf() CompactionWorkerServiceConf {
 	return CompactionWorkerServiceConf{
-		WorkerCount:           4,
-		SSTableBucketName:     "tektite-data",
-		SSTablePushRetryDelay: 1 * time.Second,
-		MaxSSTableSize:        16 * 1024 * 1024,
+		WorkerCount:            4,
+		SSTableBucketName:      "tektite-data",
+		SSTablePushRetryDelay:  1 * time.Second,
+		MaxSSTableSize:         16 * 1024 * 1024,
+		TopicCompactionMaxKeys: 1000000,
 	}
 }
 
@@ -65,6 +76,8 @@ type ControllerClient interface {
 	ApplyLsmChanges(regBatch RegistrationBatch) error
 	PollForJob() (CompactionJob, error)
 	GetRetentionForTopic(topicID int) (time.Duration, bool, error)
+	IsCompactedTopic(topicID int) (bool, error)
+	QueryTablesInRange(keyStart []byte, keyEnd []byte) (OverlappingTables, error)
 	Close() error
 }
 
@@ -78,8 +91,9 @@ func (c *CompactionWorkerService) Start() error {
 	}
 	for i := 0; i < c.cfg.WorkerCount; i++ {
 		worker := &compactionWorker{
-			cws:            c,
-			slabRetentions: map[int]time.Duration{},
+			cws:             c,
+			slabRetentions:  map[int]time.Duration{},
+			compactedTopics: map[int64]bool{},
 		}
 		c.workers = append(c.workers, worker)
 		worker.start()
@@ -113,13 +127,14 @@ func (c *CompactionWorkerService) Stop() error {
 }
 
 type compactionWorker struct {
-	cws            *CompactionWorkerService
-	started        atomic.Bool
-	stopWg         sync.WaitGroup
-	slabRetentions map[int]time.Duration
-	controlClient  ControllerClient
-	ccLock         sync.Mutex
-	stopped        bool
+	cws             *CompactionWorkerService
+	started         atomic.Bool
+	stopWg          sync.WaitGroup
+	slabRetentions  map[int]time.Duration
+	controlClient   ControllerClient
+	ccLock          sync.Mutex
+	stopped         bool
+	compactedTopics map[int64]bool
 }
 
 func (c *compactionWorker) controllerClient() (ControllerClient, error) {
@@ -220,7 +235,7 @@ func (c *compactionWorker) loop() {
 			if !strings.Contains(err.Error(), "connection closed") {
 				log.Errorf("error in polling for compaction job: %v", err)
 			} else {
-				// Normnal to get these when shutting down - don't spam the logs
+				// Normal to get these when shutting down - don't spam the logs
 				log.Debugf("error in polling for compaction job: %v", err)
 			}
 			continue
@@ -254,6 +269,59 @@ func (c *compactionWorker) loop() {
 			break
 		}
 	}
+}
+
+func (c *compactionWorker) isCompactedTopic(topicID int64) (bool, error) {
+	compacted, ok := c.compactedTopics[topicID]
+	if ok {
+		return compacted, nil
+	}
+	cl, err := c.controllerClient()
+	if err != nil {
+		return false, err
+	}
+	compacted, err = cl.IsCompactedTopic(int(topicID))
+	if err != nil {
+		return false, err
+	}
+	c.compactedTopics[topicID] = compacted
+	return compacted, nil
+}
+
+func (c *compactionWorker) lastOffsetForKey(topicID int64, partitionID int64, key []byte, lastOffsetCache map[string]int64) (int64, bool, error) {
+	lookupKey := make([]byte, 17+len(key))
+	partHash, err := c.cws.partHashes.GetPartitionHash(int(topicID), int(partitionID))
+	copy(lookupKey, partHash)
+	lookupKey[16] = common.EntryTypeCompactedTopicLastOffsetForKey
+	copy(lookupKey[17:], key)
+	// First look in per job cache
+	sKey := common.ByteSliceToStringZeroCopy(lookupKey)
+	offset, ok := lastOffsetCache[sKey]
+	if ok {
+		return offset, true, nil
+	}
+	// Lookup in store
+	rangeEnd := common.IncBigEndianBytes(lookupKey)
+	cl, err := c.controllerClient()
+	if err != nil {
+		return 0, false, err
+	}
+	iter, err := CreateIteratorForKeyRange(lookupKey, rangeEnd, cl, c.cws.tableGetter)
+	if err != nil {
+		return 0, false, err
+	}
+	ok, kv, err := iter.Next()
+	if err != nil {
+		return 0, false, err
+	}
+	if !ok || !bytes.Equal(kv.Key[:len(lookupKey)], lookupKey) {
+		// not found
+		return 0, false, nil
+	}
+	val := common.RemoveValueMetadata(kv.Value)
+	offset = int64(binary.BigEndian.Uint64(val))
+	lastOffsetCache[sKey] = offset
+	return offset, true, nil
 }
 
 func (c *compactionWorker) processJob(job *CompactionJob) ([]RegistrationEntry, []RegistrationEntry, error) {
@@ -300,8 +368,13 @@ func (c *compactionWorker) processJob(job *CompactionJob) ([]RegistrationEntry, 
 	if c.cws.retentions {
 		retProvider = c
 	}
+	// Per job cache
+	lastOffsetCacheMap := map[string]int64{}
 	infos, err := mergeSSTables(common.DataFormatV1, tablesToMerge, job.preserveTombstones,
-		c.cws.cfg.MaxSSTableSize, job.lastFlushedVersion, job.id, retProvider, job.serverTime)
+		c.cws.cfg.MaxSSTableSize, job.lastFlushedVersion, job.id, retProvider, job.serverTime, c.isCompactedTopic,
+		func(topicID int64, partitionID int64, key []byte) (int64, bool, error) {
+			return c.lastOffsetForKey(topicID, partitionID, key, lastOffsetCacheMap)
+		})
 	if err != nil {
 		return nil, nil, err
 	}
@@ -406,34 +479,34 @@ func changesToApply(newTables []TableEntry, job *CompactionJob) ([]RegistrationE
 // no overlap, so we can move tables directly from one level to another without merging anything
 func (c *compactionWorker) moveTables(tables []tableToCompact, fromLevel int, preserveTombstones bool) ([]RegistrationEntry, []RegistrationEntry) {
 	var registrations []RegistrationEntry
-	for _, tableToCompact := range tables {
-		if tableToCompact.table.DeleteRatio == float64(1) && !preserveTombstones {
+	for _, toCompact := range tables {
+		if toCompact.table.DeleteRatio == float64(1) && !preserveTombstones {
 			// The table is just deletes, and we're moving it into the last level - we can just drop it
 		} else {
 			registrations = append(registrations, RegistrationEntry{
 				Level:       fromLevel + 1,
-				TableID:     tableToCompact.table.SSTableID,
-				KeyStart:    tableToCompact.table.RangeStart,
-				KeyEnd:      tableToCompact.table.RangeEnd,
-				MinVersion:  tableToCompact.table.MinVersion,
-				MaxVersion:  tableToCompact.table.MaxVersion,
-				DeleteRatio: tableToCompact.table.DeleteRatio,
-				NumEntries:  tableToCompact.table.NumEntries,
-				TableSize:   tableToCompact.table.Size,
-				AddedTime:   tableToCompact.table.AddedTime,
+				TableID:     toCompact.table.SSTableID,
+				KeyStart:    toCompact.table.RangeStart,
+				KeyEnd:      toCompact.table.RangeEnd,
+				MinVersion:  toCompact.table.MinVersion,
+				MaxVersion:  toCompact.table.MaxVersion,
+				DeleteRatio: toCompact.table.DeleteRatio,
+				NumEntries:  toCompact.table.NumEntries,
+				TableSize:   toCompact.table.Size,
+				AddedTime:   toCompact.table.AddedTime,
 			})
 		}
 	}
 	var deRegistrations []RegistrationEntry
-	for _, tableToCompact := range tables {
+	for _, toCompact := range tables {
 		deRegistrations = append(deRegistrations, RegistrationEntry{
 			Level:       fromLevel,
-			TableID:     tableToCompact.table.SSTableID,
-			KeyStart:    tableToCompact.table.RangeStart,
-			KeyEnd:      tableToCompact.table.RangeEnd,
-			DeleteRatio: tableToCompact.table.DeleteRatio,
-			NumEntries:  tableToCompact.table.NumEntries,
-			TableSize:   tableToCompact.table.Size,
+			TableID:     toCompact.table.SSTableID,
+			KeyStart:    toCompact.table.RangeStart,
+			KeyEnd:      toCompact.table.RangeEnd,
+			DeleteRatio: toCompact.table.DeleteRatio,
+			NumEntries:  toCompact.table.NumEntries,
+			TableSize:   toCompact.table.Size,
 		})
 	}
 	return registrations, deRegistrations
@@ -446,22 +519,25 @@ type tableToMerge struct {
 }
 
 func mergeSSTables(format common.DataFormat, tables [][]tableToMerge, preserveTombstones bool, maxTableSize int,
-	lastFlushedVersion int64, jobID string, retentionProvider RetentionProvider, serverTime uint64) ([]ssTableInfo, error) {
+	lastFlushedVersion int64, jobID string, retentionProvider RetentionProvider, serverTime uint64,
+	topicFunc isCompactedTopicFunc, keyFunc lastOffsetForKeyFunc) ([]ssTableInfo, error) {
 
 	totEntries := 0
 	chainIters := make([]iteration.Iterator, len(tables))
 	for i, overlapping := range tables {
 		sourceIters := make([]iteration.Iterator, len(overlapping))
 		for j, table := range overlapping {
-			sstIter, err := table.sst.NewIterator(nil, nil)
+			iter, err := table.sst.NewIterator(nil, nil)
 			if len(table.deadVersionRanges) > 0 {
-				sstIter = NewRemoveDeadVersionsIterator(sstIter, table.deadVersionRanges)
+				iter = NewRemoveDeadVersionsIterator(iter, table.deadVersionRanges)
 			}
 			if retentionProvider != nil {
-				sstIter = NewRemoveExpiredEntriesIterator(sstIter, table.sst.CreationTime(), serverTime, retentionProvider)
+				iter = NewRemoveExpiredEntriesIterator(iter, table.sst.CreationTime(), serverTime, retentionProvider)
 			}
-			sourceIters[j] = sstIter
-
+			if topicFunc != nil {
+				iter = NewCompactedTopicIterator(iter, topicFunc, keyFunc)
+			}
+			sourceIters[j] = iter
 			if err != nil {
 				return nil, err
 			}
@@ -498,7 +574,10 @@ func mergeSSTables(format common.DataFormat, tables [][]tableToMerge, preserveTo
 		}
 		mergeResults = append(mergeResults, curr)
 	}
+	return compactedToTableInfos(format, mergeResults, maxTableSize)
+}
 
+func compactedToTableInfos(format common.DataFormat, mergeResults []common.KV, maxTableSize int) ([]ssTableInfo, error) {
 	size := 0
 	iLast := 0
 	var outTables []ssTableInfo
@@ -539,8 +618,6 @@ func mergeSSTables(format common.DataFormat, tables [][]tableToMerge, preserveTo
 			size = 0
 		}
 	}
-
-	log.Debugf("compaction job merged %d entries into %d entries", totEntries, len(mergeResults))
 
 	return outTables, nil
 }
@@ -593,4 +670,41 @@ func validateRegEntry(entry RegistrationEntry, objStore objstore.Client, bucketN
 		panic(fmt.Sprintf("last key %v (%s) and range end %v (%s) are not equal",
 			lastKey, string(lastKey), entry.KeyEnd, string(entry.KeyEnd)))
 	}
+}
+
+type querier interface {
+	QueryTablesInRange(keyStart []byte, keyEnd []byte) (OverlappingTables, error)
+}
+
+// CreateIteratorForKeyRange Duplicated from queryutils to prevent circular dependency - improve this
+func CreateIteratorForKeyRange(keyStart []byte, keyEnd []byte, querier querier, tableGetter sst.TableGetter) (iteration.Iterator, error) {
+	ids, err := querier.QueryTablesInRange(keyStart, keyEnd)
+	if err != nil {
+		return nil, err
+	}
+	if len(ids) == 0 {
+		return iteration.EmptyIterator{}, nil
+	}
+	var iters []iteration.Iterator
+	for _, nonOverLapIDs := range ids {
+		if len(nonOverLapIDs) == 1 {
+			info := nonOverLapIDs[0]
+			iter, err := sst.NewLazySSTableIterator(info.ID, tableGetter, keyStart, keyEnd)
+			if err != nil {
+				return nil, err
+			}
+			iters = append(iters, iter)
+		} else {
+			itersInChain := make([]iteration.Iterator, len(nonOverLapIDs))
+			for j, nonOverlapID := range nonOverLapIDs {
+				iter, err := sst.NewLazySSTableIterator(nonOverlapID.ID, tableGetter, keyStart, keyEnd)
+				if err != nil {
+					return nil, err
+				}
+				itersInChain[j] = iter
+			}
+			iters = append(iters, iteration.NewChainingIterator(itersInChain))
+		}
+	}
+	return iteration.NewMergingIterator(iters, false, math.MaxUint64)
 }

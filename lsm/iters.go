@@ -4,7 +4,7 @@ import (
 	"encoding/binary"
 	"github.com/pkg/errors"
 	"github.com/spirit-labs/tektite/common"
-	iteration2 "github.com/spirit-labs/tektite/iteration"
+	"github.com/spirit-labs/tektite/iteration"
 	log "github.com/spirit-labs/tektite/logger"
 	"math"
 	"time"
@@ -12,7 +12,7 @@ import (
 
 // RemoveExpiredEntriesIterator filters out any keys which have expired due to retention time being exceeded
 type RemoveExpiredEntriesIterator struct {
-	iter              iteration2.Iterator
+	iter              iteration.Iterator
 	sstCreationTime   uint64
 	now               uint64
 	retentionProvider RetentionProvider
@@ -22,7 +22,7 @@ type RetentionProvider interface {
 	GetSlabRetention(slabID int) (time.Duration, error)
 }
 
-func NewRemoveExpiredEntriesIterator(iter iteration2.Iterator, sstCreationTime uint64, now uint64,
+func NewRemoveExpiredEntriesIterator(iter iteration.Iterator, sstCreationTime uint64, now uint64,
 	retentionProvider RetentionProvider) *RemoveExpiredEntriesIterator {
 	return &RemoveExpiredEntriesIterator{
 		iter:              iter,
@@ -86,11 +86,11 @@ func (r *RemoveExpiredEntriesIterator) isExpired(value []byte) (bool, error) {
 
 // RemoveDeadVersionsIterator filters out any dead version ranges
 type RemoveDeadVersionsIterator struct {
-	iter              iteration2.Iterator
+	iter              iteration.Iterator
 	deadVersionRanges []VersionRange
 }
 
-func NewRemoveDeadVersionsIterator(iter iteration2.Iterator, deadVersionRanges []VersionRange) *RemoveDeadVersionsIterator {
+func NewRemoveDeadVersionsIterator(iter iteration.Iterator, deadVersionRanges []VersionRange) *RemoveDeadVersionsIterator {
 	return &RemoveDeadVersionsIterator{
 		iter:              iter,
 		deadVersionRanges: deadVersionRanges,

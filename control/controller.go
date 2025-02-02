@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/spirit-labs/tektite/asl/encoding"
 	"github.com/spirit-labs/tektite/parthash"
+	"math"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -123,6 +124,18 @@ func (c *Controller) SetTableGetter(getter sst.TableGetter) {
 
 func (c *Controller) GetActivateClusterVersion() int {
 	return int(atomic.LoadInt64(&c.activateClusterVersion))
+}
+
+func (c *Controller) ForceCompaction(level int) error {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+	return c.lsmHolder.lsmManager.ForceCompaction(level, math.MaxInt)
+}
+
+func (c *Controller) LsmManager() *lsm.Manager {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+	return c.lsmHolder.lsmManager
 }
 
 func (c *Controller) stop() error {
@@ -573,7 +586,8 @@ func (c *Controller) handleCreateOrUpdateTopic(_ *transport.ConnectionContext, r
 	return responseWriter(responseBuff, nil)
 }
 
-func (c *Controller) handleDeleteTopic(_ *transport.ConnectionContext, request []byte, responseBuff []byte, responseWriter transport.ResponseWriter) error {
+func (c *Controller) handleDeleteTopic(_ *transport.ConnectionContext, request []byte, responseBuff []byte,
+	responseWriter transport.ResponseWriter) error {
 	c.lock.RLock()
 	unlocked := false
 	defer func() {

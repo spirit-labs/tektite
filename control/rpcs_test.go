@@ -349,11 +349,13 @@ func testSerializeDeserializeGetTopicInfoResponse(t *testing.T, resp GetTopicInf
 }
 
 func TestSerializeDeserializeCreateTopicRequest(t *testing.T) {
-	testSerializeDeserializeCreateTopicRequest(t, false)
-	testSerializeDeserializeCreateTopicRequest(t, true)
+	testSerializeDeserializeCreateTopicRequest(t, false, false)
+	testSerializeDeserializeCreateTopicRequest(t, true, false)
+	testSerializeDeserializeCreateTopicRequest(t, false, true)
+	testSerializeDeserializeCreateTopicRequest(t, true, true)
 }
 
-func testSerializeDeserializeCreateTopicRequest(t *testing.T, create bool) {
+func testSerializeDeserializeCreateTopicRequest(t *testing.T, create bool, compacted bool) {
 	req := CreateOrUpdateTopicRequest{
 		LeaderVersion: 123,
 		Create:        create,
@@ -363,6 +365,7 @@ func testSerializeDeserializeCreateTopicRequest(t *testing.T, create bool) {
 			PartitionCount:      123123,
 			RetentionTime:       1212312123,
 			MaxMessageSizeBytes: 777777,
+			Compacted:           compacted,
 		},
 	}
 	var buff []byte

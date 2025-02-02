@@ -1,7 +1,6 @@
 package fetcher
 
 import (
-	"encoding/binary"
 	"fmt"
 	"github.com/spirit-labs/tektite/acls"
 	"github.com/spirit-labs/tektite/asl/encoding"
@@ -338,7 +337,7 @@ func (p *PartitionFetchState) compress(batch []byte) ([]byte, error) {
 	}
 	// Now set new batch length
 	newBatchLen := len(compressed) - 12
-	binary.BigEndian.PutUint32(compressed[8:], uint32(newBatchLen))
+	kafkaencoding.SetBatchLength(compressed, int32(newBatchLen))
 	// And compression type
 	kafkaencoding.SetCompressionType(compressed, byte(compressionType))
 	// Recalculate the CRC
