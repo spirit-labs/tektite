@@ -826,6 +826,10 @@ func TestMergeInfosSortPartitions(t *testing.T) {
 					Offset:      45456,
 				},
 				{
+					PartitionID: 37,
+					Offset:      23200,
+				},
+				{
 					PartitionID: 567,
 					Offset:      5675677,
 				},
@@ -837,6 +841,10 @@ func TestMergeInfosSortPartitions(t *testing.T) {
 		{
 			TopicID: 23,
 			PartitionInfos: []OffsetPartitionInfo{
+				{
+					PartitionID: 12,
+					Offset:      1250,
+				},
 				{
 					PartitionID: 21,
 					Offset:      234324,
@@ -865,7 +873,7 @@ func TestMergeInfosSortPartitions(t *testing.T) {
 			PartitionInfos: []OffsetPartitionInfo{
 				{
 					PartitionID: 12,
-					Offset:      1234,
+					Offset:      1250,
 				},
 				{
 					PartitionID: 21,

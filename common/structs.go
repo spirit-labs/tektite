@@ -67,11 +67,11 @@ func (o *DirectWriteRequest) Deserialize(buff []byte, offset int) int {
 	for i := 0; i < ln; i++ {
 		lk := int(binary.BigEndian.Uint32(buff[offset:]))
 		offset += 4
-		key := buff[offset : offset+lk]
+		key := ByteSliceCopy(buff[offset : offset+lk])
 		offset += lk
 		lv := int(binary.BigEndian.Uint32(buff[offset:]))
 		offset += 4
-		value := buff[offset : offset+lv]
+		value := ByteSliceCopy(buff[offset : offset+lv])
 		offset += lv
 		o.KVs[i] = KV{
 			Key:   key,

@@ -120,7 +120,7 @@ func (c *clientWrapper) ApplyLsmChanges(regBatch lsm.RegistrationBatch) error {
 	if c.injectedError != nil {
 		return c.injectedError
 	}
-	err := c.ApplyLsmChanges(regBatch)
+	err := c.client.ApplyLsmChanges(regBatch)
 	if err != nil {
 		c.closeConnection()
 	}
@@ -131,23 +131,11 @@ func (c *clientWrapper) RegisterL0Table(sequence int64, regEntry lsm.Registratio
 	if c.injectedError != nil {
 		return c.injectedError
 	}
-	err := c.RegisterL0Table(sequence, regEntry)
+	err := c.client.RegisterL0Table(sequence, regEntry)
 	if err != nil {
 		c.closeConnection()
 	}
 	return err
-}
-
-func (c *clientWrapper) RegisterTableListener(topicID int, partitionID int, memberID int32,
-	resetSequence int64) (int64, error) {
-	if c.injectedError != nil {
-		return 0, c.injectedError
-	}
-	lro, err := c.client.RegisterTableListener(topicID, partitionID, memberID, resetSequence)
-	if err != nil {
-		c.closeConnection()
-	}
-	return lro, err
 }
 
 func (c *clientWrapper) GetOffsetInfos(infos []offsets.GetOffsetTopicInfo) ([]offsets.OffsetTopicInfo, error) {
@@ -170,6 +158,17 @@ func (c *clientWrapper) QueryTablesInRange(keyStart []byte, keyEnd []byte) (lsm.
 		c.closeConnection()
 	}
 	return queryRes, err
+}
+
+func (c *clientWrapper) QueryTablesForPartition(topicID int, partitionID int, keyStart []byte, keyEnd []byte) (lsm.OverlappingTables, int64, error) {
+	if c.injectedError != nil {
+		return nil, 0, c.injectedError
+	}
+	queryRes, lro, err := c.client.QueryTablesForPartition(topicID, partitionID, keyStart, keyEnd)
+	if err != nil {
+		c.closeConnection()
+	}
+	return queryRes, lro, err
 }
 
 func (c *clientWrapper) PollForJob() (lsm.CompactionJob, error) {

@@ -1,7 +1,6 @@
 package agent
 
 import (
-	"errors"
 	"github.com/spirit-labs/tektite/acls"
 	auth "github.com/spirit-labs/tektite/auth2"
 	"github.com/spirit-labs/tektite/common"
@@ -55,7 +54,7 @@ func (a *Agent) HandleMetadataRequest(authContext *auth.Context, hdr *kafkaproto
 		} else {
 			// The request had no topics - and the error code is on the topic in the response, but we need
 			// to send an error back, so we just send it back on an "unknown" topic
-			log.Errorf("failed to handle metadata request: %v", err)
+			log.Warnf("failed to handle metadata request: %v", err)
 			resp.Topics = make([]kafkaprotocol.MetadataResponseMetadataResponseTopic, 1)
 			resp.Topics[0].Name = common.StrPtr("unknown")
 			resp.Topics[0].ErrorCode = int16(kafkaprotocol.ErrorCodeUnknownTopicOrPartition)
@@ -104,7 +103,8 @@ func (a *Agent) getAgentsInSameAz(hdr *kafkaprotocol.RequestHeader) ([]control.A
 
 	clusterMetadata := a.controller.GetClusterMeta()
 	if len(clusterMetadata) == 0 {
-		return nil, errors.New("no cluster metadata available")
+		// Send back an unavailable so the client retries
+		return nil, common.NewTektiteErrorf(common.Unavailable, "no cluster metadata available")
 	}
 	// Find agents in same AZ
 	agents := getAgentsInAz(az, clusterMetadata)

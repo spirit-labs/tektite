@@ -39,10 +39,10 @@ func SetBatchHeader(batchBytes []byte, firstOffset int64, lastOffset int64, firs
 		baseSequence: int32
 		records: [Record]
 	*/
-	binary.BigEndian.PutUint64(batchBytes, uint64(firstOffset))
-	binary.BigEndian.PutUint32(batchBytes[8:], uint32(len(batchBytes)-12)) // len does not include first 2 fields
-	batchBytes[16] = 2                                                     // Magic
-	binary.BigEndian.PutUint32(batchBytes[23:], uint32(lastOffset-firstOffset))
+	SetBaseOffset(batchBytes, firstOffset)
+	SetBatchLength(batchBytes, int32(len(batchBytes)-12))
+	batchBytes[16] = 2 // Magic
+	SetLastOffsetDelta(batchBytes, int32(lastOffset-firstOffset))
 	SetBaseTimestamp(batchBytes, firstTimestamp.Val)
 	SetMaxTimestamp(batchBytes, lastTimestamp.Val)
 	SetNumRecords(batchBytes, numRecords)

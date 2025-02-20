@@ -42,7 +42,6 @@ type Controller struct {
 	currentMembership          cluster.MembershipState
 	clusterState               []AgentMeta
 	clusterStateSameAZ         []AgentMeta
-	tableListeners             *tableListeners
 	groupCoordinatorController *CoordinatorController
 	aclManager                 *AclManager
 	tableGetter                sst.TableGetter
@@ -50,6 +49,9 @@ type Controller struct {
 	memberID                   int32
 	activateClusterVersion     int64
 	credentialsLock            sync.Mutex
+	inflightLock               sync.Mutex
+	inflightRegisterCount      int
+	requiresReset              bool
 }
 
 func NewController(cfg Conf, objStoreClient objstore.Client, connCaches *transport.ConnCaches, connFactory transport.ConnectionFactory,
@@ -60,7 +62,6 @@ func NewController(cfg Conf, objStoreClient objstore.Client, connCaches *transpo
 		connCaches:             connCaches,
 		connFactory:            connFactory,
 		transportServer:        transportServer,
-		tableListeners:         newTableListeners(cfg.TableNotificationInterval, connCaches),
 		memberID:               -1,
 		activateClusterVersion: -1,
 	}
@@ -85,8 +86,8 @@ func (c *Controller) Start() error {
 	// Register the handlers
 	c.transportServer.RegisterHandler(transport.HandlerIDControllerRegisterL0Table, c.handleRegisterL0Table)
 	c.transportServer.RegisterHandler(transport.HandlerIDControllerApplyChanges, c.handleApplyChanges)
-	c.transportServer.RegisterHandler(transport.HandlerIDControllerRegisterTableListener, c.handleRegisterTableListener)
 	c.transportServer.RegisterHandler(transport.HandlerIDControllerQueryTablesInRange, c.handleQueryTablesInRange)
+	c.transportServer.RegisterHandler(transport.HandlerIDControllerQueryTablesForPartition, c.handleQueryTablesForPartition)
 	c.transportServer.RegisterHandler(transport.HandlerIDControllerPrepush, c.handlePrePush)
 	c.transportServer.RegisterHandler(transport.HandlerIDControllerGetOffsetInfo, c.handleGetOffsetInfo)
 	c.transportServer.RegisterHandler(transport.HandlerIDControllerPollForJob, c.handlePollForJob)
@@ -103,7 +104,6 @@ func (c *Controller) Start() error {
 	c.transportServer.RegisterHandler(transport.HandlerIDControllerCreateAcls, c.handleCreateAcls)
 	c.transportServer.RegisterHandler(transport.HandlerIDControllerDeleteAcls, c.handleDeleteAcls)
 	c.transportServer.RegisterHandler(transport.HandlerIDControllerListAcls, c.handleListAcls)
-	c.tableListeners.start()
 	c.started = true
 	return nil
 }
@@ -139,6 +139,7 @@ func (c *Controller) LsmManager() *lsm.Manager {
 }
 
 func (c *Controller) stop() error {
+	log.Debugf("controller %d is stopping", c.memberID)
 	if c.lsmHolder != nil {
 		if err := c.lsmHolder.Stop(); err != nil {
 			return err
@@ -155,7 +156,6 @@ func (c *Controller) stop() error {
 		c.offsetsCache.Stop()
 		c.offsetsCache = nil
 	}
-	c.tableListeners.stop()
 	if c.sequences != nil {
 		c.sequences.Stop()
 		c.sequences = nil
@@ -227,6 +227,7 @@ func (c *Controller) MembershipChanged(thisMemberID int32, newState cluster.Memb
 	} else {
 		// This controller is not leader
 		if c.lsmHolder != nil {
+			log.Warnf("controller %d has been evicted from the cluster", thisMemberID)
 			// It was leader before - this could happen if this agent was evicted but is still running as a zombie
 			// In which case we need to stop
 			if err := c.stop(); err != nil {
@@ -237,12 +238,17 @@ func (c *Controller) MembershipChanged(thisMemberID int32, newState cluster.Memb
 	c.currentMembership = newState
 	c.updateClusterMeta(&newState)
 	if c.offsetsCache != nil {
-		c.offsetsCache.MembershipChanged()
+		c.inflightLock.Lock()
+		if c.inflightRegisterCount == 0 {
+			c.offsetsCache.ResetOffsets()
+		} else {
+			c.requiresReset = true
+		}
+		c.inflightLock.Unlock()
 	}
 	if c.topicMetaManager != nil {
 		c.topicMetaManager.MembershipChanged(newState)
 	}
-	c.tableListeners.membershipChanged(&newState)
 	c.groupCoordinatorController.MembershipChanged(&newState)
 	if c.memberID == -1 {
 		c.memberID = thisMemberID
@@ -283,39 +289,73 @@ func (c *Controller) Client() (Client, error) {
 	}, nil
 }
 
-func (c *Controller) handleRegisterL0Table(_ *transport.ConnectionContext, request []byte, responseBuff []byte, responseWriter transport.ResponseWriter) error {
+func (c *Controller) releaseOffsetsNoError(sequence int64) {
+	if err := c.offsetsCache.MaybeReleaseOffsets(sequence); err != nil {
+		log.Errorf("failed to release offsets: %v", err)
+	}
+}
+
+func (c *Controller) handleRegisterL0Table(_ *transport.ConnectionContext, request []byte, responseBuff []byte,
+	responseWriter transport.ResponseWriter) error {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
-	if !c.requestChecks(request, responseWriter) {
-		return nil
-	}
+
 	var req RegisterL0Request
 	req.Deserialize(request, 2)
+
+	// Note, we must release offsets even in case of error, unless we're about to release offsets
+	if !c.requestChecks(request, responseWriter) {
+		c.releaseOffsetsNoError(req.Sequence)
+		return nil
+	}
+
+	// If the sequence in the request was got before a membership change then the leader version in the request will
+	// be different to to the current leader version as we use the same client instance in table pusher for both the
+	// prePush and the registerL0Table call
 	if err := c.checkLeaderVersion(req.LeaderVersion); err != nil {
+		c.releaseOffsetsNoError(req.Sequence)
 		return responseWriter(nil, err)
 	}
 	regBatch := lsm.RegistrationBatch{
 		Registrations: []lsm.RegistrationEntry{req.RegEntry},
 	}
+	if err := c.beforeApplyChanges(); err != nil {
+		return responseWriter(nil, err)
+	}
+
 	return c.lsmHolder.ApplyLsmChanges(regBatch, func(err error) error {
+		c.releaseOffsetsNoError(req.Sequence) // always release offsets whether or not error occurred
+		c.maybeResetOffsets()
 		if err != nil {
 			return responseWriter(nil, err)
-		}
-		offsetInfos, tableIDs, err := c.offsetsCache.MaybeReleaseOffsets(req.Sequence, req.RegEntry.TableID)
-		if err != nil {
-			// Send error back to caller
-			log.Warnf("failed to release offsets: %v", err)
-			return responseWriter(responseBuff, err)
-		}
-		if len(tableIDs) > 0 {
-			if err := c.tableListeners.sendTableRegisteredNotification(tableIDs, offsetInfos); err != nil {
-				return err
-			}
 		}
 		// Send back zero byte to represent nil OK response
 		responseBuff = append(responseBuff, 0)
 		return responseWriter(responseBuff, nil)
 	})
+}
+
+func (c *Controller) beforeApplyChanges() error {
+	c.inflightLock.Lock()
+	defer c.inflightLock.Unlock()
+	if c.requiresReset {
+		// No need to release offsets as we're going to reset
+		err := common.NewTektiteErrorf(common.Unavailable, "controller resetting offsets")
+		return err
+	}
+	c.inflightRegisterCount++
+	return nil
+}
+
+func (c *Controller) maybeResetOffsets() {
+	c.inflightLock.Lock()
+	defer c.inflightLock.Unlock()
+	c.inflightRegisterCount--
+	if c.requiresReset && c.inflightRegisterCount == 0 {
+		// no more inflight registers and no more will come so do the reset
+		c.offsetsCache.ResetOffsets()
+		c.requiresReset = false
+	}
 }
 
 func (c *Controller) handleApplyChanges(_ *transport.ConnectionContext, request []byte, responseBuff []byte, responseWriter transport.ResponseWriter) error {
@@ -339,43 +379,6 @@ func (c *Controller) handleApplyChanges(_ *transport.ConnectionContext, request 
 	})
 }
 
-func (c *Controller) handleRegisterTableListener(_ *transport.ConnectionContext, request []byte, responseBuff []byte, responseWriter transport.ResponseWriter) error {
-	c.lock.RLock()
-	defer c.lock.RUnlock()
-	if !c.requestChecks(request, responseWriter) {
-		return nil
-	}
-	var req RegisterTableListenerRequest
-	req.Deserialize(request, 2)
-	if err := c.checkLeaderVersion(req.LeaderVersion); err != nil {
-		return responseWriter(nil, err)
-	}
-	lro, exists, err := c.offsetsCache.GetLastReadableOffset(req.TopicID, req.PartitionID)
-	if !exists {
-		err = common.NewTektiteErrorf(common.TopicDoesNotExist, "GetOffsetInfo: unknown topic: %d", req.TopicID)
-	}
-	if err != nil {
-		return responseWriter(nil, err)
-	}
-	var memberAddress string
-	for _, member := range c.currentMembership.Members {
-		if member.ID == req.MemberID {
-			var data common.MembershipData
-			data.Deserialize(member.Data, 0)
-			memberAddress = data.ClusterListenAddress
-		}
-	}
-	if memberAddress == "" {
-		return common.NewTektiteErrorf(common.Unavailable, "unable to register table listener - unknown cluster member %d", req.MemberID)
-	}
-	c.tableListeners.maybeRegisterListenerForPartition(req.MemberID, memberAddress, req.TopicID, req.PartitionID, req.ResetSequence)
-	resp := RegisterTableListenerResponse{
-		LastReadableOffset: lro,
-	}
-	responseBuff = resp.Serialize(responseBuff)
-	return responseWriter(responseBuff, nil)
-}
-
 func (c *Controller) handleQueryTablesInRange(_ *transport.ConnectionContext, request []byte, responseBuff []byte, responseWriter transport.ResponseWriter) error {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
@@ -391,6 +394,36 @@ func (c *Controller) handleQueryTablesInRange(_ *transport.ConnectionContext, re
 	if err != nil {
 		return responseWriter(nil, err)
 	}
+	responseBuff = res.Serialize(responseBuff)
+	return responseWriter(responseBuff, nil)
+}
+
+func (c *Controller) handleQueryTablesForPartition(_ *transport.ConnectionContext, request []byte, responseBuff []byte, responseWriter transport.ResponseWriter) error {
+	c.lock.RLock()
+	defer c.lock.RUnlock()
+	if !c.requestChecks(request, responseWriter) {
+		return nil
+	}
+	var req QueryTablesForPartitionRequest
+	req.Deserialize(request, 2)
+	if err := c.checkLeaderVersion(req.LeaderVersion); err != nil {
+		return responseWriter(nil, err)
+	}
+	queryRes, err := c.lsmHolder.QueryTablesInRange(req.KeyStart, req.KeyEnd)
+	if err != nil {
+		return responseWriter(nil, err)
+	}
+	var res QueryTablesForPartitionResponse
+	res.Overlapping = queryRes
+	lro, ok, err := c.offsetsCache.GetLastReadableOffset(req.TopicID, req.PartitionID)
+	if !ok {
+		err = common.NewTektiteErrorf(common.Unavailable, "cannot get lro - unknown topic/partition %d/%d",
+			req.TopicID, req.PartitionID)
+	}
+	if err != nil {
+		return responseWriter(nil, err)
+	}
+	res.LastReadableOffset = lro
 	responseBuff = res.Serialize(responseBuff)
 	return responseWriter(responseBuff, nil)
 }
@@ -412,16 +445,18 @@ func (c *Controller) handlePrePush(_ *transport.ConnectionContext, request []byt
 		// First we check whether the group epochs are valid
 		epochsOK = c.groupCoordinatorController.CheckGroupEpochs(req.EpochInfos)
 	}
-
-	// And then we get the offsets
-	offs, seq, err := c.offsetsCache.GenerateOffsets(req.Infos)
-	if err != nil {
-		return responseWriter(nil, err)
-	}
 	resp := PrePushResponse{
-		Offsets:  offs,
-		Sequence: seq,
+		Sequence: -1,
 		EpochsOK: epochsOK,
+	}
+	if len(req.Infos) > 0 {
+		// And then we get the offsets
+		offs, seq, err := c.offsetsCache.GenerateOffsets(req.Infos)
+		if err != nil {
+			return responseWriter(nil, err)
+		}
+		resp.Offsets = offs
+		resp.Sequence = seq
 	}
 	responseBuff = resp.Serialize(responseBuff)
 	return responseWriter(responseBuff, nil)
@@ -878,14 +913,16 @@ func checkRPCVersion(request []byte) error {
 
 func (c *Controller) checkStarted() error {
 	if !c.started {
-		return common.NewTektiteErrorf(common.Unavailable, "controller is not started")
+		return common.NewTektiteErrorf(common.Unavailable, "controller %d is not started - membership %v",
+			c.memberID, c.currentMembership)
 	}
 	return nil
 }
 
 func (c *Controller) checkLeader() error {
 	if c.lsmHolder == nil {
-		return common.NewTektiteErrorf(common.Unavailable, "controller is not leader")
+		return common.NewTektiteErrorf(common.Unavailable, "controller %d is not leader - membership %v",
+			c.memberID, c.currentMembership)
 	}
 	return nil
 }

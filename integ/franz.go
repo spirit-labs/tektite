@@ -6,6 +6,7 @@ import (
 	"github.com/spirit-labs/tektite/compress"
 	"github.com/spirit-labs/tektite/conf"
 	"github.com/spirit-labs/tektite/kafka"
+	log "github.com/spirit-labs/tektite/logger"
 	"github.com/twmb/franz-go/pkg/kgo"
 	"os"
 	"time"
@@ -16,7 +17,7 @@ type FranzProducer struct {
 }
 
 func NewFranzProducer(address string, tlsEnabled bool, serverCertFile string, clientCertFile string,
-	clientPrivateKeyFile string, compressionType compress.CompressionType) (Producer, error) {
+	clientPrivateKeyFile string, compressionType compress.CompressionType, az string) (Producer, error) {
 	var err error
 	var client *kgo.Client
 	var compressionCodec kgo.CompressionCodec
@@ -49,11 +50,13 @@ func NewFranzProducer(address string, tlsEnabled bool, serverCertFile string, cl
 			kgo.SeedBrokers(address),
 			kgo.DialTLSConfig(goTls),
 			kgo.ProducerBatchCompression(compressionCodec),
+			kgo.ProducerLinger(10*time.Millisecond),
 		)
 	} else {
 		client, err = kgo.NewClient(
 			kgo.SeedBrokers(address),
 			kgo.ProducerBatchCompression(compressionCodec),
+			kgo.ProducerLinger(10*time.Millisecond),
 		)
 	}
 	if err != nil {
@@ -62,22 +65,24 @@ func NewFranzProducer(address string, tlsEnabled bool, serverCertFile string, cl
 	return &FranzProducer{client: client}, nil
 }
 
-func (f *FranzProducer) Produce(topicName string, messages []kafka.Message) error {
-	msgs := make([]*kgo.Record, len(messages))
-	for i, m := range messages {
-		msg := &kgo.Record{
-			Key:       m.Key,
-			Value:     m.Value,
-			Timestamp: m.TimeStamp,
-			Topic:     topicName,
+func (f *FranzProducer) Produce(topicProduces ...TopicProduce) error {
+	var msgs []*kgo.Record
+	for _, topicProduce := range topicProduces {
+		for _, m := range topicProduce.Messages {
+			msg := &kgo.Record{
+				Key:       m.Key,
+				Value:     m.Value,
+				Timestamp: m.TimeStamp,
+				Topic:     topicProduce.TopicName,
+			}
+			for _, hdr := range m.Headers {
+				msg.Headers = append(msg.Headers, kgo.RecordHeader{
+					Key:   hdr.Key,
+					Value: hdr.Value,
+				})
+			}
+			msgs = append(msgs, msg)
 		}
-		for _, hdr := range m.Headers {
-			msg.Headers = append(msg.Headers, kgo.RecordHeader{
-				Key:   hdr.Key,
-				Value: hdr.Value,
-			})
-		}
-		msgs[i] = msg
 	}
 	return f.client.ProduceSync(context.Background(), msgs...).FirstErr()
 }
@@ -91,8 +96,8 @@ type FranzConsumer struct {
 	client *kgo.Client
 }
 
-func NewFranzConsumer(address string, topicName string, groupID string, tlsEnabled bool, serverCertFile string,
-	clientCertFile string, clientPrivateKeyFile string) (Consumer, error) {
+func NewFranzConsumer(address string, groupID string, tlsEnabled bool, serverCertFile string,
+	clientCertFile string, clientPrivateKeyFile string, az string) (Consumer, error) {
 	logger := kgo.BasicLogger(os.Stdout, kgo.LogLevelDebug, func() string {
 		return ""
 	})
@@ -114,15 +119,29 @@ func NewFranzConsumer(address string, topicName string, groupID string, tlsEnabl
 			kgo.SeedBrokers(address),
 			kgo.DialTLSConfig(goTls),
 			kgo.ConsumerGroup(groupID),
-			kgo.ConsumeTopics(topicName),
 			kgo.WithLogger(logger),
+			kgo.DisableAutoCommit(),
+			//kgo.BlockRebalanceOnPoll(),
+			kgo.OnPartitionsRevoked(func(ctx context.Context, c *kgo.Client, partitions map[string][]int32) {
+				// Commit offsets for revoked partitions
+				if err := c.CommitUncommittedOffsets(ctx); err != nil {
+					log.Errorf("failed to commit uncommitted offsets: %v", err)
+				}
+			}),
 		)
 	} else {
 		client, err = kgo.NewClient(
 			kgo.SeedBrokers(address),
 			kgo.ConsumerGroup(groupID),
-			kgo.ConsumeTopics(topicName),
 			kgo.WithLogger(logger),
+			kgo.DisableAutoCommit(),
+			//kgo.BlockRebalanceOnPoll(),
+			kgo.OnPartitionsRevoked(func(ctx context.Context, c *kgo.Client, partitions map[string][]int32) {
+				// Commit offsets for revoked partitions
+				if err := c.CommitUncommittedOffsets(ctx); err != nil {
+					log.Errorf("failed to commit uncommitted offsets: %v", err)
+				}
+			}),
 		)
 	}
 	if err != nil {
@@ -131,10 +150,20 @@ func NewFranzConsumer(address string, topicName string, groupID string, tlsEnabl
 	return &FranzConsumer{client: client}, nil
 }
 
+func (f *FranzConsumer) String() string {
+	return ""
+}
+
+func (f *FranzConsumer) Subscribe(topicName string) error {
+	f.client.AddConsumeTopics(topicName)
+	return nil
+}
+
 func (f *FranzConsumer) Fetch(timeout time.Duration) (*kafka.Message, error) {
 	start := time.Now()
 	for {
-		fetches := f.client.PollRecords(context.Background(), 1)
+		// context nil means non blocking
+		fetches := f.client.PollRecords(nil, 1)
 		if errs := fetches.Errors(); len(errs) > 0 {
 			return nil, errs[0].Err
 		}
@@ -167,6 +196,13 @@ func (f *FranzConsumer) Fetch(timeout time.Duration) (*kafka.Message, error) {
 		}
 		return kMsg, nil
 	}
+}
+
+func (c *FranzConsumer) Commit() error {
+	if err := c.client.CommitUncommittedOffsets(context.Background()); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (f *FranzConsumer) Close() error {

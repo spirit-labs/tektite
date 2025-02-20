@@ -98,9 +98,6 @@ func NewAgentWithFactories(cfg Conf, objStore objstore.Client, connectionFactory
 	})
 	transportServer.RegisterHandler(transport.HandlerIDMetaLocalCacheTopicAdded, agent.topicMetaCache.HandleTopicAdded)
 	transportServer.RegisterHandler(transport.HandlerIDMetaLocalCacheTopicDeleted, agent.topicMetaCache.HandleTopicDeleted)
-	clientFactory := func() (pusher.ControlClient, error) {
-		return agent.controller.Client()
-	}
 	partitionHashes, err := parthash.NewPartitionHashes(partitionHashCacheMaxSize)
 	if err != nil {
 		return nil, err
@@ -114,6 +111,13 @@ func NewAgentWithFactories(cfg Conf, objStore objstore.Client, connectionFactory
 	getter := &fetchCacheGetter{fetchCache: fetchCache}
 	agent.tableGetter = getter.get
 	agent.controller.SetTableGetter(getter.get)
+	clientFactory := func() (pusher.ControlClient, error) {
+		// Note, we do not use a controller client cache here - the table pusher uses its own connection to avoid
+		// a deadlock where an operation like delete topic uses a connection then the controller calls table pusher
+		// which tries to use the same connection to prePush back to the controller, but gets locked as that connection
+		// is in use.
+		return agent.controller.Client()
+	}
 	tablePusher, err := pusher.NewTablePusher(cfg.PusherConf, agent.topicMetaCache, objStore, clientFactory, getter.get, partitionHashes, agent)
 	if err != nil {
 		return nil, err
@@ -126,7 +130,6 @@ func NewAgentWithFactories(cfg Conf, objStore objstore.Client, connectionFactory
 	if err != nil {
 		return nil, err
 	}
-	transportServer.RegisterHandler(transport.HandlerIDFetcherTableRegisteredNotification, bf.HandleTableRegisteredNotification)
 	agent.batchFetcher = bf
 	groupCoord, err := group.NewCoordinator(cfg.GroupCoordinatorConf, agent.topicMetaCache,
 		agent.controlClientCache, agent.connCaches, getter.get)
@@ -218,11 +221,13 @@ func (a *Agent) Stop() error {
 	if !a.started {
 		return nil
 	}
+	// We must close conn caches and control caches first and incoming kafka requests might be waiting on response from outgoing rpcs
+	// these will need to return before the kafka server can close
+	a.connCaches.Close()
+	a.controlClientCache.Close()
 	if err := a.kafkaServer.Stop(); err != nil {
 		return err
 	}
-	a.controlClientCache.Close()
-	a.connCaches.Close()
 	if err := a.compactionWorkersService.Stop(); err != nil {
 		return err
 	}

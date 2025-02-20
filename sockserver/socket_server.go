@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"encoding/binary"
 	"fmt"
+	"github.com/spirit-labs/tektite/asl/errwrap"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/conf"
 	log "github.com/spirit-labs/tektite/logger"
@@ -191,7 +192,12 @@ func (c *serverConnection) readLoop() {
 			ignoreErr = strings.Contains(msg, "use of closed network connection")
 		}
 		if !ignoreErr {
-			log.Errorf("error in reading from kafka server connection: %v", err)
+			var terr common.TektiteError
+			if !errwrap.As(err, &terr) {
+				log.Errorf("error in reading from kafka server connection: %v", err)
+			} else {
+				log.Debugf("tektite error in reading from kafka server connection: %v", err)
+			}
 		}
 		if err := c.conn.Close(); err != nil {
 			// Ignore
@@ -212,7 +218,7 @@ func (c *serverConnection) readPanicHandler() {
 	// request which has insufficient bytes in the buffer which would cause a runtime error: index out of range panic
 	if r := recover(); r != nil {
 		// Log using fmt as logger might be cleaned up and unusable by this point
-		fmt.Printf("failure in connection readLoop: %v\n", r)
+		fmt.Printf("failure in connection readLoop: caught PANIC %v\n", r)
 		if err := c.conn.Close(); err != nil {
 			// Ignore
 		}

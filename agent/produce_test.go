@@ -49,7 +49,8 @@ func TestProduceSimple(t *testing.T) {
 	agent, objStore, tearDown := setupAgent(t, topicInfos, cfg)
 	defer tearDown(t)
 
-	batch := testutils.CreateKafkaRecordBatchWithIncrementingKVs(0, 100)
+	numMessagesInBatch := 100
+	batch := testutils.CreateKafkaRecordBatchWithIncrementingKVs(0, numMessagesInBatch)
 	req := kafkaprotocol.ProduceRequest{
 		TransactionalId: nil,
 		Acks:            -1,
@@ -96,7 +97,7 @@ func TestProduceSimple(t *testing.T) {
 		require.NoError(t, err)
 	}()
 
-	verifyBatchesWritten(t, topicID, partitionID, 0, [][]byte{batch}, controllerCl,
+	verifyBatchesWritten(t, topicID, partitionID, 0, numMessagesInBatch, [][]byte{batch}, controllerCl,
 		agent.Conf().PusherConf.DataBucketName, objStore)
 }
 
@@ -117,12 +118,13 @@ func TestProduceMultipleTopicsAndPartitions(t *testing.T) {
 	agent, objStore, tearDown := setupAgent(t, topicInfos, cfg)
 	defer tearDown(t)
 
+	numMessagesPerBatch := 100
 	var batches [][]byte
 	var topicData []kafkaprotocol.ProduceRequestTopicProduceData
 	for i := 0; i < numTopics; i++ {
 		partitionData := []kafkaprotocol.ProduceRequestPartitionProduceData{}
 		for j := 0; j < numPartitionsPerTopic; j++ {
-			batch := testutils.CreateKafkaRecordBatchWithIncrementingKVs(0, 100)
+			batch := testutils.CreateKafkaRecordBatchWithIncrementingKVs(0, numMessagesPerBatch)
 			batches = append(batches, batch)
 			partitionData = append(partitionData, kafkaprotocol.ProduceRequestPartitionProduceData{
 				Index:   int32(j),
@@ -178,7 +180,7 @@ func TestProduceMultipleTopicsAndPartitions(t *testing.T) {
 		for j := 0; j < numPartitionsPerTopic; j++ {
 			batch := batches[pos]
 			pos++
-			verifyBatchesWritten(t, i+1000, j, 0, [][]byte{batch}, controllerCl,
+			verifyBatchesWritten(t, i+1000, j, 0, numMessagesPerBatch, [][]byte{batch}, controllerCl,
 				agent.Conf().PusherConf.DataBucketName, objStore)
 		}
 	}
@@ -259,7 +261,7 @@ func TestProduceMultipleBatches(t *testing.T) {
 		err := controllerCl.Close()
 		require.NoError(t, err)
 	}()
-	verifyBatchesWritten(t, topicID, partitionID, 0, batches, controllerCl,
+	verifyBatchesWritten(t, topicID, partitionID, 0, recordsPerBatch, batches, controllerCl,
 		agent.Conf().PusherConf.DataBucketName, objStore)
 }
 
@@ -284,7 +286,8 @@ func TestProduceSimpleWithReload(t *testing.T) {
 	agent, objStore, tearDown := setupAgent(t, topicInfos, cfg)
 	defer tearDown(t)
 
-	batch1 := testutils.CreateKafkaRecordBatchWithIncrementingKVs(0, 100)
+	numMessages := 100
+	batch1 := testutils.CreateKafkaRecordBatchWithIncrementingKVs(0, numMessages)
 	req := kafkaprotocol.ProduceRequest{
 		TransactionalId: nil,
 		Acks:            -1,
@@ -374,7 +377,7 @@ func TestProduceSimpleWithReload(t *testing.T) {
 		require.NoError(t, err)
 	}()
 
-	verifyBatchesWritten(t, topicID, partitionID, 0, [][]byte{batch1, batch2}, controllerCl,
+	verifyBatchesWritten(t, topicID, partitionID, 0, numMessages, [][]byte{batch1, batch2}, controllerCl,
 		agent.Conf().PusherConf.DataBucketName, objStore)
 }
 
@@ -439,7 +442,7 @@ outer:
 	}
 }
 
-func verifyBatchesWritten(t *testing.T, topicID int, partitionID int, offsetStart int, batches [][]byte,
+func verifyBatchesWritten(t *testing.T, topicID int, partitionID int, offsetStart int, numMessagesInBatch int, batches [][]byte,
 	controllerCl control.Client, dataBucketName string, objStore objstore.Client) {
 	partHashes, err := parthash.NewPartitionHashes(0)
 	require.NoError(t, err)
@@ -477,12 +480,13 @@ func verifyBatchesWritten(t *testing.T, topicID int, partitionID int, offsetStar
 	mi, err := iteration.NewMergingIterator(iters, false, math.MaxUint64)
 	require.NoError(t, err)
 
-	expectedOffset := offsetStart
+	expectedOffset := offsetStart + numMessagesInBatch - 1
 	for _, expectedBatch := range batches {
 		ok, kv, err := mi.Next()
 		require.NoError(t, err)
 		require.True(t, ok)
 		expectedKey := append(common.ByteSliceCopy(prefix), common.EntryTypeTopicData)
+		// The key on the entry is the *last* offset in the batch
 		expectedKey = encoding.KeyEncodeInt(expectedKey, int64(expectedOffset))
 		expectedKey = encoding.EncodeVersion(expectedKey, 0)
 		require.Equal(t, kv.Key, expectedKey)

@@ -9,6 +9,7 @@ import (
 	"github.com/spirit-labs/tektite/compress"
 	"github.com/spirit-labs/tektite/kafkaencoding"
 	"github.com/spirit-labs/tektite/kafkaprotocol"
+	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/objstore/dev"
 	"github.com/spirit-labs/tektite/testutils"
 	"github.com/spirit-labs/tektite/topicmeta"
@@ -94,7 +95,7 @@ func testFetchSimple(t *testing.T, apiVersion int16) {
 	require.Equal(t, 1, len(topicResp.Partitions))
 	partResp := topicResp.Partitions[0]
 	require.Equal(t, kafkaprotocol.ErrorCodeNone, int(partResp.ErrorCode))
-	require.Equal(t, 1, int(partResp.HighWatermark))
+	require.Equal(t, 10, int(partResp.HighWatermark))
 	decompressed, err := maybeDecompressBatches([][]byte{partResp.Records})
 	require.NoError(t, err)
 
@@ -109,6 +110,10 @@ func testFetchSimple(t *testing.T, apiVersion int16) {
 
 func TestFetchSingleSenderAndFetcherShortWriteTimeout(t *testing.T) {
 	testFetch(t, 3, 1*time.Millisecond, 100, 1, 1)
+}
+
+func TestFetchMultipleSendersSingleFetcherShortWriteTimeout(t *testing.T) {
+	testFetch(t, 3, 1*time.Millisecond, 100, 5, 1)
 }
 
 func TestFetchMultipleSendersAndFetchersShortWriteTimeout(t *testing.T) {
@@ -370,6 +375,7 @@ func (f *fetchRunner) fetch() {
 			},
 		},
 	}
+	log.Infof("sending fetch with offset %d", f.fetchOffset)
 	resp := f.sendFetch(&fetchReq)
 	partResp := resp.Responses[0].Partitions[0]
 	if partResp.ErrorCode != kafkaprotocol.ErrorCodeNone {
@@ -388,6 +394,7 @@ func (f *fetchRunner) fetch() {
 				panic(fmt.Sprintf("fetch got offset %d, want %d", baseOffset, f.fetchOffset))
 			}
 			numRecords := kafkaencoding.NumRecords(batch)
+			log.Infof("got fetch response with base offset %d and numrecords %d", baseOffset, numRecords)
 			f.fetchOffset += int64(numRecords)
 			if partResp.HighWatermark <= f.fetchOffset-1 {
 				panic(fmt.Sprintf("received last offset %d but high watermark is %d", f.fetchOffset-1, partResp.HighWatermark))
@@ -451,7 +458,7 @@ func (f *fetchRunner) sendFetch(req *kafkaprotocol.FetchRequest) *kafkaprotocol.
 }
 
 func produceBatch(t *testing.T, topicName string, partitionID int, address string) []byte {
-	batch := testutils.CreateKafkaRecordBatchWithIncrementingKVs(0, 1)
+	batch := testutils.CreateKafkaRecordBatchWithIncrementingKVs(0, 10)
 	req := kafkaprotocol.ProduceRequest{
 		TransactionalId: nil,
 		Acks:            -1,
