@@ -70,19 +70,19 @@ var authorisationTestCases = []authTestCase{
 	{name: "testTopicWritePermission", testFunc: testTopicWritePermission},
 	{name: "testTopicCreatePermission", testFunc: testTopicCreatePermission},
 	{name: "testTopicDeletePermission", testFunc: testTopicDeletePermission},
-	//{name: "testTopicAlterPermission", testFunc: testTopicAlterPermission},
-	//{name: "testTopicDescribePermission", testFunc: testTopicDescribePermission},
-	//
-	//{name: "testClusterCreatePermission", testFunc: testClusterCreatePermission},
-	//{name: "testClusterAlterPermission", testFunc: testClusterAlterPermission},
-	//{name: "testClusterDescribePermission", testFunc: testClusterDescribePermission},
-	//
-	//{name: "testGroupDeletePermission", testFunc: testGroupDeletePermission},
-	//{name: "testGroupDescribePermission", testFunc: testGroupDescribePermission},
-	//{name: "testGroupReadPermission", testFunc: testGroupReadPermission},
-	//
-	//{name: "testTransactionalIdDescribePermission", testFunc: testTransactionalIdDescribePermission},
-	//{name: "testTransactionalIdWritePermission", testFunc: testTransactionalIdWritePermission},
+	{name: "testTopicAlterPermission", testFunc: testTopicAlterPermission},
+	{name: "testTopicDescribePermission", testFunc: testTopicDescribePermission},
+
+	{name: "testClusterCreatePermission", testFunc: testClusterCreatePermission},
+	{name: "testClusterAlterPermission", testFunc: testClusterAlterPermission},
+	{name: "testClusterDescribePermission", testFunc: testClusterDescribePermission},
+
+	{name: "testGroupDeletePermission", testFunc: testGroupDeletePermission},
+	{name: "testGroupDescribePermission", testFunc: testGroupDescribePermission},
+	{name: "testGroupReadPermission", testFunc: testGroupReadPermission},
+
+	{name: "testTransactionalIdDescribePermission", testFunc: testTransactionalIdDescribePermission},
+	{name: "testTransactionalIdWritePermission", testFunc: testTransactionalIdWritePermission},
 }
 
 type authTestCase struct {
