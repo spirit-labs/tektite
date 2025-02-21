@@ -16,17 +16,17 @@ import (
 	"time"
 )
 
-func TestInLoop(t *testing.T) {
-	for i := 0; i < 100000; i++ {
-		log.Infof("iteration %d", i)
-		tz := time.AfterFunc(1*time.Minute, func() {
-			//common.DumpStacks()
-			panic("test took too long")
-		})
-		TestChaosKafkaGo(t)
-		tz.Stop()
-	}
-}
+//func TestInLoop(t *testing.T) {
+//	for i := 0; i < 100000; i++ {
+//		log.Infof("iteration %d", i)
+//		tz := time.AfterFunc(1*time.Minute, func() {
+//			common.DumpStacks()
+//			panic("test took too long")
+//		})
+//		TestChaosKafkaGo(t)
+//		tz.Stop()
+//	}
+//}
 
 func TestChaosKafkaGo(t *testing.T) {
 	testChaos(t, NewKafkaGoProducer, NewKafkaGoConsumer, false, false, 3, 2, 4,

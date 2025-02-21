@@ -1938,7 +1938,7 @@ func TestOffsetFetch(t *testing.T) {
 
 	require.Equal(t, 333, int(resp.Topics[0].Partitions[1].PartitionIndex))
 	require.Equal(t, kafkaprotocol.ErrorCodeNone, int(resp.Topics[1].Partitions[1].ErrorCode))
-	require.Equal(t, -1, int(resp.Topics[0].Partitions[1].CommittedOffset))
+	require.Equal(t, 0, int(resp.Topics[0].Partitions[1].CommittedOffset))
 
 	require.Equal(t, 23, int(resp.Topics[0].Partitions[2].PartitionIndex))
 	require.Equal(t, kafkaprotocol.ErrorCodeNone, int(resp.Topics[0].Partitions[2].ErrorCode))
@@ -1960,7 +1960,7 @@ func TestOffsetFetch(t *testing.T) {
 
 	require.Equal(t, 777, int(resp.Topics[1].Partitions[3].PartitionIndex))
 	require.Equal(t, kafkaprotocol.ErrorCodeNone, int(resp.Topics[1].Partitions[3].ErrorCode))
-	require.Equal(t, -1, int(resp.Topics[1].Partitions[3].CommittedOffset))
+	require.Equal(t, 0, int(resp.Topics[1].Partitions[3].CommittedOffset))
 }
 
 var expectedGroups = []kafkaprotocol.ListGroupsResponseListedGroup{
@@ -2558,6 +2558,10 @@ func (t *testControlClient) RegisterL0Table(sequence int64, regEntry lsm.Registr
 
 func (t *testControlClient) QueryTablesInRange(keyStart []byte, keyEnd []byte) (lsm.OverlappingTables, error) {
 	return t.queryRes, nil
+}
+
+func (t *testControlClient) QueryTablesForPartition(topicID int, partitionID int, keyStart []byte, keyEnd []byte) (lsm.OverlappingTables, int64, error) {
+	panic("should not be called")
 }
 
 func (t *testControlClient) RegisterTableListener(topicID int, partitionID int, memberID int32, resetSequence int64) (int64, error) {

@@ -372,21 +372,21 @@ func (c *Cache) getTopicOffsets(topicID int) ([]partitionOffsets, bool, error) {
 	return offsets, true, nil
 }
 
-func (c *Cache) MaybeReleaseOffsets(sequence int64) error {
+func (c *Cache) MaybeReleaseOffsets(sequence int64) ([]OffsetTopicInfo, error) {
 	if sequence == -1 {
-		return nil
+		return nil, nil
 	}
 	c.lock.RLock()
 	defer c.lock.RUnlock()
 	if !c.started {
-		return errors.New("offsets cache not started")
+		return nil, errors.New("offsets cache not started")
 	}
 	c.reorderLock.Lock()
 	defer c.reorderLock.Unlock()
 	if sequence < c.lowestAcceptableSequence {
 		// Ignore - offsets will already have been released -this is OK, the locking ensures that the table must have
 		// been pushed *before* the offsets were released
-		return nil
+		return nil, nil
 	}
 	var infos []OffsetTopicInfo
 	if sequence == c.lastReleasedSequence+1 && len(c.offsHeap) == 0 {
@@ -422,9 +422,9 @@ func (c *Cache) MaybeReleaseOffsets(sequence int64) error {
 		}
 	}
 	if err := c.updateLastReadable(infos); err != nil {
-		return err
+		return nil, err
 	}
-	return nil
+	return infos, nil
 }
 
 func (c *Cache) updateLastReadable(infos []OffsetTopicInfo) error {
@@ -607,12 +607,6 @@ type partitionOffsets struct {
 	loaded             bool
 }
 
-func (p *partitionOffsets) releaseLastReadable() {
-	p.lock.Lock()
-	defer p.lock.Unlock()
-	p.lastReadableOffset = p.nextWriteOffset - 1
-}
-
 func (p *partitionOffsets) getNextOffset(numOffsets int, topicID int, partitionID int, o *Cache) (int64, error) {
 	if !p.loaded {
 		if err := p.load(topicID, partitionID, o); err != nil {
@@ -649,7 +643,7 @@ func (p *partitionOffsets) load(topicID int, partitionID int, o *Cache) error {
 func (p *partitionOffsets) setLastReadableOffset(offset int64) {
 	p.lock.Lock()
 	defer p.lock.Unlock()
-	if offset <= p.lastReadableOffset {
+	if p.lastReadableOffset != 0 && offset <= p.lastReadableOffset {
 		// sanity check
 		panic(fmt.Sprintf("attempt to set lro to value %d current value is %d", offset, p.lastReadableOffset))
 	}

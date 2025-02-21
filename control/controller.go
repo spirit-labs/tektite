@@ -290,7 +290,7 @@ func (c *Controller) Client() (Client, error) {
 }
 
 func (c *Controller) releaseOffsetsNoError(sequence int64) {
-	if err := c.offsetsCache.MaybeReleaseOffsets(sequence); err != nil {
+	if _, err := c.offsetsCache.MaybeReleaseOffsets(sequence); err != nil {
 		log.Errorf("failed to release offsets: %v", err)
 	}
 }

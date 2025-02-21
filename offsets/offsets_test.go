@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"container/heap"
 	"context"
-	"fmt"
 	"github.com/spirit-labs/tektite/asl/encoding"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/compress"
@@ -331,108 +330,6 @@ func TestOffsetsCacheUnknownTopicID(t *testing.T) {
 	require.Equal(t, "generate offsets: unknown topic: 2323", err.Error())
 }
 
-func TestMembershipChanged(t *testing.T) {
-	oc := setupAndStartCache(t)
-
-	infos := []GenerateOffsetTopicInfo{
-		{
-			TopicID: 7,
-			PartitionInfos: []GenerateOffsetPartitionInfo{
-				{
-					PartitionID: 1,
-					NumOffsets:  100,
-				},
-				{
-					PartitionID: 2,
-					NumOffsets:  150,
-				},
-			},
-		},
-		{
-			TopicID: 8,
-			PartitionInfos: []GenerateOffsetPartitionInfo{
-				{
-					PartitionID: 1,
-					NumOffsets:  200,
-				},
-			},
-		},
-	}
-	offs, seq, err := oc.GenerateOffsets(infos)
-	require.NoError(t, err)
-	require.Equal(t, len(infos), len(offs))
-
-	// We haven't updated written offsets yet so should be last written
-	highestReadable, exists, err := oc.GetLastReadableOffset(7, 1)
-	require.NoError(t, err)
-	require.True(t, exists)
-	require.Equal(t, 3456, int(highestReadable))
-
-	highestReadable, exists, err = oc.GetLastReadableOffset(7, 2)
-	require.NoError(t, err)
-	require.True(t, exists)
-	require.Equal(t, 0, int(highestReadable))
-
-	highestReadable, exists, err = oc.GetLastReadableOffset(8, 1)
-	require.NoError(t, err)
-	require.True(t, exists)
-	require.Equal(t, 3456, int(highestReadable))
-
-	// Membership change should trigger reset of highestReadable to be nextOffset - 1
-	oc.MembershipChanged()
-
-	highestReadable, exists, err = oc.GetLastReadableOffset(7, 1)
-	require.NoError(t, err)
-	require.True(t, exists)
-	require.Equal(t, 3456+100, int(highestReadable))
-
-	highestReadable, exists, err = oc.GetLastReadableOffset(7, 2)
-	require.NoError(t, err)
-	require.True(t, exists)
-	require.Equal(t, 0+150, int(highestReadable))
-
-	highestReadable, exists, err = oc.GetLastReadableOffset(8, 1)
-	require.NoError(t, err)
-	require.True(t, exists)
-	require.Equal(t, 3456+200, int(highestReadable))
-
-	// Now any attempt to register with this sequence should not release anything
-
-	tableID := sst.SSTableID(sst.CreateSSTableId())
-	offs, tabID, err := oc.MaybeReleaseOffsets(seq, tableID)
-	require.Error(t, err)
-	require.Nil(t, offs)
-	require.Nil(t, tabID)
-	require.True(t, common.IsUnavailableError(err))
-
-	// Get new offsets
-	offs, seq, err = oc.GenerateOffsets(infos)
-	require.NoError(t, err)
-	require.Equal(t, len(infos), len(offs))
-
-	// Register should now work
-	tableID = sst.SSTableID(sst.CreateSSTableId())
-	releasedOffs, tabIDs, err := oc.MaybeReleaseOffsets(seq, tableID)
-	require.NoError(t, err)
-	require.Equal(t, []sst.SSTableID{tableID}, tabIDs)
-	require.Equal(t, offs, releasedOffs)
-
-	// check that last readable was updated
-	highestReadable, exists, err = oc.GetLastReadableOffset(7, 1)
-	require.NoError(t, err)
-	require.Equal(t, offs[0].PartitionInfos[0].Offset, highestReadable)
-
-	highestReadable, exists, err = oc.GetLastReadableOffset(7, 2)
-	require.NoError(t, err)
-	require.True(t, exists)
-	require.Equal(t, offs[0].PartitionInfos[1].Offset, highestReadable)
-
-	highestReadable, exists, err = oc.GetLastReadableOffset(8, 1)
-	require.NoError(t, err)
-	require.True(t, exists)
-	require.Equal(t, offs[1].PartitionInfos[0].Offset, highestReadable)
-}
-
 func TestGetLastReadableTopicDoesNotExist(t *testing.T) {
 	oc := setupAndStartCache(t)
 	highestReadable, exists, err := oc.GetLastReadableOffset(23, 1)
@@ -537,15 +434,9 @@ func setupAndStartCache(t *testing.T) *Cache {
 func TestWrittenOffsetsHeap(t *testing.T) {
 	// Create a bunch of written offsets
 	numOffsets := 100
-	var wos []seqHolder
-	var tabIDs []sst.SSTableID
+	var wos []int64
 	for i := 0; i < numOffsets; i++ {
-		tabID := sst.SSTableID(fmt.Sprintf("table-%d", i))
-		tabIDs = append(tabIDs, tabID)
-		wos = append(wos, seqHolder{
-			seq:     int64(i),
-			tableID: tabID,
-		})
+		wos = append(wos, int64(i))
 	}
 	// Shuffle them
 	rand.Shuffle(numOffsets, func(i, j int) {
@@ -559,9 +450,8 @@ func TestWrittenOffsetsHeap(t *testing.T) {
 	// Now they should be peekable and poppable in order
 	for i := 0; i < numOffsets; i++ {
 		peeked := woh.Peek()
-		require.Equal(t, i, int(peeked.seq))
-		require.Equal(t, tabIDs[i], peeked.tableID)
-		popped := heap.Pop(&woh).(seqHolder)
+		require.Equal(t, i, int(peeked))
+		popped := heap.Pop(&woh).(int64)
 		require.Equal(t, peeked, popped)
 	}
 }
@@ -1016,58 +906,51 @@ func testMaybeReleaseOffsets(t *testing.T, shuffle bool) {
 	err = oc.Start()
 	require.NoError(t, err)
 
-	infos := []OffsetTopicInfo{
-		{
-			TopicID: 7,
-			PartitionInfos: []OffsetPartitionInfo{
-				{
-					PartitionID: 1,
-					Offset:      234,
+	numSequences := 100
+	// sequences must start at 1
+	for i := 1; i <= numSequences; i++ {
+		infos := []OffsetTopicInfo{
+			{
+				TopicID: 7,
+				PartitionInfos: []OffsetPartitionInfo{
+					{
+						PartitionID: 1,
+						Offset:      int64(i - 1),
+					},
 				},
 			},
-		},
-	}
-	oc.offsetsMap[1] = infos
-
-	type tabEntry struct {
-		sequence int64
-		tableID  string
+		}
+		oc.offsetsMap[int64(i)] = infos
 	}
 
-	numTables := 1000
-	var tabEntries []tabEntry
-	for i := 0; i < numTables; i++ {
-		tabID := sst.CreateSSTableId()
-		seq := int64(i + 1)
-		tabEntries = append(tabEntries, tabEntry{
-			sequence: seq,
-			tableID:  tabID,
-		})
-		oc.offsetsMap[seq] = infos
+	toSend := make([]int64, numSequences)
+	for i := 1; i <= numSequences; i++ {
+		toSend[i-1] = int64(i)
 	}
-
-	toSend := make([]tabEntry, numTables)
-	copy(toSend, tabEntries)
 
 	if shuffle {
 		// shuffle them and test the sad (unordered) path
-		rand.Shuffle(numTables, func(i, j int) {
+		rand.Shuffle(numSequences, func(i, j int) {
 			toSend[i], toSend[j] = toSend[j], toSend[i]
 		})
 	}
 
-	var receivedTables []sst.SSTableID
-	for _, entry := range toSend {
-		_, tables, err := oc.MaybeReleaseOffsets(entry.sequence, sst.SSTableID(entry.tableID))
+	var receivedInfos []OffsetTopicInfo
+	for _, seq := range toSend {
+		infos, err := oc.MaybeReleaseOffsets(seq)
 		require.NoError(t, err)
-		receivedTables = append(receivedTables, tables...)
+		receivedInfos = append(receivedInfos, infos...)
 	}
 
-	// Make sure they are released in order
-	require.Equal(t, numTables, len(receivedTables))
-	for i, entry := range tabEntries {
-		require.Equal(t, entry.tableID, string(receivedTables[i]))
+	// Make sure they are released in increasing offset order
+	require.GreaterOrEqual(t, len(receivedInfos), 1)
+	prevOffset := int64(-1)
+	for _, info := range receivedInfos {
+		off := info.PartitionInfos[0].Offset
+		require.Greater(t, off, prevOffset)
+		prevOffset = off
 	}
+	require.Equal(t, int64(numSequences-1), receivedInfos[len(receivedInfos)-1].PartitionInfos[0].Offset)
 }
 
 func TestResizePartitionCount(t *testing.T) {

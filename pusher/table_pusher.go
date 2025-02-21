@@ -779,7 +779,11 @@ func (t *TablePusher) write() error {
 		return nil
 	}
 	// note, same instance of client must be passed in here
-	regEntry, _ := t.pushTable(getOffSetInfos, offs)
+	ok, regEntry, _ := t.pushTable(getOffSetInfos, offs)
+	if !ok {
+		// stopping
+		return errors.New("agent is stopping")
+	}
 	if err := client.RegisterL0Table(seq, regEntry); err != nil {
 		// this will release offsets even in case of error, so the same data can be retried in a different table with
 		// different offsets
@@ -796,7 +800,7 @@ func (t *TablePusher) write() error {
 // if we get here then we have obtained a sequence and this function MUST not exit unless registerL0Table is called, which
 // releases the sequence OR the agent must crash (which would reset the sequences on the controller). that is why it
 // does not return an error
-func (t *TablePusher) pushTable(getOffSetInfos []offsets.GenerateOffsetTopicInfo, offs []offsets.OffsetTopicInfo) (lsm.RegistrationEntry, *sst.SSTable) {
+func (t *TablePusher) pushTable(getOffSetInfos []offsets.GenerateOffsetTopicInfo, offs []offsets.OffsetTopicInfo) (bool, lsm.RegistrationEntry, *sst.SSTable) {
 	// Create KVs for the batches
 	var kvs []common.KV
 	// Add any offsets to commit
@@ -904,6 +908,9 @@ func (t *TablePusher) pushTable(getOffSetInfos []offsets.GenerateOffsetTopicInfo
 		} else {
 			break
 		}
+		if t.stopping.Load() {
+			return false, lsm.RegistrationEntry{}, nil
+		}
 	}
 	// Register table with LSM
 	regEntry := lsm.RegistrationEntry{
@@ -919,7 +926,7 @@ func (t *TablePusher) pushTable(getOffSetInfos []offsets.GenerateOffsetTopicInfo
 		TableSize:        uint64(table.SizeBytes()),
 		NumPrefixDeletes: uint32(table.NumPrefixDeletes()),
 	}
-	return regEntry, table
+	return true, regEntry, table
 }
 
 func (t *TablePusher) updateOffsetTimes() {

@@ -185,7 +185,6 @@ func (f *FetchState) sendResponse() error {
 	if f.timeoutTimer != nil {
 		f.timeoutTimer.Stop()
 	}
-	log.Infof("sent back fetch response")
 	f.completionFunc = nil
 	return nil
 }
@@ -226,7 +225,7 @@ func (q *queryLroGetter) QueryTablesInRange(keyStart []byte, keyEnd []byte) (lsm
 }
 
 func (p *PartitionFetchState) read() (wouldExceedRequestMax bool, wouldExceedPartitionMax bool, err error) {
-	log.Infof("PartitionFetchState.read - partition %d offset %d", p.partitionID, p.fetchOffset)
+	log.Debugf("PartitionFetchState.read - partition %d offset %d", p.partitionID, p.fetchOffset)
 	memberID := atomic.LoadInt32(&p.fs.bf.memberID)
 	if memberID == -1 {
 		return false, false,
@@ -266,7 +265,7 @@ func (p *PartitionFetchState) read() (wouldExceedRequestMax bool, wouldExceedPar
 		}
 		baseOffset := kafkaencoding.BaseOffset(kv.Value)
 		lastOffsetDelta := int64(kafkaencoding.LastOffsetDelta(kv.Value))
-		log.Infof("fetcher got batch with baseoffset %d lastOffsetDelta %d", baseOffset, lastOffsetDelta)
+		log.Debugf("fetcher got batch with baseoffset %d lastOffsetDelta %d", baseOffset, lastOffsetDelta)
 		// It's possible that multiple batches have been compacted into the same sstable and we've already seen
 		// some of those batches - so we need to filter them out. we don't currently compact multiple batches into
 		lastOffsetInBatch := baseOffset + lastOffsetDelta
@@ -314,7 +313,7 @@ func (p *PartitionFetchState) read() (wouldExceedRequestMax bool, wouldExceedPar
 
 func trimLeadingRecordsFromBatch(bytes []byte, fetchOffset int64) []byte {
 	baseOffset := int64(binary.BigEndian.Uint64(bytes))
-	log.Infof("trimming leading records from batch fetchOffset %d baseOffset %d", fetchOffset, baseOffset)
+	log.Debugf("trimming leading records from batch fetchOffset %d baseOffset %d", fetchOffset, baseOffset)
 	baseTimeStamp := int64(binary.BigEndian.Uint64(bytes[27:]))
 	numRecords := int(binary.BigEndian.Uint32(bytes[57:]))
 	numToTrim := int(fetchOffset - baseOffset)
