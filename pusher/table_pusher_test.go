@@ -137,7 +137,7 @@ func TestTablePusherWriteDirectSingleWriter(t *testing.T) {
 func TestTablePusherDirectWriteMultipleWritersOK(t *testing.T) {
 	cfg := NewConf()
 	cfg.DataBucketName = "test-data-bucket"
-	cfg.WriteTimeout = 1 * time.Millisecond // So it pushes straightaway
+	cfg.WriteTimeout = time.Duration(math.MaxInt64)
 	objStore := dev.NewInMemStore(0)
 	seq := int64(23)
 
@@ -198,6 +198,9 @@ func TestTablePusherDirectWriteMultipleWritersOK(t *testing.T) {
 		})
 		chans = append(chans, respCh)
 	}
+
+	err = pusher.ForceWrite()
+	require.NoError(t, err)
 
 	for _, ch := range chans {
 		err := <-ch
@@ -1253,7 +1256,7 @@ func TestTablePusherHandleProduceBatchMixtureErrorsAndSuccesses(t *testing.T) {
 	checkResponseErrors(t, respCh, [][]expectedErr{
 		{
 			noErr, noErr, expectedErr{errCode: kafkaprotocol.ErrorCodeUnknownTopicOrPartition,
-			errMsg: "unknown partition: 999 for topic: topic1"}, noErr,
+				errMsg: "unknown partition: 999 for topic: topic1"}, noErr,
 		},
 		{
 			noErr,
