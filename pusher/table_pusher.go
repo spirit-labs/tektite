@@ -751,7 +751,7 @@ func (t *TablePusher) write() error {
 	// Now make the prePush call - this gets any offsets for topic data to be written and also provides epochs for
 	// the consumer groups of any offsets being committed - this allows them to be verified by the controller
 	// to prevent any zombie writes of offsets
-	// A sequence is returned - this sequence increments every time
+	// If there are any offsets - a sequence is returned - this sequence increments every time
 	offs, seq, epochsOK, err := client.PrePush(getOffSetInfos, groupEpochInfos)
 	if err != nil {
 		return err

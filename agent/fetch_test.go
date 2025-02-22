@@ -9,7 +9,6 @@ import (
 	"github.com/spirit-labs/tektite/compress"
 	"github.com/spirit-labs/tektite/kafkaencoding"
 	"github.com/spirit-labs/tektite/kafkaprotocol"
-	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/objstore/dev"
 	"github.com/spirit-labs/tektite/testutils"
 	"github.com/spirit-labs/tektite/topicmeta"
@@ -375,7 +374,6 @@ func (f *fetchRunner) fetch() {
 			},
 		},
 	}
-	log.Infof("sending fetch with offset %d", f.fetchOffset)
 	resp := f.sendFetch(&fetchReq)
 	partResp := resp.Responses[0].Partitions[0]
 	if partResp.ErrorCode != kafkaprotocol.ErrorCodeNone {
@@ -394,7 +392,6 @@ func (f *fetchRunner) fetch() {
 				panic(fmt.Sprintf("fetch got offset %d, want %d", baseOffset, f.fetchOffset))
 			}
 			numRecords := kafkaencoding.NumRecords(batch)
-			log.Infof("got fetch response with base offset %d and numrecords %d", baseOffset, numRecords)
 			f.fetchOffset += int64(numRecords)
 			if partResp.HighWatermark <= f.fetchOffset-1 {
 				panic(fmt.Sprintf("received last offset %d but high watermark is %d", f.fetchOffset-1, partResp.HighWatermark))

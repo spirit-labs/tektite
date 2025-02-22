@@ -267,6 +267,7 @@ type consumerGroupState struct {
 	lastKeysMap   map[string]int
 	consumedCount int
 	totToConsume  int
+	logTimer      *time.Timer
 }
 
 func (c *consumerGroupState) allMessagesReceived() bool {
@@ -275,21 +276,19 @@ func (c *consumerGroupState) allMessagesReceived() bool {
 	return c.consumedCount == c.totToConsume
 }
 
-//func (c *consumerGroupState) scheduleLogTimer() {
-//	//log.Infof("scheduling log timer")
-//	c.logTimer = time.AfterFunc(5*time.Second, func() {
-//		//log.Infof("log timer fired")
-//		c.lock.Lock()
-//		defer c.lock.Unlock()
-//		if len(c.lastKeysMap) == 0 {
-//			log.Infof("no last keys")
-//		}
-//		for sKey, m := range c.lastKeysMap {
-//			log.Infof("%s group last key: %s, val: %v", c.groupID, sKey, m)
-//		}
-//		c.scheduleLogTimer()
-//	})
-//}
+func (c *consumerGroupState) scheduleLogTimer() {
+	c.logTimer = time.AfterFunc(5*time.Second, func() {
+		c.lock.Lock()
+		defer c.lock.Unlock()
+		if len(c.lastKeysMap) == 0 {
+			log.Infof("no last keys")
+		}
+		for sKey, m := range c.lastKeysMap {
+			log.Infof("%s group last key: %s, val: %v", c.groupID, sKey, m)
+		}
+		c.scheduleLogTimer()
+	})
+}
 
 func (c *consumerGroupState) consumed(msg *kafka.Message, f *fetcher) error {
 	c.lock.Lock()

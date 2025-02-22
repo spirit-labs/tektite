@@ -57,7 +57,7 @@ type Cache struct {
 	dataBucketName           string
 	stopping                 atomic.Bool
 	offsetsSeq               int64
-	reorderLock              sync.RWMutex
+	reorderLock              sync.Mutex
 	offsHeap                 seqHeap
 	offsetsMap               map[int64][]OffsetTopicInfo
 	lastReleasedSequence     int64
