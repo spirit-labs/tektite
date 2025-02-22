@@ -1,12 +1,15 @@
 package fetcher
 
 import (
+	"bytes"
+	"encoding/binary"
 	"fmt"
 	"github.com/spirit-labs/tektite/acls"
 	"github.com/spirit-labs/tektite/asl/encoding"
 	auth "github.com/spirit-labs/tektite/auth2"
 	"github.com/spirit-labs/tektite/common"
 	"github.com/spirit-labs/tektite/compress"
+	"github.com/spirit-labs/tektite/control"
 	"github.com/spirit-labs/tektite/iteration"
 	"github.com/spirit-labs/tektite/kafkaencoding"
 	"github.com/spirit-labs/tektite/kafkaprotocol"
@@ -14,7 +17,6 @@ import (
 	"github.com/spirit-labs/tektite/lsm"
 	"github.com/spirit-labs/tektite/queryutils"
 	"github.com/spirit-labs/tektite/sst"
-	"hash/crc32"
 	"math"
 	"sync"
 	"sync/atomic"
@@ -29,23 +31,20 @@ type FetchState struct {
 	partitionStates map[int]map[int]*PartitionFetchState
 	completionFunc  func(resp *kafkaprotocol.FetchResponse) error
 	timeoutTimer    *time.Timer
-	readExec        *readExecutor
 	bytesFetched    int
 	first           bool
 }
 
-func newFetchState(authContext *auth.Context, batchFetcher *BatchFetcher, req *kafkaprotocol.FetchRequest, readExec *readExecutor,
+func newFetchState(authContext *auth.Context, batchFetcher *BatchFetcher, req *kafkaprotocol.FetchRequest,
 	completionFunc func(response *kafkaprotocol.FetchResponse) error) (*FetchState, error) {
 	fetchState := &FetchState{
 		bf:              batchFetcher,
 		req:             req,
 		partitionStates: map[int]map[int]*PartitionFetchState{},
 		completionFunc:  completionFunc,
-		readExec:        readExec,
 		first:           true,
 	}
 	fetchState.resp.Responses = make([]kafkaprotocol.FetchResponseFetchableTopicResponse, len(fetchState.req.Topics))
-	recentTables := &fetchState.bf.recentTables
 	for i, topicData := range fetchState.req.Topics {
 		fetchState.resp.Responses[i].Topic = topicData.Topic
 		partitionResponses := make([]kafkaprotocol.FetchResponsePartitionData, len(topicData.Partitions))
@@ -70,9 +69,7 @@ func newFetchState(authContext *auth.Context, batchFetcher *BatchFetcher, req *k
 		if !topicExists {
 			log.Warnf("fetcher: topic %s does not exist", topicName)
 		}
-		partitionMap := recentTables.getPartitionMap(topicInfo.ID)
 		for j, partitionData := range topicData.Partitions {
-			log.Debugf("fetch for topic %d partition %d", topicInfo.ID, partitionData.Partition)
 			partitionResponses[j].PartitionIndex = partitionData.Partition
 			partitionResponses[j].Records = []byte{} // client does not like nil records
 			partitionID := int(partitionData.Partition)
@@ -91,7 +88,6 @@ func newFetchState(authContext *auth.Context, batchFetcher *BatchFetcher, req *k
 					fs:                 fetchState,
 					partitionFetchReq:  &partitionData,
 					partitionFetchResp: &partitionResponses[j],
-					partitionTables:    recentTables.getPartitionTables(partitionMap, partitionID),
 					topicID:            topicInfo.ID,
 					partitionID:        partitionID,
 					partitionHash:      partHash,
@@ -101,12 +97,6 @@ func newFetchState(authContext *auth.Context, batchFetcher *BatchFetcher, req *k
 		}
 	}
 	return fetchState, nil
-}
-
-// We read async on notifications to avoid blocking the transport thread that provides the notification and so we can
-// parallelise sending multiple responses and fetching from distributed cache
-func (f *FetchState) readAsync() {
-	f.readExec.execFetchState(f)
 }
 
 func (f *FetchState) read() error {
@@ -120,6 +110,7 @@ func (f *FetchState) read() error {
 outer:
 	for topicID, partitionFetchStates := range f.partitionStates {
 		for partitionID, partitionFetchState := range partitionFetchStates {
+			log.Debugf("handling fetch for topic %d partition %d", topicID, partitionID)
 			var err error
 			var wouldExceedPartitionMax bool
 			wouldExceedRequestMax, wouldExceedPartitionMax, err = partitionFetchState.read()
@@ -195,21 +186,12 @@ func (f *FetchState) sendResponse() error {
 		f.timeoutTimer.Stop()
 	}
 	f.completionFunc = nil
-	// unregister any waiting partition states
-	for _, partitionMap := range f.partitionStates {
-		for _, partitionState := range partitionMap {
-			partitionState.partitionTables.removeListener(partitionState)
-		}
-	}
 	return nil
 }
 
 func (f *FetchState) timeout() {
 	f.lock.Lock()
 	defer f.lock.Unlock()
-	if f.bytesFetched < int(f.req.MinBytes) {
-		f.clearFetchedRecords()
-	}
 	if err := f.sendResponse(); err != nil {
 		log.Errorf("failed to send fetch response: %v", err)
 	}
@@ -219,66 +201,56 @@ type PartitionFetchState struct {
 	fs                 *FetchState
 	partitionFetchReq  *kafkaprotocol.FetchRequestFetchPartition
 	partitionFetchResp *kafkaprotocol.FetchResponsePartitionData
-	partitionTables    *PartitionTables
 	topicID            int
 	partitionID        int
 	bytesFetched       int
 	fetchOffset        int64
 	partitionHash      []byte
-	listening          bool
+}
+
+type queryLroGetter struct {
+	topicID     int
+	partitionID int
+	cl          control.Client
+	lro         int64
+}
+
+func (q *queryLroGetter) QueryTablesInRange(keyStart []byte, keyEnd []byte) (lsm.OverlappingTables, error) {
+	queryRes, lro, err := q.cl.QueryTablesForPartition(q.topicID, q.partitionID, keyStart, keyEnd)
+	if err != nil {
+		return nil, err
+	}
+	q.lro = lro
+	return queryRes, nil
 }
 
 func (p *PartitionFetchState) read() (wouldExceedRequestMax bool, wouldExceedPartitionMax bool, err error) {
+	log.Debugf("PartitionFetchState.read - partition %d offset %d", p.partitionID, p.fetchOffset)
 	memberID := atomic.LoadInt32(&p.fs.bf.memberID)
 	if memberID == -1 {
 		return false, false,
 			common.NewTektiteErrorf(common.Unavailable, "fetch before fetcher has received cluster state")
 	}
-	var iter iteration.Iterator
-	for {
-		if !p.listening {
-			p.partitionTables.addListener(p)
-			p.listening = true
-		}
-		tabIds, lastReadableOffset, initialised, isInCachedRange := p.partitionTables.maybeGetRecentTableIDs(p.fetchOffset)
-		if !initialised {
-			// initialise it - call initialise passing in function for Fetch to prevent race, as executed under
-			// partition tables lock
-			cl, err := p.fs.bf.getClient()
-			var alreadyInitialised bool
-			lastReadableOffset, alreadyInitialised, err = p.partitionTables.initialise(func() (int64, error) {
-				log.Debugf("registering table listener for topic %d partition %d", p.topicID, p.partitionID)
-				return cl.RegisterTableListener(p.topicID, p.partitionID, p.fs.bf.memberID, atomic.LoadInt64(&p.fs.bf.resetSequence))
-			})
-			if err != nil {
-				return false, false, err
-			}
-			if alreadyInitialised {
-				// There is a race to initialise it and another request got there first, we try again
-				continue
-			}
-		}
-		p.partitionFetchResp.HighWatermark = 1 + lastReadableOffset
-		if isInCachedRange {
-			iter, err = p.createIteratorFromTabIDs(tabIds, p.fetchOffset, lastReadableOffset)
-			if err != nil {
-				return false, false, err
-			}
-		} else {
-			// Query fetch is before start of cached data or newly initialised
-			cl, err := p.fs.bf.getClient()
-			if err != nil {
-				return false, false, err
-			}
-			keyStart, keyEnd := p.createKeyStartAndEnd(p.fetchOffset, lastReadableOffset)
-			iter, err = queryutils.CreateIteratorForKeyRange(keyStart, keyEnd, cl, p.fs.bf.tableGetter)
-			if err != nil {
-				return false, false, err
-			}
-		}
-		break
+	cl, err := p.fs.bf.getClient()
+	if err != nil {
+		return false, false, err
 	}
+	keyStart, keyEnd := p.createKeyStartAndEnd(p.fetchOffset)
+	queryGetter := queryLroGetter{
+		topicID:     p.topicID,
+		partitionID: p.partitionID,
+		cl:          cl,
+	}
+	iter, err := queryutils.CreateIteratorForKeyRange(keyStart, keyEnd, &queryGetter, p.fs.bf.tableGetter)
+	if err != nil {
+		return false, false, err
+	}
+	lastOffset := queryGetter.lro
+	// High watermark is 1 + the offset of the last available message in the partition.
+	p.partitionFetchResp.HighWatermark = lastOffset + 1
+	p.partitionFetchResp.LastStableOffset = lastOffset + 1
 	var batches []byte
+	first := true
 	for {
 		ok, kv, err := iter.Next()
 		if err != nil {
@@ -287,7 +259,29 @@ func (p *PartitionFetchState) read() (wouldExceedRequestMax bool, wouldExceedPar
 		if !ok {
 			break
 		}
+		// The sstable can contain record batches for other partitions - we filter those out
+		if len(kv.Key) >= 16 && !bytes.Equal(p.partitionHash, kv.Key[:16]) {
+			continue
+		}
+		baseOffset := kafkaencoding.BaseOffset(kv.Value)
+		lastOffsetDelta := int64(kafkaencoding.LastOffsetDelta(kv.Value))
+		log.Debugf("fetcher got batch with baseoffset %d lastOffsetDelta %d", baseOffset, lastOffsetDelta)
+		// It's possible that multiple batches have been compacted into the same sstable and we've already seen
+		// some of those batches - so we need to filter them out. we don't currently compact multiple batches into
+		lastOffsetInBatch := baseOffset + lastOffsetDelta
+		if lastOffsetInBatch > queryGetter.lro {
+			// Not readable, we know if the last offset in a batch is not readable then no offsets in the batch are
+			// readable, as we release them a table at a time.
+			continue
+		}
 		value := common.RemoveValueMetadata(kv.Value)
+		if first {
+			if baseOffset < p.fetchOffset {
+				// The fetch offset does not align with first offset in batch so we need to trim leading records
+				value = trimLeadingRecordsFromBatch(value, p.fetchOffset)
+			}
+			first = false
+		}
 		// Note that batchSize is the *uncompressed* size - unlike Kafka which uses the compressed size
 		batchSize := len(value)
 		if !p.fs.first {
@@ -310,12 +304,46 @@ func (p *PartitionFetchState) read() (wouldExceedRequestMax bool, wouldExceedPar
 		p.fs.first = false
 		p.bytesFetched += batchSize
 		p.fs.bytesFetched += batchSize
-		p.fetchOffset += int64(kafkaencoding.NumRecords(value))
 	}
 	if len(batches) > 0 {
 		p.partitionFetchResp.Records = append(p.partitionFetchResp.Records, batches...)
 	}
 	return
+}
+
+func trimLeadingRecordsFromBatch(bytes []byte, fetchOffset int64) []byte {
+	baseOffset := int64(binary.BigEndian.Uint64(bytes))
+	log.Debugf("trimming leading records from batch fetchOffset %d baseOffset %d", fetchOffset, baseOffset)
+	baseTimeStamp := int64(binary.BigEndian.Uint64(bytes[27:]))
+	numRecords := int(binary.BigEndian.Uint32(bytes[57:]))
+	numToTrim := int(fetchOffset - baseOffset)
+	off := 61
+	outBaseTimestamp := int64(0)
+	outMaxTimestamp := int64(0)
+	for i := 0; i < numToTrim; i++ {
+		recordStart := off
+		recordLength, recordLengthBytesRead := binary.Varint(bytes[off:])
+		off += recordLengthBytesRead
+		off++ // skip past attributes
+		timestampDelta, _ := binary.Varint(bytes[off:])
+		recordTimestamp := baseTimeStamp + timestampDelta
+		if outBaseTimestamp == 0 {
+			outBaseTimestamp = recordTimestamp
+		}
+		if recordTimestamp > outMaxTimestamp {
+			outMaxTimestamp = recordTimestamp
+		}
+		off = recordStart + int(recordLength) + recordLengthBytesRead
+	}
+	newBuff := make([]byte, len(bytes)-(off-61))
+	copy(newBuff, bytes[:61])
+	copy(newBuff[61:], bytes[off:])
+	kafkaencoding.SetBaseTimestamp(newBuff, outBaseTimestamp)
+	kafkaencoding.SetMaxTimestamp(newBuff, outMaxTimestamp)
+	kafkaencoding.SetNumRecords(newBuff, numRecords-numToTrim)
+	kafkaencoding.SetBatchLength(newBuff, int32(len(newBuff)-12))
+	kafkaencoding.CalcAndSetCrc(newBuff)
+	return newBuff
 }
 
 func (p *PartitionFetchState) compress(batch []byte) ([]byte, error) {
@@ -345,9 +373,7 @@ func (p *PartitionFetchState) compress(batch []byte) ([]byte, error) {
 	return compressed, nil
 }
 
-var crcTable = crc32.MakeTable(crc32.Castagnoli)
-
-func (p *PartitionFetchState) createKeyStartAndEnd(fetchOffset int64, lro int64) ([]byte, []byte) {
+func (p *PartitionFetchState) createKeyStartAndEnd(fetchOffset int64) ([]byte, []byte) {
 	keyStart := make([]byte, 0, 25)
 	keyStart = append(keyStart, p.partitionHash...)
 	keyStart = append(keyStart, common.EntryTypeTopicData)
@@ -355,7 +381,7 @@ func (p *PartitionFetchState) createKeyStartAndEnd(fetchOffset int64, lro int64)
 	keyEnd := make([]byte, 0, 25)
 	keyEnd = append(keyEnd, p.partitionHash...)
 	keyEnd = append(keyEnd, common.EntryTypeTopicData)
-	keyEnd = encoding.KeyEncodeInt(keyEnd, lro+1)
+	keyEnd = encoding.KeyEncodeInt(keyEnd, math.MaxInt64)
 	return keyStart, keyEnd
 }
 

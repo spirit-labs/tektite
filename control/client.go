@@ -15,15 +15,15 @@ type Client interface {
 	PrePush(infos []offsets.GenerateOffsetTopicInfo, epochInfos []EpochInfo) ([]offsets.OffsetTopicInfo, int64,
 		[]bool, error)
 
+	RegisterL0Table(sequence int64, regEntry lsm.RegistrationEntry) error
+
 	GetOffsetInfos(infos []offsets.GetOffsetTopicInfo) ([]offsets.OffsetTopicInfo, error)
 
 	ApplyLsmChanges(regBatch lsm.RegistrationBatch) error
 
-	RegisterL0Table(sequence int64, regEntry lsm.RegistrationEntry) error
-
 	QueryTablesInRange(keyStart []byte, keyEnd []byte) (lsm.OverlappingTables, error)
 
-	RegisterTableListener(topicID int, partitionID int, memberID int32, resetSequence int64) (int64, error)
+	QueryTablesForPartition(topicID int, partitionID int, keyStart []byte, keyEnd []byte) (lsm.OverlappingTables, int64, error)
 
 	PollForJob() (lsm.CompactionJob, error)
 
@@ -119,26 +119,26 @@ func (c *client) QueryTablesInRange(keyStart []byte, keyEnd []byte) (lsm.Overlap
 	return queryRes, nil
 }
 
-func (c *client) RegisterTableListener(topicID int, partitionID int, memberID int32, resetSequence int64) (int64, error) {
+func (c *client) QueryTablesForPartition(topicID int, partitionID int, keyStart []byte, keyEnd []byte) (lsm.OverlappingTables, int64, error) {
 	conn, err := c.getConnection()
 	if err != nil {
-		return 0, err
+		return nil, 0, err
 	}
-	req := RegisterTableListenerRequest{
+	req := QueryTablesForPartitionRequest{
 		LeaderVersion: c.leaderVersion,
 		TopicID:       topicID,
 		PartitionID:   partitionID,
-		MemberID:      memberID,
-		ResetSequence: resetSequence,
+		KeyStart:      keyStart,
+		KeyEnd:        keyEnd,
 	}
 	request := req.Serialize(createRequestBuffer())
-	respBuff, err := conn.SendRPC(transport.HandlerIDControllerRegisterTableListener, request)
+	respBuff, err := conn.SendRPC(transport.HandlerIDControllerQueryTablesForPartition, request)
 	if err != nil {
-		return 0, err
+		return nil, 0, err
 	}
-	var resp RegisterTableListenerResponse
-	resp.Deserialize(respBuff, 0)
-	return resp.LastReadableOffset, nil
+	var res QueryTablesForPartitionResponse
+	res.Deserialize(respBuff, 0)
+	return res.Overlapping, res.LastReadableOffset, nil
 }
 
 func (c *client) PrePush(infos []offsets.GenerateOffsetTopicInfo, epochInfos []EpochInfo) ([]offsets.OffsetTopicInfo,

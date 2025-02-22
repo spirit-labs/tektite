@@ -204,7 +204,8 @@ func testListAllObjects(t *testing.T, client Client) {
 	rand.Shuffle(len(keys), func(i, j int) {
 		keys[i], keys[j] = keys[j], keys[i]
 	})
-	nowMs := time.Now().UnixMilli()
+	beforeMs := time.Now().UnixMilli()
+	time.Sleep(10 * time.Millisecond)
 	for _, key := range keys {
 		err := client.Put(ctx, DefaultBucket, key, []byte(key))
 		require.NoError(t, err)
@@ -219,7 +220,7 @@ func testListAllObjects(t *testing.T, client Client) {
 		for j, info := range infos {
 			expectedKey := fmt.Sprintf("%s-%.10d", prefix, j)
 			require.Equal(t, expectedKey, info.Key)
-			require.GreaterOrEqual(t, info.LastModified.UnixMilli(), nowMs)
+			require.GreaterOrEqual(t, info.LastModified.UnixMilli(), beforeMs)
 			require.LessOrEqual(t, info.LastModified.UnixMilli(), afterMs)
 		}
 	}

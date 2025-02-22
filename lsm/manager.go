@@ -554,12 +554,10 @@ func (m *Manager) maybeResizeLevelEntries(level int) {
 
 func (m *Manager) applyRegistrations(registrations []RegistrationEntry) error { //nolint:gocyclo
 	for _, registration := range registrations {
-		log.Debugf("got reg keystart %v keyend %v", registration.KeyStart, registration.KeyEnd)
+		log.Debugf("got reg tableid %s keystart %v keyend %v", registration.TableID, registration.KeyStart, registration.KeyEnd)
 		if len(registration.KeyStart) == 0 || len(registration.KeyEnd) <= 8 {
 			return errwrap.Errorf("registration, key start/end does not have a version: %v", registration)
 		}
-		log.Debugf("LevelManager registering new table %v (%s) from %s to %s in level %d",
-			registration.TableID, string(registration.TableID), string(registration.KeyStart), string(registration.KeyEnd), registration.Level)
 		// The new table entry that we're going to add
 		tabEntry := &TableEntry{
 			SSTableID:        registration.TableID,

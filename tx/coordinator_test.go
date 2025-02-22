@@ -246,6 +246,10 @@ func (t *testControlClient) RegisterL0Table(sequence int64, regEntry lsm.Registr
 	panic("should not be called")
 }
 
+func (t *testControlClient) QueryTablesForPartition(topicID int, partitionID int, keyStart []byte, keyEnd []byte) (lsm.OverlappingTables, int64, error) {
+	panic("should not be called")
+}
+
 func (t *testControlClient) QueryTablesInRange(keyStart []byte, keyEnd []byte) (lsm.OverlappingTables, error) {
 	return t.queryRes, nil
 }

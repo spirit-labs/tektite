@@ -4,7 +4,7 @@ const (
 	HandlerIDControllerRegisterL0Table = iota + 10
 	HandlerIDControllerApplyChanges
 	HandlerIDControllerQueryTablesInRange
-	HandlerIDControllerRegisterTableListener
+	HandlerIDControllerQueryTablesForPartition
 	HandlerIDControllerPrepush
 	HandlerIDControllerGetOffsetInfo
 	HandlerIDControllerPollForJob
@@ -24,7 +24,6 @@ const (
 	HandlerIDMetaLocalCacheTopicAdded
 	HandlerIDMetaLocalCacheTopicDeleted
 	HandlerIDFetchCacheGetTableBytes
-	HandlerIDFetcherTableRegisteredNotification
 	HandlerIDTablePusherDirectWrite
 	HandlerIDTablePusherDirectProduce
 )

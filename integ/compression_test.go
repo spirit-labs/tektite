@@ -100,7 +100,10 @@ func testCompression(t *testing.T, producerFactory ProducerFactory, consumerFact
 			TimeStamp: time.Now(),
 		})
 	}
-	err := producer.Produce(topicName, msgs)
+	err := producer.Produce(TopicProduce{
+		TopicName: topicName,
+		Messages:  msgs,
+	})
 	require.NoError(t, err)
 
 	consumer := createConsumer(t, consumerFactory, address, topicName, "test_group", false, false)

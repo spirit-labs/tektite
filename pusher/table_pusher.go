@@ -74,6 +74,7 @@ type TablePusher struct {
 	producerSeqs                  map[int]map[int]map[int]*sequenceInfo
 	offsetTimes                   map[int]map[int]*offsetTime
 	compactedTopicLastOffsets     map[string]int64
+	outstandingSequencesToCommit  []int64
 	stats                         Stats
 }
 
@@ -657,7 +658,7 @@ func (t *TablePusher) handleError(err error) {
 	t.callCompletions(err)
 	t.reset()
 	// PartitionOutOfRange can occur if partition count is reduced but produced records for old partitions still in transit
-	// We don't want to stop inm that case
+	// We don't want to stop in that case
 	if !common.IsTektiteErrorWithCode(err, common.PartitionOutOfRange) {
 		// unexpected error - call all completions with error, and stop
 		log.Errorf("got unexpected error in table pusher, will stop. %v", err)
@@ -696,7 +697,7 @@ func (t *TablePusher) ForceWrite() error {
 
 func (t *TablePusher) write() error {
 	if len(t.partitionRecords) == 0 && t.numDirectKVsToCommit == 0 && len(t.timestampOffsetKVs) == 0 &&
-		len(t.compactedTopicLastOffsetKVs) == 0 {
+		len(t.compactedTopicLastOffsetKVs) == 0 && len(t.outstandingSequencesToCommit) == 0 {
 		// Nothing to do
 		return nil
 	}
@@ -728,13 +729,13 @@ func (t *TablePusher) write() error {
 	// offset to be got, and ordering the locks prevents deadlock between multiple pushers requesting offsets from
 	// same partitions.
 	if len(getOffSetInfos) > 1 {
-		slices.SortFunc(getOffSetInfos, func(a, b offsets.GenerateOffsetTopicInfo) int {
+		slices.SortStableFunc(getOffSetInfos, func(a, b offsets.GenerateOffsetTopicInfo) int {
 			return intCompare(a.TopicID, b.TopicID)
 		})
 	}
 	for _, topicInfo := range getOffSetInfos {
 		if len(topicInfo.PartitionInfos) > 1 {
-			slices.SortFunc(topicInfo.PartitionInfos, func(a, b offsets.GenerateOffsetPartitionInfo) int {
+			slices.SortStableFunc(topicInfo.PartitionInfos, func(a, b offsets.GenerateOffsetPartitionInfo) int {
 				return intCompare(a.PartitionID, b.PartitionID)
 			})
 		}
@@ -750,6 +751,7 @@ func (t *TablePusher) write() error {
 	// Now make the prePush call - this gets any offsets for topic data to be written and also provides epochs for
 	// the consumer groups of any offsets being committed - this allows them to be verified by the controller
 	// to prevent any zombie writes of offsets
+	// If there are any offsets - a sequence is returned - this sequence increments every time
 	offs, seq, epochsOK, err := client.PrePush(getOffSetInfos, groupEpochInfos)
 	if err != nil {
 		return err
@@ -770,11 +772,37 @@ func (t *TablePusher) write() error {
 	}
 	numRemainingKvs := len(offs) + t.numDirectKVsToCommit + len(t.timestampOffsetKVs) + len(t.compactedTopicLastOffsetKVs)
 	if numRemainingKvs == 0 {
+		if seq != -1 {
+			panic("invalid sequence number with no remaining kvs") // sanity check
+		}
 		// After failing direct writes there may be nothing to do
 		return nil
 	}
+	// note, same instance of client must be passed in here
+	ok, regEntry, _ := t.pushTable(getOffSetInfos, offs)
+	if !ok {
+		// stopping
+		return errors.New("agent is stopping")
+	}
+	if err := client.RegisterL0Table(seq, regEntry); err != nil {
+		// this will release offsets even in case of error, so the same data can be retried in a different table with
+		// different offsets
+		return err
+	}
+	t.updateOffsetTimes()
+	// Send back completions
+	t.callCompletions(nil)
+	// reset - the state
+	t.reset()
+	return nil
+}
+
+// if we get here then we have obtained a sequence and this function MUST not exit unless registerL0Table is called, which
+// releases the sequence OR the agent must crash (which would reset the sequences on the controller). that is why it
+// does not return an error
+func (t *TablePusher) pushTable(getOffSetInfos []offsets.GenerateOffsetTopicInfo, offs []offsets.OffsetTopicInfo) (bool, lsm.RegistrationEntry, *sst.SSTable) {
 	// Create KVs for the batches
-	kvs := make([]common.KV, 0, numRemainingKvs)
+	var kvs []common.KV
 	// Add any offsets to commit
 	for _, offsetKVs := range t.directKVs {
 		kvs = append(kvs, offsetKVs...)
@@ -796,7 +824,7 @@ func (t *TablePusher) write() error {
 		for j, partInfo := range topOffset.PartitionInfos {
 			partitionHash, err := t.partitionHashes.GetPartitionHash(topOffset.TopicID, partInfo.PartitionID)
 			if err != nil {
-				return err
+				panic(err)
 			}
 			log.Debugf("table pusher writing entry for topic %d partition %d", topOffset.TopicID, partInfo.PartitionID)
 			// The returned offset is the last offset
@@ -822,10 +850,16 @@ func (t *TablePusher) write() error {
 							on which agent they came from. The LSM can then parallelize compaction of non overlapping groups of tables
 							thus allowing LSM compaction to scale with number of agents.
 					*/
+					lastOffsetDelta := int64(kafkaencoding.LastOffsetDelta(records))
 					key := make([]byte, 0, 33)
 					key = append(key, partitionHash...)
 					key = append(key, common.EntryTypeTopicData)
-					key = encoding.KeyEncodeInt(key, offset)
+					lastOffsetInBatch := offset + lastOffsetDelta
+					// The key we use in the ssTable is the *last* offset in the batch. This means that if we issue
+					// a query to the lsm for a key where lastOffset >= fetchOffset we will get all tables. If we used
+					// first offset as the key and the table, say, contained keys 10-50, and fetchOffset was 30 it
+					// would not return the table.
+					key = encoding.KeyEncodeInt(key, lastOffsetInBatch)
 					key = encoding.EncodeVersion(key, 0)
 					// Fill in base offset
 					binary.BigEndian.PutUint64(records, uint64(offset))
@@ -835,13 +869,20 @@ func (t *TablePusher) write() error {
 						Key:   key,
 						Value: value,
 					})
-					offset += int64(kafkaencoding.NumRecords(records))
+					if log.DebugEnabled {
+						msgs := kafkaencoding.BatchToRawMessages(records)
+						for i, msg := range msgs {
+							log.Debugf("%p tablepusher offset for key %s val %s is %d partition %d", t, string(msg.Key), string(msg.Value),
+								int(offset)+i, partInfo.PartitionID)
+						}
+					}
+					offset += lastOffsetDelta + 1
 				}
 			}
 		}
 	}
 	// Sort by key - ssTables are always in key order
-	slices.SortFunc(kvs, func(a, b common.KV) int {
+	slices.SortStableFunc(kvs, func(a, b common.KV) int {
 		return bytes.Compare(a.Key, b.Key)
 	})
 	iter := common.NewKvSliceIterator(kvs)
@@ -849,17 +890,27 @@ func (t *TablePusher) write() error {
 	table, smallestKey, largestKey, minVersion, maxVersion, err := sst.BuildSSTable(t.cfg.DataFormat,
 		int(1.1*float64(t.sizeBytes)), len(kvs), iter)
 	if err != nil {
-		return err
+		panic(fmt.Sprintf("failed to build sstable %v", err))
 	}
 	// Push ssTable to object store
 	buff, err := table.ToStorageBytes(t.cfg.TableCompressionType)
 	if err != nil {
-		return err
+		panic(fmt.Sprintf("failed to convert table to storage bytes %v", err))
+
 	}
 	tableID := sst.CreateSSTableId()
-	if err := objstore.PutWithTimeout(t.objStore, t.cfg.DataBucketName, tableID, buff,
-		objStoreAvailabilityTimeout); err != nil {
-		return err
+	// We must retry here as we must, eventually, call RegisterL0Table to release the sequence (or crash)
+	for {
+		if err := objstore.PutWithTimeout(t.objStore, t.cfg.DataBucketName, tableID, buff,
+			objStoreAvailabilityTimeout); err != nil {
+			log.Warnf("%p table pusher failed to push to object store: %v", t, err)
+			time.Sleep(t.cfg.WriteTimeout)
+		} else {
+			break
+		}
+		if t.stopping.Load() {
+			return false, lsm.RegistrationEntry{}, nil
+		}
 	}
 	// Register table with LSM
 	regEntry := lsm.RegistrationEntry{
@@ -875,15 +926,7 @@ func (t *TablePusher) write() error {
 		TableSize:        uint64(table.SizeBytes()),
 		NumPrefixDeletes: uint32(table.NumPrefixDeletes()),
 	}
-	if err := client.RegisterL0Table(seq, regEntry); err != nil {
-		return err
-	}
-	t.updateOffsetTimes()
-	// Send back completions
-	t.callCompletions(nil)
-	// reset - the state
-	t.reset()
-	return nil
+	return true, regEntry, table
 }
 
 func (t *TablePusher) updateOffsetTimes() {

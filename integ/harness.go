@@ -134,13 +134,20 @@ func (a *AgentProcess) Start() error {
 }
 
 func (a *AgentProcess) Stop() error {
+	return a.sendSignalAndWait(syscall.SIGINT)
+}
+
+func (a *AgentProcess) Kill() error {
+	return a.sendSignalAndWait(syscall.SIGKILL)
+}
+
+func (a *AgentProcess) sendSignalAndWait(sig os.Signal) error {
 	a.lock.Lock()
 	defer a.lock.Unlock()
 	if !a.started {
 		return errors.New("not started")
 	}
-	// Send a SIGINT signal
-	if err := a.cmd.Process.Signal(syscall.SIGINT); err != nil {
+	if err := a.cmd.Process.Signal(sig); err != nil {
 		return err
 	}
 	// Wait for process to exit
@@ -215,18 +222,27 @@ func buildBinary() error {
 }
 
 type ProducerFactory func(address string, tlsEnabled bool, serverCertFile string, clientCertFile string,
-	clientPrivateKeyFile string, compressionType compress.CompressionType) (Producer, error)
+	clientPrivateKeyFile string, compressionType compress.CompressionType, az string) (Producer, error)
+
+type TopicProduce struct {
+	TopicName string
+	Messages  []kafka.Message
+}
 
 type Producer interface {
-	Produce(topicName string, messages []kafka.Message) error
+	Produce(topicProduces ...TopicProduce) error
 	Close() error
 }
 
-type ConsumerFactory func(address string, topicName string, groupID string, tlsEnabled bool, serverCertFile string, clientCertFile string, clientPrivateKeyFile string) (Consumer, error)
+type ConsumerFactory func(address string, groupID string, tlsEnabled bool, serverCertFile string, clientCertFile string,
+	clientPrivateKeyFile string, az string) (Consumer, error)
 
 type Consumer interface {
 	Fetch(timeout time.Duration) (*kafka.Message, error)
+	Subscribe(topicName string) error
+	Commit() error
 	Close() error
+	String() string
 }
 
 func FetchMessages(maxMessages int, timeout time.Duration, consumer Consumer) ([]kafka.Message, error) {

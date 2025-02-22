@@ -151,7 +151,7 @@ func (c *kafkaConnection) HandleMessage(message []byte) error {
 	}
 	apiKey := int16(binary.BigEndian.Uint16(message))
 	authType := c.s.authType
-	log.Debugf("handling api key: %d auth type is %d authenticated is %t", apiKey, authType, c.authContext.Authenticated)
+	log.Debugf("%s handling api key: %d auth type is %d authenticated is %t", c.s.ListenAddress(), apiKey, authType, c.authContext.Authenticated)
 	authenticated := authType == AuthenticationTypeNone || apiKey == kafkaprotocol.APIKeyAPIVersions ||
 		apiKey == kafkaprotocol.APIKeySaslHandshake || apiKey == kafkaprotocol.APIKeySaslAuthenticate ||
 		c.authContext.Authenticated

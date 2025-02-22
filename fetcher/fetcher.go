@@ -6,13 +6,10 @@ import (
 	"github.com/spirit-labs/tektite/compress"
 	"github.com/spirit-labs/tektite/control"
 	"github.com/spirit-labs/tektite/kafkaprotocol"
-	log "github.com/spirit-labs/tektite/logger"
 	"github.com/spirit-labs/tektite/objstore"
 	"github.com/spirit-labs/tektite/parthash"
 	"github.com/spirit-labs/tektite/sst"
 	"github.com/spirit-labs/tektite/topicmeta"
-	"github.com/spirit-labs/tektite/transport"
-	"sync"
 	"sync/atomic"
 )
 
@@ -44,12 +41,9 @@ type BatchFetcher struct {
 	partitionHashes    *parthash.PartitionHashes
 	controlFactory     control.ClientFactory
 	tableGetter        sst.TableGetter
-	recentTables       PartitionRecentTables
 	controlClientCache *control.ClientCache
 	dataBucketName     string
-	readExecs          []readExecutor
 	localCache         *LocalSSTCache
-	execAssignPos      int64
 	resetSequence      int64
 	memberID           int32
 	compressionType    compress.CompressionType
@@ -67,13 +61,11 @@ func NewBatchFetcher(objStore objstore.Client, topicProvider topicInfoProvider, 
 		partitionHashes:    partitionHashes,
 		controlClientCache: controlClientCache,
 		tableGetter:        tableGetter,
-		readExecs:          make([]readExecutor, cfg.NumReadExecutors),
 		localCache:         localCache,
 		dataBucketName:     cfg.DataBucketName,
 		memberID:           -1,
 		compressionType:    cfg.FetchCompressionType,
 	}
-	bf.recentTables = CreatePartitionRecentTables(cfg.MaxCachedTablesPerPartition, bf)
 	return bf, nil
 }
 
@@ -106,7 +98,6 @@ const (
 	DefaultNumReadExecutors            = 8
 	DefaultLocalCacheNumEntries        = 10
 	DefaultLocalCacheMaxBytes          = 128 * 1024 * 1024 // 128MiB
-	readExecChannelSize                = 10
 	defaultFetchMaxBytes               = 1024 * 1024
 )
 
@@ -115,25 +106,11 @@ type topicInfoProvider interface {
 }
 
 func (b *BatchFetcher) Start() error {
-	for i := 0; i < len(b.readExecs); i++ {
-		b.readExecs[i].ch = make(chan *FetchState, readExecChannelSize)
-		b.readExecs[i].start()
-	}
 	return nil
 }
 
 func (b *BatchFetcher) Stop() error {
-	for i := 0; i < len(b.readExecs); i++ {
-		b.readExecs[i].stop()
-	}
 	return nil
-}
-
-func (b *BatchFetcher) HandleTableRegisteredNotification(_ *transport.ConnectionContext, request []byte,
-	_ []byte, _ transport.ResponseWriter) error {
-	notif := &control.TablesRegisteredNotification{}
-	notif.Deserialize(request, 0)
-	return b.recentTables.handleTableRegisteredNotification(notif)
 }
 
 func (b *BatchFetcher) HandleFetchRequest(authContext *auth.Context, apiVersion int16, req *kafkaprotocol.FetchRequest,
@@ -142,11 +119,9 @@ func (b *BatchFetcher) HandleFetchRequest(authContext *auth.Context, apiVersion 
 		// Version 3 of api introduces max bytes, so we default it for earlier versions
 		req.MaxBytes = defaultFetchMaxBytes
 	}
-	pos := atomic.AddInt64(&b.execAssignPos, 1)
-	readExec := &b.readExecs[pos%int64(len(b.readExecs))]
 	// No need to shuffle partitions as golang map has non-deterministic iteration order - this ensures we don't have
 	// the same partition getting all the data and others starving
-	fetchState, err := newFetchState(authContext, b, req, readExec, completionFunc)
+	fetchState, err := newFetchState(authContext, b, req, completionFunc)
 	if err != nil {
 		return err
 	}
@@ -177,50 +152,7 @@ func (b *BatchFetcher) getClient() (control.Client, error) {
 	return b.controlClientCache.GetClient()
 }
 
-func (b *BatchFetcher) MembershipChanged(thisMemberID int32, membership cluster.MembershipState) error {
+func (b *BatchFetcher) MembershipChanged(thisMemberID int32, _ cluster.MembershipState) error {
 	atomic.StoreInt32(&b.memberID, thisMemberID)
-	b.recentTables.membershipChanged(membership)
 	return nil
-}
-
-type readExecutor struct {
-	lock    sync.Mutex
-	stopped bool
-	ch      chan *FetchState
-	stopWG  sync.WaitGroup
-}
-
-func (r *readExecutor) execFetchState(fs *FetchState) {
-	r.lock.Lock()
-	defer r.lock.Unlock()
-	if r.stopped {
-		return
-	}
-	r.ch <- fs
-}
-
-func (r *readExecutor) start() {
-	r.stopWG.Add(1)
-	go r.loop()
-}
-
-func (r *readExecutor) stop() {
-	r.closeChannel()
-	r.stopWG.Wait()
-}
-
-func (r *readExecutor) closeChannel() {
-	r.lock.Lock()
-	defer r.lock.Unlock()
-	close(r.ch)
-	r.stopped = true
-}
-
-func (r *readExecutor) loop() {
-	defer r.stopWG.Done()
-	for fs := range r.ch {
-		if err := fs.read(); err != nil {
-			log.Errorf("failed to execute read on fetch state: %v", err)
-		}
-	}
 }

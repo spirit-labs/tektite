@@ -242,30 +242,32 @@ func (c *compactionWorker) loop() {
 		}
 		for c.started.Load() {
 			registrations, deRegistrations, err := c.processJob(&job)
-			if err == nil {
-				regBatch := RegistrationBatch{
-					Compaction:      true,
-					JobID:           job.id,
-					Registrations:   registrations,
-					DeRegistrations: deRegistrations,
-				}
-				err := cl.ApplyLsmChanges(regBatch)
-				if err == nil {
-					// success
-					break
-				}
-			}
-			c.closeControllerClient(false)
-			var tErr common.TektiteError
-			if errwrap.As(err, &tErr) {
-				if tErr.Code == common.Unavailable {
-					// transient unavailability - retry after delay
+			if err != nil {
+				if common.IsUnavailableError(err) {
 					log.Warnf("transient error in processing compaction job. will retry: %v", err)
 					time.Sleep(workerRetryInterval)
 					continue
+				} else {
+					log.Warnf("error in processing compaction job: %v", err)
+					break
 				}
 			}
-			log.Warnf("failed to process compaction:%v", err)
+			regBatch := RegistrationBatch{
+				Compaction:      true,
+				JobID:           job.id,
+				Registrations:   registrations,
+				DeRegistrations: deRegistrations,
+			}
+			if err := cl.ApplyLsmChanges(regBatch); err != nil {
+				if common.IsUnavailableError(err) {
+					log.Warnf("transient error in applying compaction job. will retry: %v", err)
+					time.Sleep(workerRetryInterval)
+					continue
+				} else {
+					log.Warnf("error in applying compaction job: %v", err)
+					break
+				}
+			}
 			break
 		}
 	}

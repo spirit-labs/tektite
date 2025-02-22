@@ -19,6 +19,7 @@ import (
 	"github.com/spirit-labs/tektite/transport"
 	"github.com/stretchr/testify/require"
 	"sort"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -82,12 +83,12 @@ func TestClientControllerNotLeader(t *testing.T) {
 	err = cl.ApplyLsmChanges(batch)
 	require.Error(t, err)
 	require.True(t, common.IsTektiteErrorWithCode(err, common.Unavailable))
-	require.Equal(t, "controller is not started", err.Error())
+	require.True(t, strings.HasPrefix(err.Error(), "controller 0 is not started"))
 
 	_, err = cl.QueryTablesInRange(nil, nil)
 	require.Error(t, err)
 	require.True(t, common.IsTektiteErrorWithCode(err, common.Unavailable))
-	require.Equal(t, "controller is not started", err.Error())
+	require.True(t, strings.HasPrefix(err.Error(), "controller 0 is not started"))
 }
 
 func TestControllerUseClosedClient(t *testing.T) {
@@ -318,7 +319,7 @@ func TestControllerGroupEpochs(t *testing.T) {
 	offs, seq, epochsOK, err := cl.PrePush([]offsets.GenerateOffsetTopicInfo{}, epochInfos)
 	require.NoError(t, err)
 	require.Equal(t, 0, len(offs))
-	require.Equal(t, 1, int(seq))
+	require.Equal(t, -1, int(seq))
 
 	require.Equal(t, numGroups, len(epochInfos))
 	for _, ok := range epochsOK {
@@ -335,7 +336,7 @@ func TestControllerGroupEpochs(t *testing.T) {
 	offs, seq, epochsOK, err = cl.PrePush([]offsets.GenerateOffsetTopicInfo{}, epochInfos)
 	require.NoError(t, err)
 	require.Equal(t, 0, len(offs))
-	require.Equal(t, 2, int(seq))
+	require.Equal(t, -1, int(seq))
 
 	require.Equal(t, numGroups, len(epochInfos))
 	for i, ok := range epochsOK {

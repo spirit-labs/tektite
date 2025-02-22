@@ -165,6 +165,7 @@ func encodeErrorResponse(buff []byte, err error) []byte {
 
 type SocketTransportConnection struct {
 	lock                  sync.Mutex
+	closed                bool
 	correlationIDSequence int64
 	conn                  net.Conn
 	closeWaitGroup        sync.WaitGroup
@@ -192,6 +193,7 @@ func (s *SocketTransportConnection) start() {
 func (s *SocketTransportConnection) sendErrorResponsesAndCloseConnection(err error) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
+	s.closed = true
 	// With TLS client auth and client cert is invalid, only get an error on read - so we propagate this back to any
 	// waiting RPCs
 	for _, ch := range s.responseChannels {
@@ -245,7 +247,10 @@ func (s *SocketTransportConnection) responseHandler(buff []byte) error {
 }
 
 func (s *SocketTransportConnection) SendRPC(handlerID int, request []byte) ([]byte, error) {
-	buff, ch := s.createRequestAndRegisterResponseHandler(handlerID, request)
+	buff, ch, err := s.createRequestAndRegisterResponseHandler(handlerID, request)
+	if err != nil {
+		return nil, err
+	}
 	if err := s.writeMessage(buff); err != nil {
 		return nil, err
 	}
@@ -265,7 +270,7 @@ func (s *SocketTransportConnection) writeMessage(buff []byte) error {
 	// Set a write deadline so the write doesn't block for a long time in case the other side of the TCP connection
 	// disappears
 	if err := s.conn.SetWriteDeadline(time.Now().Add(s.writeTimeout)); err != nil {
-		return err
+		return convertNetworkError(err)
 	}
 	_, err := s.conn.Write(buff)
 	if err != nil {
@@ -284,14 +289,17 @@ func convertNetworkError(err error) error {
 }
 
 func (s *SocketTransportConnection) createRequestAndRegisterResponseHandler(handlerID int,
-	request []byte) ([]byte, chan responseHolder) {
+	request []byte) ([]byte, chan responseHolder, error) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
+	if s.closed {
+		return nil, nil, common.NewTektiteErrorf(common.Unavailable, "connection is closed")
+	}
 	buff := s.formatRequest(handlerID, request)
 	ch := make(chan responseHolder, 1)
 	s.responseChannels[s.correlationIDSequence] = ch
 	s.correlationIDSequence++
-	return buff, ch
+	return buff, ch, nil
 }
 
 func (s *SocketTransportConnection) formatRequest(handlerID int, request []byte) []byte {
@@ -376,10 +384,10 @@ func (s *SocketClient) CreateConnection(address string) (Connection, error) {
 		tcpConn = netConn.(*net.TCPConn)
 	}
 	if err := tcpConn.SetNoDelay(true); err != nil {
-		return nil, err
+		return nil, convertNetworkError(err)
 	}
 	if err := tcpConn.SetKeepAlive(true); err != nil {
-		return nil, err
+		return nil, convertNetworkError(err)
 	}
 	sc := &SocketTransportConnection{
 		conn:             netConn,

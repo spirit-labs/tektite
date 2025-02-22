@@ -16,7 +16,6 @@ func CreateKafkaRecordBatch(messages []kafkaencoding.RawKafkaMessage, offsetStar
 	first := true
 	var firstTimestamp types.Timestamp
 	var timestamp types.Timestamp
-	offset := offsetStart
 	for i, msg := range messages {
 		var ok bool
 		timestamp = types.Timestamp{Val: msg.Timestamp}
@@ -33,7 +32,7 @@ func CreateKafkaRecordBatch(messages []kafkaencoding.RawKafkaMessage, offsetStar
 	// Set producer id to -1 (no idempotent producer)
 	minusOne := int64(-1)
 	binary.BigEndian.PutUint64(batchBytes[43:], uint64(minusOne))
-	kafkaencoding.SetBatchHeader(batchBytes, offsetStart, offset, firstTimestamp, timestamp, len(messages))
+	kafkaencoding.SetBatchHeader(batchBytes, offsetStart, offsetStart+int64(len(messages))-1, firstTimestamp, timestamp, len(messages))
 	return batchBytes
 }
 

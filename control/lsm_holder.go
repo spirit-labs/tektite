@@ -120,11 +120,26 @@ func (s *LsmHolder) stop() error {
 func (s *LsmHolder) scheduleStateWriteTimer() {
 	s.stateWriteTimer = time.AfterFunc(s.stateWriteInterval, func() {
 		s.lock.Lock()
-		defer s.lock.Unlock()
+		unlocked := false
+		defer func() {
+			if !unlocked {
+				s.lock.Unlock()
+			}
+		}()
 		if !s.started {
 			return
 		}
-		s.maybeWriteState()
+		completions, err := s.maybeWriteState()
+		s.lock.Unlock()
+		unlocked = true
+		// Call completions - these must be called outside the lock to prevent deadlock with offsets cache locking
+		for _, cf := range completions {
+			if err2 := cf(err); err2 != nil {
+				log.Errorf("failed to apply completion function: %v", err2)
+			}
+		}
+		s.lock.Lock()
+		defer s.lock.Unlock()
 		s.scheduleStateWriteTimer()
 	})
 }
@@ -151,7 +166,7 @@ func (s *LsmHolder) ApplyLsmChanges(regBatch lsm.RegistrationBatch, completionFu
 		return completionFunc(err)
 	}
 	if ok {
-		s.addWaitingCompletion(completionFunc)
+		s.waitingCompletions = append(s.waitingCompletions, completionFunc)
 		return nil
 	}
 	// L0 is full - queue the registration - it will be retried when there is space in L0
@@ -173,14 +188,9 @@ func (s *LsmHolder) maybeRetryApplies() {
 	}
 }
 
-func (s *LsmHolder) addWaitingCompletion(completionFunc func(error) error) {
-	// Completions be called when data has been written
-	s.waitingCompletions = append(s.waitingCompletions, completionFunc)
-}
-
-func (s *LsmHolder) maybeWriteState() {
+func (s *LsmHolder) maybeWriteState() ([]func(error) error, error) {
 	if len(s.waitingCompletions) == 0 {
-		return
+		return nil, nil
 	}
 	metaData := s.lsmManager.GetMasterRecordBytes()
 	var ok bool
@@ -208,45 +218,32 @@ func (s *LsmHolder) maybeWriteState() {
 	} else {
 		s.metaDataEtag = etag
 	}
-	// Call completions
-	for _, cf := range s.waitingCompletions {
-		if err2 := cf(err); err2 != nil {
-			log.Errorf("failed to apply completion function: %v", err2)
-		}
-	}
-	s.waitingCompletions = s.waitingCompletions[:0]
+	res := make([]func(error) error, len(s.waitingCompletions))
+	copy(res, s.waitingCompletions)
+	s.waitingCompletions = nil
+	return res, err
 }
 
 func (s *LsmHolder) maybeRetryApplies0() error {
 	s.lock.Lock()
 	defer s.lock.Unlock()
-	pos := 0
+	var newWaiting []queuedRegistration
+	// Try and reapply the registrations
 	for _, queuedReg := range s.queuedRegistrations {
 		ok, err := s.lsmManager.ApplyChanges(queuedReg.regBatch, false)
 		if err != nil {
 			return queuedReg.completionFunc(err)
 		}
 		if ok {
-			pos++
+			// Added to L0 ok. Now add to the waiting completions - these will be called once the metadata is committed
+			// to object storage
+			s.waitingCompletions = append(s.waitingCompletions, queuedReg.completionFunc)
 		} else {
-			// full again
-			break
+			// L0 is full again - keep the queued registration
+			newWaiting = append(newWaiting, queuedReg)
 		}
 	}
-	if pos > 0 {
-		for i := 0; i < pos; i++ {
-			s.addWaitingCompletion(s.queuedRegistrations[i].completionFunc)
-		}
-		newQueueSize := len(s.queuedRegistrations) - pos
-		if newQueueSize > 0 {
-			newRegs := make([]queuedRegistration, len(s.queuedRegistrations)-pos)
-			copy(newRegs, s.queuedRegistrations[pos:])
-			s.queuedRegistrations = newRegs
-		} else {
-			s.queuedRegistrations = nil
-			s.hasQueuedRegistrations.Store(false)
-		}
-	}
+	s.queuedRegistrations = newWaiting
 	return nil
 }
 

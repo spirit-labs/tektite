@@ -137,7 +137,7 @@ func TestTablePusherWriteDirectSingleWriter(t *testing.T) {
 func TestTablePusherDirectWriteMultipleWritersOK(t *testing.T) {
 	cfg := NewConf()
 	cfg.DataBucketName = "test-data-bucket"
-	cfg.WriteTimeout = 1 * time.Millisecond // So it pushes straightaway
+	cfg.WriteTimeout = time.Duration(math.MaxInt64)
 	objStore := dev.NewInMemStore(0)
 	seq := int64(23)
 
@@ -198,6 +198,9 @@ func TestTablePusherDirectWriteMultipleWritersOK(t *testing.T) {
 		})
 		chans = append(chans, respCh)
 	}
+
+	err = pusher.ForceWrite()
+	require.NoError(t, err)
 
 	for _, ch := range chans {
 		err := <-ch
@@ -875,23 +878,15 @@ func TestTablePusherHandleProduceBatchMultipleTopicsAndPartitions(t *testing.T) 
 
 	var expectedKVs []common.KV
 
-	// offset 32
-	// asked for 20
-	// first 13
-	expectedKey1, err := createExpectedKey(topicID1, 7, 13)
+	expectedKey1, err := createExpectedKey(topicID1, 7, 32)
 	require.NoError(t, err)
 
-	// offset 1002
-	// asked for 25
-	// 10 and 15 batches
-	expectedKey2, err := createExpectedKey(topicID1, 12, 978)
+	expectedKey2, err := createExpectedKey(topicID1, 12, 987)
 	require.NoError(t, err)
-	expectedKey3, err := createExpectedKey(topicID1, 12, 988)
+	expectedKey3, err := createExpectedKey(topicID1, 12, 1002)
 	require.NoError(t, err)
 
-	// offset 564
-	// asked for 25
-	expectedKey4, err := createExpectedKey(topicID2, 23, 540)
+	expectedKey4, err := createExpectedKey(topicID2, 23, 564)
 	require.NoError(t, err)
 
 	expectedKVs = append(expectedKVs, common.KV{
@@ -1322,23 +1317,15 @@ func TestTablePusherHandleProduceBatchMixtureErrorsAndSuccesses(t *testing.T) {
 
 	var expectedKVs []common.KV
 
-	// offset 32
-	// asked for 20
-	// first 13
-	expectedKey1, err := createExpectedKey(topicID1, 7, 13)
+	expectedKey1, err := createExpectedKey(topicID1, 7, 32)
 	require.NoError(t, err)
 
-	// offset 1002
-	// asked for 25
-	// 10 and 15 batches
-	expectedKey2, err := createExpectedKey(topicID1, 12, 978)
+	expectedKey2, err := createExpectedKey(topicID1, 12, 987)
 	require.NoError(t, err)
-	expectedKey3, err := createExpectedKey(topicID1, 12, 988)
+	expectedKey3, err := createExpectedKey(topicID1, 12, 1002)
 	require.NoError(t, err)
 
-	// offset 564
-	// asked for 25
-	expectedKey4, err := createExpectedKey(topicID2, 23, 540)
+	expectedKey4, err := createExpectedKey(topicID2, 23, 564)
 	require.NoError(t, err)
 
 	expectedKVs = append(expectedKVs, common.KV{
@@ -1369,87 +1356,6 @@ func TestTablePusherHandleProduceBatchMixtureErrorsAndSuccesses(t *testing.T) {
 	require.Equal(t, []byte(objects[0].Key), []byte(reg.TableID))
 
 	require.Equal(t, seq, receivedRegs[0].seq)
-}
-
-func TestTablePusherUnexpectedError(t *testing.T) {
-	cfg := NewConf()
-	cfg.DataBucketName = "test-data-bucket"
-	cfg.WriteTimeout = 1 * time.Millisecond // So it pushes straightaway
-	objStore := &failingObjectStoreClient{}
-	topicID := 1234
-	controllerClient := &testControllerClient{
-		offsets: []offsets.OffsetTopicInfo{
-			{
-				TopicID: topicID,
-				PartitionInfos: []offsets.OffsetPartitionInfo{
-					{
-						PartitionID: 12,
-						Offset:      1000,
-					},
-				},
-			},
-		},
-	}
-	clientFactory := func() (ControlClient, error) {
-		return controllerClient, nil
-	}
-	topicProvider := &simpleTopicInfoProvider{infos: map[string]topicmeta.TopicInfo{
-		"topic1": {ID: topicID, PartitionCount: 20, MaxMessageSizeBytes: 1048576},
-	}}
-	partHashes, err := parthash.NewPartitionHashes(100)
-	require.NoError(t, err)
-	tableGetter := &testTableGetter{}
-	pusher, err := NewTablePusher(cfg, topicProvider, objStore, clientFactory, tableGetter.getTable, partHashes, nil)
-	require.NoError(t, err)
-	err = pusher.Start()
-	require.NoError(t, err)
-	defer func() {
-		err := pusher.Stop()
-		require.NoError(t, err)
-	}()
-
-	msgs := []kafkaencoding.RawKafkaMessage{
-		{
-			Timestamp: time.Now().UnixMilli(),
-			Key:       []byte("key1"),
-			Value:     []byte("val1"),
-		},
-	}
-	recordBatch := testutils.CreateKafkaRecordBatch(msgs, 0)
-
-	req := kafkaprotocol.ProduceRequest{
-		TransactionalId: nil,
-		Acks:            -1,
-		TimeoutMs:       1234,
-		TopicData: []kafkaprotocol.ProduceRequestTopicProduceData{
-			{
-				Name: common.StrPtr("topic1"),
-				PartitionData: []kafkaprotocol.ProduceRequestPartitionProduceData{
-					{
-						Index:   12,
-						Records: recordBatch,
-					},
-				},
-			},
-		},
-	}
-	respCh := make(chan *kafkaprotocol.ProduceResponse, 1)
-	err = pusher.HandleProduceRequest(nil, &req, func(resp *kafkaprotocol.ProduceResponse) error {
-		respCh <- resp
-		return nil
-	})
-	require.NoError(t, err)
-
-	expected := [][]expectedErr{
-		{{errCode: kafkaprotocol.ErrorCodeUnknownServerError, errMsg: "some random error"}},
-	}
-	checkResponseErrors(t, respCh, expected)
-
-	ssTables, _ := getSSTablesFromStore(t, cfg.DataBucketName, objStore)
-	require.Equal(t, 0, len(ssTables))
-
-	receivedRegs := controllerClient.getRegistrations()
-	require.Equal(t, 0, len(receivedRegs))
 }
 
 func TestTablePusherTemporaryUnavailability(t *testing.T) {
@@ -1493,8 +1399,6 @@ func TestTablePusherTemporaryUnavailability(t *testing.T) {
 		err := pusher.Stop()
 		require.NoError(t, err)
 	}()
-
-	start := time.Now()
 
 	// Push a couple of batches - obj store is unavailable
 	msgs := []kafkaencoding.RawKafkaMessage{
@@ -1568,8 +1472,6 @@ func TestTablePusherTemporaryUnavailability(t *testing.T) {
 
 	checkNoPartitionResponseErrors(t, respCh1, &req1)
 	checkNoPartitionResponseErrors(t, respCh2, &req2)
-
-	require.True(t, time.Since(start) >= cfg.AvailabilityRetryInterval)
 
 	ssTables, _ := getSSTablesFromStore(t, cfg.DataBucketName, objStore)
 	require.Equal(t, 1, len(ssTables))

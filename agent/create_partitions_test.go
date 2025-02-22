@@ -48,8 +48,9 @@ func TestCreatePartitions(t *testing.T) {
 	}()
 
 	// send with invalid partition
+	numMessagesPerBatch := 100
 	for _, info := range topicInfos {
-		batch := testutils.CreateKafkaRecordBatchWithIncrementingKVs(0, 100)
+		batch := testutils.CreateKafkaRecordBatchWithIncrementingKVs(0, numMessagesPerBatch)
 		req := kafkaprotocol.ProduceRequest{
 			Acks:      -1,
 			TimeoutMs: 1234,
@@ -102,7 +103,7 @@ func TestCreatePartitions(t *testing.T) {
 
 	// Now produce again, should succeed
 	for i, info := range topicInfos {
-		batch := testutils.CreateKafkaRecordBatchWithIncrementingKVs(0, 100)
+		batch := testutils.CreateKafkaRecordBatchWithIncrementingKVs(0, numMessagesPerBatch)
 		req := kafkaprotocol.ProduceRequest{
 			Acks:      -1,
 			TimeoutMs: 1234,
@@ -128,7 +129,7 @@ func TestCreatePartitions(t *testing.T) {
 		partResp := produceResp.Responses[0].PartitionResponses[0]
 		require.Equal(t, int16(kafkaprotocol.ErrorCodeNone), partResp.ErrorCode)
 
-		verifyBatchesWritten(t, 1000+i, finalPartitionCount-1, 0, [][]byte{batch}, controllerCl,
+		verifyBatchesWritten(t, 1000+i, finalPartitionCount-1, 0, numMessagesPerBatch, [][]byte{batch}, controllerCl,
 			agent.Conf().PusherConf.DataBucketName, objStore)
 	}
 }

@@ -79,6 +79,64 @@ func (q *QueryTablesInRangeRequest) Deserialize(buff []byte, offset int) int {
 	return offset
 }
 
+type QueryTablesForPartitionRequest struct {
+	LeaderVersion int
+	TopicID       int
+	PartitionID   int
+	KeyStart      []byte
+	KeyEnd        []byte
+}
+
+func (q *QueryTablesForPartitionRequest) Serialize(buff []byte) []byte {
+	buff = binary.BigEndian.AppendUint64(buff, uint64(q.LeaderVersion))
+	buff = binary.BigEndian.AppendUint64(buff, uint64(q.TopicID))
+	buff = binary.BigEndian.AppendUint64(buff, uint64(q.PartitionID))
+	buff = binary.BigEndian.AppendUint32(buff, uint32(len(q.KeyStart)))
+	buff = append(buff, q.KeyStart...)
+	buff = binary.BigEndian.AppendUint32(buff, uint32(len(q.KeyEnd)))
+	buff = append(buff, q.KeyEnd...)
+	return buff
+}
+
+func (q *QueryTablesForPartitionRequest) Deserialize(buff []byte, offset int) int {
+	q.LeaderVersion = int(binary.BigEndian.Uint64(buff[offset:]))
+	offset += 8
+	q.TopicID = int(binary.BigEndian.Uint64(buff[offset:]))
+	offset += 8
+	q.PartitionID = int(binary.BigEndian.Uint64(buff[offset:]))
+	offset += 8
+	lks := int(binary.BigEndian.Uint32(buff[offset:]))
+	offset += 4
+	if lks > 0 {
+		q.KeyStart = common.ByteSliceCopy(buff[offset : offset+lks])
+		offset += lks
+	}
+	lke := int(binary.BigEndian.Uint32(buff[offset:]))
+	offset += 4
+	if lke > 0 {
+		q.KeyEnd = common.ByteSliceCopy(buff[offset : offset+lke])
+		offset += lke
+	}
+	return offset
+}
+
+type QueryTablesForPartitionResponse struct {
+	LastReadableOffset int64
+	Overlapping        lsm.OverlappingTables
+}
+
+func (q *QueryTablesForPartitionResponse) Serialize(buff []byte) []byte {
+	buff = binary.BigEndian.AppendUint64(buff, uint64(q.LastReadableOffset))
+	return q.Overlapping.Serialize(buff)
+}
+
+func (q *QueryTablesForPartitionResponse) Deserialize(buff []byte, offset int) int {
+	q.LastReadableOffset = int64(binary.BigEndian.Uint64(buff[offset:]))
+	offset += 8
+	q.Overlapping, offset = lsm.DeserializeOverlappingTables(buff, offset)
+	return offset
+}
+
 type RegisterTableListenerRequest struct {
 	LeaderVersion int
 	TopicID       int
@@ -455,6 +513,7 @@ func (g *GetGroupCoordinatorInfoResponse) Deserialize(buff []byte, offset int) i
 
 type TablesRegisteredNotification struct {
 	Sequence      int64
+	Epoch         int64
 	LeaderVersion int
 	TableIDs      []sst.SSTableID
 	Infos         []offsets.OffsetTopicInfo
@@ -462,6 +521,7 @@ type TablesRegisteredNotification struct {
 
 func (r *TablesRegisteredNotification) Serialize(buff []byte) []byte {
 	buff = binary.BigEndian.AppendUint64(buff, uint64(r.Sequence))
+	buff = binary.BigEndian.AppendUint64(buff, uint64(r.Epoch))
 	buff = binary.BigEndian.AppendUint64(buff, uint64(r.LeaderVersion))
 	buff = binary.BigEndian.AppendUint32(buff, uint32(len(r.TableIDs)))
 	for _, id := range r.TableIDs {
@@ -482,6 +542,8 @@ func (r *TablesRegisteredNotification) Serialize(buff []byte) []byte {
 
 func (r *TablesRegisteredNotification) Deserialize(buff []byte, offset int) int {
 	r.Sequence = int64(binary.BigEndian.Uint64(buff[offset:]))
+	offset += 8
+	r.Epoch = int64(binary.BigEndian.Uint64(buff[offset:]))
 	offset += 8
 	r.LeaderVersion = int(binary.BigEndian.Uint64(buff[offset:]))
 	offset += 8
